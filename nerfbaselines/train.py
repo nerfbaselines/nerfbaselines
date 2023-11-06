@@ -15,7 +15,7 @@ import numpy as np
 from PIL import Image
 import click
 from .datasets import load_dataset, Dataset, dataset_load_features
-from .utils import Indices, setup_logging
+from .utils import Indices, setup_logging, partialclass
 from .types import Method, CurrentProgress
 from . import registry
 
@@ -369,6 +369,10 @@ def train_command(method, checkpoint, data, output, no_wandb, verbose, backend):
         checkpoint=os.path.abspath(checkpoint) if checkpoint else None)
     _method.method_name = method
     logging.info(f"Using method: {_method.method_name}, backend: {backend}")
+
+    # Enable direct memory access to images if supported by the backend
+    if backend in {"docker", "apptainer"}:
+        _method = partialclass(_method, mounts=[(data, data)])
 
     trainer = Trainer(
         train_dataset=Path(data) if data is not None else None,

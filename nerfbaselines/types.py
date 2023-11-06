@@ -28,13 +28,15 @@ class Dataset:
     nears_fars: np.ndarray  # [N, 2]
 
     file_paths: List[str]
-    sampling_mask_paths: List[str]
+    sampling_mask_paths: Optional[List[str]] = None
     file_paths_root: Optional[Path] = None
 
     images: Optional[np.array] = None  # [N, H, W, 3]
     sampling_masks: Optional[np.array] = None  # [N, H, W]
     points3D_xyz: Optional[np.ndarray] = None  # [M, 3]
     points3D_rgb: Optional[np.ndarray] = None  # [M, 3]
+
+    metadata: Optional[dict] = field(default_factory=dict)
 
     @property
     def camera_intrinsics(self):
@@ -70,7 +72,7 @@ class Dataset:
             raise ValueError(f"Cannot index object of type {type(obj)}")
         return dataclasses.replace(self, **{
             k: index(v) for k, v in self.__dict__.items()
-            if k not in {"file_paths_root", "points3D_xyz", "points3D_rgb"}
+            if k not in {"file_paths_root", "points3D_xyz", "points3D_rgb", "metadata"}
         })
 
 

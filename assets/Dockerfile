@@ -1,7 +1,12 @@
 FROM "nvidia/cuda:11.8.0-devel-ubuntu22.04"
 
 RUN apt-get update --fix-missing && \
-    apt-get install -y wget bzip2 ca-certificates curl git && \
+    apt-get install -y wget \
+                       bzip2 \
+                       ca-certificates \
+                       curl \
+                       libgtk2.0-dev \
+                       git && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 

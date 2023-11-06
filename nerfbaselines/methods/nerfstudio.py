@@ -51,8 +51,6 @@ def _hacked_get_outputs_for_camera_ray_bundle(self, camera_ray_bundle, update_ca
 
 class NerfStudio(Method):
     nerfstudio_name: Optional[str] = None
-    _dataparser_transform = None
-    _dataparser_scale = None
 
     def __init__(self, nerfstudio_name: Optional[str] = None, checkpoint: str = None):
         self.checkpoint = checkpoint
@@ -78,6 +76,7 @@ class NerfStudio(Method):
         self.step = 0
         self._tmpdir = tempfile.TemporaryDirectory()
         self._mode = None
+        self.dataparser_params = None
 
     @property
     def batch_size(self):
@@ -88,7 +87,7 @@ class NerfStudio(Method):
         info = MethodInfo(
             loaded_step=None,
             num_iterations=self.config.max_num_iterations,
-            required_features=["images"],
+            required_features=frozenset(("images",)),
             supports_undistortion=True,
             batch_size=self.config.pipeline.datamanager.train_num_rays_per_batch,
             eval_batch_size=self.config.pipeline.model.eval_num_rays_per_chunk)
@@ -156,10 +155,10 @@ class NerfStudio(Method):
     def _transform_poses(self, poses):
         import torch
         assert poses.dim() == 3
-        poses = (self._dataparser_transform @ torch.cat(
-            [poses, torch.tensor([[[0, 0, 0, 1]]], dtype=self._dataparser_transform.dtype).expand((len(poses), 1, 4))], -2
+        poses = (self.dataparser_params["dataparser_transform"] @ torch.cat(
+            [poses, torch.tensor([[[0, 0, 0, 1]]], dtype=self.dataparser_params["dataparser_transform"].dtype).expand((len(poses), 1, 4))], -2
         ))[:, :3, :].contiguous()
-        poses[:, :3, 3] *= self._dataparser_scale
+        poses[:, :3, 3] *= self.dataparser_params["dataparser_scale"]
         return poses
 
     def _get_pose_transform(self, poses):
@@ -195,8 +194,8 @@ class NerfStudio(Method):
         import torch
         method = self
         if self.checkpoint is not None:
-            self._dataparser_transform, self._dataparser_scale = torch.load(
-                os.path.join(self.checkpoint, "dataparser_transform.pth"),
+            self.dataparser_params = torch.load(
+                os.path.join(self.checkpoint, "dataparser_params.pth"),
                 map_location="cpu")
         self.config = copy.deepcopy(self._original_config)
         # We use this hack to release the memory after the data was copied to cached dataloader
@@ -238,17 +237,29 @@ class NerfStudio(Method):
 
                 # in x,y,z order
                 # assumes that the scene is centered at the origin
-                aabb_scale = 1
+                if train_dataset.metadata.get("type") == "blender":
+                    aabb_scale = 1.5
+                    method.dataparser_params = dict(
+                        dataparser_transform = torch.eye(4, dtype=torch.float32),
+                        dataparser_scale = 1.0,
+                        alpha_color="white"
+                    )
+                else:
+                    aabb_scale = 1
+                    if method.checkpoint is None:
+                        dp_trans, dp_scale = method._get_pose_transform(train_dataset.camera_poses)
+                        method.dataparser_params = dict(
+                            dataparser_transform=dp_trans,
+                            dataparser_scale=dp_scale,
+                        )
+
+                if method.checkpoint is not None:
+                    assert method.dataparser_params is not None
                 scene_box = SceneBox(
                     aabb=torch.tensor(
                         [[-aabb_scale, -aabb_scale, -aabb_scale], [aabb_scale, aabb_scale, aabb_scale]], dtype=torch.float32
                     )
                 )
-
-                if method.checkpoint is None:
-                    method._dataparser_transform, method._dataparser_scale = method._get_pose_transform(train_dataset.camera_poses)
-                else:
-                    assert method._dataparser_transform is not None
                 th_poses = method._transform_poses(torch.from_numpy(train_dataset.camera_poses).float())
                 cameras = Cameras(camera_to_worlds=th_poses,
                                   fx=torch.from_numpy(train_dataset.camera_intrinsics[..., 0]).contiguous(),
@@ -265,9 +276,12 @@ class NerfStudio(Method):
                 return DataparserOutputs(
                     image_names,
                     cameras,
-                    None, scene_box, image_names if train_dataset.sampling_masks else None, {},
-                    dataparser_transform=method._dataparser_transform[..., :3, :].contiguous(), # pylint: disable=protected-access
-                    dataparser_scale=method._dataparser_scale) # pylint: disable=protected-access
+                    method.dataparser_params.get("alpha_color", None),
+                    scene_box,
+                    image_names if train_dataset.sampling_masks else None,
+                    {},
+                    dataparser_transform=method.dataparser_params["dataparser_transform"][..., :3, :].contiguous(), # pylint: disable=protected-access
+                    dataparser_scale=method.dataparser_params["dataparser_scale"]) # pylint: disable=protected-access
         self.config.pipeline.datamanager.dataparser._target = CustomDataParser # pylint: disable=protected-access
         self.config.max_num_iterations = num_iterations
 
@@ -333,8 +347,8 @@ class NerfStudio(Method):
         self._trainer.setup()
         if self.checkpoint is not None:
             self._trainer._load_checkpoint()
-        self._dataparser_transform, self._dataparser_scale = torch.load(
-            os.path.join(self.checkpoint, "dataparser_transform.pth"),
+        self.dataparser_params = torch.load(
+            os.path.join(self.checkpoint, "dataparser_params.pth"),
             map_location="cpu")
         self._mode = "eval"
 
@@ -404,34 +418,35 @@ class NerfStudio(Method):
         self._trainer.checkpoint_dir = Path(os.path.join(path, self._original_config.relative_model_dir))
         self._trainer.save_checkpoint(self.step)
         self._trainer.checkpoint_dir = bckp
-        torch.save((
-            self._dataparser_transform.cpu(),
-            float(self._dataparser_scale)
-        ), os.path.join(path, "dataparser_transform.pth"))
+        torch.save({
+            k: v.cpu() if hasattr(v, "cpu") else v for k, v in self.dataparser_params.items()
+        }, os.path.join(path, "dataparser_params.pth"))
 
     def close(self):
         self._tmpdir.cleanup()
         self._tmpdir = None
 
 
-NerfStudioSpec = MethodSpec(
-    method=NerfStudio,
-    conda=CondaMethod.wrap(
-        NerfStudio,
-        conda_name="nerfstudio",
-        python_version="3.10",
-        install_script = """
+NerfStudioConda = CondaMethod.wrap(
+    NerfStudio,
+    conda_name="nerfstudio",
+    python_version="3.10",
+    install_script = """
 pip install torch==2.0.1+cu118 torchvision==0.15.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
 conda install -y -c "nvidia/label/cuda-11.8.0" cuda-toolkit
 pip install ninja git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
 pip install nerfstudio==0.3.4
-"""),
+""")
+
+
+NerfStudioSpec = MethodSpec(
+    method=NerfStudio,
+    conda=NerfStudioConda,
     docker=DockerMethod.wrap(
         NerfStudio,
         image="dromni/nerfstudio:0.3.4",
         python_path="python3",
-        home_path="/home/user",
-        mounts=[(os.path.expanduser("~/.cache/torch"), "/home/user/.cache/torch")]))
+        home_path="/home/user"))
 
 # Register supported methods
 NerfStudioSpec.register("nerfacto", nerfstudio_name="nerfacto")

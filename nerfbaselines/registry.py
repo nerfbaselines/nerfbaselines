@@ -21,7 +21,7 @@ from .backends import DockerMethod, CondaMethod, ApptainerMethod
 from .utils import partialclass
 
 
-DEFAULT_DOCKER_IMAGE = "kulhanek/nerfbaselines:latest"
+DEFAULT_DOCKER_IMAGE = "kulhanek/nerfbaselines:v1"
 Backend = Literal["conda", "docker", "apptainer", "python"]
 ALL_BACKENDS = list(get_args(Backend))
 registry = {}
