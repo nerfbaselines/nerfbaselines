@@ -1,3 +1,4 @@
+# pylint: disable=import-error
 # pylint: disable=import-outside-toplevel
 import copy
 from typing import Optional, Iterable
@@ -38,7 +39,7 @@ def _load_cam(pose, intrinsics, camera_id, image_name, image_size, device=None):
 
 
 def _convert_dataset_to_gaussian_splatting(dataset: Dataset, tempdir: str):
-    from scene.dataset_readers import SceneInfo, BasicPointCloud, getNerfppNorm, focal2fov, CameraInfo
+    from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov, CameraInfo
     from scene.dataset_readers import storePly, fetchPly
 
     if dataset is None:
@@ -92,7 +93,6 @@ def _convert_dataset_to_gaussian_splatting(dataset: Dataset, tempdir: str):
 class GaussianSplatting(Method):
     def __init__(self, checkpoint: Optional[str] = None):
         from argparse import ArgumentParser
-        import sys
         from arguments import ModelParams, PipelineParams, OptimizationParams
 
         self.checkpoint = checkpoint
@@ -115,10 +115,10 @@ class GaussianSplatting(Method):
         self._viewpoint_stack = []
         self._input_points = None
 
-    def setup_train(self, train_dataset, num_iterations: int):
+    def setup_train(self, train_dataset, *, num_iterations: int):
         import torch
         from utils.general_utils import safe_state
-        from scene import Scene, GaussianModel
+        from scene import GaussianModel
 
         # Initialize system state (RNG)
         safe_state(True)
@@ -164,7 +164,7 @@ class GaussianSplatting(Method):
         if self.checkpoint is not None:
             if not os.path.exists(self.checkpoint):
                 raise RuntimeError(f"Model directory {self.checkpoint} does not exist")
-            info.loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(self.checkpoint))[-1]
+            info.loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(self.checkpoint) if x.startswith("chkpnt-"))[-1]
         return info
 
     def _build_scene(self, dataset):
@@ -216,7 +216,12 @@ class GaussianSplatting(Method):
         from utils.image_utils import psnr
 
         self.step = step
-        iteration = step + 1 # Gaussian Splatting is 1-indexed
+        # iteration = step + 1 # Gaussian Splatting is 1-indexed
+        # But we do not do it here since the evaluation is usually done
+        # at round numbers of iterations, and we do not want to evaluate
+        # after the density was resetted. Therefore we increase the iteration 
+        # by 2 here
+        iteration = step + 2
         del step
 
         self.gaussians.update_learning_rate(iteration)
@@ -262,7 +267,7 @@ class GaussianSplatting(Method):
                     self.gaussians.reset_opacity()
 
             # Optimizer step
-            if iteration < self.opt.iterations:
+            if iteration < self.opt.iterations + 1:
                 self.gaussians.optimizer.step()
                 self.gaussians.optimizer.zero_grad(set_to_none = True)
         self.step = self.step + 1

@@ -2,7 +2,6 @@ import os
 import importlib
 import dataclasses
 import subprocess
-import typing
 from typing import Optional, Type, Any, Tuple, Dict
 try:
     from typing import Literal
@@ -95,7 +94,7 @@ class MethodSpec:
             backends.add("apptainer")
         return backends
 
-    def build(self, *args, backend: Optional[Backend] = None, **kwargs) -> Tuple[Method, Backend]:
+    def build(self, *args, backend: Optional[Backend] = None, **kwargs) -> Tuple[Type[Method], Backend]:
         if backend is None:
             backend = self.get_default_backend()
         if backend not in self.implemented_backends:

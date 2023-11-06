@@ -1,4 +1,5 @@
 # pylint: disable=import-outside-toplevel
+# pylint: disable=protected-access
 import os
 from functools import partial
 import logging
@@ -49,11 +50,13 @@ def _hacked_get_outputs_for_camera_ray_bundle(self, camera_ray_bundle, update_ca
 
 
 class NerfStudio(Method):
+    nerfstudio_name: Optional[str] = None
     _dataparser_transform = None
     _dataparser_scale = None
 
-    def __init__(self, method_name: str = None, checkpoint: str = None):
+    def __init__(self, nerfstudio_name: Optional[str] = None, checkpoint: str = None):
         self.checkpoint = checkpoint
+        self.nerfstudio_name = nerfstudio_name or self.nerfstudio_name
         if checkpoint is not None:
             import yaml
             # Load nerfstudio checkpoint
@@ -62,9 +65,9 @@ class NerfStudio(Method):
             self._original_config = copy.deepcopy(config)
             config.get_base_dir = lambda *_: Path(checkpoint)
             config.load_dir = config.get_checkpoint_dir()
-        elif method_name is not None:
+        elif self.nerfstudio_name is not None:
             from nerfstudio.configs.method_configs import method_configs
-            config = method_configs[method_name]
+            config = method_configs[self.nerfstudio_name]
             self._original_config = copy.deepcopy(config)
         else:
             raise ValueError("Either checkpoint or name must be provided")
@@ -85,6 +88,8 @@ class NerfStudio(Method):
         info = MethodInfo(
             loaded_step=None,
             num_iterations=self.config.max_num_iterations,
+            required_features=["images"],
+            supports_undistortion=True,
             batch_size=self.config.pipeline.datamanager.train_num_rays_per_batch,
             eval_batch_size=self.config.pipeline.model.eval_num_rays_per_chunk)
         if self.checkpoint is not None:
@@ -200,14 +205,12 @@ class NerfStudio(Method):
         from nerfstudio.data.dataparsers.base_dataparser import DataParser, DataparserOutputs
         from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManagerConfig, VanillaDataManager, InputDataset
         from nerfstudio.cameras.cameras import Cameras, CameraType as NPCameraType
-        from nerfstudio.cameras import camera_utils
         from nerfstudio.data.scene_box import SceneBox
 
         class CustomDataParser(DataParser):
             def __init__(self, config, *args, **kwargs):
                 super().__init__(config)
-                self.method = method
-                self.method._dp = self
+                method._dp = self
 
             def _generate_dataparser_outputs(self,
                                              split: str = "train",
@@ -242,17 +245,20 @@ class NerfStudio(Method):
                     )
                 )
 
-                if self.method.checkpoint is None:
-                    self.method._dataparser_transform, self.method._dataparser_scale = self.method._get_pose_transform(train_dataset.camera_poses) # pylint: disable=protected-access
+                if method.checkpoint is None:
+                    method._dataparser_transform, method._dataparser_scale = method._get_pose_transform(train_dataset.camera_poses)
                 else:
-                    assert self.method._dataparser_transform is not None
-                th_poses = self.method._transform_poses(torch.from_numpy(train_dataset.camera_poses).float())
+                    assert method._dataparser_transform is not None
+                th_poses = method._transform_poses(torch.from_numpy(train_dataset.camera_poses).float())
                 cameras = Cameras(camera_to_worlds=th_poses,
                                   fx=torch.from_numpy(train_dataset.camera_intrinsics[..., 0]).contiguous(),
                                   fy=torch.from_numpy(train_dataset.camera_intrinsics[..., 1]).contiguous(),
                                   cx=torch.from_numpy(train_dataset.camera_intrinsics[..., 2]).contiguous(),
                                   cy=torch.from_numpy(train_dataset.camera_intrinsics[..., 3]).contiguous(),
-                                  distortion_params=torch.from_numpy(train_dataset.camera_distortions.distortion_params).contiguous() if train_dataset.camera_distortions is not None else None,
+                                  distortion_params=(
+                                      torch.from_numpy(train_dataset.camera_distortions.distortion_params).contiguous()
+                                      if train_dataset.camera_distortions is not None else None
+                                  ),
                                   width=torch.from_numpy(train_dataset.image_sizes[..., 0]).long().contiguous(),
                                   height=torch.from_numpy(train_dataset.image_sizes[..., 1]).long().contiguous(),
                                   camera_type=torch.tensor(camera_types, dtype=torch.long))
@@ -260,8 +266,8 @@ class NerfStudio(Method):
                     image_names,
                     cameras,
                     None, scene_box, image_names if train_dataset.sampling_masks else None, {},
-                    dataparser_transform=self.method._dataparser_transform[..., :3, :].contiguous(), # pylint: disable=protected-access
-                    dataparser_scale=self.method._dataparser_scale) # pylint: disable=protected-access
+                    dataparser_transform=method._dataparser_transform[..., :3, :].contiguous(), # pylint: disable=protected-access
+                    dataparser_scale=method._dataparser_scale) # pylint: disable=protected-access
         self.config.pipeline.datamanager.dataparser._target = CustomDataParser # pylint: disable=protected-access
         self.config.max_num_iterations = num_iterations
 
@@ -275,7 +281,7 @@ class NerfStudio(Method):
         class DM(dm._target): # pylint: disable=protected-access
             @property
             def dataset_type(self):
-                class Dataset(getattr(self, '_idataset_type', InputDataset)):
+                class DatasetL(getattr(self, '_idataset_type', InputDataset)):
                     def get_image(self, image_idx: int):
                         img = images_holder[0][image_idx]
                         if img.dtype == np.uint8:
@@ -284,7 +290,7 @@ class NerfStudio(Method):
                         if self._dataparser_outputs.alpha_color is not None and image.shape[-1] == 4:
                             image = image[:, :, :3] * image[:, :, -1:] + self._dataparser_outputs.alpha_color * (1.0 - image[:, :, -1:])
                         return image
-                return Dataset
+                return DatasetL
 
             @dataset_type.setter
             def dataset_type(self, value):
@@ -388,7 +394,8 @@ class NerfStudio(Method):
         if self._mode is None:
             self._setup_eval()
         from nerfstudio.engine.trainer import Trainer
-        import yaml, torch
+        import yaml
+        import torch
         assert isinstance(self._trainer, Trainer)
         bckp = self._trainer.checkpoint_dir
         self._trainer.checkpoint_dir = Path(path)
@@ -427,4 +434,6 @@ pip install nerfstudio==0.3.4
         mounts=[(os.path.expanduser("~/.cache/torch"), "/home/user/.cache/torch")]))
 
 # Register supported methods
-NerfStudioSpec.register("nerfacto", method_name="nerfacto")
+NerfStudioSpec.register("nerfacto", nerfstudio_name="nerfacto")
+NerfStudioSpec.register("nerfacto:big", nerfstudio_name="nerfacto-big")
+NerfStudioSpec.register("nerfacto:huge", nerfstudio_name="nerfacto-huge")

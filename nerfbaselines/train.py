@@ -126,7 +126,7 @@ class Trainer:
         self._average_image_size = train_dataset.image_sizes.prod(-1).astype(np.float32).mean()
 
         dataset_load_features(self.test_dataset, self.method.info.required_features.union({"images"}))
-        self.method.setup_train(train_dataset, self.num_iterations)
+        self.method.setup_train(train_dataset, num_iterations=self.num_iterations)
 
     def save(self):
         path = os.path.join(self.output, f"checkpoint-{self.step}")
@@ -346,7 +346,7 @@ class Trainer:
 @click.option("--output", type=str, default=".")
 @click.option("--no-wandb", is_flag=True)
 @click.option("--verbose", "-v", is_flag=True)
-@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=None)
+@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NB_DEFAULT_BACKEND", None))
 def train_command(method, checkpoint, data, output, no_wandb, verbose, backend):
     logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)
@@ -384,4 +384,3 @@ def train_command(method, checkpoint, data, output, no_wandb, verbose, backend):
 
 if __name__ == "__main__":
     train_command()  # pylint: disable=no-value-for-parameter
-
