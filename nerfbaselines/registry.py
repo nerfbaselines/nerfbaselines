@@ -3,7 +3,19 @@ import importlib
 import dataclasses
 import subprocess
 import typing
-from typing import Optional, Type, Literal, Any, Tuple, Dict
+from typing import Optional, Type, Any, Tuple, Dict
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
+try:
+    from typing import FrozenSet
+except ImportError:
+    from typing_extensions import FrozenSet
+try:
+    from typing import get_args
+except ImportError:
+    from typing_extensions import get_args
 from dataclasses import dataclass, field
 from .types import Method
 from .backends import DockerMethod, CondaMethod, ApptainerMethod
@@ -12,7 +24,7 @@ from .utils import partialclass
 
 DEFAULT_DOCKER_IMAGE = "kulhanek/nerfbaselines:latest"
 Backend = Literal["conda", "docker", "apptainer", "python"]
-ALL_BACKENDS = list(typing.get_args(Backend))
+ALL_BACKENDS = list(get_args(Backend))
 registry = {}
 
 
@@ -71,7 +83,7 @@ class MethodSpec:
         raise RuntimeError("No backend available, please install " + " or ".join(should_install))
 
     @property
-    def implemented_backends(self) -> set[Backend]:
+    def implemented_backends(self) -> FrozenSet[Backend]:
         backends = set("python")
         if self.conda is not None:
             backends.add("conda")
@@ -97,7 +109,7 @@ class MethodSpec:
                 method = self.docker
             elif self.conda is not None:
                 method = DockerMethod.wrap(
-                    self.method,
+                    self.conda,
                     image=DEFAULT_DOCKER_IMAGE)
             else:
                 raise NotImplementedError()
@@ -106,7 +118,7 @@ class MethodSpec:
                 method = self.apptainer
             elif self.conda is not None:
                 method = ApptainerMethod.wrap(
-                    self.method,
+                    self.conda,
                     image="docker://" + DEFAULT_DOCKER_IMAGE)
             else:
                 raise NotImplementedError()
@@ -125,6 +137,6 @@ def get(name: str) -> MethodSpec:
     return registry[name]
 
 
-def supported_methods() -> set[str]:
+def supported_methods() -> FrozenSet[str]:
     auto_register()
     return set(registry.keys())

@@ -1,6 +1,6 @@
 # pylint: disable=import-outside-toplevel
 import os
-from functools import partial, cached_property
+from functools import partial
 import logging
 from dataclasses import fields
 from pathlib import Path
@@ -8,13 +8,14 @@ import copy
 import tempfile
 from collections import defaultdict
 from typing import Iterable, Optional
-from jaxtyping import Float32, Int32
 import numpy as np
 from ..types import Method, ProgressCallback, CurrentProgress, MethodInfo
+from ..types import Dataset
 from ..registry import MethodSpec
 from ..distortion import Distortions, CameraModel
 from ..backends.docker import DockerMethod
 from ..backends.conda import CondaMethod
+from ..utils import cached_property
 
 
 # Hack to add progress to existing models
@@ -94,12 +95,12 @@ class NerfStudio(Method):
         return info
 
     def render(self,
-               poses: Float32[np.ndarray, "batch 3 4"],
-               intrinsics: Float32[np.ndarray, "batch 3 4"],
-               sizes: Int32[np.ndarray, "batch 2"],
-               nears_fars: Float32[np.ndarray, "batch 2"],
+               poses: np.ndarray,
+               intrinsics: np.ndarray,
+               sizes: np.ndarray,
+               nears_fars: np.ndarray,
                distortions: Optional[Distortions] = None,
-               progress_callback: Optional[ProgressCallback] = None) -> Iterable[Float32[np.ndarray, "h w c"]]:
+               progress_callback: Optional[ProgressCallback] = None) -> Iterable[np.ndarray]:
         if self._mode is None:
             self._setup_eval()
         from nerfstudio.cameras.cameras import Cameras, CameraType as NPCameraType
@@ -185,15 +186,7 @@ class NerfStudio(Method):
         )
         return transform_matrix_extended, scale_factor
 
-    def setup_train(self,
-                    poses: Float32[np.ndarray, "images 3 4"],
-                    intrinsics: Float32[np.ndarray, "images 3 4"],
-                    sizes: Int32[np.ndarray, "images 2"],
-                    nears_fars: Float32[np.ndarray, "batch 2"],
-                    images: Float32[np.ndarray, "images h w c"],
-                    num_iterations: int,
-                    sampling_masks: Optional[Float32[np.ndarray, "images h w"]] = None,
-                    distortions: Optional[Distortions] = None):
+    def setup_train(self, train_dataset: Dataset, *, num_iterations: int):
         import torch
         method = self
         if self.checkpoint is not None:
@@ -202,8 +195,8 @@ class NerfStudio(Method):
                 map_location="cpu")
         self.config = copy.deepcopy(self._original_config)
         # We use this hack to release the memory after the data was copied to cached dataloader
-        images_holder = [images]
-        del images
+        images_holder = [train_dataset.images]
+        del train_dataset.images
         from nerfstudio.data.dataparsers.base_dataparser import DataParser, DataparserOutputs
         from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManagerConfig, VanillaDataManager, InputDataset
         from nerfstudio.cameras.cameras import Cameras, CameraType as NPCameraType
@@ -231,14 +224,14 @@ class NerfStudio(Method):
                         torch.zeros((1,), dtype=torch.float32),
                         torch.zeros((1,), dtype=torch.long),
                         ), None, None, [], {})
-                image_names = [f"{i:06d}.png" for i in range(len(poses))]
-                camera_types = [NPCameraType.PERSPECTIVE for _ in range(len(poses))]
-                if distortions is not None:
+                image_names = [f"{i:06d}.png" for i in range(len(train_dataset.camera_poses))]
+                camera_types = [NPCameraType.PERSPECTIVE for _ in range(len(train_dataset.camera_poses))]
+                if train_dataset.camera_distortions is not None:
                     npmap = {x.name.lower(): x.value for x in NPCameraType.__members__.values()}
                     npmap["pinhole"] = npmap["perspective"]
                     npmap["opencv"] = npmap["perspective"]
                     npmap["opencv_fisheye"] = npmap["fisheye"]
-                    camera_types = [npmap[CameraModel(distortions.camera_types[i]).name.lower()] for i in range(len(poses))]
+                    camera_types = [npmap[CameraModel(train_dataset.camera_distortions.camera_types[i]).name.lower()] for i in range(len(train_dataset.camera_poses))]
 
                 # in x,y,z order
                 # assumes that the scene is centered at the origin
@@ -250,23 +243,23 @@ class NerfStudio(Method):
                 )
 
                 if self.method.checkpoint is None:
-                    self.method._dataparser_transform, self.method._dataparser_scale = self.method._get_pose_transform(poses) # pylint: disable=protected-access
+                    self.method._dataparser_transform, self.method._dataparser_scale = self.method._get_pose_transform(train_dataset.camera_poses) # pylint: disable=protected-access
                 else:
                     assert self.method._dataparser_transform is not None
-                th_poses = self.method._transform_poses(torch.from_numpy(poses).float())
+                th_poses = self.method._transform_poses(torch.from_numpy(train_dataset.camera_poses).float())
                 cameras = Cameras(camera_to_worlds=th_poses,
-                                  fx=torch.from_numpy(intrinsics[..., 0]).contiguous(),
-                                  fy=torch.from_numpy(intrinsics[..., 1]).contiguous(),
-                                  cx=torch.from_numpy(intrinsics[..., 2]).contiguous(),
-                                  cy=torch.from_numpy(intrinsics[..., 3]).contiguous(),
-                                  distortion_params=torch.from_numpy(distortions.distortion_params).contiguous() if distortions is not None else None,
-                                  width=torch.from_numpy(sizes[..., 0]).long().contiguous(),
-                                  height=torch.from_numpy(sizes[..., 1]).long().contiguous(),
+                                  fx=torch.from_numpy(train_dataset.camera_intrinsics[..., 0]).contiguous(),
+                                  fy=torch.from_numpy(train_dataset.camera_intrinsics[..., 1]).contiguous(),
+                                  cx=torch.from_numpy(train_dataset.camera_intrinsics[..., 2]).contiguous(),
+                                  cy=torch.from_numpy(train_dataset.camera_intrinsics[..., 3]).contiguous(),
+                                  distortion_params=torch.from_numpy(train_dataset.camera_distortions.distortion_params).contiguous() if train_dataset.camera_distortions is not None else None,
+                                  width=torch.from_numpy(train_dataset.image_sizes[..., 0]).long().contiguous(),
+                                  height=torch.from_numpy(train_dataset.image_sizes[..., 1]).long().contiguous(),
                                   camera_type=torch.tensor(camera_types, dtype=torch.long))
                 return DataparserOutputs(
                     image_names,
                     cameras,
-                    None, scene_box, image_names if sampling_masks else None, {},
+                    None, scene_box, image_names if train_dataset.sampling_masks else None, {},
                     dataparser_transform=self.method._dataparser_transform[..., :3, :].contiguous(), # pylint: disable=protected-access
                     dataparser_scale=self.method._dataparser_scale) # pylint: disable=protected-access
         self.config.pipeline.datamanager.dataparser._target = CustomDataParser # pylint: disable=protected-access
@@ -382,6 +375,7 @@ class NerfStudio(Method):
                 return v.item()
             assert isinstance(v, (str, float, int))
             return v
+        self.step = step + 1
         return {k: detach(v) for k, v in metrics.items()}
 
     def save(self, path: str):
@@ -401,7 +395,7 @@ class NerfStudio(Method):
         config_yaml_path = Path(path) / "config.yml"
         config_yaml_path.write_text(yaml.dump(self._original_config), "utf8")
         self._trainer.checkpoint_dir = Path(os.path.join(path, self._original_config.relative_model_dir))
-        self._trainer.save_checkpoint(self.step+1)
+        self._trainer.save_checkpoint(self.step)
         self._trainer.checkpoint_dir = bckp
         torch.save((
             self._dataparser_transform.cpu(),

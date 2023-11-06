@@ -23,6 +23,12 @@ class ApptainerMethod(RemoteProcessMethod):
         self.mounts = list(mounts or self.mounts or [])
         assert self.image is not None, "ApptainerMethod requires an image"
 
+    @classmethod
+    def _get_isolated_env(cls):
+        out = super(ApptainerMethod, cls)._get_isolated_env()
+        out.update({k: v for k, v in os.environ.items() if k.startswith("APPTAINER_")})
+        return out
+
     @property
     def shared_path(self) -> Optional[Tuple[str, str]]:
         if self._tmp_shared_dir is None:
@@ -37,14 +43,18 @@ class ApptainerMethod(RemoteProcessMethod):
         sub_args = super()._get_install_args()  # pylint: disable=assignment-from-none
         if sub_args is None:
             sub_args = ["true"]
-        os.makedirs(os.path.expanduser("~/.conda/pkgs"), exist_ok=True)
-        os.makedirs(os.path.expanduser("~/.cache/pip"), exist_ok=True)
+        os.makedirs(NB_PREFIX, exist_ok=True)
+        conda_cache = os.path.expanduser(os.environ.get("CONDA_PKGS_DIRS", "~/.conda/pkgs"))
+        os.makedirs(conda_cache, exist_ok=True)
+        pip_cache = os.path.expanduser(os.environ.get("PIP_CACHE_DIR", "~/.cache/pip"))
+        os.makedirs(pip_cache, exist_ok=True)
         return ["apptainer", "exec", "--containall", "--cleanenv",
             "--nv",
+            "--bind", "/tmp:/tmp",
             "--bind", shlex.quote(PACKAGE_PATH) + ":" + shlex.quote(PACKAGE_PATH),
             "--bind", shlex.quote(NB_PREFIX) + ":" + shlex.quote(NB_PREFIX),
-            "--bind", shlex.quote(os.path.expanduser("~/.conda/pkgs")) + ":/var/nb-conda-pkgs",
-            "--bind", shlex.quote(os.path.expanduser("~/.cache/pip")) + ":/var/nb-pip-cache",
+            "--bind", shlex.quote(conda_cache) + ":/var/nb-conda-pkgs",
+            "--bind", shlex.quote(pip_cache) + ":/var/nb-pip-cache",
             *[f"--bind={shlex.quote(src)}:{shlex.quote(dst)}" for src, dst in self.mounts],
             "--env", f"NB_PREFIX={shlex.quote(NB_PREFIX)}",
             "--env", "CONDA_PKGS_DIRS=/var/nb-conda-pkgs",
@@ -53,12 +63,19 @@ class ApptainerMethod(RemoteProcessMethod):
 
     def _get_server_process_args(self, env, *args, **kwargs):
         python_args = super()._get_server_process_args(env, *args, **kwargs)
-        os.makedirs(os.path.expanduser("~/.conda/pkgs"), exist_ok=True)
-        return ["apptainer", "exec", "--containall", "--cleanenv",
+        os.makedirs(NB_PREFIX, exist_ok=True)
+        conda_cache = os.path.expanduser(os.environ.get("CONDA_PKGS_DIRS", "~/.conda/pkgs"))
+        os.makedirs(conda_cache, exist_ok=True)
+        pip_cache = os.path.expanduser(os.environ.get("PIP_CACHE_DIR", "~/.cache/pip"))
+        os.makedirs(pip_cache, exist_ok=True)
+        return ["apptainer", "exec", "--containall", "--cleanenv", "--writable-tmpfs",
             "--nv",
+            "--bind", "/tmp:/tmp",
             "--bind", shlex.quote(PACKAGE_PATH) + ":" + shlex.quote(PACKAGE_PATH),
             "--bind", shlex.quote(self._tmp_shared_dir.name) + ":/nb-shared",
             "--bind", shlex.quote(NB_PREFIX) + ":" + shlex.quote(NB_PREFIX),
+            "--bind", shlex.quote(conda_cache) + ":/var/nb-conda-pkgs",
+            "--bind", shlex.quote(pip_cache) + ":/var/nb-pip-cache",
             *[f"--bind={shlex.quote(src)}:{shlex.quote(dst)}" for src, dst in self.mounts],
             *([f"--bind={shlex.quote(self.checkpoint)}:{shlex.quote(self.checkpoint)}:ro"] if self.checkpoint is not None else []),
             "--env", f"NB_PORT={env['NB_PORT']}",
@@ -66,6 +83,8 @@ class ApptainerMethod(RemoteProcessMethod):
             "--env", f"NB_AUTHKEY={env['NB_AUTHKEY']}",
             "--env", f"NB_ARGS={env['NB_ARGS']}",
             "--env", f"NB_PREFIX={shlex.quote(NB_PREFIX)}",
+            "--env", "CONDA_PKGS_DIRS=/var/nb-conda-pkgs",
+            "--env", "PIP_CACHE_DIR=/var/nb-pip-cache",
             self.image] + python_args
 
 

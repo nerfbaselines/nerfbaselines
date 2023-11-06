@@ -1,11 +1,18 @@
 import types
 from functools import partial
 import dataclasses
+import sys
 from typing import Callable, List, Any, Optional, Tuple
 import numpy as np
-from jaxtyping import Float32, Int32
 from .distortion import Distortions
 import logging
+try:
+    from functools import cached_property
+except ImportError:
+    # Python 3.7
+    from functools import lru_cache
+    def cached_property(x):
+        return property(lru_cache(maxsize=None)(x))
 
 
 class Formatter(logging.Formatter):
@@ -25,10 +32,13 @@ class Formatter(logging.Formatter):
 
 
 def setup_logging(verbose: bool):
+    kwargs = {}
+    if sys.version_info >= (3, 8):
+        kwargs["force"] = True
     if verbose >= 1:
-        logging.basicConfig(level=logging.DEBUG, force=True)
+        logging.basicConfig(level=logging.DEBUG, **kwargs)
     else:
-        logging.basicConfig(level=logging.INFO, force=True)
+        logging.basicConfig(level=logging.INFO, **kwargs)
     for handler in logging.root.handlers:
         handler.setFormatter(Formatter())
 
@@ -72,8 +82,9 @@ class Indices:
             return x >= start and x < stop and (x - start) % step == 0
 
     @classmethod
-    def every_iters(cls, iters: int):
-        return cls(slice(iters, None, iters))
+    def every_iters(cls, iters: int, zero: bool = False):
+        start = iters if zero else 0
+        return cls(slice(start, None, iters))
 
 
 def batched(array, batch_size):
@@ -81,10 +92,10 @@ def batched(array, batch_size):
         yield array[i:i+batch_size]
 
 
-def get_rays(camera_poses: Float32[np.ndarray, "batch 3 4"],
-             camera_intrinsics: Float32[np.ndarray, "batch 4"],
-             xy: Float32[np.ndarray, "batch 2"],
-             distortions: Optional[Distortions]) -> Tuple[Float32[np.ndarray, "batch 3"], Float32[np.ndarray, "batch 3"]]:
+def get_rays(camera_poses: np.ndarray, # [batch 3 4]
+             camera_intrinsics: np.ndarray, # [batch 4]
+             xy: np.ndarray, # [batch 2]
+             distortions: Optional[Distortions]) -> Tuple[np.ndarray, np.ndarray]:  # [batch 3], [batch 3]
     out_shape = xy.shape[:-1]
     fx = camera_intrinsics[..., 0]
     fy = camera_intrinsics[..., 1]

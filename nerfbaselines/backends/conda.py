@@ -74,6 +74,7 @@ rm -rf {shlex.quote(env_root_path)}
 mkdir -p {shlex.quote(os.path.dirname(env_path))}
 {shlex.join(["conda", "create", "--prefix", env_path, "-y"] + args)}
 conda activate {shlex.quote(env_path)}
+cd {shlex.quote(env_root_path)}
 {self.install_script}
 touch {shlex.quote(os.path.join(env_root_path, ".ack.txt"))}
 echo "0" > {shlex.quote(os.path.join(env_root_path, ".ack.txt"))}

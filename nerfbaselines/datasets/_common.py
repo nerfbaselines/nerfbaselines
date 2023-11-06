@@ -8,6 +8,7 @@ from typing import List, Tuple, Optional
 import numpy as np
 import PIL.Image
 from tqdm import tqdm
+from ..types import Dataset, DatasetFeature, FrozenSet
 from ..utils import Indices
 from ..distortion import Distortions, CameraModel
 from ._colmap_utils import read_cameras_binary, read_images_binary, read_points3D_binary, qvec2rotmat
@@ -35,70 +36,24 @@ def padded_stack(images: List[np.ndarray]) -> np.ndarray:
     return np.stack(out_images, 0)
 
 
-@dataclass
-class Dataset:
-    camera_poses: np.ndarray  # [N, (R, t)]
-    camera_intrinsics: np.ndarray  # [N, (nfx,nfy,ncx,ncy)]
-    camera_distortions: Distortions  # [N, (type, params)]
-    # camera_ids: Tensor
-    image_sizes: Optional[np.ndarray]  # [N, 2]
-    nears_fars: np.ndarray  # [N, 2]
+def dataset_load_features(dataset: Dataset, required_features):
+    images = []
+    image_sizes = []
+    for p in tqdm(dataset.file_paths, desc="loading images"):
+        image = np.array(PIL.Image.open(p).convert("RGB"), dtype=np.uint8)
+        images.append(image)
+        image_sizes.append([image.shape[1], image.shape[0]])
 
-    file_paths: List[str]
-    sampling_mask_paths: List[str]
+    dataset.images = padded_stack(images)
+    dataset.image_sizes = np.array(image_sizes, dtype=np.int32)
 
-    points3D_xyz: Optional[np.ndarray] = None  # [M, 3]
-    points3D_rgb: Optional[np.ndarray] = None  # [M, 3]
-
-    file_paths_root: Optional[Path] = None
-
-    def __post_init__(self):
-        if self.file_paths_root is None:
-            self.file_paths_root = Path(os.path.commonpath(self.file_paths))
-
-    def __len__(self):
-        return len(self.file_paths)
-
-    def __getitem__(self, i) -> 'Dataset':
-        assert isinstance(i, slice) or isinstance(i, int) or isinstance(i, np.ndarray)
-        def index(obj):
-            if obj is None:
-                return None
-            if isinstance(obj, Distortions):
-                if len(obj) == 1:
-                    return obj if isinstance(i, int) else obj
-                return obj[i]
-            if isinstance(obj, np.ndarray):
-                if obj.shape[0] == 1:
-                    return obj[0] if isinstance(i, int) else obj
-                obj = obj[i]
-                return obj
-            if isinstance(obj, list):
-                indices = np.arange(len(self))[i]
-                if indices.ndim == 0:
-                    return obj[indices]
-                return [obj[i] for i in indices]
-            raise ValueError(f"Cannot index object of type {type(obj)}")
-        return dataclasses.replace(self, **{
-            k: index(v) for k, v in self.__dict__.items()
-            if k not in {"file_paths_root", "points3D_xyz", "points3D_rgb"}
-        })
-
-    def load_images(self, desc="loading images"):
+    if "sampling_masks" in required_features and dataset.sampling_mask_paths is not None:
         images = []
-        image_sizes = []
-        for p in tqdm(self.file_paths, desc=desc):
-            image = np.array(PIL.Image.open(p).convert("RGB"), dtype=np.uint8)
-            images.append(image)
-            image_sizes.append([image.shape[1], image.shape[0]])
-        return padded_stack(images), np.array(image_sizes, dtype=np.int32)
-
-    def load_sampling_masks(self, desc="loading masks"):
-        images = []
-        for p in tqdm(self.file_paths, desc=desc):
+        for p in tqdm(dataset.file_paths, desc="loading masks"):
             image = np.array(PIL.Image.open(p).convert("L"), dtype=np.float32)
             images.append(image)
-        return padded_stack(images)
+        dataset.sampling_masks = padded_stack(images)
+    return dataset
 
 
 class DatasetNotFoundError(Exception):
@@ -304,7 +259,10 @@ def load_colmap_dataset(path: Path,
                         images_path: Optional[Path] = None,
                         split: Optional[str] = None,
                         test_indices: Optional[Indices] = Indices.every_iters(8),
-                        load_points: bool = False):
+                        features: Optional[FrozenSet[DatasetFeature]] = None):
+    if not features:
+        features = {}
+    load_points = "points3D_xyz" in features or "points3D_rgb" in features
     if split:
         assert split in {"train", "test"}
     # Load COLMAP dataset
@@ -392,7 +350,7 @@ def load_colmap_dataset(path: Path,
 
     # camera_ids=torch.tensor(camera_ids, dtype=torch.int32),
     dataset = Dataset(
-        camera_intrinsics=np.stack(camera_intrinsics, 0).astype(np.float32),
+        camera_intrinsics_normalized=np.stack(camera_intrinsics, 0).astype(np.float32),
         camera_poses=np.stack(camera_poses, 0).astype(np.float32),
         camera_distortions=Distortions.cat(camera_distortions),
         image_sizes=np.stack(camera_sizes, 0).astype(np.int32),
@@ -413,7 +371,7 @@ def load_colmap_dataset(path: Path,
         dataset = dataset[indices]
     return dataset
 
-def load_mipnerf360_dataset(path: Path, split: str):
+def load_mipnerf360_dataset(path: Path, split: str, **kwargs):
     if split:
         assert split in {"train", "test"}
     scenes360_res = {
@@ -430,7 +388,7 @@ def load_mipnerf360_dataset(path: Path, split: str):
 
     # Use split=None to load all images
     # We then select the same images as in the LLFF multinerf dataset loader
-    dataset: Dataset = load_colmap_dataset(path, images_path=images_path, split=None)
+    dataset: Dataset = load_colmap_dataset(path, images_path=images_path, split=None, **kwargs)
 
     image_names = dataset.file_paths
     inds = np.argsort(image_names)
@@ -451,11 +409,11 @@ SUPPORTED_DATASETS = {
 }
 
 
-def load_dataset(path: Path, split: str) -> Dataset:
+def load_dataset(path: Path, split: str, features: FrozenSet[DatasetFeature]) -> Dataset:
     errors = {}
     for name, load_fn in SUPPORTED_DATASETS.items():
         try:
-            dataset = load_fn(path, split=split)
+            dataset = load_fn(path, split=split, features=features)
             logging.info(f"loaded {name} dataset from path {path}")
             return dataset
         except DatasetNotFoundError as e:

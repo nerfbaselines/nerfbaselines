@@ -1,0 +1,287 @@
+# pylint: disable=import-outside-toplevel
+import copy
+from typing import Optional, Iterable
+import os
+import tempfile
+import numpy as np
+from PIL import Image
+from ..backends import CondaMethod
+from ..types import Method, MethodInfo, CurrentProgress, ProgressCallback
+from ..datasets import Dataset
+from ..distortion import CameraModel, Distortions
+from ..registry import MethodSpec
+from ..utils import cached_property
+
+
+def _load_cam(pose, intrinsics, camera_id, image_name, image_size, device=None):
+    import torch
+    from scene.dataset_readers import focal2fov
+    from scene.cameras import Camera
+
+    pose = np.copy(pose)
+
+    # Convert from OpenGL to COLMAP's camera coordinate system (OpenCV)
+    pose[0:3, 1:3] *= -1
+
+    pose = np.concatenate([pose, np.array([[0, 0, 0, 1]], dtype=pose.dtype)], axis=0)
+    pose = np.linalg.inv(pose)
+    R = pose[:3, :3]
+    T = pose[:3, 3]
+    R = np.transpose(R)
+
+    width, height = image_size
+    fx, fy, cx, cy = intrinsics
+    return Camera(colmap_id=int(camera_id), R=R, T=T, 
+                  FoVx=focal2fov(float(fx), float(width)), FoVy=focal2fov(float(fy), float(height)),
+                  image=torch.zeros((3, height, width), dtype=torch.float32), gt_alpha_mask=None,
+                  image_name=image_name, uid=id, data_device=device)
+
+
+def _convert_dataset_to_gaussian_splatting(dataset: Dataset, tempdir: str):
+    from scene.dataset_readers import SceneInfo, BasicPointCloud, getNerfppNorm, focal2fov, CameraInfo
+    from scene.dataset_readers import storePly, fetchPly
+
+    if dataset is None:
+        return SceneInfo(None, [], [], nerf_normalization=dict(radius=None), ply_path=None)
+
+    cam_infos = []
+    for idx, extr in enumerate(dataset.camera_poses):
+        intr = dataset.camera_intrinsics[idx]
+        width, height = dataset.image_sizes[idx]
+        focal_length_x, focal_length_y, cx, cy = intr
+        FovY = focal2fov(focal_length_y, height)
+        FovX = focal2fov(focal_length_x, width)
+
+        assert (dataset.camera_distortions.camera_types == CameraModel.PINHOLE.value).all(), \
+            "Colmap camera model not handled: only undistorted datasets (PINHOLE or SIMPLE_PINHOLE cameras) supported!"
+
+        extr = np.copy(extr)
+
+        # Convert from OpenGL to COLMAP's camera coordinate system (OpenCV)
+        extr[0:3, 1:3] *= -1
+        extr = np.concatenate([extr, np.array([[0, 0, 0, 1]], dtype=extr.dtype)], axis=0)
+        extr = np.linalg.inv(extr)
+        R, T = extr[:3, :3], extr[:3, 3]
+        R = np.transpose(R)
+        image_path = dataset.file_paths[idx] if dataset.file_paths is not None else f"{idx:06d}.png"
+        image_name = (
+            os.path.relpath(str(dataset.file_paths[idx]), str(dataset.file_paths_root)) 
+            if dataset.file_paths is not None and dataset.file_paths_root is not None 
+            else os.path.basename(image_path))
+        cam_info = CameraInfo(uid=idx, R=R, T=T, FovY=float(FovY), FovX=float(FovX),
+                              image=Image.fromarray(dataset.images[idx]),
+                              image_path=image_path,
+                              image_name=image_name,
+                              width=int(width), height=int(height))
+        cam_infos.append(cam_info)
+
+    cam_infos = sorted(cam_infos.copy(), key = lambda x : x.image_name)
+    nerf_normalization = getNerfppNorm(cam_infos)
+
+    storePly(os.path.join(tempdir, "scene.ply"), dataset.points3D_xyz, dataset.points3D_rgb)
+    pcd = fetchPly(os.path.join(tempdir, "scene.ply"))
+    scene_info = SceneInfo(point_cloud=pcd,
+                           train_cameras=cam_infos,
+                           test_cameras=[],
+                           nerf_normalization=nerf_normalization,
+                           ply_path=os.path.join(tempdir, "scene.ply"))
+    return scene_info
+
+
+
+class GaussianSplatting(Method):
+    def __init__(self, checkpoint: Optional[str] = None):
+        from argparse import ArgumentParser
+        import sys
+        from arguments import ModelParams, PipelineParams, OptimizationParams
+
+        self.checkpoint = checkpoint
+        self.gaussians = None
+        self.background = None
+        self.step = 0
+
+        self.scene = None
+
+        # Setup parameters
+        parser = ArgumentParser(description="Training script parameters")
+        lp = ModelParams(parser)
+        op = OptimizationParams(parser)
+        pp = PipelineParams(parser)
+        args = parser.parse_args(["--source_path", "<empty>"])
+        self.dataset = lp.extract(args)
+        self.opt = op.extract(args)
+        self.pipe =pp.extract(args)
+
+        self._viewpoint_stack = []
+        self._input_points = None
+
+    def setup_train(self, train_dataset, num_iterations: int):
+        import torch
+        from utils.general_utils import safe_state
+        from scene import Scene, GaussianModel
+
+        # Initialize system state (RNG)
+        safe_state(True)
+
+        # Setup model
+        self.opt.iterations = num_iterations
+        self.gaussians = GaussianModel(self.dataset.sh_degree)
+        self.scene = self._build_scene(train_dataset)
+        self.gaussians.training_setup(self.opt)
+        if self.checkpoint:
+            (model_params, self.step) = torch.load(self.checkpoint + f"/chkpnt-{self.info.loaded_step}.pth")
+            self.gaussians.restore(model_params, self.opt)
+
+        bg_color = [1, 1, 1] if self.dataset.white_background else [0, 0, 0]
+        self.background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
+        self._input_points = (train_dataset.points3D_xyz, train_dataset.points3D_rgb)
+        self._viewpoint_stack = []
+
+    def _eval_setup(self):
+        import torch
+        from utils.general_utils import safe_state
+        from scene import GaussianModel
+
+        # Initialize system state (RNG)
+        safe_state(True)
+
+        # Setup model
+        self.gaussians = GaussianModel(self.dataset.sh_degree)
+        self.scene = self._build_scene(None)
+        (model_params, self.step) = torch.load(self.checkpoint + f"/chkpnt-{self.info.loaded_step}.pth")
+        self.gaussians.restore(model_params, self.opt)
+
+        bg_color = [1, 1, 1] if self.dataset.white_background else [0, 0, 0]
+        self.background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
+
+    @cached_property
+    def info(self) -> MethodInfo:
+        info = MethodInfo(
+            loaded_step=None,
+            required_features=frozenset(("images", "points3D_xyz")),
+            supports_undistortion=False,
+            num_iterations=self.opt.iterations)
+        if self.checkpoint is not None:
+            if not os.path.exists(self.checkpoint):
+                raise RuntimeError(f"Model directory {self.checkpoint} does not exist")
+            info.loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(self.checkpoint))[-1]
+        return info
+
+    def _build_scene(self, dataset):
+        from scene import Scene, sceneLoadTypeCallbacks
+        opt = copy.copy(self.dataset)
+        with tempfile.TemporaryDirectory() as td:
+            os.mkdir(td + "/sparse")
+            opt.source_path = td # To trigger colmap loader
+            opt.model_path = td if dataset is not None else self.checkpoint
+            backup = sceneLoadTypeCallbacks["Colmap"]
+            try:
+                sceneLoadTypeCallbacks["Colmap"] = lambda *args, **kwargs: _convert_dataset_to_gaussian_splatting(dataset, td)
+                return Scene(opt, self.gaussians, load_iteration=self.info.loaded_step if dataset is None else None)
+            finally:
+                sceneLoadTypeCallbacks["Colmap"] = backup
+
+    def render(self,
+               poses: np.ndarray,
+               intrinsics: np.ndarray,
+               sizes: np.ndarray,
+               nears_fars: np.ndarray,
+               distortions: Optional[Distortions] = None,
+               progress_callback: Optional[ProgressCallback] = None) -> Iterable[np.ndarray]:
+        if self.scene is None:
+            self._eval_setup()
+
+        import torch
+        from gaussian_renderer import render
+        with torch.no_grad():
+            global_total = int(sizes.prod(-1).sum())
+            global_i = 0
+            if progress_callback:
+                progress_callback(CurrentProgress(global_i, global_total, 0, len(poses)))
+            for i, pose in enumerate(poses):
+                viewpoint = _load_cam(pose, intrinsics[i], i, f"{i:06d}.png", sizes[i], device="cuda")
+                image = torch.clamp(render(viewpoint, self.gaussians, self.pipe, self.background)["render"], 0.0, 1.0)
+                global_i += int(sizes[i].prod(-1))
+                if progress_callback:
+                    progress_callback(CurrentProgress(global_i, global_total, i+1, len(poses)))
+                yield {
+                    "color": image.detach().permute(1,2,0).cpu().numpy()
+                }
+
+    def train_iteration(self, step):
+        import torch
+        from random import randint
+        from utils.loss_utils import l1_loss, ssim
+        from gaussian_renderer import render
+        from utils.image_utils import psnr
+
+        self.step = step
+        iteration = step + 1 # Gaussian Splatting is 1-indexed
+        del step
+
+        self.gaussians.update_learning_rate(iteration)
+
+        # Every 1000 its we increase the levels of SH up to a maximum degree
+        if iteration % 1000 == 0:
+            self.gaussians.oneupSHdegree()
+
+        # Pick a random Camera
+        if not self._viewpoint_stack:
+            self._viewpoint_stack = self.scene.getTrainCameras().copy()
+        viewpoint_cam = self._viewpoint_stack.pop(randint(0, len(self._viewpoint_stack)-1))
+
+        # Render
+        bg = torch.rand((3), device="cuda") if self.opt.random_background else self.background
+
+        render_pkg = render(viewpoint_cam, self.gaussians, self.pipe, bg)
+        image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+
+        # Loss
+        gt_image = viewpoint_cam.original_image.cuda()
+        Ll1 = l1_loss(image, gt_image)
+        loss = (1.0 - self.opt.lambda_dssim) * Ll1 + self.opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+        loss.backward()
+        with torch.no_grad():
+            metrics = {
+                "l1_loss": Ll1.detach().cpu().item(),
+                "loss": loss.detach().cpu().item(),
+                "psnr": psnr(image, gt_image).mean().detach().cpu().item()}
+
+
+            # Densification
+            if iteration < self.opt.densify_until_iter:
+                # Keep track of max radii in image-space for pruning
+                self.gaussians.max_radii2D[visibility_filter] = torch.max(self.gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
+                self.gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
+
+                if iteration > self.opt.densify_from_iter and iteration % self.opt.densification_interval == 0:
+                    size_threshold = 20 if iteration > self.opt.opacity_reset_interval else None
+                    self.gaussians.densify_and_prune(self.opt.densify_grad_threshold, 0.005, self.scene.cameras_extent, size_threshold)
+
+                if iteration % self.opt.opacity_reset_interval == 0 or (self.dataset.white_background and iteration == self.opt.densify_from_iter):
+                    self.gaussians.reset_opacity()
+
+            # Optimizer step
+            if iteration < self.opt.iterations:
+                self.gaussians.optimizer.step()
+                self.gaussians.optimizer.zero_grad(set_to_none = True)
+        self.step = self.step + 1
+        return metrics
+
+    def save(self, path):
+        import torch
+        self.gaussians.save_ply(os.path.join(path, f"point_cloud/iteration_{self.step}", "point_cloud.ply"))
+        torch.save((self.gaussians.capture(), self.step), path + f"/chkpnt-{self.step}.pth")
+
+
+MethodSpec(GaussianSplatting,
+    conda=CondaMethod.wrap(
+        GaussianSplatting,
+        conda_name="gaussian-splatting",
+        install_script="""git clone https://github.com/graphdeco-inria/gaussian-splatting --recursive
+cd gaussian-splatting
+git checkout 2eee0e26d2d5fd00ec462df47752223952f6bf4e
+conda env update --file environment.yml --prune --prefix "$CONDA_PREFIX"
+conda install -y conda-build
+conda develop .
+""")).register("gaussian-splatting")

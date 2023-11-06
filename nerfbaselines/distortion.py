@@ -1,7 +1,6 @@
 import math
 from enum import Enum
 from dataclasses import dataclass
-from jaxtyping import Float32, Int32
 import numpy as np
 
 
@@ -107,8 +106,8 @@ def _radial_and_tangential_undistort(coords, distortion_params, eps: float = 1e-
 
 @dataclass(frozen=True)
 class Distortions:
-    camera_types: Int32[np.ndarray, "batch"]
-    distortion_params: Float32[np.ndarray, "batch num_params"]
+    camera_types: np.ndarray # [batch]
+    distortion_params: np.ndarray # [batch num_params]
 
     def __len__(self):
         return len(self.camera_types)

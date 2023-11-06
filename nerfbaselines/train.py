@@ -9,11 +9,12 @@ import math
 import logging
 import tarfile
 from pathlib import Path
-from typing import Callable, Optional, Union, Type, Tuple
+from typing import Callable, Optional, Union, Type
 from tqdm import tqdm
 import numpy as np
 from PIL import Image
-from .datasets import load_dataset, Dataset
+import click
+from .datasets import load_dataset, Dataset, dataset_load_features
 from .utils import Indices, setup_logging
 from .types import Method, CurrentProgress
 from . import registry
@@ -67,29 +68,29 @@ class Trainer:
                  method: Type[Method],
                  output: Path = Path("."),
                  num_iterations: Optional[int] = None,
-                 save_iters: Indices = Indices.every_iters(1),# Indices.every_iters(10_000),
+                 save_iters: Indices = Indices.every_iters(10_000, zero=True),
                  eval_single_iters: Indices = Indices.every_iters(1_000),
                  eval_all_iters: Indices = Indices([-1]),
                  use_wandb: bool = True,
                  ):
         self.method_name = method.method_name
         self.method = method()
+        self.method.install()
         if isinstance(train_dataset, (Path, str)):
             if test_dataset is None:
                 test_dataset = train_dataset
             train_dataset_path  = train_dataset
-            train_dataset = partial(load_dataset, Path(train_dataset), split="train")
+            train_dataset = partial(load_dataset, Path(train_dataset), split="train", features=self.method.info.required_features)
 
             # Allow direct access to the stored images if needed for docker remote
             if hasattr(self.method, "mounts"):
                 self.method.mounts.append((str(train_dataset_path), str(train_dataset_path)))
         if isinstance(test_dataset, (Path, str)):
-            test_dataset = partial(load_dataset, Path(test_dataset), split="test")
+            test_dataset = partial(load_dataset, Path(test_dataset), split="test", features=self.method.info.required_features)
         self.train_dataset_fn = train_dataset
 
         self.test_dataset_fn = test_dataset
         self.test_dataset: Optional[Dataset] = None
-        self.test_images = None
 
         self.step = self.method.info.loaded_step or 0
         self.output = output
@@ -101,7 +102,7 @@ class Trainer:
         self.use_wandb = use_wandb
         for v in vars(self).values():
             if isinstance(v, Indices):
-                v.total = self.num_iterations
+                v.total = self.num_iterations + 1
 
         self._wandb_run = None
         self._wandb = None
@@ -120,26 +121,12 @@ class Trainer:
         train_dataset: Dataset = self.train_dataset_fn()
         logging.info("loading eval dataset")
         self.test_dataset: Dataset = self.test_dataset_fn()
-        self.test_images = None
 
-        logging.info("loading images")
-        train_images, train_dataset.image_sizes = train_dataset.load_images()
+        dataset_load_features(train_dataset, self.method.info.required_features)
         self._average_image_size = train_dataset.image_sizes.prod(-1).astype(np.float32).mean()
-        self.test_images, self.test_dataset.image_sizes = self.test_dataset.load_images()
-        train_sampling_masks = None
-        if train_dataset.sampling_mask_paths is not None:
-            train_sampling_masks = train_dataset.load_sampling_masks()
 
-        self.method.setup_train(
-            poses=train_dataset.camera_poses,
-            intrinsics=train_dataset.camera_intrinsics * train_dataset.image_sizes[..., :1].astype(np.float32),
-            sizes=train_dataset.image_sizes,
-            nears_fars=train_dataset.nears_fars,
-            images=train_images,
-            num_iterations=self.num_iterations,
-            sampling_masks=train_sampling_masks,
-            distortions=train_dataset.camera_distortions,
-        )
+        dataset_load_features(self.test_dataset, self.method.info.required_features.union({"images"}))
+        self.method.setup_train(train_dataset, self.num_iterations)
 
     def save(self):
         path = os.path.join(self.output, f"checkpoint-{self.step}")
@@ -167,7 +154,7 @@ class Trainer:
     def ensure_loggers_initialized(self):
         if self.use_wandb and self._wandb is None:
             import wandb  # pylint: disable=import-outside-toplevel
-            self._wandb_run = wandb.init(dir=self.output/"wandb")
+            self._wandb_run = wandb.init(dir=self.output)
             self._wandb = wandb
 
     def train(self):
@@ -249,13 +236,13 @@ class Trainer:
             vis_images = []
             predictions = self.method.render(
                 poses=self.test_dataset.camera_poses,
-                intrinsics=self.test_dataset.camera_intrinsics * self.test_dataset.image_sizes[..., :1].astype(np.float32),
+                intrinsics=self.test_dataset.camera_intrinsics,
                 sizes=self.test_dataset.image_sizes,
                 nears_fars=self.test_dataset.nears_fars,
                 distortions=self.test_dataset.camera_distortions,
                 progress_callback=update_progress,
             )
-            for gt, name, pred in zip(self.test_images, self.test_dataset.file_paths, predictions):
+            for gt, name, pred in zip(self.test_dataset.images, self.test_dataset.file_paths, predictions):
                 name = str(Path(name).relative_to(prefix).with_suffix(""))
                 color_f = pred["color"]
                 assert color_f.dtype == np.float32
@@ -314,7 +301,7 @@ class Trainer:
                 pbar.update(stat.i - pbar.n)
             predictions = next(iter(self.method.render(
                 poses=dataset_slice.camera_poses,
-                intrinsics=dataset_slice.camera_intrinsics * dataset_slice.image_sizes[..., :1].astype(np.float32),
+                intrinsics=dataset_slice.camera_intrinsics,
                 sizes=dataset_slice.image_sizes,
                 nears_fars=dataset_slice.nears_fars,
                 distortions=dataset_slice.camera_distortions,
@@ -327,7 +314,7 @@ class Trainer:
         if self._wandb is not None:
             logging.debug("logging image to wandb")
             metrics = {}
-            gt = self.test_images[idx]
+            gt = self.test_dataset.images[idx]
             gt_f = gt.astype(np.float32) / 255.
             color_f = predictions["color"]
             metrics = compute_image_metrics(color_f, gt_f)
@@ -351,48 +338,50 @@ class Trainer:
                 ],
             }, step=self.step)
 
-if __name__ == "__main__":
-    import argparse
-    logging.basicConfig(level=logging.INFO)
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--method", choices=sorted(registry.supported_methods()), default=None)
-    parser.add_argument("--checkpoint", default=None)
-    parser.add_argument("--data", type=Path, default=None)
-    parser.add_argument("--output", type=Path, default=".")
-    parser.add_argument("--no-wandb", action="store_true")
-    parser.add_argument("--verbose", "-v", action="store_true")
-    parser.add_argument("--backend", choices=registry.ALL_BACKENDS, default=None)
-    args = parser.parse_args()
-    setup_logging(args.verbose)
 
-    if args.method is None and args.checkpoint is None:
+@click.command("train")
+@click.option("--method", type=click.Choice(sorted(registry.supported_methods())), required=True, help="Method to use")
+@click.option("--checkpoint", type=str, default=None)
+@click.option("--data", type=str, required=True)
+@click.option("--output", type=str, default=".")
+@click.option("--no-wandb", is_flag=True)
+@click.option("--verbose", "-v", is_flag=True)
+@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=None)
+def train_command(method, checkpoint, data, output, no_wandb, verbose, backend):
+    logging.basicConfig(level=logging.INFO)
+    setup_logging(verbose)
+
+    if method is None and checkpoint is None:
         logging.error("Either --method or --checkpoint must be specified")
         sys.exit(1)
 
-    if args.checkpoint is not None:
-        with open(os.path.join(args.checkpoint, "nb-info.json"), "r", encoding="utf8") as f:
+    if checkpoint is not None:
+        with open(os.path.join(checkpoint, "nb-info.json"), "r", encoding="utf8") as f:
             info = json.load(f)
-        if args.method is not None and args.method != info["method_name"]:
-            logging.error(f"Argument --method={args.method} is in conflict with the checkpoint's method {info['method_name']}.")
+        if method is not None and method != info["method_name"]:
+            logging.error(f"Argument --method={method} is in conflict with the checkpoint's method {info['method_name']}.")
             sys.exit(1)
-        args.method = info["method_name"]
+        method = info["method_name"]
 
-    method_spec = registry.get(args.method)
-    method, backend = method_spec.build(
-        backend=args.backend,
-        checkpoint=os.path.abspath(args.checkpoint) if args.checkpoint else None)
-    method.method_name = args.method
-    logging.info(f"Using method: {method.method_name}, backend: {backend}")
+    method_spec = registry.get(method)
+    _method, backend = method_spec.build(
+        backend=backend,
+        checkpoint=os.path.abspath(checkpoint) if checkpoint else None)
+    _method.method_name = method
+    logging.info(f"Using method: {_method.method_name}, backend: {backend}")
 
     trainer = Trainer(
-        train_dataset=Path(args.data) if args.data is not None else None,
-        output=Path(args.output),
-        method=method,
-        use_wandb=not args.no_wandb,
+        train_dataset=Path(data) if data is not None else None,
+        output=Path(output),
+        method=_method,
+        use_wandb=not no_wandb,
     )
     try:
-        trainer.install()
         trainer.setup_data()
         trainer.train()
     finally:
         trainer.close()
+
+if __name__ == "__main__":
+    train_command()  # pylint: disable=no-value-for-parameter
+

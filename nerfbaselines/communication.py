@@ -1,4 +1,3 @@
-from functools import cached_property
 import types
 from time import sleep
 import subprocess
@@ -17,7 +16,7 @@ import logging
 from dataclasses import dataclass, field, is_dataclass
 from multiprocessing.connection import Listener, Client
 from .types import Method, MethodInfo
-from .utils import partialmethod
+from .utils import partialmethod, cached_property
 
 
 PACKAGE_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -63,7 +62,7 @@ def start_backend(method: Method, params: ConnectionParams, address: str = "loca
                         fn = getattr(method, msg["method"])
                         result = fn(*inject_callables(msg["args"], conn, mid), **inject_callables(msg["kwargs"], conn, mid))
                         if inspect.isgeneratorfunction(fn):
-                            for r in enumerate(result):
+                            for r in result:
                                 conn.send({"message": "yield", "id": mid, "yield": r})
                             result = None
                         conn.send({"message": "result", "id": mid, "result": result})
@@ -306,7 +305,8 @@ start_backend(method, ConnectionParams(port=int(os.environ["NB_PORT"]), authkey=
 """
         return [self.python_path, "-c", code]
 
-    def _get_isolated_env(self):
+    @classmethod
+    def _get_isolated_env(cls):
         safe_env = {
             "PATH", "HOME", "USER", "LDLIBRARYPATH",
              "CXX", "CC", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"}
