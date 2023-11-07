@@ -1,16 +1,17 @@
 # pylint: disable=import-error,import-outside-toplevel
+import struct
 import math
 import contextlib
 import json
 import os
-import numpy as np
 from pathlib import Path
 from typing import Optional, Iterable
 import tempfile
+import numpy as np
 from PIL import Image, ImageOps
 from ..distortion import Distortions, CameraModel
 from ..types import Dataset, Method, MethodInfo, ProgressCallback, CurrentProgress
-from ..backends import DockerMethod
+from ..backends import DockerMethod, ApptainerMethod
 from ..registry import MethodSpec
 
 
@@ -49,6 +50,13 @@ def closest_point_2_lines(oa, da, ob, db): # returns point closest to both rays 
         tb = 0
     return (oa+ta*da+ob+tb*db) * 0.5, denom
 
+def srgb_to_linear(img):
+    limit = 0.04045
+    return np.where(img > limit, np.power((img + 0.055) / 1.055, 2.4), img / 12.92)
+
+def linear_to_srgb(img):
+    limit = 0.0031308
+    return np.where(img > limit, 1.055 * (img ** (1.0 / 2.4)) - 0.055, 12.92 * img)
 
 def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale=None, aabb_scale=None, keep_coords=None, **kwargs):
     frames = []
@@ -91,7 +99,7 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
         bottom = np.array([0.0, 0.0, 0.0, 1.0]).reshape([1, 4])
         up = np.zeros(3)
         name = str(dataset.file_paths[i])
-        b = sharpness(name) if os.path.exists(name) else 1.0
+        # b = sharpness(name) if os.path.exists(name) else 1.0
         c2w = dataset.camera_poses[i, :3, :4]
         c2w = np.concatenate([c2w[0:3, 0:4], bottom], 0)
 
@@ -130,21 +138,17 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
             totp /= totw
         offset_mat = np.eye(4, dtype=R.dtype)
         offset_mat[0:3,3] = -totp
-
-        for f in frames:
-            f["transform_matrix"][0:3,3] -= totp
         dataparser_transform = R
     elif dataparser_transform is None:
         dataparser_transform = np.eye(4, dtype=np.float32)
 
     # Compute scale
     if dataparser_scale is None and not keep_coords:
-        if not keep_coords:
-            avglen = 0.
-            for f in frames:
-                avglen += np.linalg.norm(f["transform_matrix"][0:3,3])
-            avglen /= nframes
-            dataparser_scale = float(4.0 / avglen) # scale to "nerf sized"
+        avglen = 0.
+        for f in frames:
+            avglen += np.linalg.norm(f["transform_matrix"][0:3,3])
+        avglen /= nframes
+        dataparser_scale = float(4.0 / avglen) # scale to "nerf sized"
     elif dataparser_scale is None:
         dataparser_scale = 1.0
 
@@ -153,20 +157,11 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
         f["transform_matrix"][0:3,3] *= dataparser_scale
         f["transform_matrix"] = f["transform_matrix"].tolist()
 
-    # TODO: handle masks
-    assert dataset.sampling_mask_paths is None
-    # output_mask = np.zeros((img.shape[0], img.shape[1]))
-    # NOTE: mask is 1 for rays to skip and 0 for rays to use
-    # rgb_path = Path(frame["file_path"])
-    # mask_name = str(rgb_path.parents[0] / Path("dynamic_mask_" + rgb_path.name.replace(".jpg", ".png")))
-    # cv2.imwrite(mask_name, (output_mask*255).astype(np.uint8))
-    out = {
-        "frames": frames
-    }
+    out = {"frames": frames}
     if aabb_scale is not None:
         out["aabb_scale"] = aabb_scale
     return out, dict(
-        dataparser_transform=dataparser_transform, 
+        dataparser_transform=dataparser_transform,
         dataparser_scale=dataparser_scale,
         aabb_scale=aabb_scale,
         keep_coords=keep_coords,
@@ -186,8 +181,9 @@ class InstantNGP(Method):
 
     @property
     def info(self):
-        return MethodInfo(
-            supports_undistortion=True)
+        return MethodInfo(num_iterations=35_000,
+                          required_features=frozenset(("images",)),
+                          supports_undistortion=True)
 
     def _setup(self, train_transforms):
         import pyngp as ngp
@@ -228,26 +224,45 @@ class InstantNGP(Method):
             testbed.nerf.training.random_bg_color = False
         self.testbed = testbed
 
-    def setup_train(self, train_dataset: Dataset, *, num_iterations: int):
-        # Write images
+    def _write_images(self, dataset: Dataset, tmpdir: str):
         from tqdm import tqdm
-        tmpdir = self._tempdir.name
-        for i, impath_source in enumerate(tqdm(train_dataset.file_paths, desc="caching images")):
+        for i, impath_source in enumerate(tqdm(dataset.file_paths, desc="caching images")):
             impath_source = Path(impath_source)
-            impath_target = Path(tmpdir) / impath_source.relative_to(train_dataset.file_paths_root)
+            impath_target = Path(tmpdir) / impath_source.relative_to(dataset.file_paths_root)
+            dataset.file_paths[i] = impath_target
             impath_target.parent.mkdir(parents=True, exist_ok=True)
             if impath_target.exists():
                 continue
+            width, height = dataset.image_sizes[i]
             if impath_source.exists():
                 impath_target.symlink_to(impath_source)
             else:
-                image = Image.fromarray(train_dataset.images[i])
-                image.save(str(impath_target.with_suffix(".png")))
-            if train_dataset.sampling_masks is not None:
-                mask = train_dataset.sampling_masks[i]
-                mask = Image.fromarray(mask, mode="L")
+                img = dataset.images[i][:height, :width]
+                if dataset.color_space == "srgb":
+                    impath_target = impath_target.with_suffix(".png")
+                    dataset.file_paths[i] = impath_target
+                    image = Image.fromarray(img)
+                    image.save(str(impath_target))
+                elif dataset.color_space == "linear":
+                    impath_target = impath_target.with_suffix(".bin")
+                    dataset.file_paths[i] = impath_target
+                    if img.shape[2] < 4:
+                        img = np.dstack((img, np.ones([img.shape[0], img.shape[1], 4 - img.shape[2]])))
+                    with open(str(impath_target), "wb") as f:
+                        f.write(struct.pack("ii", img.shape[0], img.shape[1]))
+                        f.write(img.astype(np.float16).tobytes())
+            if dataset.sampling_masks is not None:
+                mask = dataset.sampling_masks[i]
+                mask = Image.fromarray(mask[:height, :width], mode="L")
                 mask = ImageOps.invert(mask)
-                mask.save(str(impath_target.with_name(f"dynamic_mask_{impath_target.name}")))
+                maskname = impath_target.with_name(f"dynamic_mask_{impath_target.name}")
+                dataset.sampling_masks[i] = maskname
+                mask.save(str(maskname))
+
+    def setup_train(self, train_dataset: Dataset, *, num_iterations: int):
+        # Write images
+        tmpdir = self._tempdir.name
+        self._write_images(train_dataset, tmpdir)
 
         current_step = 0
         if self.checkpoint is not None:
@@ -272,7 +287,8 @@ class InstantNGP(Method):
             self._train_transforms, self.dataparser_params = get_transforms(train_dataset,
                                                                             aabb_scale=aabb_scale,
                                                                             keep_coords=keep_coords,
-                                                                            nerf_compatibility=nerf_compatibility)
+                                                                            nerf_compatibility=nerf_compatibility,
+                                                                            color_space=train_dataset.color_space)
         with (Path(tmpdir) / "transforms.json").open("w") as f:
             json.dump(self._train_transforms, f)
         assert "nerf_compatibility" in self.dataparser_params
@@ -306,63 +322,68 @@ class InstantNGP(Method):
         }
 
     def save(self, path: Path):
-        os.makedirs(path, exist_ok=True)
+        path = Path(path)
+        path.mkdir(parents=True, exist_ok=True)
         with (path/"meta.json").open("w") as f:
             out = self.dataparser_params.copy()
             out["dataparser_transform"] = out["dataparser_transform"].tolist()
             json.dump({
                 "dataparser_params": out,
                 "step": self.testbed.training_step,
-            }, f, offset=2)
+            }, f, indent=2)
         with (path/"train_transforms.json").open("w") as f:
-            json.dump(self._train_transforms, f, offset=2)
-        self.testbed.save_snapshot(path / "checkpoint.ingp", False)
+            json.dump(self._train_transforms, f, indent=2)
+        self.testbed.save_snapshot(str(path / "checkpoint.ingp"), False)
 
     @contextlib.contextmanager
-    def _with_eval_setup(self, 
+    def _with_eval_setup(self,
                          poses: np.ndarray,
                          intrinsics: np.ndarray,
                          sizes: np.ndarray,
                          nears_fars: np.ndarray,
                          distortions: Optional[Distortions] = None):
-        tmpdir = self._tempdir.name
-        dataset = Dataset(
-            camera_poses=poses,
-            camera_intrinsics_normalized=intrinsics/sizes[..., :1],
-            image_sizes=sizes,
-            nears_fars=nears_fars,
-            camera_distortions=distortions,
-            sampling_mask_paths=None,
-            file_paths=[f"{i:06d}.png" for i in range(len(poses))])
-        with (Path(tmpdir) / "transforms.json").open("w") as f:
-            json.dump(get_transforms(dataset, **self.dataparser_params)[0], f)
-
-        old_testbed_background_color = self.testbed.background_color
-        old_testbed_snap_to_pixel_centers = self.testbed.snap_to_pixel_centers
-        old_testbed_render_min_transmittance = self.testbed.nerf.render_min_transmittance
-        old_testbed_shall_train = self.testbed.shall_train
-        try:
-            # Evaluate metrics on black background
-            self.testbed.background_color = [0.0, 0.0, 0.0, 1.0]
-
-            # Prior nerf papers don't typically do multi-sample anti aliasing.
-            # So snap all pixels to the pixel centers.
-            self.testbed.snap_to_pixel_centers = True
-
-            self.testbed.nerf.render_min_transmittance = 1e-4
-
-            self.testbed.shall_train = False
-            self.testbed.load_training_data(str(Path(tmpdir) / "transforms.json"))
-            yield self.testbed
-
-        finally:
-            self.testbed.background_color = old_testbed_background_color
-            self.testbed.snap_to_pixel_centers = old_testbed_snap_to_pixel_centers
-            self.testbed.nerf.render_min_transmittance = old_testbed_render_min_transmittance
-            self.testbed.shall_train = old_testbed_shall_train
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dataset = Dataset(
+                camera_poses=poses,
+                camera_intrinsics_normalized=intrinsics/sizes[..., :1],
+                image_sizes=sizes,
+                nears_fars=nears_fars,
+                camera_distortions=distortions,
+                sampling_mask_paths=None,
+                images=[np.zeros((h, w, 3), dtype=np.uint8) for w, h in sizes],
+                file_paths_root="eval",
+                file_paths=[f"eval/{i:06d}.png" for i in range(len(poses))],
+                color_space=self.dataparser_params["color_space"])
+            self._write_images(dataset, tmpdir)
             with (Path(tmpdir) / "transforms.json").open("w") as f:
-                json.dump(self._train_transforms, f)
-            self.testbed.load_training_data(str(Path(tmpdir) / "transforms.json"))
+                json.dump(get_transforms(dataset, **self.dataparser_params)[0], f)
+
+            old_testbed_background_color = self.testbed.background_color
+            old_testbed_snap_to_pixel_centers = self.testbed.snap_to_pixel_centers
+            old_testbed_render_min_transmittance = self.testbed.nerf.render_min_transmittance
+            old_testbed_shall_train = self.testbed.shall_train
+            try:
+                # Evaluate metrics on black background
+                self.testbed.background_color = [0.0, 0.0, 0.0, 1.0]
+
+                # Prior nerf papers don't typically do multi-sample anti aliasing.
+                # So snap all pixels to the pixel centers.
+                self.testbed.snap_to_pixel_centers = True
+
+                self.testbed.nerf.render_min_transmittance = 1e-4
+
+                self.testbed.shall_train = False
+                self.testbed.load_training_data(str(Path(tmpdir) / "transforms.json"))
+                yield self.testbed
+
+            finally:
+                self.testbed.background_color = old_testbed_background_color
+                self.testbed.snap_to_pixel_centers = old_testbed_snap_to_pixel_centers
+                self.testbed.nerf.render_min_transmittance = old_testbed_render_min_transmittance
+                self.testbed.shall_train = old_testbed_shall_train
+                with (Path(self._tempdir.name) / "transforms.json").open("w") as f:
+                    json.dump(self._train_transforms, f)
+                self.testbed.load_training_data(str(Path(self._tempdir.name) / "transforms.json"))
 
     def render(self,
                poses: np.ndarray,
@@ -371,16 +392,35 @@ class InstantNGP(Method):
                nears_fars: np.ndarray,
                distortions: Optional[Distortions] = None,
                progress_callback: Optional[ProgressCallback] = None) -> Iterable[np.ndarray]:
+        import pyngp as ngp
         if self.dataparser_params is None:
             self._setup_eval()
         with self._with_eval_setup(poses, intrinsics, sizes, nears_fars, distortions) as testbed:
             spp = 8
             if progress_callback:
                 progress_callback(CurrentProgress(0, len(poses), 0, len(poses)))
-            for i in range(testbed.training.dataset.n_images):
+            for i in range(testbed.nerf.training.dataset.n_images):
                 resolution = testbed.nerf.training.dataset.metadata[i].resolution
-                image = testbed.render(resolution[0], resolution[1], spp, True)
-                yield image.detach().cpu().numpy()
+                testbed.set_camera_to_training_view(i)
+                testbed.render_mode = ngp.RenderMode.Shade
+                image = np.copy(testbed.render(resolution[0], resolution[1], spp, True))
+
+                # Unmultiply by alpha
+                image[...,0:3] = np.divide(image[...,0:3], image[...,3:4], out=np.zeros_like(image[...,0:3]), where=image[...,3:4] != 0)
+                old_render_mode = testbed.render_mode
+                testbed.render_mode = ngp.RenderMode.Depth
+                depth = np.copy(testbed.render(resolution[0], resolution[1], spp, True))
+                # testbed.render_mode = ngp.RenderMode.Normals
+                # normals = testbed.render(resolution[0], resolution[1], spp, True)
+                testbed.render_mode = old_render_mode
+
+                # If input color was in sRGB, we map back to sRGB here
+                if self.dataparser_params["color_space"] == "srgb":
+                    image = linear_to_srgb(image)
+                yield {
+                    "color": image,
+                    "depth": depth,
+                }
                 if progress_callback:
                     progress_callback(CurrentProgress(i+1, len(poses), i+1, len(poses)))
 
@@ -395,6 +435,11 @@ InstantNGPSpec = MethodSpec(
     docker=DockerMethod.wrap(
         InstantNGP,
         image="kulhanek/ingp:latest",
+        python_path="python3",
+        home_path="/root"),
+    apptainer=ApptainerMethod.wrap(
+        InstantNGP,
+        image="docker://kulhanek/ingp:latest",
         python_path="python3",
         home_path="/root"))
 InstantNGPSpec.register("instant-ngp")

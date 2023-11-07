@@ -1,3 +1,4 @@
+import struct
 import sys
 import json
 import hashlib
@@ -15,8 +16,8 @@ import numpy as np
 from PIL import Image
 import click
 from .datasets import load_dataset, Dataset, dataset_load_features
-from .utils import Indices, setup_logging, partialclass
-from .types import Method, CurrentProgress
+from .utils import Indices, setup_logging, partialclass, convert_image_dtype, linear_to_srgb
+from .types import Method, CurrentProgress, ColorSpace
 from . import registry
 
 
@@ -52,6 +53,10 @@ def compute_exponential_gamma(num_iters: int, initial_lr: float, final_lr: float
 
 
 def compute_image_metrics(pred, gt):
+    # NOTE: we blend with black background here!
+    pred = pred[..., :gt.shape[-1]]
+    pred = convert_image_dtype(pred, np.float32)
+    gt = convert_image_dtype(gt, np.float32)
     mse = ((pred - gt)**2).mean()
     return {
         "mse": mse,
@@ -72,6 +77,7 @@ class Trainer:
                  eval_single_iters: Indices = Indices.every_iters(1_000),
                  eval_all_iters: Indices = Indices([-1]),
                  use_wandb: bool = True,
+                 color_space: Optional[ColorSpace] = None,
                  ):
         self.method_name = method.method_name
         self.method = method()
@@ -108,6 +114,7 @@ class Trainer:
         self._wandb = None
         self._average_image_size = None
         self._installed = False
+        self._color_space = color_space
 
     def install(self):
         if self._installed:
@@ -128,6 +135,13 @@ class Trainer:
         dataset_load_features(self.test_dataset, self.method.info.required_features.union({"images"}))
         self.method.setup_train(train_dataset, num_iterations=self.num_iterations)
 
+        assert train_dataset.color_space is not None
+        if self._color_space is not None and self._color_space != train_dataset.color_space:
+            raise RuntimeError(f"train dataset color space {train_dataset.color_space} != {self._color_space}")
+        self._color_space = train_dataset.color_space
+        if self.test_dataset.color_space != self._color_space:
+            raise RuntimeError(f"train dataset color space {self._color_space} != test dataset color space {self.test_dataset.color_space}")
+
     def save(self):
         path = os.path.join(self.output, f"checkpoint-{self.step}")
         os.makedirs(os.path.join(self.output, f"checkpoint-{self.step}"), exist_ok=True)
@@ -135,6 +149,7 @@ class Trainer:
         with open(os.path.join(path, "nb-info.json"), mode="w+", encoding="utf8") as f:
             json.dump({
                 "method": self.method_name,
+                "color_space": self._color_space,
             }, f)
         logging.info(f"checkpoint saved at step={self.step}")
 
@@ -214,12 +229,17 @@ class Trainer:
         with tarfile.open(output, "w:gz") as tar, \
             tqdm(desc=f"rendering all images at step={self.step}") as pbar:
 
-            def save_image(path, tensor):
-                if tensor.dtype != np.uint8:
-                    tensor = (tensor * 255.).astype(np.uint8)
-                image = Image.fromarray(tensor.numpy())
+            def _save_image(path, tensor):
                 with io.BytesIO() as f:
-                    image.save(f, format="png")
+                    if str(path).endswith(".bin"):
+                        if img.shape[2] < 4:
+                            img = np.dstack((img, np.ones([img.shape[0], img.shape[1], 4 - img.shape[2]])))
+                        f.write(struct.pack("ii", img.shape[0], img.shape[1]))
+                        f.write(img.astype(np.float16).tobytes())
+                    else:
+                        tensor = convert_image_dtype(tensor, np.uint8)
+                        image = Image.fromarray(tensor)
+                        image.save(f, format="png")
                     f.seek(0)
                     tar.addfile(tarfile.TarInfo(path), f)
 
@@ -244,20 +264,24 @@ class Trainer:
             )
             for gt, name, pred in zip(self.test_dataset.images, self.test_dataset.file_paths, predictions):
                 name = str(Path(name).relative_to(prefix).with_suffix(""))
-                color_f = pred["color"]
-                assert color_f.dtype == np.float32
-                color = np.clip(color_f * 255., 0, 255).astype(np.uint8)
+                color = pred["color"]
 
-                save_image(f"gt/{name}.png", gt)
-                save_image(f"color/{name}.png", color)
+                color_srgb = self._get_srgb(color, np.uint8)
+                gt_srgb = self._get_srgb(gt, np.uint8)
+
+                _save_image(f"gt/{name}.png", gt_srgb)
+                _save_image(f"color/{name}.png", color_srgb)
+                if self._color_space == "linear":
+                    _save_image(f"gt-raw/{name}.bin", gt)
+                    _save_image(f"color-raw/{name}.bin", color)
 
                 if metrics is not None:
-                    for k, v in compute_image_metrics(color_f, gt.astype(np.float32) / 255.).items():
+                    for k, v in compute_image_metrics(color_srgb, gt_srgb).items():
                         if k not in metrics:
                             metrics[k] = 0
                         metrics[k] += v
                 if len(vis_images) < num_vis_images:
-                    vis_images.append((gt, color))
+                    vis_images.append((gt_srgb, color_srgb))
             elapsed = time.perf_counter() - start
 
         # Log to wandb
@@ -282,6 +306,18 @@ class Trainer:
     def close(self):
         if self.method is not None and hasattr(self.method, "close"):
             self.method.close()
+
+    def _get_srgb(self, tensor, dtype):
+        # NOTE: here we blend with black background
+        tensor = tensor[..., :3]
+
+        if self._color_space == "linear":
+            tensor = convert_image_dtype(tensor, np.float32)
+            tensor = linear_to_srgb(tensor)
+
+        tensor = convert_image_dtype(tensor, np.uint8)
+        tensor = convert_image_dtype(tensor, dtype)
+        return tensor
 
     def eval_single(self):
         if self.test_dataset is None:
@@ -315,28 +351,36 @@ class Trainer:
             logging.debug("logging image to wandb")
             metrics = {}
             gt = self.test_dataset.images[idx]
-            gt_f = gt.astype(np.float32) / 255.
-            color_f = predictions["color"]
-            metrics = compute_image_metrics(color_f, gt_f)
+            color = predictions["color"]
+
+            color_srgb = self._get_srgb(color, np.uint8)
+            gt_srgb = self._get_srgb(gt, np.uint8)
+            metrics = compute_image_metrics(color_srgb, gt_srgb)
             image_path = dataset_slice.file_paths[0]
             if dataset_slice.file_paths_root is not None:
                 image_path = Path(image_path).relative_to(dataset_slice.file_paths_root)
 
-            color = np.clip(color_f * 255., 0, 255).astype(np.uint8)
             metrics["image-id"] = idx
             metrics["fps"] = 1 / elapsed
             metrics["rays-per-second"] = total_rays / elapsed
             metrics["time"] = elapsed
             self.log_metrics(metrics, "eval-single-image/")
-
-            self._wandb.log({
+            log_image = {
                 "eval-single-image/color": [
                     self._wandb.Image(make_grid(
-                        gt,
-                        color,
+                        gt_srgb,
+                        color_srgb,
                     ), caption=f"{image_path}: left: gt, right: prediction")
                 ],
-            }, step=self.step)
+            }
+            if "depth" in predictions:
+                # TODO: map depth to RGB
+                log_image["eval-single-image/depth"] = [
+                    self._wandb.Image(predictions["depth"], caption=f"{image_path}: depth")
+                ]
+
+            self._wandb.log(log_image, step=self.step)
+
 
 
 @click.command("train")

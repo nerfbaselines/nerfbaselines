@@ -11,7 +11,7 @@ from ..types import Method, MethodInfo, CurrentProgress, ProgressCallback
 from ..datasets import Dataset
 from ..distortion import CameraModel, Distortions
 from ..registry import MethodSpec
-from ..utils import cached_property
+from ..utils import cached_property, convert_image_dtype
 
 
 def _load_cam(pose, intrinsics, camera_id, image_name, image_size, device=None):
@@ -155,16 +155,21 @@ class GaussianSplatting(Method):
         self.background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
 
     @cached_property
-    def info(self) -> MethodInfo:
-        info = MethodInfo(
-            loaded_step=None,
-            required_features=frozenset(("images", "points3D_xyz")),
-            supports_undistortion=False,
-            num_iterations=self.opt.iterations)
+    def _loaded_step(self):
+        loaded_step = None
         if self.checkpoint is not None:
             if not os.path.exists(self.checkpoint):
                 raise RuntimeError(f"Model directory {self.checkpoint} does not exist")
-            info.loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(self.checkpoint) if x.startswith("chkpnt-"))[-1]
+            loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(self.checkpoint) if x.startswith("chkpnt-"))[-1]
+        return loaded_step
+
+    @property
+    def info(self) -> MethodInfo:
+        info = MethodInfo(
+            required_features=frozenset(("images", "points3D_xyz")),
+            supports_undistortion=False,
+            num_iterations=self.opt.iterations,
+            loaded_step=self._loaded_step)
         return info
 
     def _build_scene(self, dataset):
@@ -204,8 +209,9 @@ class GaussianSplatting(Method):
                 global_i += int(sizes[i].prod(-1))
                 if progress_callback:
                     progress_callback(CurrentProgress(global_i, global_total, i+1, len(poses)))
+                color = image.detach().permute(1,2,0).cpu().numpy()
                 yield {
-                    "color": image.detach().permute(1,2,0).cpu().numpy()
+                    "color": color,
                 }
 
     def train_iteration(self, step):

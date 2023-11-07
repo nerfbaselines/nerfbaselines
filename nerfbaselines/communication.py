@@ -16,7 +16,7 @@ import logging
 from dataclasses import dataclass, field, is_dataclass
 from multiprocessing.connection import Listener, Client
 from .types import Method, MethodInfo
-from .utils import partialmethod, cached_property
+from .utils import partialmethod
 
 
 PACKAGE_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -130,7 +130,7 @@ class RemoteMethod(Method):
             kwargs = dict(**self.kwargs, checkpoint=checkpoint)
         return base64.b64encode(pickle.dumps((self.args, kwargs))).decode("ascii")
 
-    @cached_property
+    @property
     def info(self) -> MethodInfo:
         return self._get("info")
 

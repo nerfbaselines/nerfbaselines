@@ -1,3 +1,4 @@
+import struct
 import os
 import dataclasses
 from collections import OrderedDict
@@ -40,7 +41,17 @@ def dataset_load_features(dataset: Dataset, required_features):
     images = []
     image_sizes = []
     for p in tqdm(dataset.file_paths, desc="loading images"):
-        image = np.array(PIL.Image.open(p).convert("RGB"), dtype=np.uint8)
+        if str(p).endswith(".bin"):
+            assert dataset.color_space is None or dataset.color_space == "linear"
+            with open(p, "rb") as f:
+                data_bytes = f.read()
+                h, w = struct.unpack("ii", data_bytes[:8])
+                image = np.frombuffer(data_bytes, dtype=np.float16, count=h*w*4, offset=8).astype(np.float32).reshape([h, w, 4])
+            dataset.color_space = "linear"
+        else:
+            assert dataset.color_space is None or dataset.color_space == "srgb"
+            image = np.array(PIL.Image.open(p).convert("RGB"), dtype=np.uint8)
+            dataset.color_space = "srgb"
         images.append(image)
         image_sizes.append([image.shape[1], image.shape[0]])
 

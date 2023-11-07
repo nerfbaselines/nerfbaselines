@@ -10,19 +10,9 @@ from tqdm import tqdm
 import numpy as np
 from PIL import Image
 from .datasets import load_dataset, Dataset, dataset_load_features
-from .utils import setup_logging
+from .utils import setup_logging, convert_image_dtype
 from .types import Method, CurrentProgress
 from . import registry
-
-
-def convert_image_dtype(image, dtype):
-    if image.dtype == dtype:
-        return image
-    if image.dtype == np.uint8 and dtype == np.float32:
-        return image.astype(np.float32) / 255.
-    if image.dtype == np.float32 and dtype == np.uint8:
-        return np.clip(image * 255., 0, 255).astype(np.uint8)
-    raise ValueError(f"cannot convert image from {image.dtype} to {dtype}")
 
 
 def render_all_images(method: Method, dataset: Dataset, output: Path):
@@ -96,6 +86,8 @@ def render_command(checkpoint, data, output, split, verbose, backend):
     method = method_cls()
     try:
         dataset = load_dataset(Path(data), split=split, features=method.info.required_features)
+        if dataset.color_space != ns_info["color_space"]:
+            raise RuntimeError(f"Dataset color space {dataset.color_space} != method color space {ns_info['color_space']}")
         dataset_load_features(dataset, method.info.required_features)
         render_all_images(method, dataset, output=Path(output))
     finally:

@@ -18,6 +18,9 @@ from .distortion import Distortions
 from .utils import get_rays
 
 
+ColorSpace = Literal["srgb", "linear"]
+
+
 @dataclass
 class Dataset:
     camera_poses: np.ndarray  # [N, (R, t)]
@@ -37,6 +40,7 @@ class Dataset:
     points3D_rgb: Optional[np.ndarray] = None  # [M, 3]
 
     metadata: Optional[dict] = field(default_factory=dict)
+    color_space: Optional[ColorSpace] = None
 
     @property
     def camera_intrinsics(self):
@@ -72,7 +76,7 @@ class Dataset:
             raise ValueError(f"Cannot index object of type {type(obj)}")
         return dataclasses.replace(self, **{
             k: index(v) for k, v in self.__dict__.items()
-            if k not in {"file_paths_root", "points3D_xyz", "points3D_rgb", "metadata"}
+            if k not in {"file_paths_root", "points3D_xyz", "points3D_rgb", "metadata", "color_space"}
         })
 
 

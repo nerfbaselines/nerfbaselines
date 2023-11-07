@@ -16,7 +16,7 @@ from ..registry import MethodSpec
 from ..distortion import Distortions, CameraModel
 from ..backends.docker import DockerMethod
 from ..backends.conda import CondaMethod
-from ..utils import cached_property
+from ..utils import cached_property, convert_image_dtype
 
 
 # Hack to add progress to existing models
@@ -147,9 +147,14 @@ class NerfStudio(Method):
             global_i += int(sizes[i].prod(-1))
             if progress_callback:
                 progress_callback(CurrentProgress(global_i, global_total, i+1, len(poses)))
-            yield {
-                "color": outputs["rgb"].detach().cpu().numpy(),
+            color = self._trainer.pipeline.model.get_rgba_image(outputs)
+            color = color.detach().cpu().numpy()
+            out = {
+                "color": color,
             }
+            if "depth" in outputs:
+                out["depth"] = outputs["depth"].view(*outputs["depth"].shape[:2]).detach().cpu().numpy()
+            yield out
         self._trainer.pipeline.train()
 
     def _transform_poses(self, poses):

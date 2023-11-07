@@ -114,3 +114,21 @@ def get_rays(camera_poses: np.ndarray, # [batch 3 4]
     directions = directions / norm
     origins = camera_poses[..., :3, 3].expand(out_shape + (3,))
     return origins, directions
+
+
+def convert_image_dtype(image, dtype):
+    if image.dtype == dtype:
+        return image
+    if image.dtype == np.uint8 and dtype == np.float32:
+        return image.astype(np.float32) / 255.
+    if image.dtype == np.float32 and dtype == np.uint8:
+        return np.clip(image * 255., 0, 255).astype(np.uint8)
+    raise ValueError(f"cannot convert image from {image.dtype} to {dtype}")
+
+def srgb_to_linear(img):
+    limit = 0.04045
+    return np.where(img > limit, np.power((img + 0.055) / 1.055, 2.4), img / 12.92)
+
+def linear_to_srgb(img):
+    limit = 0.0031308
+    return np.where(img > limit, 1.055 * (img ** (1.0 / 2.4)) - 0.055, 12.92 * img)

@@ -1,3 +1,4 @@
+import copy
 import os
 import importlib
 import dataclasses
@@ -83,7 +84,7 @@ class MethodSpec:
 
     @property
     def implemented_backends(self) -> FrozenSet[Backend]:
-        backends = set("python")
+        backends = set(("python",))
         if self.conda is not None:
             backends.add("conda")
             backends.add("docker")
