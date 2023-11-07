@@ -12,9 +12,9 @@ from typing import Iterable, Optional
 import numpy as np
 from ..types import Method, ProgressCallback, CurrentProgress, MethodInfo
 from ..types import Dataset
-from ..registry import MethodSpec
+from ..registry import MethodSpec, DEFAULT_DOCKER_IMAGE
 from ..distortion import Distortions, CameraModel
-from ..backends.docker import DockerMethod
+from ..backends.docker import DockerMethod, ApptainerMethod
 from ..backends.conda import CondaMethod
 from ..utils import cached_property, convert_image_dtype
 
@@ -51,8 +51,9 @@ def _hacked_get_outputs_for_camera_ray_bundle(self, camera_ray_bundle, update_ca
 
 class NerfStudio(Method):
     nerfstudio_name: Optional[str] = None
+    require_points3D: bool = False
 
-    def __init__(self, nerfstudio_name: Optional[str] = None, checkpoint: str = None):
+    def __init__(self, nerfstudio_name: Optional[str] = None, checkpoint: str = None, require_points3D: Optional[bool] = None):
         self.checkpoint = checkpoint
         self.nerfstudio_name = nerfstudio_name or self.nerfstudio_name
         if checkpoint is not None:
@@ -64,8 +65,8 @@ class NerfStudio(Method):
             config.get_base_dir = lambda *_: Path(checkpoint)
             config.load_dir = config.get_checkpoint_dir()
         elif self.nerfstudio_name is not None:
-            from nerfstudio.configs.method_configs import method_configs
-            config = method_configs[self.nerfstudio_name]
+            from nerfstudio.configs.method_configs import all_methods
+            config = all_methods[self.nerfstudio_name]
             self._original_config = copy.deepcopy(config)
         else:
             raise ValueError("Either checkpoint or name must be provided")
@@ -77,6 +78,7 @@ class NerfStudio(Method):
         self._tmpdir = tempfile.TemporaryDirectory()
         self._mode = None
         self.dataparser_params = None
+        self.require_points3D = require_points3D if require_points3D is not None else self.require_points3D
 
     @property
     def batch_size(self):
@@ -84,10 +86,13 @@ class NerfStudio(Method):
 
     @cached_property
     def info(self) -> MethodInfo:
+        features = ("images",)
+        if self.require_points3D:
+            features = features + ("points3D_xyz", "points3D_rgb")
         info = MethodInfo(
             loaded_step=None,
             num_iterations=self.config.max_num_iterations,
-            required_features=frozenset(("images",)),
+            required_features=frozenset(features),
             supports_undistortion=True,
             batch_size=self.config.pipeline.datamanager.train_num_rays_per_batch,
             eval_batch_size=self.config.pipeline.model.eval_num_rays_per_chunk)
@@ -278,13 +283,17 @@ class NerfStudio(Method):
                                   width=torch.from_numpy(train_dataset.image_sizes[..., 0]).long().contiguous(),
                                   height=torch.from_numpy(train_dataset.image_sizes[..., 1]).long().contiguous(),
                                   camera_type=torch.tensor(camera_types, dtype=torch.long))
+                metadata = {}
+                if method.require_points3D:
+                    metadata["points3D_xyz"] = torch.from_numpy(train_dataset.points3D_xyz).float()
+                    metadata["points3D_rgb"] = torch.from_numpy(train_dataset.points3D_rgb)
                 return DataparserOutputs(
                     image_names,
                     cameras,
                     method.dataparser_params.get("alpha_color", None),
                     scene_box,
                     image_names if train_dataset.sampling_masks else None,
-                    {},
+                    metadata,
                     dataparser_transform=method.dataparser_params["dataparser_transform"][..., :3, :].contiguous(), # pylint: disable=protected-access
                     dataparser_scale=method.dataparser_params["dataparser_scale"]) # pylint: disable=protected-access
         self.config.pipeline.datamanager.dataparser._target = CustomDataParser # pylint: disable=protected-access
@@ -451,7 +460,10 @@ NerfStudioSpec = MethodSpec(
         NerfStudio,
         image="dromni/nerfstudio:0.3.4",
         python_path="python3",
-        home_path="/home/user"))
+        home_path="/home/user"),
+    apptainer=ApptainerMethod.wrap(
+        NerfStudioConda,
+        image="docker://" + DEFAULT_DOCKER_IMAGE))
 
 # Register supported methods
 NerfStudioSpec.register("nerfacto", nerfstudio_name="nerfacto")

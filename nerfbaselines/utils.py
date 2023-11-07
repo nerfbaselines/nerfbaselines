@@ -46,6 +46,9 @@ def setup_logging(verbose: bool):
 def partialmethod(func, *args, **kwargs):
     def wrapped(self, *args2, **kwargs2):
         return func(self, *args, *args2, **kwargs, **kwargs2)
+    wrapped.__original_func__ = func
+    wrapped.__args__ = args
+    wrapped.__kwargs__ = kwargs
     return wrapped
 
 

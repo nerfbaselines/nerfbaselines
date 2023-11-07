@@ -275,7 +275,7 @@ class RemoteProcessMethod(RemoteMethod):
             if remote_kwargs:
                 ns["__init__"] = partialmethod(cls.__init__, **remote_kwargs)
             for k, v in remote_kwargs.items():
-                if k in method.__dict__ or k in cls.__dict__:
+                if k in method.__dict__ or k in cls.__dict__ or k in RemoteProcessMethod.__dict__:
                     ns[k] = v
             return ns
         return types.new_class(method.__name__, bases=bases, exec_body=build)

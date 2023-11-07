@@ -91,6 +91,7 @@ class MethodSpec:
             backends.add("apptainer")
         if self.docker is not None:
             backends.add("docker")
+            backends.add("apptainer")
         if self.apptainer is not None:
             backends.add("apptainer")
         return backends
@@ -116,6 +117,8 @@ class MethodSpec:
         elif backend == "apptainer":
             if self.apptainer is not None:
                 method = self.apptainer
+            elif self.docker is not None:
+                method = self.docker.to_apptainer()
             elif self.conda is not None:
                 method = ApptainerMethod.wrap(
                     self.conda,

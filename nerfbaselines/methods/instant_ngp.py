@@ -436,10 +436,5 @@ InstantNGPSpec = MethodSpec(
         InstantNGP,
         image="kulhanek/ingp:latest",
         python_path="python3",
-        home_path="/root"),
-    apptainer=ApptainerMethod.wrap(
-        InstantNGP,
-        image="docker://kulhanek/ingp:latest",
-        python_path="python3",
         home_path="/root"))
 InstantNGPSpec.register("instant-ngp")

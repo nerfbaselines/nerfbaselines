@@ -1,7 +1,9 @@
+import types
 import os
 from typing import Optional, List, Tuple
 import shlex
 from ..communication import RemoteProcessMethod, PACKAGE_PATH, NB_PREFIX
+from ..utils import partialmethod
 
 
 class ApptainerMethod(RemoteProcessMethod):
@@ -53,6 +55,7 @@ class ApptainerMethod(RemoteProcessMethod):
         return ["apptainer", "exec", "--containall", "--cleanenv",
             "--nv",
             "--bind", "/tmp:/tmp",
+            "--no-home", "-H", self.home_path,
             "--bind", shlex.quote(PACKAGE_PATH) + ":" + shlex.quote(PACKAGE_PATH),
             "--bind", shlex.quote(NB_PREFIX) + ":" + shlex.quote(NB_PREFIX),
             "--bind", shlex.quote(conda_cache) + ":/var/nb-conda-pkgs",
@@ -78,6 +81,7 @@ class ApptainerMethod(RemoteProcessMethod):
         return ["apptainer", "exec", "--containall", "--cleanenv", "--writable-tmpfs",
             "--nv",
             "--bind", "/tmp:/tmp",
+            "--no-home", "-H", self.home_path,
             "--bind", shlex.quote(PACKAGE_PATH) + ":" + shlex.quote(PACKAGE_PATH),
             "--bind", shlex.quote(self._tmp_shared_dir.name) + ":/nb-shared",
             "--bind", shlex.quote(NB_PREFIX) + ":" + shlex.quote(NB_PREFIX),
@@ -117,6 +121,29 @@ class DockerMethod(RemoteProcessMethod):
         self.mounts = list((mounts or []) + (self.mounts or []))
         assert self.image is not None, "DockerMethod requires an image"
 
+    @classmethod
+    def to_apptainer(cls):
+        if cls == DockerMethod:
+            return ApptainerMethod
+        elif len(cls.__bases__) > 0 and DockerMethod == cls.__bases__[0]:
+            bases = tuple(ApptainerMethod if b == DockerMethod else b for b in cls.__bases__)
+            def build(ns):
+                ns["__module__"] = cls.__module__
+                ns["__doc__"] = cls.__doc__
+                for k, v in cls.__dict__.items():
+                    ns[k] = v
+                if "__init__" in ns:
+                    old_init = ns["__init__"]
+                    kwargs = getattr(old_init, "__kwargs__", {})
+                    if "image" in kwargs:
+                        kwargs["image"] = "docker://" + kwargs["image"]
+                    ns["__init__"] = partialmethod(ApptainerMethod.__init__, *getattr(old_init, "__args__", tuple()), **kwargs)
+                ns["image"] = "docker://" + ns["image"]
+                return ns
+            return types.new_class(cls.__name__, bases=bases, exec_body=build)
+        else:
+            raise TypeError(f"Cannot convert {cls} to ApptainerMethod")
+
     @property
     def environments_path(self):
         return os.path.join(NB_PREFIX, "docker-conda-envs")
@@ -152,7 +179,7 @@ class DockerMethod(RemoteProcessMethod):
             "--env", "CONDA_PKGS_DIRS=/var/nb-conda-pkgs",
             "--env", "PIP_CACHE_DIR=/var/nb-pip-cache",
             "--env", "TORCH_HOME=/var/nb-torch",
-            "--env", "HOME=/root",
+            "--env", f"HOME={shlex.quote(self.home_path)}",
             "--env", "NB_PREFIX",
             "--rm", "-it", self.image] + sub_args)
         ]
