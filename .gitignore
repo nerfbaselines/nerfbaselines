@@ -1,2 +1,5 @@
 **/__pycache__
 cu-config.yml
+dist/
+*.egg-info
+.conda/

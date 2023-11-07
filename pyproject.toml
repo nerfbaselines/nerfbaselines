@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nerfbaselines"
+version = "0.0.1"
+authors = [
+  { name="Jonas Kulhanek", email="jonas.kulhanek@live.com" },
+]
+description = "A collection of NeRF baselines for benchmarking"
+readme = "README.md"
+requires-python = ">=3.7"
+license = { text="MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "opencv-python>=4.6.0.66",
+    'typing_extensions>=4.4.0; python_version < "3.8"',
+    "wandb>=0.13.3",
+    "click>=8.0.0",
+    "numpy>=1.19.5",
+    "tqdm>=4.61.1",
+    "Pillow>=8.2.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/jkulhanek/nerfbaselines"
+"Bug Tracker" = "https://github.com/jkulhanek/nerfbaselines/issues"
+
+[project.scripts]
+nerfbaselines = "nerfbaselines.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["nerfbaselines*"]

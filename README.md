@@ -45,3 +45,12 @@ Datasets/features:
 - [ ] Tanks and Temples
 - [ ] Blender
 - [ ] any NerfStudio datasets
+
+## Contributing
+Contributions are very much welcome. Please open a PR with a dataset/method/feature that you want to contribute. The goal of this project is to slowly expand by implementing more and more methods.
+
+## License
+This project is licensed under the MIT license.
+
+## Thanks
+A big thanks to the authors of all implemented methods for the great work they have done.
