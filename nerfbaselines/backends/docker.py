@@ -28,7 +28,8 @@ class ApptainerMethod(RemoteProcessMethod):
     @classmethod
     def _get_isolated_env(cls):
         out = super(ApptainerMethod, cls)._get_isolated_env()
-        out.update({k: v for k, v in os.environ.items() if k.startswith("APPTAINER_")})
+        allowed = {"APPTAINER_IMAGES", "APPTAINER_CACHEDIR"}
+        out.update({k: v for k, v in os.environ.items() if k in allowed})
         return out
 
     @property
@@ -55,6 +56,7 @@ class ApptainerMethod(RemoteProcessMethod):
         return ["apptainer", "exec", "--containall", "--cleanenv",
             "--nv",
             "--bind", "/tmp:/tmp",
+            "--writable-tmpfs",
             "--no-home", "-H", self.home_path,
             "--bind", shlex.quote(PACKAGE_PATH) + ":" + shlex.quote(PACKAGE_PATH),
             "--bind", shlex.quote(NB_PREFIX) + ":" + shlex.quote(NB_PREFIX),
@@ -81,9 +83,10 @@ class ApptainerMethod(RemoteProcessMethod):
         return ["apptainer", "exec", "--containall", "--cleanenv", "--writable-tmpfs",
             "--nv",
             "--bind", "/tmp:/tmp",
+            "--writable-tmpfs",
             "--no-home", "-H", self.home_path,
             "--bind", shlex.quote(PACKAGE_PATH) + ":" + shlex.quote(PACKAGE_PATH),
-            "--bind", shlex.quote(self._tmp_shared_dir.name) + ":/nb-shared",
+            *(("--bind", shlex.quote(self.shared_path[0]) + ":" + shlex.quote(self.shared_path[1])) if self.shared_path is not None else []),
             "--bind", shlex.quote(NB_PREFIX) + ":" + shlex.quote(NB_PREFIX),
             "--bind", shlex.quote(conda_cache) + ":/var/nb-conda-pkgs",
             "--bind", shlex.quote(pip_cache) + ":/var/nb-pip-cache",
@@ -197,7 +200,7 @@ class DockerMethod(RemoteProcessMethod):
             '-v=/etc/shadow:/etc/shadow:ro',
             "-v", shlex.quote(PACKAGE_PATH) + ":" + shlex.quote(PACKAGE_PATH),
             "-v", shlex.quote(NB_PREFIX) + ":" + shlex.quote(NB_PREFIX),
-            "-v", shlex.quote(self._tmp_shared_dir.name) + ":/nb-shared",
+            *(("-v", shlex.quote(self.shared_path[0]) + ":" + shlex.quote(self.shared_path[1])) if self.shared_path is not None else []),
             "-v", shlex.quote(torch_home) + ":/var/nb-torch",
             *[f"-v={shlex.quote(src)}:{shlex.quote(dst)}" for src, dst in self.mounts],
             *([f"-v={shlex.quote(self.checkpoint)}:{shlex.quote(self.checkpoint)}:ro"] if self.checkpoint is not None else []),

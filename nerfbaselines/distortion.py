@@ -1,4 +1,3 @@
-import math
 from enum import Enum
 from dataclasses import dataclass
 import numpy as np
@@ -69,7 +68,7 @@ def _compute_residual_and_jacobian(x, y, xd, yd, distortion_params):
     return fx, fy, fx_x, fx_y, fy_x, fy_y
 
 
-def _radial_and_tangential_undistort(coords, distortion_params, eps: float = 1e-3, max_iterations: int = 10):
+def _radial_and_tangential_undistort(coords, distortion_params, eps: float = 1e-3, max_iterations: int = 10, xnp=np):
     """Computes undistorted coords given opencv distortion parameters.
     Adapted from MultiNeRF
     https://github.com/google-research/multinerf/blob/b02228160d3179300c7d499dca28cb9ca3677f32/internal/camera_utils.py#L477-L509
@@ -85,29 +84,30 @@ def _radial_and_tangential_undistort(coords, distortion_params, eps: float = 1e-
     """
 
     # Initialize from the distorted point.
-    x = coords[..., 0]
-    y = coords[..., 1]
+    xd, yd = coords[..., 0], coords[..., 1]
+    x = xnp.copy(xd)
+    y = xnp.copy(yd)
 
     for _ in range(max_iterations):
         fx, fy, fx_x, fx_y, fy_x, fy_y = _compute_residual_and_jacobian(
-            x=x, y=y, xd=coords[..., 0], yd=coords[..., 1], distortion_params=distortion_params
+            x=x, y=y, xd=xd, yd=yd, distortion_params=distortion_params
         )
         denominator = fy_x * fx_y - fx_x * fy_y
         x_numerator = fx * fy_y - fy * fx_y
         y_numerator = fy * fx_x - fx * fy_x
-        step_x = np.where(np.abs(denominator) > eps, x_numerator / denominator, np.zeros_like(denominator))
-        step_y = np.where(np.abs(denominator) > eps, y_numerator / denominator, np.zeros_like(denominator))
+        step_x = xnp.where(xnp.abs(denominator) > eps, x_numerator / denominator, xnp.zeros_like(denominator))
+        step_y = xnp.where(xnp.abs(denominator) > eps, y_numerator / denominator, xnp.zeros_like(denominator))
 
         x = x + step_x
         y = y + step_y
 
-    return np.stack([x, y], -1)
+    return xnp.stack([x, y], -1)
 
 
 @dataclass(frozen=True)
 class Distortions:
     camera_types: np.ndarray # [batch]
-    distortion_params: np.ndarray # [batch num_params]
+    distortion_params: np.ndarray # [batch, num_params]
 
     def __len__(self):
         return len(self.camera_types)
@@ -118,35 +118,55 @@ class Distortions:
             distortion_params=self.distortion_params[index],
         )
 
-    def distort(self, directions):
-        mask = np.logical_or(
+    def distort(self, directions, xnp=np):
+        """
+        Distorts directions according to the distortion parameters.
+
+        Args:
+            directions: [batch, ..., 3]
+        """
+        mask = xnp.logical_or(
             self.camera_types == CameraModel.OPENCV_FISHEYE.value,
             self.camera_types == CameraModel.OPENCV.value)
-        if mask.any():
-            ldistortion_params = self.distortion_params[mask, :]
+        if xnp.any(mask):
+            is_all_distorted = xnp.all(mask)
             mask = mask.expand(len(directions))
-            dl = directions[mask, :]
+            if is_all_distorted:
+                ldistortion_params = self.distortion_params
+                dl = xnp.copy(directions)
+            else:
+                ldistortion_params = self.distortion_params[mask]
+                dl = directions[mask]
             dl[..., :2] = _radial_and_tangential_undistort(
                 dl,
                 ldistortion_params,
+                xnp=xnp,
             )
 
             dcamera_types = self.camera_types.expand(len(directions))[mask]
             fisheye_mask = dcamera_types == CameraModel.OPENCV_FISHEYE.value
-            if fisheye_mask.any():
-                dll = dl[mask, :2]
-
-                theta = np.linalg.norm(dll, 2, axis=-1, keepdims=True)
-                theta = np.clip(theta, 0.0, math.pi)
-
-                cos_theta = np.cos(theta)
-                sin_theta = np.sin(theta)
-                dll = dll * sin_theta / theta
-                dl[mask, 2:] *= cos_theta
-                dl[mask, :2] = dll
+            if xnp.any(fisheye_mask):
+                is_all_fisheye = xnp.all(fisheye_mask)
+                if is_all_fisheye:
+                    dll = dl
+                else:
+                    dll = dl[mask]
+                theta = xnp.sqrt(xnp.sum(xnp.square(dll[..., :2]), axis=-1))
+                theta = xnp.minimum(xnp.pi, theta)
+                sin_theta_over_theta = xnp.sin(theta) / theta
+                if is_all_fisheye:
+                    dl[..., 2:] *= xnp.cos(theta)
+                    dl[..., :2] *= sin_theta_over_theta
+                else:
+                    dl[mask, 2:] *= xnp.cos(theta)
+                    dl[mask, :2] *= sin_theta_over_theta
 
         if mask.any():
-            directions[mask, :] = dl
+            if is_all_distorted:
+                directions = dl
+            else:
+                directions = xnp.copy(directions)
+                directions[mask, :] = dl
         return directions
 
     @classmethod

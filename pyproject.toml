@@ -36,3 +36,6 @@ nerfbaselines = "nerfbaselines.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["nerfbaselines*"]
+
+[tool.ruff]
+line-length = 200

@@ -1,8 +1,5 @@
 import struct
-import os
-import dataclasses
 from collections import OrderedDict
-from dataclasses import dataclass
 import logging
 from pathlib import Path
 from typing import List, Tuple, Optional
@@ -269,7 +266,7 @@ def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, CameraModel
 def load_colmap_dataset(path: Path,
                         images_path: Optional[Path] = None,
                         split: Optional[str] = None,
-                        test_indices: Optional[Indices] = Indices.every_iters(8),
+                        test_indices: Optional[Indices] = None,
                         features: Optional[FrozenSet[DatasetFeature]] = None):
     if not features:
         features = {}
@@ -318,7 +315,7 @@ def load_colmap_dataset(path: Path,
     camera_intrinsics = []
     camera_poses = []
     camera_distortions = []
-    image_paths = []
+    image_names = []
     camera_sizes = []
 
     image: Image
@@ -330,7 +327,7 @@ def load_colmap_dataset(path: Path,
         camera_sizes.append(np.array((w, h), dtype=np.int32))
         camera_intrinsics.append(intrinsics)
         camera_distortions.append(distortion)
-        image_paths.append(images_path / image.name)
+        image_names.append(images_path / image.name)
 
         rotation = qvec2rotmat(image.qvec).astype(np.float32)
 
@@ -366,19 +363,27 @@ def load_colmap_dataset(path: Path,
         camera_distortions=Distortions.cat(camera_distortions),
         image_sizes=np.stack(camera_sizes, 0).astype(np.int32),
         nears_fars=nears_fars,
-        file_paths=image_paths,
+        file_paths=[images_path/x for x in image_names],
         points3D_xyz=points3D_xyz,
         points3D_rgb=points3D_rgb,
         sampling_mask_paths=None,
         file_paths_root=images_path,
     )
+
     if split is not None:
-        test_indices.total = len(dataset)
-        test_indices = np.array([i for i in range(len(dataset)) if i in test_indices], dtype=bool)
-        if split == "train":
-            indices = np.logical_not(test_indices)
+        if test_indices is None and ((path / "train_list.txt").exists() or (path / "test_list.txt").exists()):
+            logging.info(f"colmap dataloader is loading {split} split data from {path / f'{split}_list.txt'}")
+            indices = [image_names.index(x) for x in (path / f"{split}_list.txt").read_text().splitlines()]
+            indices = np.array([i in indices for i in range(len(dataset))], dtype=bool)
         else:
-            indices = test_indices
+            if test_indices is None:
+                test_indices = Indices.every_iters(8)
+            test_indices.total = len(dataset)
+            test_indices = np.array([i in test_indices for i in range(len(dataset))], dtype=bool)
+            if split == "train":
+                indices = np.logical_not(test_indices)
+            else:
+                indices = test_indices
         dataset = dataset[indices]
     dataset.metadata["type"] = "colmap"
     return dataset

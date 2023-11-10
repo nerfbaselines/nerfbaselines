@@ -74,7 +74,7 @@ class Trainer:
                  output: Path = Path("."),
                  num_iterations: Optional[int] = None,
                  save_iters: Indices = Indices.every_iters(10_000, zero=True),
-                 eval_single_iters: Indices = Indices.every_iters(1_000),
+                 eval_single_iters: Indices = Indices.every_iters(2_000),
                  eval_all_iters: Indices = Indices([-1]),
                  use_wandb: bool = True,
                  color_space: Optional[ColorSpace] = None,
@@ -272,8 +272,8 @@ class Trainer:
                 _save_image(f"gt/{name}.png", gt_srgb)
                 _save_image(f"color/{name}.png", color_srgb)
                 if self._color_space == "linear":
-                    _save_image(f"gt-raw/{name}.bin", gt)
-                    _save_image(f"color-raw/{name}.bin", color)
+                    _save_image(f"gt/{name}.bin", gt)
+                    _save_image(f"color/{name}.bin", color)
 
                 if metrics is not None:
                     for k, v in compute_image_metrics(color_srgb, gt_srgb).items():
