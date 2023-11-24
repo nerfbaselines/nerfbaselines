@@ -4,7 +4,7 @@ import subprocess
 import tempfile
 import pickle
 import base64
-from typing import Optional, Tuple, Type
+from typing import Optional, Tuple, Type, List, Dict
 import os
 import shutil
 import hashlib
@@ -14,7 +14,7 @@ import random
 import secrets
 import logging
 from dataclasses import dataclass, field, is_dataclass
-from multiprocessing.connection import Listener, Client
+from multiprocessing.connection import Listener, Client, Connection
 from .types import Method, MethodInfo
 from .utils import partialmethod
 
@@ -44,10 +44,10 @@ def start_backend(method: Method, params: ConnectionParams, address: str = "loca
                 message = msg["message"]
                 mid = msg["id"]
                 # do something with msg
-                if message == 'close':
+                if message == "close":
                     conn.send({"message": "close_ack"})
                     break
-                elif message == 'get':
+                elif message == "get":
                     logging.debug(f"Obtaining property {msg['property']} from {listener.last_accepted}")
                     try:
                         result = getattr(method, msg["property"])
@@ -56,7 +56,7 @@ def start_backend(method: Method, params: ConnectionParams, address: str = "loca
                         traceback.print_exc()
                         logging.error(f"Error while obtaining property {msg['property']} from {listener.last_accepted}")
                         conn.send({"message": "error", "id": mid, "error": e})
-                elif message == 'call':
+                elif message == "call":
                     logging.debug(f"Calling method {msg['method']} from {listener.last_accepted}")
                     try:
                         fn = getattr(method, msg["method"])
@@ -81,28 +81,29 @@ class RemoteCallable:
         self.id = i
 
 
-def replace_callables(obj, callables):
+def replace_callables(obj, callables, depth=0):
     if callable(obj):
-        callables.append(obj)
-        return RemoteCallable(len(callables)-1)
+        is_host = getattr(obj, "__host__", depth == 0)
+        if is_host:
+            callables.append(obj)
+            return RemoteCallable(len(callables) - 1)
+        else:
+            return obj
     if isinstance(obj, dict):
-        return {k: replace_callables(v, callables) for k, v in obj.items()}
+        return {k: replace_callables(v, callables, depth + 1) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
-        return obj.__class__((replace_callables(v, callables) for v in obj))
+        return obj.__class__((replace_callables(v, callables, depth + 1) for v in obj))
     if is_dataclass(obj):
-        return obj.__class__(**{k: replace_callables(v, callables) for k, v in obj.__dict__.items()})
+        return obj.__class__(**{k: replace_callables(v, callables, depth + 1) for k, v in obj.__dict__.items()})
     return obj
 
 
 def inject_callables(obj, conn, my_id):
     if isinstance(obj, RemoteCallable):
+
         def callback(*args, **kwargs):
-            conn.send({
-                "message": "callback",
-                "id":my_id,
-                "callback": obj.id,
-                "args": args,
-                "kwargs": kwargs})
+            conn.send({"message": "callback", "id": my_id, "callback": obj.id, "args": args, "kwargs": kwargs})
+
         return callback
     if isinstance(obj, dict):
         return {k: inject_callables(v, conn, my_id) for k, v in obj.items()}
@@ -116,7 +117,7 @@ def inject_callables(obj, conn, my_id):
 class RemoteMethod(Method):
     def __init__(self, *args, checkpoint: Optional[str] = None, connection_params: Optional[ConnectionParams] = None, **kwargs):
         self.connection_params = connection_params or ConnectionParams()
-        self._client = None
+        self._client: Optional[Connection] = None
         self._message_counter = 0
         self.args = args
         self.kwargs = kwargs
@@ -132,7 +133,9 @@ class RemoteMethod(Method):
 
     @property
     def info(self) -> MethodInfo:
-        return self._get("info")
+        info = self._get("info")
+        assert isinstance(info, MethodInfo), f"Invalid info type {type(info)}"
+        return info
 
     @staticmethod
     def decode_args(encoded_args):
@@ -144,10 +147,10 @@ class RemoteMethod(Method):
 
     def _get_client(self):
         if self._client is None or self._client.closed:
-            self._client = Client(('localhost', self.connection_params.port), authkey=self.connection_params.authkey)
+            self._client = Client(("localhost", self.connection_params.port), authkey=self.connection_params.authkey)
         return self._client
 
-    def _handle_call_result(self, client: Client, my_id, callables):
+    def _handle_call_result(self, client: Connection, my_id, callables):
         while not client.closed:
             message = client.recv()
             if message["id"] != my_id:
@@ -162,6 +165,7 @@ class RemoteMethod(Method):
                 return message["result"]
             elif "yield" in message:
                 original_message = message
+
                 def yield_fn():
                     yield original_message["yield"]
                     while not client.closed:
@@ -178,6 +182,7 @@ class RemoteMethod(Method):
                             return
                         if message["message"] == "yield":
                             yield message["yield"]
+
                 return yield_fn()
             else:
                 raise RuntimeError(f"Unknown message {message}")
@@ -187,25 +192,16 @@ class RemoteMethod(Method):
         client = self._get_client()
         mid = self._message_counter
         self._message_counter += 1
-        callables = []
-        client.send({
-            "message": "get",
-            "id": mid,
-            "property": prop})
+        callables: List[Dict] = []
+        client.send({"message": "get", "id": mid, "property": prop})
         return self._handle_call_result(client, mid, callables)
-
 
     def _call(self, method, *args, **kwargs):
         client = self._get_client()
         mid = self._message_counter
         self._message_counter += 1
-        callables = []
-        client.send({
-            "message": "call",
-            "id": mid,
-            "method": method,
-            "args": replace_callables(args, callables),
-            "kwargs": replace_callables(kwargs, callables)})
+        callables: List[Dict] = []
+        client.send({"message": "call", "id": mid, "method": method, "args": replace_callables(args, callables, depth=-1), "kwargs": replace_callables(kwargs, callables, depth=-1)})
         return self._handle_call_result(client, mid, callables)
 
     def train_iteration(self, *args, **kwargs):
@@ -231,7 +227,7 @@ class RemoteMethod(Method):
 
     def close(self):
         if self._client is not None:
-            mid = self._message_counter+1
+            mid = self._message_counter + 1
             # Try recv
             try:
                 self._client.send({"message": "close", "id": mid})
@@ -248,7 +244,7 @@ class RemoteMethod(Method):
 
 class RemoteProcessMethod(RemoteMethod):
     _local_address = "localhost"
-    build_code: str = None
+    build_code: Optional[str] = None
     python_path: str = "python"
 
     def __init__(self, *args, build_code: Optional[str] = None, python_path: Optional[str] = None, **kwargs):
@@ -257,18 +253,18 @@ class RemoteProcessMethod(RemoteMethod):
             self.build_code = build_code
         if python_path is not None:
             self.python_path = python_path
-        self._server_process = None
-        self._tmp_shared_dir = None
+        self._server_process: Optional[subprocess.Popen] = None
+        self._tmp_shared_dir: Optional[tempfile.TemporaryDirectory] = None
         assert self.build_code is not None, "RemoteProcessMethod requires build_code to be specified"
 
     @classmethod
     def wrap(cls, method: Type[Method], **remote_kwargs):
-        bases = (cls,)
+        bases: Tuple[Type, ...] = (cls,)
         if issubclass(method, RemoteProcessMethod):
             bases = bases + (method,)
-        else:
-            if "build_code" not in remote_kwargs:
-                remote_kwargs["build_code"] = f"from {method.__module__} import {method.__name__}; method = {method.__name__}(*args, **kwargs)"
+        elif "build_code" not in remote_kwargs:
+            remote_kwargs["build_code"] = f"from {method.__module__} import {method.__name__}; method = {method.__name__}(*args, **kwargs)"
+
         def build(ns):
             ns["__module__"] = cls.__module__
             ns["__doc__"] = method.__doc__
@@ -278,11 +274,13 @@ class RemoteProcessMethod(RemoteMethod):
                 if k in method.__dict__ or k in cls.__dict__ or k in RemoteProcessMethod.__dict__:
                     ns[k] = v
             return ns
+
         return types.new_class(method.__name__, bases=bases, exec_body=build)
 
     def _get_server_process_args(self, env):
         if env.get("_NB_IS_DOCKERFILE", "0") == "1":
             return ["bash", "-l"]
+        assert self._tmp_shared_dir is not None, "Temporary directory not created"
         is_verbose = logging.getLogger().isEnabledFor(logging.DEBUG)
         ready_path = self._tmp_shared_dir.name
         if self.shared_path is not None:
@@ -307,9 +305,7 @@ start_backend(method, ConnectionParams(port=int(os.environ["NB_PORT"]), authkey=
 
     @classmethod
     def _get_isolated_env(cls):
-        safe_env = {
-            "PATH", "HOME", "USER", "LDLIBRARYPATH",
-             "CXX", "CC", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"}
+        safe_env = {"PATH", "HOME", "USER", "LDLIBRARYPATH", "CXX", "CC", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"}
         return {k: v for k, v in os.environ.items() if k.upper() in safe_env or k.startswith("NB_")}
 
     def _ensure_server_running(self):
@@ -335,7 +331,7 @@ start_backend(method, ConnectionParams(port=int(os.environ["NB_PORT"]), authkey=
         self._ensure_server_running()
         return super()._get_client()
 
-    def _get_install_args(self):
+    def _get_install_args(self) -> Optional[List[str]]:
         return None
 
     def install(self):

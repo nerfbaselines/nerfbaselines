@@ -1,2 +1,2 @@
-from .docker import DockerMethod, ApptainerMethod
-from .conda import CondaMethod
+from .docker import DockerMethod, ApptainerMethod  # noqa: F401
+from .conda import CondaMethod  # noqa: F401

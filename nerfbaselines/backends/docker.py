@@ -8,15 +8,11 @@ from ..utils import partialmethod
 
 class ApptainerMethod(RemoteProcessMethod):
     _local_address = "0.0.0.0"
-    image: str = None
-    mounts: List[Tuple[str, str]] = None
+    image: Optional[str] = None
+    mounts: Optional[List[Tuple[str, str]]] = None
     home_path: str = "/root"
 
-    def __init__(self, *args,
-                 image: Optional[str] = None,
-                 mounts: Optional[List[Tuple[str, str]]] = None,
-                 home_path: Optional[str] = None,
-                 **kwargs):
+    def __init__(self, *args, image: Optional[str] = None, mounts: Optional[List[Tuple[str, str]]] = None, home_path: Optional[str] = None, **kwargs):
         super().__init__(*args, **kwargs)
         if image is not None:
             self.image = image
@@ -53,23 +49,41 @@ class ApptainerMethod(RemoteProcessMethod):
         os.makedirs(pip_cache, exist_ok=True)
         torch_home = os.path.expanduser(os.environ.get("TORCH_HOME", "~/.cache/torch/hub"))
         os.makedirs(torch_home, exist_ok=True)
-        return ["apptainer", "exec", "--containall", "--cleanenv",
+        return [
+            "apptainer",
+            "exec",
+            "--containall",
+            "--cleanenv",
             "--nv",
-            "--bind", "/tmp:/tmp",
+            "--bind",
+            "/tmp:/tmp",
             "--writable-tmpfs",
-            "--no-home", "-H", self.home_path,
-            "--bind", shlex.quote(PACKAGE_PATH) + ":" + shlex.quote(PACKAGE_PATH),
-            "--bind", shlex.quote(NB_PREFIX) + ":" + shlex.quote(NB_PREFIX),
-            "--bind", shlex.quote(conda_cache) + ":/var/nb-conda-pkgs",
-            "--bind", shlex.quote(pip_cache) + ":/var/nb-pip-cache",
-            "--bind", shlex.quote(torch_home) + ":/var/nb-torch",
-            *[f"--bind={shlex.quote(src)}:{shlex.quote(dst)}" for src, dst in self.mounts],
-            "--env", f"NB_PREFIX={shlex.quote(NB_PREFIX)}",
-            "--env", "CONDA_PKGS_DIRS=/var/nb-conda-pkgs",
-            "--env", "PIP_CACHE_DIR=/var/nb-pip-cache",
-            "--env", "TORCH_HOME=/var/nb-torch",
-            "--env", "COLUMNS=120",
-            self.image] + sub_args
+            "--no-home",
+            "-H",
+            self.home_path,
+            "--bind",
+            shlex.quote(PACKAGE_PATH) + ":" + shlex.quote(PACKAGE_PATH),
+            "--bind",
+            shlex.quote(NB_PREFIX) + ":" + shlex.quote(NB_PREFIX),
+            "--bind",
+            shlex.quote(conda_cache) + ":/var/nb-conda-pkgs",
+            "--bind",
+            shlex.quote(pip_cache) + ":/var/nb-pip-cache",
+            "--bind",
+            shlex.quote(torch_home) + ":/var/nb-torch",
+            *[f"--bind={shlex.quote(src)}:{shlex.quote(dst)}" for src, dst in self.mounts or []],
+            "--env",
+            f"NB_PREFIX={shlex.quote(NB_PREFIX)}",
+            "--env",
+            "CONDA_PKGS_DIRS=/var/nb-conda-pkgs",
+            "--env",
+            "PIP_CACHE_DIR=/var/nb-pip-cache",
+            "--env",
+            "TORCH_HOME=/var/nb-torch",
+            "--env",
+            "COLUMNS=120",
+            self.image,
+        ] + sub_args
 
     def _get_server_process_args(self, env, *args, **kwargs):
         python_args = super()._get_server_process_args(env, *args, **kwargs)
@@ -80,42 +94,61 @@ class ApptainerMethod(RemoteProcessMethod):
         os.makedirs(pip_cache, exist_ok=True)
         torch_home = os.path.expanduser(os.environ.get("TORCH_HOME", "~/.cache/torch/hub"))
         os.makedirs(torch_home, exist_ok=True)
-        return ["apptainer", "exec", "--containall", "--cleanenv", "--writable-tmpfs",
-            "--nv",
-            "--bind", "/tmp:/tmp",
+        return [
+            "apptainer",
+            "exec",
+            "--containall",
+            "--cleanenv",
             "--writable-tmpfs",
-            "--no-home", "-H", self.home_path,
-            "--bind", shlex.quote(PACKAGE_PATH) + ":" + shlex.quote(PACKAGE_PATH),
+            "--nv",
+            "--bind",
+            "/tmp:/tmp",
+            "--writable-tmpfs",
+            "--no-home",
+            "-H",
+            self.home_path,
+            "--bind",
+            shlex.quote(PACKAGE_PATH) + ":" + shlex.quote(PACKAGE_PATH),
             *(("--bind", shlex.quote(self.shared_path[0]) + ":" + shlex.quote(self.shared_path[1])) if self.shared_path is not None else []),
-            "--bind", shlex.quote(NB_PREFIX) + ":" + shlex.quote(NB_PREFIX),
-            "--bind", shlex.quote(conda_cache) + ":/var/nb-conda-pkgs",
-            "--bind", shlex.quote(pip_cache) + ":/var/nb-pip-cache",
-            "--bind", shlex.quote(torch_home) + ":/var/nb-torch",
-            *[f"--bind={shlex.quote(src)}:{shlex.quote(dst)}" for src, dst in self.mounts],
+            "--bind",
+            shlex.quote(NB_PREFIX) + ":" + shlex.quote(NB_PREFIX),
+            "--bind",
+            shlex.quote(conda_cache) + ":/var/nb-conda-pkgs",
+            "--bind",
+            shlex.quote(pip_cache) + ":/var/nb-pip-cache",
+            "--bind",
+            shlex.quote(torch_home) + ":/var/nb-torch",
+            *[f"--bind={shlex.quote(src)}:{shlex.quote(dst)}" for src, dst in self.mounts or []],
             *([f"--bind={shlex.quote(self.checkpoint)}:{shlex.quote(self.checkpoint)}:ro"] if self.checkpoint is not None else []),
-            "--env", f"NB_PORT={env['NB_PORT']}",
-            "--env", f"NB_PATH={env['NB_PATH']}",
-            "--env", f"NB_AUTHKEY={env['NB_AUTHKEY']}",
-            "--env", f"NB_ARGS={env['NB_ARGS']}",
-            "--env", f"NB_PREFIX={shlex.quote(NB_PREFIX)}",
-            "--env", "CONDA_PKGS_DIRS=/var/nb-conda-pkgs",
-            "--env", "PIP_CACHE_DIR=/var/nb-pip-cache",
-            "--env", "TORCH_HOME=/var/nb-torch",
-            "--env", "COLUMNS=120",
-            self.image] + python_args
+            "--env",
+            f"NB_PORT={env.get('NB_PORT', '')}",
+            "--env",
+            f"NB_PATH={env.get('NB_PATH', '')}",
+            "--env",
+            f"NB_AUTHKEY={env.get('NB_AUTHKEY', '')}",
+            "--env",
+            f"NB_ARGS={env.get('NB_ARGS', '')}",
+            "--env",
+            f"NB_PREFIX={shlex.quote(NB_PREFIX)}",
+            "--env",
+            "CONDA_PKGS_DIRS=/var/nb-conda-pkgs",
+            "--env",
+            "PIP_CACHE_DIR=/var/nb-pip-cache",
+            "--env",
+            "TORCH_HOME=/var/nb-torch",
+            "--env",
+            "COLUMNS=120",
+            self.image,
+        ] + python_args
 
 
 class DockerMethod(RemoteProcessMethod):
     _local_address = "0.0.0.0"
-    image: str = None
-    mounts: List[Tuple[str, str]] = None
+    image: Optional[str] = None
+    mounts: Optional[List[Tuple[str, str]]] = None
     home_path: str = "/root"
 
-    def __init__(self, *args,
-                 image: Optional[str] = None,
-                 mounts: Optional[List[Tuple[str, str]]] = None,
-                 home_path: Optional[str] = None,
-                 **kwargs):
+    def __init__(self, *args, image: Optional[str] = None, mounts: Optional[List[Tuple[str, str]]] = None, home_path: Optional[str] = None, **kwargs):
         super().__init__(*args, **kwargs)
         if image is not None:
             self.image = image
@@ -130,6 +163,7 @@ class DockerMethod(RemoteProcessMethod):
             return ApptainerMethod
         elif len(cls.__bases__) > 0 and DockerMethod == cls.__bases__[0]:
             bases = tuple(ApptainerMethod if b == DockerMethod else b for b in cls.__bases__)
+
             def build(ns):
                 ns["__module__"] = cls.__module__
                 ns["__doc__"] = cls.__doc__
@@ -143,6 +177,7 @@ class DockerMethod(RemoteProcessMethod):
                     ns["__init__"] = partialmethod(ApptainerMethod.__init__, *getattr(old_init, "__args__", tuple()), **kwargs)
                 ns["image"] = "docker://" + ns["image"]
                 return ns
+
             return types.new_class(cls.__name__, bases=bases, exec_body=build)
         else:
             raise TypeError(f"Cannot convert {cls} to ApptainerMethod")
@@ -158,6 +193,7 @@ class DockerMethod(RemoteProcessMethod):
         return (self._tmp_shared_dir.name, "/nb-shared")
 
     def _get_install_args(self) -> Optional[List[str]]:
+        assert self.image is not None, "DockerMethod requires an image"
         sub_args = super()._get_install_args()  # pylint: disable=assignment-from-none
         if sub_args is None:
             sub_args = ["true"]
@@ -166,25 +202,49 @@ class DockerMethod(RemoteProcessMethod):
         torch_home = os.path.expanduser(os.environ.get("TORCH_HOME", "~/.cache/torch/hub"))
         os.makedirs(torch_home, exist_ok=True)
         uid_gid = ":".join(list(map(str, (os.getuid(), os.getgid()))))
-        return ["bash", "-c", ":" or f"docker pull {shlex.quote(self.image)} && " + shlex.join([
-            "docker", "run",
-            "--user", uid_gid,
-            "--gpus", "all",
-            '-v=/etc/group:/etc/group:ro',
-            '-v=/etc/passwd:/etc/passwd:ro',
-            '-v=/etc/shadow:/etc/shadow:ro',
-            "-v", shlex.quote(PACKAGE_PATH) + ":" + shlex.quote(PACKAGE_PATH),
-            "-v", shlex.quote(NB_PREFIX) + ":" + shlex.quote(NB_PREFIX),
-            "-v", shlex.quote(os.path.expanduser("~/.conda/pkgs")) + ":/var/nb-conda-pkgs",
-            "-v", shlex.quote(os.path.expanduser("~/.cache/pip")) + ":/var/nb-pip-cache",
-            "-v", shlex.quote(torch_home) + ":/var/nb-torch",
-            *[f"-v={shlex.quote(src)}:{shlex.quote(dst)}" for src, dst in self.mounts],
-            "--env", "CONDA_PKGS_DIRS=/var/nb-conda-pkgs",
-            "--env", "PIP_CACHE_DIR=/var/nb-pip-cache",
-            "--env", "TORCH_HOME=/var/nb-torch",
-            "--env", f"HOME={shlex.quote(self.home_path)}",
-            "--env", "NB_PREFIX",
-            "--rm", "-it", self.image] + sub_args)
+        return [
+            "bash",
+            "-c",
+            ":"
+            or f"docker pull {shlex.quote(self.image)} && "
+            + shlex.join(
+                [
+                    "docker",
+                    "run",
+                    "--user",
+                    uid_gid,
+                    "--gpus",
+                    "all",
+                    "-v=/etc/group:/etc/group:ro",
+                    "-v=/etc/passwd:/etc/passwd:ro",
+                    "-v=/etc/shadow:/etc/shadow:ro",
+                    "-v",
+                    shlex.quote(PACKAGE_PATH) + ":" + shlex.quote(PACKAGE_PATH),
+                    "-v",
+                    shlex.quote(NB_PREFIX) + ":" + shlex.quote(NB_PREFIX),
+                    "-v",
+                    shlex.quote(os.path.expanduser("~/.conda/pkgs")) + ":/var/nb-conda-pkgs",
+                    "-v",
+                    shlex.quote(os.path.expanduser("~/.cache/pip")) + ":/var/nb-pip-cache",
+                    "-v",
+                    shlex.quote(torch_home) + ":/var/nb-torch",
+                    *[f"-v={shlex.quote(src)}:{shlex.quote(dst)}" for src, dst in self.mounts or []],
+                    "--env",
+                    "CONDA_PKGS_DIRS=/var/nb-conda-pkgs",
+                    "--env",
+                    "PIP_CACHE_DIR=/var/nb-pip-cache",
+                    "--env",
+                    "TORCH_HOME=/var/nb-torch",
+                    "--env",
+                    f"HOME={shlex.quote(self.home_path)}",
+                    "--env",
+                    "NB_PREFIX",
+                    "--rm",
+                    "-it",
+                    self.image,
+                ]
+                + sub_args
+            ),
         ]
 
     def _get_server_process_args(self, *args, **kwargs):
@@ -193,24 +253,49 @@ class DockerMethod(RemoteProcessMethod):
         torch_home = os.path.expanduser(os.environ.get("TORCH_HOME", "~/.cache/torch/hub"))
         os.makedirs(torch_home, exist_ok=True)
         uid_gid = ":".join(list(map(str, (os.getuid(), os.getgid()))))
-        return ["docker", "run", "--user", uid_gid,
-            "--gpus", "all",
-            '-v=/etc/group:/etc/group:ro',
-            '-v=/etc/passwd:/etc/passwd:ro',
-            '-v=/etc/shadow:/etc/shadow:ro',
-            "-v", shlex.quote(PACKAGE_PATH) + ":" + shlex.quote(PACKAGE_PATH),
-            "-v", shlex.quote(NB_PREFIX) + ":" + shlex.quote(NB_PREFIX),
+        return [
+            "docker",
+            "run",
+            "--user",
+            uid_gid,
+            "--gpus",
+            "all",
+            "-v=/etc/group:/etc/group:ro",
+            "-v=/etc/passwd:/etc/passwd:ro",
+            "-v=/etc/shadow:/etc/shadow:ro",
+            "-v",
+            shlex.quote(PACKAGE_PATH) + ":" + shlex.quote(PACKAGE_PATH),
+            "-v",
+            shlex.quote(NB_PREFIX) + ":" + shlex.quote(NB_PREFIX),
             *(("-v", shlex.quote(self.shared_path[0]) + ":" + shlex.quote(self.shared_path[1])) if self.shared_path is not None else []),
-            "-v", shlex.quote(torch_home) + ":/var/nb-torch",
-            *[f"-v={shlex.quote(src)}:{shlex.quote(dst)}" for src, dst in self.mounts],
+            "-v",
+            shlex.quote(torch_home) + ":/var/nb-torch",
+            *[f"-v={shlex.quote(src)}:{shlex.quote(dst)}" for src, dst in self.mounts or []],
             *([f"-v={shlex.quote(self.checkpoint)}:{shlex.quote(self.checkpoint)}:ro"] if self.checkpoint is not None else []),
-            "--env", f"HOME={shlex.quote(self.home_path)}",
-            "--env", "NB_PORT", "--env", "NB_PATH", "--env", "NB_AUTHKEY", "--env", "NB_ARGS",
-            "--env", "CONDA_PKGS_DIRS=/var/nb-conda-pkgs",
-            "--env", "PIP_CACHE_DIR=/var/nb-pip-cache",
-            "--env", "TORCH_HOME=/var/nb-torch",
-            "--env", "NB_PREFIX", "-p", f"{self.connection_params.port}:{self.connection_params.port}",
-            "--rm", "-i", self.image] + python_args 
+            "--env",
+            f"HOME={shlex.quote(self.home_path)}",
+            "--env",
+            "NB_PORT",
+            "--env",
+            "NB_PATH",
+            "--env",
+            "NB_AUTHKEY",
+            "--env",
+            "NB_ARGS",
+            "--env",
+            "CONDA_PKGS_DIRS=/var/nb-conda-pkgs",
+            "--env",
+            "PIP_CACHE_DIR=/var/nb-pip-cache",
+            "--env",
+            "TORCH_HOME=/var/nb-torch",
+            "--env",
+            "NB_PREFIX",
+            "-p",
+            f"{self.connection_params.port}:{self.connection_params.port}",
+            "--rm",
+            "-i",
+            self.image,
+        ] + python_args
 
     def get_dockerfile(self):
         sub_args = super()._get_install_args()  # pylint: disable=assignment-from-none
@@ -221,7 +306,7 @@ class DockerMethod(RemoteProcessMethod):
                 arg = arg.replace(self.environments_path, "/var/nb-conda-envs")
                 if "\n" in arg:
                     arg = shlex.quote(arg)
-                    arg = arg.replace('\n', ' \\n\\\n')
+                    arg = arg.replace("\n", " \\n\\\n")
                     args_safe.append(f'"$(echo {arg})"')
                 else:
                     args_safe.append(shlex.quote(arg))

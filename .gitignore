@@ -3,3 +3,5 @@ cu-config.yml
 dist/
 *.egg-info
 .conda/
+.ruff_cache/
+.mypy_cache/

@@ -37,7 +37,7 @@ import numpy as np
 
 CameraModel = collections.namedtuple("CameraModel", ["model_id", "model_name", "num_params"])
 Camera = collections.namedtuple("Camera", ["id", "model", "width", "height", "params"])
-BaseImage = collections.namedtuple("Image", ["id", "qvec", "tvec", "camera_id", "name", "xys", "point3D_ids"])
+BaseImage = collections.namedtuple("BaseImage", ["id", "qvec", "tvec", "camera_id", "name", "xys", "point3D_ids"])
 Point3D = collections.namedtuple("Point3D", ["id", "xyz", "rgb", "error", "image_ids", "point2D_idxs"])
 
 
@@ -150,11 +150,7 @@ def write_cameras_text(cameras, path):
         void Reconstruction::WriteCamerasText(const std::string& path)
         void Reconstruction::ReadCamerasText(const std::string& path)
     """
-    HEADER = (
-        "# Camera list with one line of data per camera:\n"
-        + "#   CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]\n"
-        + "# Number of cameras: {}\n".format(len(cameras))
-    )
+    HEADER = "# Camera list with one line of data per camera:\n" + "#   CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]\n" + "# Number of cameras: {}\n".format(len(cameras))
     with open(path, "w") as fid:
         fid.write(HEADER)
         for _, cam in cameras.items():
@@ -262,7 +258,7 @@ def write_images_text(images, path):
         void Reconstruction::WriteImagesText(const std::string& path)
     """
     if len(images) == 0:
-        mean_observations = 0
+        mean_observations = 0.0
     else:
         mean_observations = sum((len(img.point3D_ids) for _, img in images.items())) / len(images)
     HEADER = (
@@ -379,7 +375,7 @@ def write_points3D_text(points3D, path):
         void Reconstruction::WritePoints3DText(const std::string& path)
     """
     if len(points3D) == 0:
-        mean_track_length = 0
+        mean_track_length = 0.0
     else:
         mean_track_length = sum((len(pt.image_ids) for _, pt in points3D.items())) / len(points3D)
     HEADER = (
@@ -419,11 +415,7 @@ def write_points3D_binary(points3D, path_to_model_file):
 
 
 def detect_model_format(path, ext):
-    if (
-        os.path.isfile(os.path.join(path, "cameras" + ext))
-        and os.path.isfile(os.path.join(path, "images" + ext))
-        and os.path.isfile(os.path.join(path, "points3D" + ext))
-    ):
+    if os.path.isfile(os.path.join(path, "cameras" + ext)) and os.path.isfile(os.path.join(path, "images" + ext)) and os.path.isfile(os.path.join(path, "points3D" + ext)):
         print("Detected model format: '" + ext + "'")
         return True
 

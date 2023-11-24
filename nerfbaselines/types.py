@@ -1,21 +1,34 @@
 from abc import abstractmethod
-from typing import Tuple, Optional, Callable, Iterable, List
+from typing import Optional, Callable, Iterable, List, Dict, TYPE_CHECKING
 from dataclasses import dataclass, field
 import dataclasses
 import os
 from pathlib import Path
-from abc import abstractmethod
 import numpy as np
+
 try:
-    from typing import Protocol, Literal
+    from typing import Protocol
 except ImportError:
-    from typing_extensions import Protocol, Literal
+    from typing_extensions import Protocol  # type: ignore
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal  # type: ignore
+try:
+    from typing import TypedDict
+except ImportError:
+    from typing_extensions import TypedDict  # type: ignore
+if TYPE_CHECKING:
+    try:
+        from typing import NotRequired  # type: ignore
+    except ImportError:
+        from typing_extensions import NotRequired  # type: ignore
 try:
     from typing import FrozenSet
 except ImportError:
-    from typing_extensions import FrozenSet
-from .distortion import Distortions
-from .utils import get_rays
+    from typing_extensions import FrozenSet  # type: ignore
+from .cameras import Cameras
+from .utils import mark_host
 
 
 ColorSpace = Literal["srgb", "linear"]
@@ -23,29 +36,19 @@ ColorSpace = Literal["srgb", "linear"]
 
 @dataclass
 class Dataset:
-    camera_poses: np.ndarray  # [N, (R, t)]
-    camera_intrinsics_normalized: np.ndarray  # [N, (nfx,nfy,ncx,ncy)]
-    camera_distortions: Distortions  # [N, (type, params)]
-    # camera_ids: Tensor
-    image_sizes: Optional[np.ndarray]  # [N, 2]
-    nears_fars: np.ndarray  # [N, 2]
+    cameras: Cameras  # [N]
 
     file_paths: List[str]
     sampling_mask_paths: Optional[List[str]] = None
     file_paths_root: Optional[Path] = None
 
-    images: Optional[np.array] = None  # [N, H, W, 3]
-    sampling_masks: Optional[np.array] = None  # [N, H, W]
+    images: Optional[np.ndarray] = None  # [N, H, W, 3]
+    sampling_masks: Optional[np.ndarray] = None  # [N, H, W]
     points3D_xyz: Optional[np.ndarray] = None  # [M, 3]
     points3D_rgb: Optional[np.ndarray] = None  # [M, 3]
 
-    metadata: Optional[dict] = field(default_factory=dict)
+    metadata: Dict = field(default_factory=dict)
     color_space: Optional[ColorSpace] = None
-
-    @property
-    def camera_intrinsics(self):
-        assert self.image_sizes is not None
-        return self.camera_intrinsics_normalized * self.image_sizes[..., :1]
 
     def __post_init__(self):
         if self.file_paths_root is None:
@@ -54,12 +57,13 @@ class Dataset:
     def __len__(self):
         return len(self.file_paths)
 
-    def __getitem__(self, i) -> 'Dataset':
-        assert isinstance(i, slice) or isinstance(i, int) or isinstance(i, np.ndarray)
+    def __getitem__(self, i) -> "Dataset":
+        assert isinstance(i, (slice, int, np.ndarray))
+
         def index(obj):
             if obj is None:
                 return None
-            if isinstance(obj, Distortions):
+            if isinstance(obj, Cameras):
                 if len(obj) == 1:
                     return obj if isinstance(i, int) else obj
                 return obj[i]
@@ -74,10 +78,18 @@ class Dataset:
                     return obj[indices]
                 return [obj[i] for i in indices]
             raise ValueError(f"Cannot index object of type {type(obj)}")
-        return dataclasses.replace(self, **{
-            k: index(v) for k, v in self.__dict__.items()
-            if k not in {"file_paths_root", "points3D_xyz", "points3D_rgb", "metadata", "color_space"}
-        })
+
+        return dataclasses.replace(self, **{k: index(v) for k, v in self.__dict__.items() if k not in {"file_paths_root", "points3D_xyz", "points3D_rgb", "metadata", "color_space"}})
+
+    @mark_host
+    def load_features(self, required_features):
+        # Import lazily here because the Dataset class
+        # may be used in places where some of the dependencies
+        # are not available.
+        from .datasets._common import dataset_load_features
+
+        dataset_load_features(self, required_features)
+        return self
 
 
 @dataclass(frozen=True)
@@ -87,14 +99,26 @@ class CurrentProgress:
     image_i: int
     image_total: int
 
+
 ProgressCallback = Callable[[CurrentProgress], None]
+
 
 def batched(array, batch_size):
     for i in range(0, len(array), batch_size):
-        yield array[i:i+batch_size]
+        yield array[i : i + batch_size]
 
 
 DatasetFeature = Literal["color", "points3D_xyz"]
+
+
+if TYPE_CHECKING:
+
+    class RenderOutput(TypedDict):
+        color: np.ndarray  # [h w 3]
+        depth: NotRequired[np.ndarray]  # [h w]
+
+else:
+    RenderOutput = Dict
 
 
 @dataclass
@@ -108,6 +132,13 @@ class MethodInfo:
 
 
 class Method(Protocol):
+    @staticmethod
+    def install():
+        """
+        Install the method.
+        """
+        raise NotImplementedError()
+
     @property
     @abstractmethod
     def info(self) -> MethodInfo:
@@ -120,30 +151,18 @@ class Method(Protocol):
         return MethodInfo()
 
     @abstractmethod
-    def render(self,
-               poses: np.ndarray, # batch 3 4,
-               intrinsics: np.ndarray, # [batch 3 4],
-               sizes: np.ndarray,
-               nears_fars: np.ndarray, # [batch 2"],
-               distortions: Optional[Distortions] = None,
-               progress_callback: Optional[ProgressCallback] = None) -> Iterable[np.ndarray]:  # [h w c]
+    def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:  # [h w c]
         """
         Render images.
 
         Args:
-            poses: Camera poses.
-            intrinsics: Camera intrinsics.
-            sizes: Image sizes.
-            nears_fars: Near and far planes.
-            distortions: Distortions.
+            cameras: Cameras.
             progress_callback: Callback for progress.
         """
         raise NotImplementedError()
 
     @abstractmethod
-    def setup_train(self,
-                    train_dataset: Dataset, *,
-                    num_iterations: int):
+    def setup_train(self, train_dataset: Dataset, *, num_iterations: int):
         """
         Setup training data, model, optimizer, etc.
 
@@ -175,17 +194,15 @@ class Method(Protocol):
 
 
 class RayMethod(Method):
-    def __init__(self, batch_size, seed: int = 42):
+    def __init__(self, batch_size, seed: int = 42, xnp=np):
         self.batch_size = batch_size
-        self.train_dataset = None
-        self.num_iterations = None
-        self._rng = np.random.default_rng(seed)
+        self.train_dataset: Optional[Dataset] = None
+        self.num_iterations: Optional[int] = None
+        self.xnp = xnp
+        self._rng: np.random.Generator = xnp.random.default_rng(seed)
 
     @abstractmethod
-    def render_rays(self,
-                    origins: np.ndarray, # batch 3
-                    directions: np.ndarray, # batch 3
-                    nears_fars: np.ndarray): # batch 3
+    def render_rays(self, origins: np.ndarray, directions: np.ndarray, nears_fars: Optional[np.ndarray]) -> RenderOutput:  # batch 3  # batch 3  # batch 3
         """
         Render rays.
 
@@ -197,12 +214,7 @@ class RayMethod(Method):
         raise NotImplementedError()
 
     @abstractmethod
-    def train_iteration_rays(self,
-                             step: int,
-                             origins: np.ndarray, # [batch 3]
-                             directions: np.ndarray, # [batch 3]
-                             nears_fars: np.ndarray, # [batch 2]
-                             colors: np.ndarray): # [batch c]
+    def train_iteration_rays(self, step: int, origins: np.ndarray, directions: np.ndarray, nears_fars: Optional[np.ndarray], colors: np.ndarray):  # [batch 3]  # [batch 3]  # [batch 2]  # [batch c]
         """
         Train one iteration.
 
@@ -216,54 +228,46 @@ class RayMethod(Method):
         raise NotImplementedError()
 
     def setup_train(self, train_dataset: Dataset, *, num_iterations: int):
-        self.train_dataset = Dataset
+        self.train_dataset = train_dataset
         self.num_iterations = num_iterations
 
     def train_iteration(self, step: int):
-        camera_indices = self._rng.randint(0, len(self.train_dataset.images), (self.batch_size,), dtype=np.int32)
-        wh = self.train_dataset.image_sizes[camera_indices]
-        areas = wh.prod(-1)
-        local_indices = np.clip(np.floor(self._rng.rand((self.batch_size,)) * areas), None, areas).astype(np.int32)
-        xy = np.stack([local_indices % wh[..., 0], local_indices // wh[..., 0]], -1)
-        nears_fars = self.train_dataset.nears_fars[camera_indices]
-        origins, directions = get_rays(self.train_dataset.camera_poses[camera_indices],
-                                       self.train_dataset.camera_intrinsics[camera_indices],
-                                       xy,
-                                       self.train_dataset.camera_distortions[camera_indices] if self.train_dataset.camera_distortions is not None else None)
+        assert self.train_dataset is not None, "setup_train must be called before train_iteration"
+        assert self.train_dataset.images is not None, "train_dataset must have images"
+        assert self.train_dataset.cameras.image_sizes is not None, "train_dataset must have image_sizes"
+        xnp = self.xnp
+        camera_indices = self._rng.integers(0, len(self.train_dataset.cameras), (self.batch_size,), dtype=xnp.int32)
+        wh = self.train_dataset.cameras.image_sizes[camera_indices]
+        x = xnp.random.randint(0, wh[..., 0])
+        y = xnp.random.randint(0, wh[..., 1])
+        xy = xnp.stack([x, y], -1)
+        cameras = self.train_dataset.cameras[camera_indices]
+        origins, directions = cameras.get_rays(xy, xnp=xnp)
         colors = self.train_dataset.images[camera_indices, xy[..., 1], xy[..., 0]]
-        return self.train_iteration_rays(step=step, origins=origins, directions=directions, nears_fars=nears_fars, colors=colors)
+        return self.train_iteration_rays(step=step, origins=origins, directions=directions, nears_fars=cameras.nears_fars, colors=colors)
 
-    def render(self,
-               poses: np.ndarray, # ["batch 3 4"],
-               intrinsics: np.ndarray, # Float32, "batch 3 4",
-               sizes: np.ndarray, # Int32, "batch 2",
-               nears_fars: np.ndarray, # Float32, "batch 2"],
-               distortions: Optional[Distortions] = None,
-               progress_callback: Optional[ProgressCallback] = None) -> Iterable[np.ndarray]:
+    def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
+        assert cameras.image_sizes is not None, "cameras must have image_sizes"
+        xnp = self.xnp
         batch_size = self.batch_size
-        assert len(sizes) == len(poses) == len(intrinsics)
-        assert len(sizes.shape) == 2
+        sizes = cameras.image_sizes
         total_batches = ((sizes.prod(-1) + batch_size - 1) // batch_size).sum().item()
         global_i = 0
         if progress_callback:
             progress_callback(CurrentProgress(i=global_i, total=total_batches, image_i=0, image_total=len(sizes)))
-        for i, image_size in enumerate(sizes.long().detach().cpu().tolist()):
+        for i, image_size in enumerate(sizes.tolist()):
             w, h = image_size
             xy = np.stack(np.meshgrid(np.arange(w), np.arange(h), indexing="xy"), -1).reshape(-1, 2)
-            outputs = []
+            outputs: List[RenderOutput] = []
+            local_cameras = cameras[i : i + 1, None]
             for xy in batched(xy, batch_size):
-                origins, directions = get_rays(poses[i:i+1],
-                                               intrinsics[i:i+1],
-                                               xy,
-                                               distortions[i:i+1] if distortions is not None else None)
-                _outputs = self.render_rays(origins=origins,
-                                            directions=directions,
-                                            nears_fars=nears_fars[i:i+1])
+                origins, directions = local_cameras.get_rays(xy[None], xnp=xnp)
+                _outputs = self.render_rays(origins=origins[0], directions=directions[0], nears_fars=local_cameras[0].nears_fars)
                 outputs.append(_outputs)
                 global_i += 1
                 if progress_callback:
                     progress_callback(CurrentProgress(i=global_i, total=total_batches, image_i=i, image_total=len(sizes)))
-            yield {
-                np.concatenate([x[k] for x in outputs], 0).reshape((h, w, -1))
-                for k in outputs[0].keys()
+            # The following is not supported by mypy yet.
+            yield {  # type: ignore
+                k: np.concatenate([x[k] for x in outputs], 0).reshape((h, w, -1)) for k in outputs[0].keys()  # type: ignore
             }

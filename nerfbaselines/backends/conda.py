@@ -7,18 +7,12 @@ from ..communication import RemoteProcessMethod, NB_PREFIX
 
 
 class CondaMethod(RemoteProcessMethod):
-    conda_name: str = None
+    conda_name: Optional[str] = None
     environment: Optional[str] = None
     python_version: Optional[str] = None
     install_script: Optional[str] = None
 
-    def __init__(self,
-                 *args,
-                 conda_name: Optional[str] = None,
-                 python_version: Optional[str] = None,
-                 environment: Optional[str] = None,
-                 install_script: Optional[str] = None,
-                 **kwargs):
+    def __init__(self, *args, conda_name: Optional[str] = None, python_version: Optional[str] = None, environment: Optional[str] = None, install_script: Optional[str] = None, **kwargs):
         super().__init__(*args, python_path="python", **kwargs)
         if conda_name is not None:
             self.conda_name = conda_name
@@ -49,6 +43,7 @@ class CondaMethod(RemoteProcessMethod):
         return
 
     def _get_install_args(self):
+        assert self.conda_name is not None, "CondaMethod requires conda_name to be specified"
         env_root_path = os.path.join(self.environments_path, self.conda_name, self.environment_hash)
         env_path = os.path.join(env_root_path, ".e", self.conda_name)
         args = []
@@ -58,7 +53,7 @@ class CondaMethod(RemoteProcessMethod):
         sub_install_args = super()._get_install_args()  # pylint: disable=assignment-from-none
         if sub_install_args:
             sub_install = shlex.join(sub_install_args)
-        script = f'''set -eo pipefail
+        script = f"""set -eo pipefail
 # Clear old environments
 if [ -d {shlex.quote(os.path.dirname(env_root_path))} ]; then
     for hash in $(ls -1 {shlex.quote(os.path.dirname(env_root_path))}); do
@@ -80,11 +75,16 @@ touch {shlex.quote(os.path.join(env_root_path, ".ack.txt"))}
 echo "0" > {shlex.quote(os.path.join(env_root_path, ".ack.txt"))}
 fi
 {sub_install}
-'''
+"""
         return ["bash", "-c", script]
 
     def _get_server_process_args(self, env, *args, **kwargs):
-        return ["bash", "-c", f'''eval "$(conda shell.bash hook)" && \
+        assert self.conda_name is not None, "CondaMethod requires conda_name to be specified"
+        return [
+            "bash",
+            "-c",
+            f"""eval "$(conda shell.bash hook)" && \
 conda activate {os.path.join(self.environments_path, self.conda_name, self.environment_hash, ".e", self.conda_name)} && \
 exec {shlex.join(super()._get_server_process_args(env, *args, **kwargs))}
-''']
+""",
+        ]
