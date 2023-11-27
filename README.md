@@ -31,9 +31,9 @@ Methods:
 - [x] Instant-NGP
 - [x] Gaussian Splatting
 - [x] Tetra-NeRF
+- [x] Mip-NeRF 360
 - [ ] NeRF
 - [ ] Mip-NeRF
-- [ ] Mip-NeRF 360
 - [ ] Zip-NeRF
 
 Datasets/features:

@@ -109,9 +109,11 @@ def batched(array, batch_size):
 def convert_image_dtype(image, dtype):
     if image.dtype == dtype:
         return image
-    if image.dtype == np.uint8 and dtype == np.float32:
-        return image.astype(np.float32) / 255.0
-    if image.dtype == np.float32 and dtype == np.uint8:
+    if image.dtype != np.uint8 and dtype != np.uint8:
+        return image.astype(dtype)
+    if image.dtype == np.uint8 and dtype != np.uint8:
+        return image.astype(dtype) / 255.0
+    if image.dtype != np.uint8 and dtype == np.uint8:
         return np.clip(image * 255.0, 0, 255).astype(np.uint8)
     raise ValueError(f"cannot convert image from {image.dtype} to {dtype}")
 

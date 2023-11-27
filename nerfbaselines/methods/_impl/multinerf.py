@@ -6,6 +6,7 @@ from ...types import Method, MethodInfo, Dataset, CurrentProgress
 from ...cameras import Cameras
 
 import gin
+from pathlib import Path
 import jax
 from jax import random
 import jax.numpy as jnp
@@ -18,86 +19,114 @@ from internal import models
 from internal import train_utils  # pylint: disable=unused-import
 
 
-def build_dataset(dataset: Dataset, config, eval=False):
-    class NBDataset(MNDataset):
-        def __init__(self, dataset, config):
-            self.dataset: Dataset = dataset
-            super().__init__("train" if not eval else "test", None, config)
+class NBDataset(MNDataset):
+    def __init__(self, dataset, config, eval=False, dataparser_transform=None):
+        self.dataset: Dataset = dataset
+        self._config = config
+        self._eval = eval
+        self._dataparser_transform = dataparser_transform
+        super().__init__("train" if not eval else "test", None, config)
 
-        def _load_renderings(self, config):
-            """Load images and poses from disk.
+    @property
+    def dataparser_transform(self):
+        return self._dataparser_transform
 
-            Args:
+    def start(self):
+        if not self._eval:
+            return super().start()
+
+    def _next_train(self):
+        if not self._eval:
+            return super()._next_train()
+
+    def _next_test(self):
+        if not self._eval:
+            return super()._next_test()
+
+    def __iter__(self):
+        if not self._eval:
+            return super().__iter__()
+        return self._iter_eval()
+
+    def _iter_eval(self):
+        for i in range(self._n_examples):
+            yield self.generate_ray_batch(i)
+
+    def _load_renderings(self, config):
+        """Load images and poses from disk.
+
+        Args:
             config: utils.Config, user-specified config parameters.
             In inherited classes, this method must set the following public attributes:
-            images: [N, height, width, 3] array for RGB images.
-            disp_images: [N, height, width] array for depth data (optional).
-            normal_images: [N, height, width, 3] array for normals (optional).
-            camtoworlds: [N, 3, 4] array of extrinsic pose matrices.
-            poses: [..., 3, 4] array of auxiliary pose data (optional).
-            pixtocams: [N, 3, 4] array of inverse intrinsic matrices.
-            distortion_params: dict, camera lens distortion model parameters.
-            height: int, height of images.
-            width: int, width of images.
-            focal: float, focal length to use for ideal pinhole rendering.
-            """
-            camtype_map = [
-                camera_utils.ProjectionType.PERSPECTIVE,
-                camera_utils.ProjectionType.PERSPECTIVE,
-                camera_utils.ProjectionType.FISHEYE,
-            ]
-            self.camtype = [camtype_map[i] for i in self.dataset.cameras.camera_types]
-            self.distortion_params = [
-                dict(zip(["k1", "k2", "k3", "k4", "p1", "p2"], self.distortion_params[i])) if self.dataset.cameras.camera_types[i] > 0 else None for i in range(len(self.dataset))
-            ]
+                images: [N, height, width, 3] array for RGB images.
+                disp_images: [N, height, width] array for depth data (optional).
+                normal_images: [N, height, width, 3] array for normals (optional).
+                camtoworlds: [N, 3, 4] array of extrinsic pose matrices.
+                poses: [..., 3, 4] array of auxiliary pose data (optional).
+                pixtocams: [N, 3, 4] array of inverse intrinsic matrices.
+                distortion_params: dict, camera lens distortion model parameters.
+                height: int, height of images.
+                width: int, width of images.
+                focal: float, focal length to use for ideal pinhole rendering.
+        """
+        camtype_map = [
+            camera_utils.ProjectionType.PERSPECTIVE,
+            camera_utils.ProjectionType.PERSPECTIVE,
+            camera_utils.ProjectionType.FISHEYE,
+        ]
+        self.camtype = [camtype_map[i] for i in self.dataset.cameras.camera_types]
+        self.distortion_params = [dict(zip(["k1", "k2", "k3", "k4", "p1", "p2"], self.distortion_params[i])) if self.dataset.cameras.camera_types[i] > 0 else None for i in range(len(self.dataset))]
 
-            # Scale the inverse intrinsics matrix by the image downsampling factor.
-            fx, fy, cx, cy = np.moveaxis(self.dataset.cameras.intrinsics, -1, 0)
-            pixtocam = np.linalg.inv(np.stack([camera_utils.intrinsic_matrix(fx[i], fy[i], cx[i], cy[i]) for i in range(len(fx))], axis=0))
-            self.pixtocams = pixtocam.astype(np.float32)
-            self.focal = 1.0 / self.pixtocams[..., 0, 0]
+        # Scale the inverse intrinsics matrix by the image downsampling factor.
+        fx, fy, cx, cy = np.moveaxis(self.dataset.cameras.intrinsics, -1, 0)
+        pixtocam = np.linalg.inv(np.stack([camera_utils.intrinsic_matrix(fx[i], fy[i], cx[i], cy[i]) for i in range(len(fx))], axis=0))
+        self.pixtocams = pixtocam.astype(np.float32)
+        self.focal = 1.0 / self.pixtocams[..., 0, 0]
 
-            self.colmap_to_world_transform = np.eye(4)
+        self.colmap_to_world_transform = np.eye(4)
 
-            # TODO: handle rawnerf and FF scenes
+        # TODO: handle rawnerf and FF scenes
 
-            # Rotate/scale poses to align ground with xy plane and fit to unit cube.
-            poses = self.dataset.cameras.poses
+        # Rotate/scale poses to align ground with xy plane and fit to unit cube.
+        poses = self.dataset.cameras.poses
+        if self._dataparser_transform is None:
+            # test_poses = poses.copy()
             poses, transform = camera_utils.transform_poses_pca(poses)
-            self.colmap_to_world_transform = transform
-            self.poses = poses
-            self.images = self.dataset.images
-            self.camtoworlds = poses
-            self.width, self.height = np.moveaxis(self.dataset.cameras.image_sizes, -1, 0)
-            if self.dataset.cameras.nears_fars is None:
-                self.near = np.full((len(self.dataset),), self.config.near, dtype=np.float32)
-                self.far = np.full((len(self.dataset),), self.config.far, dtype=np.float32)
-            else:
-                self.near, self.far = np.moveaxis(self.dataset.cameras.nears_fars, -1, 0)
+            self._dataparser_transform = transform
 
-    if eval:
-        # Speedup by not creating thread and pushing into the queue
-        NBDataset.start = lambda self: None
-        NBDataset._next_train = lambda self: None
-        NBDataset._next_test = lambda self: None
-
-        def iter_eval(self):
-            for i in range(self._n_examples):
-                yield self.generate_ray_batch(i)
-
-        NBDataset.__iter__ = iter_eval
-    return NBDataset(dataset, config)
+            # Test if transform work correctly
+            # scale = np.linalg.norm(transform[:3, :3], ord=2, axis=-2)
+            # test_poses = camera_utils.unpad_poses(transform @ camera_utils.pad_poses(test_poses))
+            # test_poses[..., :3, :3] = np.diag(1/scale) @ test_poses[..., :3, :3]
+            # np.testing.assert_allclose(test_poses, poses, atol=1e-5)
+        else:
+            transform = self._dataparser_transform
+            scale = np.linalg.norm(transform[:3, :3], ord=2, axis=-2)
+            poses = camera_utils.unpad_poses(transform @ camera_utils.pad_poses(poses))
+            poses[..., :3, :3] = np.diag(1 / scale) @ poses[..., :3, :3]
+        self.colmap_to_world_transform = transform
+        self.poses = poses
+        self.images = self.dataset.images.astype(np.float32) / 255.0
+        self.camtoworlds = poses
+        self.width, self.height = np.moveaxis(self.dataset.cameras.image_sizes, -1, 0)
+        # if self.dataset.cameras.nears_fars is None:
+        self.near = np.full((len(self.dataset),), self._config.near, dtype=np.float32)
+        self.far = np.full((len(self.dataset),), self._config.far, dtype=np.float32)
+        # else:
+        #     self.near, self.far = np.moveaxis(self.dataset.cameras.nears_fars, -1, 0)
 
 
 class MultiNeRF(Method):
     batch_size: int = 16384
     num_iterations: int = 250_000
+    learning_rate_multiplier: float = 1.0
 
-    def __init__(self, checkpoint=None, batch_size: Optional[int] = None, num_iterations: Optional[int] = None):
+    def __init__(self, checkpoint=None, batch_size: Optional[int] = None, num_iterations: Optional[int] = None, learning_rate_multiplier: Optional[float] = None):
         super().__init__()
         self.checkpoint = checkpoint
         self.batch_size = self.batch_size if batch_size is None else batch_size
         self.num_iterations = self.num_iterations if num_iterations is None else num_iterations
+        self.learning_rate_multiplier = self.learning_rate_multiplier if learning_rate_multiplier is None else learning_rate_multiplier
 
         self.pdataset_iter = None
         self.lr_fn = None
@@ -110,9 +139,19 @@ class MultiNeRF(Method):
         self.loss_threshold = None
         self.dataset = None
         self.config = self._load_config()
+        self._config_str = gin.operative_config_str()
+        self._dataparser_transform = None
+        if checkpoint is not None:
+            self._dataparser_transform = np.loadtxt(Path(checkpoint) / "dataparser_transform.txt")
 
     def _load_config(self):
         config_paths = []
+
+        # Find the config files root
+        import train
+
+        configs_path = str(Path(train.__file__).absolute().parent / "configs")
+        config_paths.append(f"{configs_path}/360.gin")
         gin.parse_config_files_and_bindings(
             config_paths,
             [
@@ -121,7 +160,10 @@ class MultiNeRF(Method):
             ],
             skip_unknown=True,
         )
-        return configs.Config()
+        config = configs.Config()
+        config.lr_init *= self.learning_rate_multiplier
+        config.lr_final *= self.learning_rate_multiplier
+        return config
 
     @property
     def info(self):
@@ -138,7 +180,9 @@ class MultiNeRF(Method):
         if self.config.batch_size % jax.device_count() != 0:
             raise ValueError("Batch size must be divisible by the number of devices.")
 
-        dataset = build_dataset(train_dataset, self.config)
+        dataset = NBDataset(train_dataset, self.config, eval=False, dataparser_transform=self._dataparser_transform)
+        self._dataparser_transform = dataset.dataparser_transform
+        assert self._dataparser_transform is not None
 
         def np_to_jax(x):
             return jnp.array(x) if isinstance(x, np.ndarray) else x
@@ -202,7 +246,7 @@ class MultiNeRF(Method):
         if jax.host_id() == 0:
             stats = flax.jax_utils.unreplicate(stats)
 
-            # Transpose and stack stats_buffer along axis 0.
+        # Transpose and stack stats_buffer along axis 0.
         fstats = flax.traverse_util.flatten_dict(stats, sep="/")
         fstats["learning_rate"] = learning_rate
         self.step = step + 1
@@ -221,8 +265,12 @@ class MultiNeRF(Method):
         return out
 
     def save(self, path):
-        state_to_save = jax.device_get(flax.jax_utils.unreplicate(self.state))
-        checkpoints.save_checkpoint(str(path), state_to_save, int(self.step), keep=100)
+        if jax.host_id() == 0:
+            state_to_save = jax.device_get(flax.jax_utils.unreplicate(self.state))
+            checkpoints.save_checkpoint(str(path), state_to_save, int(self.step), keep=100)
+            np.savetxt(Path(path) / "dataparser_transform.txt", self._dataparser_transform)
+            with (Path(path) / "config.gin").open("w+") as f:
+                f.write(self._config_str)
 
     def render(self, cameras: Cameras, progress_callback=None):
         # Test-set evaluation.
@@ -233,7 +281,8 @@ class MultiNeRF(Method):
         poses = cameras.poses
         eval_variables = flax.jax_utils.unreplicate(self.state).params
         mwidth, mheight = sizes.max(0)
-        test_dataset = build_dataset(
+        assert self._dataparser_transform is not None
+        test_dataset = NBDataset(
             Dataset(
                 cameras=cameras,
                 file_paths=[f"{i:06d}.png" for i in range(len(poses))],
@@ -241,11 +290,13 @@ class MultiNeRF(Method):
             ),
             self.config,
             eval=True,
+            dataparser_transform=self._dataparser_transform,
         )
         if progress_callback:
             progress_callback(CurrentProgress(0, len(poses), 0, len(poses)))
+
         for i, test_case in enumerate(test_dataset):
-            rendering = models.render_image(functools.partial(self.render_eval_pfn, eval_variables, self.train_frac), test_case.rays, self.rngs[0], self.config)
+            rendering = models.render_image(functools.partial(self.render_eval_pfn, eval_variables, self.train_frac), test_case.rays, self.rngs[0], self.config, verbose=False)
             if progress_callback:
                 progress_callback(CurrentProgress(i + 1, len(poses), i + 1, len(poses)))
 
@@ -254,5 +305,5 @@ class MultiNeRF(Method):
             #     postprocess_fn = test_dataset.metadata['postprocess_fn']
             # else:
             yield {
-                "color": np.array(rendering["rgb"]),
+                "color": np.array(rendering["rgb"], dtype=np.float32),
             }

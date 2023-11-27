@@ -416,6 +416,11 @@ def train_command(method, checkpoint, data, output, no_wandb, verbose, backend):
     logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)
 
+    # Make paths absolute, and change working directory to output
+    data = os.path.abspath(data)
+    output = os.path.abspath(output)
+    os.chdir(output)
+
     if method is None and checkpoint is None:
         logging.error("Either --method or --checkpoint must be specified")
         sys.exit(1)
@@ -432,7 +437,7 @@ def train_command(method, checkpoint, data, output, no_wandb, verbose, backend):
     _method, backend = method_spec.build(backend=backend, checkpoint=os.path.abspath(checkpoint) if checkpoint else None)
     logging.info(f"Using method: {method}, backend: {backend}")
 
-    # Enable direct memory access to images if supported by the backend
+    # Enable direct memory access to images and if supported by the backend
     if backend in {"docker", "apptainer"}:
         _method = partialclass(_method, mounts=[(data, data)])
 

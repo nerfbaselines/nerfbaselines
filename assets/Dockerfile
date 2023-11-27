@@ -14,8 +14,7 @@ RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-py311_23.9.0-0-L
     bash ~/miniconda.sh -b -u -p /opt/conda && \
     rm -rf ~/miniconda.sh && \
     /opt/conda/bin/conda clean -ay && \
-    ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh && \
-    /opt/conda/bin/conda init bash
+    ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh
 
 ENV PATH /opt/conda/bin:$PATH
 
