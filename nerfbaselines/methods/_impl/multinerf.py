@@ -1,3 +1,4 @@
+import os
 from typing import Optional
 import numpy as np
 import functools
@@ -128,6 +129,7 @@ class MultiNeRF(Method):
         self.num_iterations = self.num_iterations if num_iterations is None else num_iterations
         self.learning_rate_multiplier = self.learning_rate_multiplier if learning_rate_multiplier is None else learning_rate_multiplier
 
+        self._loaded_step = None
         self.pdataset_iter = None
         self.lr_fn = None
         self.train_pstep = None
@@ -143,6 +145,7 @@ class MultiNeRF(Method):
         self._dataparser_transform = None
         if checkpoint is not None:
             self._dataparser_transform = np.loadtxt(Path(checkpoint) / "dataparser_transform.txt")
+            self.step = self._loaded_step = int(next(iter((x for x in os.listdir(checkpoint) if x.startswith("checkpoint_")))).split("_")[1])
 
     def _load_config(self):
         config_paths = []
@@ -165,10 +168,10 @@ class MultiNeRF(Method):
         config.lr_final *= self.learning_rate_multiplier
         return config
 
-    @property
-    def info(self):
+    def get_info(self):
         return MethodInfo(
             num_iterations=self.num_iterations,
+            loaded_step=self._loaded_step,
         )
 
     def setup_train(self, train_dataset: Dataset, *, num_iterations):
@@ -277,6 +280,7 @@ class MultiNeRF(Method):
         # We reuse the same random number generator from the optimization step
         # here on purpose so that the visualization matches what happened in
         # training.
+        xnp = jnp
         sizes = cameras.image_sizes
         poses = cameras.poses
         eval_variables = flax.jax_utils.unreplicate(self.state).params
@@ -304,6 +308,23 @@ class MultiNeRF(Method):
             # if config.rawnerf_mode:
             #     postprocess_fn = test_dataset.metadata['postprocess_fn']
             # else:
+            accumulation = rendering["acc"]
+            eps = np.finfo(accumulation.dtype).eps
+            color = rendering["rgb"]
+            if not self.config.opaque_background:
+                color = xnp.concatenate(
+                    (
+                        # Unmultiply alpha.
+                        xnp.where(accumulation[..., None] > eps, xnp.divide(color, xnp.clip(accumulation[..., None], eps, None)), xnp.zeros_like(rendering["rgb"])),
+                        accumulation[..., None],
+                    ),
+                    -1,
+                )
+            depth = np.array(rendering["distance_mean"], dtype=np.float32)
+            assert len(accumulation.shape) == 2
+            assert len(depth.shape) == 2
             yield {
-                "color": np.array(rendering["rgb"], dtype=np.float32),
+                "color": np.array(color, dtype=np.float32),
+                "depth": np.array(depth, dtype=np.float32),
+                "accumulation": np.array(accumulation, dtype=np.float32),
             }

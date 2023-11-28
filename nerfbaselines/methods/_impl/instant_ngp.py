@@ -11,7 +11,13 @@ from PIL import Image, ImageOps
 from ...types import Dataset, Method, MethodInfo, ProgressCallback, CurrentProgress
 from ...cameras import CameraModel, Cameras
 
-import pyngp as ngp
+if os.getenv("NB_USE_GPU") != "0":
+    import pyngp as ngp
+else:
+    try:
+        import pyngp as ngp
+    except ImportError:
+        ngp = None
 
 
 AABB_SCALE = 32
@@ -177,8 +183,7 @@ class InstantNGP(Method):
         self._tempdir = tempfile.TemporaryDirectory()
         self._tempdir.__enter__()
 
-    @property
-    def info(self):
+    def get_info(self):
         return MethodInfo(num_iterations=35_000, required_features=frozenset(("images",)), supports_undistortion=True)
 
     def _setup(self, train_transforms):
@@ -403,6 +408,7 @@ class InstantNGP(Method):
                 yield {
                     "color": image,
                     "depth": depth,
+                    "accumulation": image[..., 3],
                 }
                 if progress_callback:
                     progress_callback(CurrentProgress(i + 1, len(cameras), i + 1, len(cameras)))

@@ -11,6 +11,10 @@ try:
 except ImportError:
     from typing_extensions import Protocol  # type: ignore
 try:
+    from typing import runtime_checkable
+except ImportError:
+    from typing_extensions import runtime_checkable  # type: ignore
+try:
     from typing import Literal
 except ImportError:
     from typing_extensions import Literal  # type: ignore
@@ -91,6 +95,16 @@ class Dataset:
         dataset_load_features(self, required_features)
         return self
 
+    @property
+    def expected_scene_scale(self):
+        if "expected_scene_scale" in self.metadata:
+            return float(self.metadata["expected_scene_scale"])
+        if self.cameras.nears_fars is not None:
+            return float(self.cameras.nears_fars.mean())
+
+        # TODO: this will only work for object-centric scenes. This code needs to be moved to the data parsers.
+        return np.percentile(np.linalg.norm(self.cameras.poses[..., :3, 3] - self.cameras.poses[..., :3, 3].mean(), axis=-1), 90)
+
 
 @dataclass(frozen=True)
 class CurrentProgress:
@@ -131,17 +145,17 @@ class MethodInfo:
     supports_undistortion: bool = False
 
 
+@runtime_checkable
 class Method(Protocol):
-    @staticmethod
-    def install():
+    @classmethod
+    def install(cls):
         """
         Install the method.
         """
         raise NotImplementedError()
 
-    @property
     @abstractmethod
-    def info(self) -> MethodInfo:
+    def get_info(self) -> MethodInfo:
         """
         Get method defaults for the trainer.
 

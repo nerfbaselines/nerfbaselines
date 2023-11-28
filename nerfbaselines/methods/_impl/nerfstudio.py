@@ -12,7 +12,6 @@ from typing import Iterable, Optional
 import numpy as np
 from ...types import Method, ProgressCallback, CurrentProgress, MethodInfo
 from ...types import Dataset
-from ...utils import cached_property
 from ...cameras import CameraModel, Cameras
 
 import torch
@@ -88,8 +87,7 @@ class NerfStudio(Method):
     def batch_size(self):
         return self.config.pipeline.datamanager.train_num_rays_per_batch
 
-    @cached_property
-    def info(self) -> MethodInfo:
+    def get_info(self) -> MethodInfo:
         features = ("images",)
         if self.require_points3D:
             features = features + ("points3D_xyz", "points3D_rgb")
@@ -156,6 +154,7 @@ class NerfStudio(Method):
             color = color.detach().cpu().numpy()
             out = {
                 "color": color,
+                "accumulation": outputs["accumulation"].detach().cpu().numpy(),
             }
             if "depth" in outputs:
                 out["depth"] = outputs["depth"].view(*outputs["depth"].shape[:2]).detach().cpu().numpy()

@@ -1,0 +1,98 @@
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  common-tests:
+    runs-on: ubuntu-latest
+    name: run-tests-common
+    strategy:
+      matrix:
+        python: ["3.7","3.8","3.9","3.10","3.11","3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install nerfbaselines
+        run: |
+          pip install --upgrade pip
+          pip install -e .
+          pip install pytest
+      - name: Run tests
+        run: pytest
+
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      methods: ${{ steps.data-step.outputs.methods }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.9
+      - id: data-step
+        run: |
+          pip install --upgrade pip
+          pip install -e .
+          python -c 'import nerfbaselines.registry as r; import json; print("methods=" + json.dumps(list(r.supported_methods())))' >> $GITHUB_OUTPUT
+
+  docker-apptainer-tests:
+    runs-on: ubuntu-latest
+    name: run-tests-docker-apptainer
+    needs: setup
+    strategy:
+      fail-fast: false
+      matrix:
+        # method: [instant-ngp,gaussian-splatting,tetra-nerf,mipnerf360,nerfacto]
+        method: ${{ fromJson(needs.setup.outputs.methods) }}
+    steps:
+      - name: Free root space
+        uses: almahmoud/free-root-space@main
+        with:
+          remove-cache: false
+      # - uses: Jimver/cuda-toolkit@v0.2.11
+      #   id: cuda-toolkit
+      #   with:
+      #     cuda: '11.8.0'
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.9
+      - uses: eWaterCycle/setup-apptainer@v2
+        name: Install apptainer
+        with:
+          apptainer-version: 1.2.5
+      - name: Install nerfbaselines
+        run: |
+          pip install --upgrade pip
+          pip install -e .
+          pip install pytest
+      # - name: Restore cached conda envs
+      #   id: env-cache-restore
+      #   uses: actions/cache/restore@v3
+      #   with:
+      #     path: |
+      #       ~/.cache/nerfbaselines
+      #     key: ${{ runner.os }}-nerfbaselines-${{ matrix.method }}
+      #   if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+      - name: Run tests
+        run: |
+          export TCNN_CUDA_ARCHITECTURES="80"
+          export TORCH_CUDA_ARCH_LIST="8.0"
+          export CUDAARCHS="80"
+          pytest -s --run-docker -k '${{ matrix.method }}]'
+          # Second run will use the cached env
+          pytest -s --run-docker -k '${{ matrix.method }}]'
+
+          # Free some space
+          sudo docker system prune -a -f
+          rm -rf "$HOME/.cache/nerfbaselines"
+
+          pytest -s --run-apptainer -k '${{ matrix.method }}]'
+          # Second run will use the cached env
+          pytest -s --run-apptainer -k '${{ matrix.method }}]'
+      # - name: Backup cached environments
+      #   id: env-cache-save
+      #   uses: actions/cache/save@v3
+      #   with:
+      #     path: |
+      #       ~/.cache/nerfbaselines
+      #     key: ${{ steps.env-cache-restore.outputs.cache-primary-key }}

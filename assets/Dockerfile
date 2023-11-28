@@ -6,6 +6,7 @@ RUN apt-get update --fix-missing && \
                        ca-certificates \
                        curl \
                        libgtk2.0-dev \
+                       ffmpeg libsm6 libxext6 \
                        git && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*

@@ -1,14 +1,11 @@
-import struct
 import sys
 import json
 import hashlib
 from functools import partial
 import time
-import io
 import os
 import math
 import logging
-import tarfile
 from pathlib import Path
 import typing
 from typing import Callable, Optional, Union, Type, List, Any, Dict, Tuple
@@ -18,8 +15,9 @@ import numpy as np
 from PIL import Image
 import click
 from .datasets import load_dataset, Dataset
-from .utils import Indices, setup_logging, partialclass, convert_image_dtype, linear_to_srgb
+from .utils import Indices, setup_logging, partialclass, convert_image_dtype, image_to_srgb, visualize_depth
 from .types import Method, CurrentProgress, ColorSpace
+from .render import render_all_images
 
 try:
     from typing import Annotated
@@ -96,26 +94,26 @@ class Trainer:
     ):
         self.method_name = next(iter(getattr(method, "__metadata__", tuple())), None) or method.__name__
         self.method = method()
-        self.method.install()
+        method_info = self.method.get_info()
         if isinstance(train_dataset, (Path, str)):
             if test_dataset is None:
                 test_dataset = train_dataset
             train_dataset_path = train_dataset
-            train_dataset = partial(load_dataset, Path(train_dataset), split="train", features=self.method.info.required_features)
+            train_dataset = partial(load_dataset, Path(train_dataset), split="train", features=method_info.required_features)
 
             # Allow direct access to the stored images if needed for docker remote
             if hasattr(self.method, "mounts"):
                 typing.cast(Any, self.method).mounts.append((str(train_dataset_path), str(train_dataset_path)))
         if isinstance(test_dataset, (Path, str)):
-            test_dataset = partial(load_dataset, Path(test_dataset), split="test", features=self.method.info.required_features)
+            test_dataset = partial(load_dataset, Path(test_dataset), split="test", features=method_info.required_features)
         assert test_dataset is not None, "test dataset must be specified"
         self._train_dataset_fn: Callable[[], Dataset] = train_dataset
         self._test_dataset_fn: Callable[[], Dataset] = test_dataset
         self.test_dataset: Optional[Dataset] = None
 
-        self.step = self.method.info.loaded_step or 0
+        self.step = method_info.loaded_step or 0
         self.output = output
-        self.num_iterations = num_iterations or self.method.info.num_iterations or 100_000
+        self.num_iterations = num_iterations or method_info.num_iterations or 100_000
         self.save_iters = save_iters
 
         self.eval_single_iters = eval_single_iters
@@ -126,27 +124,22 @@ class Trainer:
                 v.total = self.num_iterations + 1
         self._wandb_run: Union["wandb.sdk.wandb_run.Run", None] = None
         self._average_image_size = None
-        self._installed = False
         self._color_space = color_space
-
-    def install(self):
-        if self._installed:
-            return
-        if hasattr(self.method, "install"):
-            self.method.install()
-        self._installed = True
+        self._expected_scene_scale = None
 
     def setup_data(self):
         logging.info("loading train dataset")
         train_dataset: Dataset = self._train_dataset_fn()
         logging.info("loading eval dataset")
         self.test_dataset = self._test_dataset_fn()
+        method_info = self.method.get_info()
 
-        train_dataset.load_features(self.method.info.required_features)
+        train_dataset.load_features(method_info.required_features)
         assert train_dataset.cameras.image_sizes is not None, "image sizes must be specified"
         self._average_image_size = train_dataset.cameras.image_sizes.prod(-1).astype(np.float32).mean()
+        self._expected_scene_scale = train_dataset.expected_scene_scale
 
-        self.test_dataset.load_features(self.method.info.required_features.union({"images"}))
+        self.test_dataset.load_features(method_info.required_features.union({"images"}))
         self.method.setup_train(train_dataset, num_iterations=self.num_iterations)
 
         assert train_dataset.color_space is not None
@@ -165,6 +158,7 @@ class Trainer:
                 {
                     "method": self.method_name,
                     "color_space": self._color_space,
+                    "expected_scene_scale": self._expected_scene_scale,
                 },
                 f,
             )
@@ -201,8 +195,8 @@ class Trainer:
             for i in range(self.step, self.num_iterations):
                 self.step = i
                 metrics = self.train_iteration()
-                self.log_metrics(metrics, "train/")
                 self.step = i + 1
+                self.log_metrics(metrics, "train/")
 
                 # Visualize and save
                 if self.step in self.save_iters:
@@ -246,94 +240,61 @@ class Trainer:
         if output.exists():
             output.unlink()
             logging.warning(f"removed existing predictions at {output}")
-        with tarfile.open(output, "w:gz") as tar, tqdm(desc=f"rendering all images at step={self.step}") as pbar:
 
-            def _save_image(path, tensor):
-                with io.BytesIO() as f:
-                    if str(path).endswith(".bin"):
-                        if tensor.shape[2] < 4:
-                            tensor = np.dstack((tensor, np.ones([tensor.shape[0], tensor.shape[1], 4 - tensor.shape[2]])))
-                        f.write(struct.pack("ii", tensor.shape[0], tensor.shape[1]))
-                        f.write(tensor.astype(np.float16).tobytes())
-                    else:
-                        tensor = convert_image_dtype(tensor, np.uint8)
-                        image = Image.fromarray(tensor)
-                        image.save(f, format="png")
-                    f.seek(0)
-                    tar.addfile(tarfile.TarInfo(path), f)
+        start = time.perf_counter()
+        num_vis_images = 16
+        vis_images: List[Tuple[np.ndarray, np.ndarray]] = []
+        vis_depth: List[np.ndarray] = []
+        for (i, gt), name, pred in zip(
+            enumerate(self.test_dataset.images),
+            self.test_dataset.file_paths,
+            render_all_images(
+                self.method, self.test_dataset, output=output, color_space=self._color_space, expected_scene_scale=self._expected_scene_scale, description=f"rendering all images at step={self.step}"
+            ),
+        ):
+            name = str(Path(name).relative_to(prefix).with_suffix(""))
+            color = pred["color"]
 
-            def update_progress(stat: CurrentProgress):
-                nonlocal total_rays
-                total_rays = stat.total
-                if pbar.total != stat.total:
-                    pbar.reset(total=stat.total)
-                pbar.update(stat.i - pbar.n)
-                pbar.set_postfix({"image": f"{stat.image_i+1}/{stat.image_total}"})
+            color_srgb = image_to_srgb(color, np.uint8, color_space=self._color_space)
+            gt_srgb = image_to_srgb(gt, np.uint8, color_space=self._color_space)
+            if metrics is not None:
+                for k, v in compute_image_metrics(color_srgb, gt_srgb).items():
+                    if k not in metrics:
+                        metrics[k] = 0
+                    metrics[k] += v / len(self.test_dataset)
+            if len(vis_images) < num_vis_images:
+                vis_images.append((gt_srgb, color_srgb))
+                if "depth" in pred:
+                    near_far = self.test_dataset.cameras.nears_fars[i] if self.test_dataset.cameras.nears_fars is not None else None
+                    vis_depth.append(visualize_depth(pred["depth"], expected_scale=self._expected_scene_scale, near_far=near_far))
+        elapsed = time.perf_counter() - start
 
-            start = time.perf_counter()
-            num_vis_images = 16
-            vis_images: List[Tuple[np.ndarray, np.ndarray]] = []
-            predictions = self.method.render(cameras=self.test_dataset.cameras, progress_callback=update_progress)
-            for gt, name, pred in zip(self.test_dataset.images, self.test_dataset.file_paths, predictions):
-                name = str(Path(name).relative_to(prefix).with_suffix(""))
-                color = pred["color"]
-
-                color_srgb = self._get_srgb(color, np.uint8)
-                gt_srgb = self._get_srgb(gt, np.uint8)
-
-                _save_image(f"gt/{name}.png", gt_srgb)
-                _save_image(f"color/{name}.png", color_srgb)
-                if self._color_space == "linear":
-                    _save_image(f"gt/{name}.bin", gt)
-                    _save_image(f"color/{name}.bin", color)
-
-                if metrics is not None:
-                    for k, v in compute_image_metrics(color_srgb, gt_srgb).items():
-                        if k not in metrics:
-                            metrics[k] = 0
-                        metrics[k] += v
-                if len(vis_images) < num_vis_images:
-                    vis_images.append((gt_srgb, color_srgb))
-            elapsed = time.perf_counter() - start
-
-        # Log to wandb
         if self._wandb_run is not None:
-            assert metrics is not None, "metrics must be computed"
             import wandb  # pylint: disable=import-outside-toplevel
 
-            logging.debug("logging images to wandb")
+            assert metrics is not None, "metrics must be computed"
+            logging.debug("logging metrics to wandb")
             metrics["fps"] = len(self.test_dataset) / elapsed
             metrics["rays-per-second"] = total_rays / elapsed
             metrics["time"] = elapsed
             self.log_metrics(metrics, "eval-all-images/")
+
             num_cols = int(math.sqrt(len(vis_images)))
 
             color_vis = make_grid(
                 make_grid(*[x[0] for x in vis_images], ncol=num_cols),
                 make_grid(*[x[1] for x in vis_images], ncol=num_cols),
             )
-            self._wandb_run.log(
-                {
-                    "eval-all-images/color": [wandb.Image(color_vis, caption="left: gt, right: prediction")],
-                },
-                step=self.step,
-            )
+            log_image = {
+                "eval-all-images/color": [wandb.Image(color_vis, caption="left: gt, right: prediction")],
+            }
+            if vis_depth:
+                log_image["eval-all-images/depth"] = [wandb.Image(make_grid(*vis_depth, ncol=num_cols), caption="depth")]
+            self._wandb_run.log(log_image, step=self.step)
 
     def close(self):
         if self.method is not None and hasattr(self.method, "close"):
             typing.cast(Any, self.method).close()
-
-    def _get_srgb(self, tensor, dtype):
-        # NOTE: here we blend with black background
-        tensor = tensor[..., :3]
-
-        if self._color_space == "linear":
-            tensor = convert_image_dtype(tensor, np.float32)
-            tensor = linear_to_srgb(tensor)
-
-        tensor = convert_image_dtype(tensor, np.uint8)
-        tensor = convert_image_dtype(tensor, dtype)
-        return tensor
 
     def eval_single(self):
         if self.test_dataset is None:
@@ -374,8 +335,8 @@ class Trainer:
             gt = self.test_dataset.images[idx]
             color = predictions["color"]
 
-            color_srgb = self._get_srgb(color, np.uint8)
-            gt_srgb = self._get_srgb(gt, np.uint8)
+            color_srgb = image_to_srgb(color, np.uint8, color_space=self._color_space)
+            gt_srgb = image_to_srgb(gt, np.uint8, color_space=self._color_space)
             metrics = compute_image_metrics(color_srgb, gt_srgb)
             image_path = dataset_slice.file_paths[0]
             if dataset_slice.file_paths_root is not None:
@@ -398,10 +359,25 @@ class Trainer:
                 ],
             }
             if "depth" in predictions:
-                # TODO: map depth to RGB
-                log_image["eval-single-image/depth"] = [wandb.Image(predictions["depth"], caption=f"{image_path}: depth")]
+                depth = visualize_depth(predictions["depth"], expected_scale=self._expected_scene_scale)
+                log_image["eval-single-image/depth"] = [wandb.Image(depth, caption=f"{image_path}: depth")]
 
             self._wandb_run.log(log_image, step=self.step)
+
+
+class IndicesClickType(click.ParamType):
+    name = "indices"
+
+    def convert(self, value, param, ctx):
+        if value is None:
+            return None
+        if isinstance(value, Indices):
+            return value
+        if ":" in value:
+            parts = [int(x) if x else None for x in value.split(":")]
+            assert len(parts) <= 3, "too many parts in slice"
+            return Indices(slice(*parts))
+        return Indices([int(x) for x in value.split(",")])
 
 
 @click.command("train")
@@ -411,8 +387,10 @@ class Trainer:
 @click.option("--output", type=str, default=".")
 @click.option("--no-wandb", is_flag=True)
 @click.option("--verbose", "-v", is_flag=True)
+@click.option("--eval-single-iters", type=IndicesClickType(), default=Indices.every_iters(2_000), help="When to evaluate a single image")
+@click.option("--eval-all-iters", type=IndicesClickType(), default=Indices([-1]), help="When to evaluate all images")
 @click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NB_DEFAULT_BACKEND", None))
-def train_command(method, checkpoint, data, output, no_wandb, verbose, backend):
+def train_command(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters):
     logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)
 
@@ -428,10 +406,10 @@ def train_command(method, checkpoint, data, output, no_wandb, verbose, backend):
     if checkpoint is not None:
         with open(os.path.join(checkpoint, "nb-info.json"), "r", encoding="utf8") as f:
             info = json.load(f)
-        if method is not None and method != info["method_name"]:
-            logging.error(f"Argument --method={method} is in conflict with the checkpoint's method {info['method_name']}.")
+        if method is not None and method != info["method"]:
+            logging.error(f"Argument --method={method} is in conflict with the checkpoint's method {info['method']}.")
             sys.exit(1)
-        method = info["method_name"]
+        method = info["method"]
 
     method_spec = registry.get(method)
     _method, backend = method_spec.build(backend=backend, checkpoint=os.path.abspath(checkpoint) if checkpoint else None)
@@ -440,11 +418,14 @@ def train_command(method, checkpoint, data, output, no_wandb, verbose, backend):
     # Enable direct memory access to images and if supported by the backend
     if backend in {"docker", "apptainer"}:
         _method = partialclass(_method, mounts=[(data, data)])
+    _method.install()
 
     trainer = Trainer(
         train_dataset=Path(data),
         output=Path(output),
         method=Annotated[_method, method],
+        eval_all_iters=eval_all_iters,
+        eval_single_iters=eval_single_iters,
         use_wandb=not no_wandb,
     )
     try:

@@ -131,9 +131,8 @@ class RemoteMethod(Method):
             kwargs = dict(**self.kwargs, checkpoint=checkpoint)
         return base64.b64encode(pickle.dumps((self.args, kwargs))).decode("ascii")
 
-    @property
-    def info(self) -> MethodInfo:
-        info = self._get("info")
+    def get_info(self) -> MethodInfo:
+        info = self._call("get_info")
         assert isinstance(info, MethodInfo), f"Invalid info type {type(info)}"
         return info
 
@@ -244,6 +243,7 @@ class RemoteMethod(Method):
 
 class RemoteProcessMethod(RemoteMethod):
     _local_address = "localhost"
+    _package_path = PACKAGE_PATH
     build_code: Optional[str] = None
     python_path: str = "python"
 
@@ -268,11 +268,14 @@ class RemoteProcessMethod(RemoteMethod):
         def build(ns):
             ns["__module__"] = cls.__module__
             ns["__doc__"] = method.__doc__
-            if remote_kwargs:
-                ns["__init__"] = partialmethod(cls.__init__, **remote_kwargs)
+            init_kwargs = {}
             for k, v in remote_kwargs.items():
                 if k in method.__dict__ or k in cls.__dict__ or k in RemoteProcessMethod.__dict__:
                     ns[k] = v
+                else:
+                    init_kwargs[k] = v
+            if init_kwargs:
+                ns["__init__"] = partialmethod(cls.__init__, **init_kwargs)
             return ns
 
         return types.new_class(method.__name__, bases=bases, exec_body=build)
@@ -305,7 +308,22 @@ start_backend(method, ConnectionParams(port=int(os.environ["NB_PORT"]), authkey=
 
     @classmethod
     def _get_isolated_env(cls):
-        safe_env = {"PATH", "HOME", "USER", "LDLIBRARYPATH", "CXX", "CC", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"}
+        safe_env = {
+            "_NB_IS_DOCKERFILE",
+            "PATH",
+            "HOME",
+            "USER",
+            "LDLIBRARYPATH",
+            "CXX",
+            "CC",
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "NO_PROXY",
+            "TCNN_CUDA_ARCHITECTURES",
+            "TORCH_CUDA_ARCH_LIST",
+            "CUDAARCHS",
+            "GITHUB_ACTIONS",
+        }
         return {k: v for k, v in os.environ.items() if k.upper() in safe_env or k.startswith("NB_")}
 
     def _ensure_server_running(self):
@@ -313,7 +331,7 @@ start_backend(method, ConnectionParams(port=int(os.environ["NB_PORT"]), authkey=
             self._tmp_shared_dir = tempfile.TemporaryDirectory()
             env = self._get_isolated_env()
             env["NB_PORT"] = str(self.connection_params.port)
-            env["NB_PATH"] = PACKAGE_PATH
+            env["NB_PATH"] = self._package_path
             env["NB_AUTHKEY"] = self.connection_params.authkey.decode("ascii")
             env["NB_ARGS"] = self.encoded_args
             args = self._get_server_process_args(env)
@@ -331,13 +349,15 @@ start_backend(method, ConnectionParams(port=int(os.environ["NB_PORT"]), authkey=
         self._ensure_server_running()
         return super()._get_client()
 
-    def _get_install_args(self) -> Optional[List[str]]:
+    @classmethod
+    def _get_install_args(cls) -> Optional[List[str]]:
         return None
 
-    def install(self):
-        args = self._get_install_args()  # pylint: disable=assignment-from-none
+    @classmethod
+    def install(cls):
+        args = cls._get_install_args()  # pylint: disable=assignment-from-none
         if args is not None:
-            subprocess.check_call(args, env=self._get_isolated_env())
+            subprocess.check_call(args, env=cls._get_isolated_env())
 
     def close(self):
         super().close()

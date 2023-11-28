@@ -23,7 +23,7 @@ pip install nerfstudio==0.3.4
 NerfStudioSpec = MethodSpec(
     method=NerfStudio,
     conda=NerfStudioConda,
-    docker=DockerMethod.wrap(NerfStudio, image="dromni/nerfstudio:0.3.4", python_path="python3", home_path="/home/user"),
+    docker=DockerMethod.wrap(NerfStudioConda, image=DEFAULT_DOCKER_IMAGE),
     apptainer=ApptainerMethod.wrap(NerfStudioConda, image="docker://" + DEFAULT_DOCKER_IMAGE),
 )
 

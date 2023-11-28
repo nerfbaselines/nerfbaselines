@@ -1,10 +1,12 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+write_to = "nerfbaselines/_version.py"
 
 [project]
 name = "nerfbaselines"
-version = "0.0.1"
 authors = [
   { name="Jonas Kulhanek", email="jonas.kulhanek@live.com" },
 ]
@@ -25,7 +27,9 @@ dependencies = [
     "numpy>=1.19.5",
     "tqdm>=4.61.1",
     "Pillow>=8.2.0",
+    "matplotlib>=3.4.2",
 ]
+dynamic = ["version"]
 
 [project.urls]
 "Homepage" = "https://github.com/jkulhanek/nerfbaselines"

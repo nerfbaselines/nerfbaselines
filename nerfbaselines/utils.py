@@ -1,7 +1,10 @@
+import io
+import struct
+from pathlib import Path
 import types
 from functools import wraps
 import sys
-from typing import Any, Optional, Dict, TYPE_CHECKING
+from typing import Any, Optional, Dict, TYPE_CHECKING, Union
 import numpy as np
 import logging
 
@@ -69,7 +72,7 @@ def partialclass(cls, *args, **kwargs):
         ns["__module__"] = cls_dict["__module__"]
         ns["__doc__"] = cls_dict["__doc__"]
         if args or kwargs:
-            ns["__init__"] = partialmethod(cls_dict["__init__"], *args, **kwargs)
+            ns["__init__"] = partialmethod(cls.__init__, *args, **kwargs)
         return ns
 
     return types.new_class(cls.__name__, bases=(cls,), exec_body=build)
@@ -82,7 +85,11 @@ class Indices:
 
     def __contains__(self, x):
         if isinstance(self._steps, list):
-            return x in self._steps
+            steps = self._steps
+            if any(x < 0 for x in self._steps):
+                assert self.total is not None, "total must be specified for negative steps"
+                steps = set(x if x >= 0 else self.total + x for x in self._steps)
+            return x in steps
         elif isinstance(self._steps, slice):
             start: int = self._steps.start or 0
             if start < 0:
@@ -128,6 +135,77 @@ def linear_to_srgb(img):
     return np.where(img > limit, 1.055 * (img ** (1.0 / 2.4)) - 0.055, 12.92 * img)
 
 
+def image_to_srgb(tensor, dtype, color_space="srgb", allow_alpha: bool = False):
+    if tensor.shape[-1] == 4 and not allow_alpha:
+        # NOTE: here we blend with black background
+        tensor = tensor[..., :3] * tensor[..., 3:]
+
+    if color_space == "linear":
+        tensor = convert_image_dtype(tensor, np.float32)
+        tensor = linear_to_srgb(tensor)
+
+    # Round to 8-bit for fair comparisons
+    tensor = convert_image_dtype(tensor, np.uint8)
+    tensor = convert_image_dtype(tensor, dtype)
+    return tensor
+
+
+def save_image(file: Union[io.FileIO, str, Path], tensor: np.ndarray):
+    if isinstance(file, (str, Path)):
+        with open(file, "wb") as f:
+            return save_image(f, tensor)
+    path = Path(file.name)
+    if str(path).endswith(".bin"):
+        if tensor.shape[2] < 4:
+            tensor = np.dstack((tensor, np.ones([tensor.shape[0], tensor.shape[1], 4 - tensor.shape[2]])))
+        file.write(struct.pack("ii", tensor.shape[0], tensor.shape[1]))
+        file.write(tensor.astype(np.float16).tobytes())
+    else:
+        from PIL import Image
+
+        tensor = convert_image_dtype(tensor, np.uint8)
+        image = Image.fromarray(tensor)
+        image.save(file, format="png")
+
+
+def save_depth(file: Union[io.FileIO, str, Path], tensor: np.ndarray):
+    if isinstance(file, (str, Path)):
+        with open(file, "wb") as f:
+            return save_depth(f, tensor)
+    path = Path(file.name)
+    assert str(path).endswith(".bin")
+    file.write(struct.pack("ii", tensor.shape[0], tensor.shape[1]))
+    file.write(tensor.astype(np.float16).tobytes())
+
+
 def mark_host(fn):
     fn.__host__ = True
     return fn
+
+
+def _zipnerf_power_transformation(x, lam: float):
+    m = abs(lam - 1) / lam
+    return (((x / abs(lam - 1)) + 1) ** lam - 1) * m
+
+
+def visualize_depth(depth: np.ndarray, expected_scale: Optional[float] = None, near_far: Optional[np.ndarray] = None, pallete: str = "viridis", xnp=np) -> np.ndarray:
+    # TODO: remove matplotlib dependency
+    import matplotlib
+
+    # We will squash the depth to range [0, 1] using Barron's power transformation
+    eps = xnp.finfo(xnp.float32).eps
+    if near_far is not None:
+        depth_squashed = (depth - near_far[0]) / (near_far[1] - near_far[0])
+    elif expected_scale is not None:
+        depth = depth / max(2 * expected_scale, eps)
+
+        # We use the power series -> for lam=-1.5 the limit is 5/3
+        depth_squashed = _zipnerf_power_transformation(depth, -1.5) / (5 / 3)
+    else:
+        depth_squashed = depth
+    depth_squashed = depth_squashed.clip(0, 1)
+
+    # Map to a color scale
+    depth_long = (depth_squashed * 255).astype(xnp.int32).clip(0, 255)
+    out = xnp.array(matplotlib.colormaps[pallete].colors, dtype=xnp.float32)[255 - depth_long]
+    return (out * 255).astype(xnp.uint8)

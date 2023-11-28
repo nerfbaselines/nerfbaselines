@@ -155,8 +155,7 @@ class GaussianSplatting(Method):
             loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(self.checkpoint) if x.startswith("chkpnt-"))[-1]
         return loaded_step
 
-    @property
-    def info(self) -> MethodInfo:
+    def get_info(self) -> MethodInfo:
         info = MethodInfo(required_features=frozenset(("images", "points3D_xyz")), supports_undistortion=False, num_iterations=self.opt.iterations, loaded_step=self._loaded_step)
         return info
 

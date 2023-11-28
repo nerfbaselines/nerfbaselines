@@ -5,3 +5,5 @@ dist/
 .conda/
 .ruff_cache/
 .mypy_cache/
+.pytest_cache/
+nerfbaselines/_versoin.py
