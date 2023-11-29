@@ -1,7 +1,7 @@
 on:
   push:
-    tags-ignore:
-      - '*'
+    branches: ["main"]
+    tags-ignore: ['v*']
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -45,7 +45,7 @@ jobs:
     name: run-tests-docker
     needs: setup
     strategy:
-      fail-fast: false
+      # fail-fast: false
       matrix:
         # method: [instant-ngp,gaussian-splatting,tetra-nerf,mipnerf360,nerfacto]
         method: ${{ fromJson(needs.setup.outputs.methods) }}
@@ -70,20 +70,12 @@ jobs:
           # Second run will use the cached env
           pytest -s --run-docker -k '${{ matrix.method }}]'
 
-          # Free some space
-          sudo docker system prune -a -f
-          rm -rf "$HOME/.cache/nerfbaselines"
-
-          pytest -s --run-apptainer -k '${{ matrix.method }}]'
-          # Second run will use the cached env
-          pytest -s --run-apptainer -k '${{ matrix.method }}]'
-
   apptainer-tests:
     runs-on: ubuntu-latest
     name: run-tests-apptainer
     needs: setup
     strategy:
-      fail-fast: false
+      # fail-fast: false
       matrix:
         # method: [instant-ngp,gaussian-splatting,tetra-nerf,mipnerf360,nerfacto]
         method: ${{ fromJson(needs.setup.outputs.methods) }}
