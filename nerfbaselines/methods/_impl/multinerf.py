@@ -4,7 +4,7 @@ import numpy as np
 import functools
 import gc
 from ...types import Method, MethodInfo, Dataset, CurrentProgress
-from ...cameras import Cameras
+from ...cameras import Cameras, CameraModel
 
 import gin
 from pathlib import Path
@@ -76,7 +76,9 @@ class NBDataset(MNDataset):
             camera_utils.ProjectionType.FISHEYE,
         ]
         self.camtype = [camtype_map[i] for i in self.dataset.cameras.camera_types]
-        self.distortion_params = [dict(zip(["k1", "k2", "k3", "k4", "p1", "p2"], self.distortion_params[i])) if self.dataset.cameras.camera_types[i] > 0 else None for i in range(len(self.dataset))]
+        self.distortion_params = [
+            dict(zip(["k1", "k2", "p1", "p2", "k3", "k4"], self.dataset.cameras.distortion_parameters[i])) if self.dataset.cameras.camera_types[i] > 0 else None for i in range(len(self.dataset))
+        ]
 
         # Scale the inverse intrinsics matrix by the image downsampling factor.
         fx, fy, cx, cy = np.moveaxis(self.dataset.cameras.intrinsics, -1, 0)
@@ -172,6 +174,7 @@ class MultiNeRF(Method):
         return MethodInfo(
             num_iterations=self.num_iterations,
             loaded_step=self._loaded_step,
+            supported_camera_models=frozenset((CameraModel.PINHOLE, CameraModel.OPENCV, CameraModel.OPENCV_FISHEYE)),
         )
 
     def setup_train(self, train_dataset: Dataset, *, num_iterations):

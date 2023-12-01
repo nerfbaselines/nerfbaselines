@@ -11,7 +11,7 @@ class ApptainerMethod(RemoteProcessMethod):
     image: Optional[str] = None
     mounts: Optional[List[Tuple[str, str]]] = None
     home_path: str = "/root"
-    environments_path: str = "/var/nb-conda-envs"
+    environments_path: str = "/var/nb-prefix/apptainer-conda-envs"
 
     def __init__(self, *args, mounts: Optional[List[Tuple[str, str]]] = None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -66,7 +66,7 @@ class ApptainerMethod(RemoteProcessMethod):
             "--bind",
             shlex.quote(PACKAGE_PATH) + ":" + shlex.quote(cls._package_path),
             "--bind",
-            shlex.quote(os.path.join(NB_PREFIX, "apptainer-conda-envs")) + ":" + shlex.quote(cls.environments_path),
+            shlex.quote(NB_PREFIX) + ":/var/nb-prefix",
             "--bind",
             shlex.quote(conda_cache) + ":/var/nb-conda-pkgs",
             "--bind",
@@ -82,6 +82,8 @@ class ApptainerMethod(RemoteProcessMethod):
             "PIP_CACHE_DIR=/var/nb-pip-cache",
             "--env",
             "TORCH_HOME=/var/nb-torch",
+            "--env",
+            "NB_PREFIX=/var/nb-prefix",
             "--env",
             "COLUMNS=120",
             *(sum((["--env", f"{name}={shlex.quote(os.environ.get(name, ''))}"] for name in cls._export_envs), [])),
@@ -122,7 +124,7 @@ class ApptainerMethod(RemoteProcessMethod):
             shlex.quote(PACKAGE_PATH) + ":" + shlex.quote(self._package_path),
             *(("--bind", shlex.quote(self.shared_path[0]) + ":" + shlex.quote(self.shared_path[1])) if self.shared_path is not None else []),
             "--bind",
-            shlex.quote(os.path.join(NB_PREFIX, "apptainer-conda-envs")) + ":" + shlex.quote(self.environments_path),
+            shlex.quote(NB_PREFIX) + ":/var/nb-prefix",
             "--bind",
             shlex.quote(conda_cache) + ":/var/nb-conda-pkgs",
             "--bind",
@@ -136,6 +138,8 @@ class ApptainerMethod(RemoteProcessMethod):
             "NB_USE_GPU=" + ("1" if use_gpu else "0"),
             "--env",
             "CONDA_PKGS_DIRS=/var/nb-conda-pkgs",
+            "--env",
+            "NB_PREFIX=/var/nb-prefix",
             "--env",
             "PIP_CACHE_DIR=/var/nb-pip-cache",
             "--env",

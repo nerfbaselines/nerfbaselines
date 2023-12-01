@@ -15,7 +15,7 @@ class DockerMethod(RemoteProcessMethod):
     image: Optional[str] = None
     mounts: Optional[List[Tuple[str, str]]] = None
     home_path: str = "/root"
-    environments_path: str = "/var/nb-conda-envs"
+    environments_path: str = "/var/nb-prefix/docker-conda-envs"
 
     def __init__(self, *args, mounts: Optional[List[Tuple[str, str]]] = None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -103,7 +103,7 @@ class DockerMethod(RemoteProcessMethod):
                     "-v",
                     shlex.quote(os.getcwd()) + ":" + shlex.quote(os.getcwd()),
                     "-v",
-                    shlex.quote(os.path.join(NB_PREFIX, "docker-conda-envs")) + ":" + shlex.quote(cls.environments_path),
+                    shlex.quote(NB_PREFIX) + ":/var/nb-prefix",
                     "-v",
                     shlex.quote(PACKAGE_PATH) + ":" + shlex.quote(cls._package_path),
                     "-v",
@@ -113,6 +113,8 @@ class DockerMethod(RemoteProcessMethod):
                     "-v",
                     shlex.quote(torch_home) + ":/var/nb-torch",
                     *[f"-v={shlex.quote(src)}:{shlex.quote(dst)}" for src, dst in cls.mounts or []],
+                    "--env",
+                    "NB_PREFIX=/var/nb-prefix",
                     "--env",
                     "CONDA_PKGS_DIRS=/var/nb-conda-pkgs",
                     "--env",
@@ -169,7 +171,7 @@ class DockerMethod(RemoteProcessMethod):
             "-v",
             shlex.quote(os.getcwd()) + ":" + shlex.quote(os.getcwd()),
             "-v",
-            shlex.quote(os.path.join(NB_PREFIX, "docker-conda-envs")) + ":" + shlex.quote(self.environments_path),
+            shlex.quote(NB_PREFIX) + ":/var/nb-prefix",
             "-v",
             shlex.quote(PACKAGE_PATH) + ":" + shlex.quote(self._package_path),
             *(("-v", shlex.quote(self.shared_path[0]) + ":" + shlex.quote(self.shared_path[1])) if self.shared_path is not None else []),
@@ -183,6 +185,8 @@ class DockerMethod(RemoteProcessMethod):
             "PIP_CACHE_DIR=/var/nb-pip-cache",
             "--env",
             "TORCH_HOME=/var/nb-torch",
+            "--env",
+            "NB_PREFIX=/var/nb-prefix",
             "--env",
             "NB_USE_GPU=" + ("1" if use_gpu else "0"),
             *(sum((["--env", name] for name in self._export_envs), [])),

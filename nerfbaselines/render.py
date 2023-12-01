@@ -1,3 +1,4 @@
+from functools import wraps
 import contextlib
 import time
 import io
@@ -15,10 +16,41 @@ from typing import Any
 from .datasets import load_dataset, Dataset
 from .utils import setup_logging, image_to_srgb, save_image, save_depth, visualize_depth
 from .types import Method, CurrentProgress
+from . import cameras as _cameras
 from . import registry
 
 
+def with_supported_camera_models(supported_camera_models):
+    supported_cam_models = set(x.value for x in supported_camera_models)
+
+    def decorator(render):
+        @wraps(render)
+        def _render(cameras: _cameras.Cameras, *args, **kwargs):
+            original_cameras = cameras
+            needs_distort = []
+            undistorted_cameras_list = []
+            for cam in cameras:
+                if cam.camera_types.item() not in supported_cam_models:
+                    needs_distort.append(True)
+                    undistorted_cameras_list.append(_cameras.undistort_camera(cam)[None])
+                else:
+                    needs_distort.append(False)
+                    undistorted_cameras_list.append(cam[None])
+            undistorted_cameras = _cameras.Cameras.cat(undistorted_cameras_list)
+            for x, distort, cam, ucam in zip(render(undistorted_cameras, *args, **kwargs), needs_distort, original_cameras, undistorted_cameras):
+                if not distort:
+                    yield x
+                else:
+                    yield {k: _cameras.warp_image_between_cameras(ucam, cam, v) for k, v in x.items()}
+
+        return _render
+
+    return decorator
+
+
 def render_all_images(method: Method, dataset: Dataset, output: Path, color_space: Optional[str] = None, expected_scene_scale: Optional[float] = None, description: str = "rendering all images"):
+    info = method.get_info()
+    render = with_supported_camera_models(info.supported_camera_models)(method.render)
     allow_transparency = True
     if color_space is None:
         color_space = dataset.color_space
@@ -35,7 +67,7 @@ def render_all_images(method: Method, dataset: Dataset, output: Path, color_spac
                 pbar.set_postfix({"image": f"{min(progress.image_i+1, progress.image_total)}/{progress.image_total}"})
                 pbar.update(progress.i - pbar.n)
 
-            predictions = method.render(dataset.cameras, progress_callback=update_progress)
+            predictions = render(dataset.cameras, progress_callback=update_progress)
             for i, pred in enumerate(predictions):
                 gt_image = image_to_srgb(dataset.images[i], np.uint8, color_space=color_space, allow_alpha=allow_transparency)
                 pred_image = image_to_srgb(pred["color"], np.uint8, color_space=color_space, allow_alpha=allow_transparency)
@@ -116,7 +148,7 @@ def render_command(checkpoint, data, output, split, verbose, backend):
     try:
         method_info = method.get_info()
         dataset = load_dataset(Path(data), split=split, features=method_info.required_features)
-        dataset.load_features(method_info.required_features)
+        dataset.load_features(method_info.required_features, method_info.supported_camera_models)
         if dataset.color_space != ns_info["color_space"]:
             raise RuntimeError(f"Dataset color space {dataset.color_space} != method color space {ns_info['color_space']}")
         for _ in render_all_images(method, dataset, output=Path(output), color_space=dataset.color_space, expected_scene_scale=ns_info["expected_scene_scale"]):

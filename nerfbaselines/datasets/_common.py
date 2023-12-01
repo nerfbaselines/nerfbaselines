@@ -1,9 +1,12 @@
+import logging
+import os
 import struct
-from typing import List
 import numpy as np
 import PIL.Image
 from tqdm import tqdm
 from ..types import Dataset
+from .. import cameras
+from ..utils import padded_stack
 
 
 def single(xs):
@@ -17,16 +20,34 @@ def single(xs):
     return out
 
 
-def padded_stack(tensors: List[np.ndarray]) -> np.ndarray:
-    max_shape = tuple(max(s) for s in zip(*[x.shape for x in tensors]))
-    out_tensors = []
-    for x in tensors:
-        pads = [(0, m - s) for s, m in zip(x.shape, max_shape)]
-        out_tensors.append(np.pad(x, pads))
-    return np.stack(out_tensors, 0)
+def _dataset_undistort_unsupported(dataset: Dataset, supported_camera_models):
+    supported_models_int = set(x.value for x in supported_camera_models)
+    undistort_tasks = []
+    for i, camera in enumerate(dataset.cameras):
+        if camera.camera_types.item() in supported_models_int:
+            continue
+        undistort_tasks.append((i, camera))
+    if len(undistort_tasks) == 0:
+        return False
+
+    for i, camera in tqdm(undistort_tasks, desc="undistorting images"):
+        undistorted_camera = cameras.undistort_camera(camera)
+        dataset.cameras[i] = undistorted_camera
+        if dataset.file_paths is not None:
+            dataset.file_paths[i] = os.path.join("/undistorted", os.path.split(dataset.file_paths[i])[-1])
+        if dataset.sampling_mask_paths is not None:
+            dataset.sampling_mask_paths[i] = os.path.join("/undistorted-masks", os.path.split(dataset.sampling_mask_paths[i])[-1])
+        warped = cameras.warp_image_between_cameras(camera, undistorted_camera, dataset.images[i])
+        h, w = warped.shape[:2]
+        dataset.images[i, :h, :w] = warped
+        if dataset.sampling_masks is not None:
+            warped = cameras.warp_image_between_cameras(camera, undistorted_camera, dataset.sampling_masks[i])
+            h, w = warped.shape[:2]
+            dataset.sampling_masks[i, :h, :w] = warped
+    return True
 
 
-def dataset_load_features(dataset: Dataset, required_features):
+def dataset_load_features(dataset: Dataset, required_features, supported_camera_models=None):
     images = []
     image_sizes = []
     for p in tqdm(dataset.file_paths, desc="loading images"):
@@ -46,13 +67,9 @@ def dataset_load_features(dataset: Dataset, required_features):
 
     dataset.images = padded_stack(images)
     dataset.cameras = dataset.cameras.with_image_sizes(np.array(image_sizes, dtype=np.int32))
-
-    if "sampling_masks" in required_features and dataset.sampling_mask_paths is not None:
-        images = []
-        for p in tqdm(dataset.file_paths, desc="loading masks"):
-            image = np.array(PIL.Image.open(p).convert("L"), dtype=np.float32)
-            images.append(image)
-        dataset.sampling_masks = padded_stack(images)
+    if supported_camera_models is not None:
+        if _dataset_undistort_unsupported(dataset, supported_camera_models):
+            logging.warning("Some cameras models are not supported by the method. Images have been undistorted. Make sure to use the undistorted images for training.")
     return dataset
 
 

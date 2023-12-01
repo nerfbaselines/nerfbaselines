@@ -2,11 +2,13 @@ import shlex
 import os
 import logging
 import click
+from pathlib import Path
 from .train import train_command
 from .render import render_command
 from . import registry
 from .utils import setup_logging
-from .communication import RemoteProcessMethod
+from .communication import RemoteProcessMethod, NB_PREFIX
+from .datasets import download_dataset
 
 
 @click.group()
@@ -22,7 +24,7 @@ main.add_command(render_command)
 @click.option("--method", type=click.Choice(list(registry.supported_methods())), required=True)
 @click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NB_DEFAULT_BACKEND", None))
 @click.option("--verbose", "-v", is_flag=True)
-def shell(method, backend, verbose):
+def shell_command(method, backend, verbose):
     logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)
 
@@ -37,3 +39,15 @@ def shell(method, backend, verbose):
     env["_NB_IS_DOCKERFILE"] = "1"
     args = methodobj._get_server_process_args(env)
     os.execv("/bin/bash", ["/bin/bash", "-c", shlex.join(args)])
+
+
+@main.command("download-dataset")
+@click.argument("dataset", type=str, required=True)
+@click.option("--output", "-o", type=click.Path(file_okay=False, dir_okay=True, path_type=Path), required=False, default=None)
+@click.option("--verbose", "-v", is_flag=True)
+def download_dataset_command(dataset, output, verbose):
+    logging.basicConfig(level=logging.INFO)
+    setup_logging(verbose)
+    if output is None:
+        output = Path(NB_PREFIX) / "datasets" / dataset
+    download_dataset(dataset, output)

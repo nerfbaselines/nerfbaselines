@@ -17,7 +17,7 @@ import click
 from .datasets import load_dataset, Dataset
 from .utils import Indices, setup_logging, partialclass, convert_image_dtype, image_to_srgb, visualize_depth
 from .types import Method, CurrentProgress, ColorSpace
-from .render import render_all_images
+from .render import render_all_images, with_supported_camera_models
 
 try:
     from typing import Annotated
@@ -99,13 +99,13 @@ class Trainer:
             if test_dataset is None:
                 test_dataset = train_dataset
             train_dataset_path = train_dataset
-            train_dataset = partial(load_dataset, Path(train_dataset), split="train", features=method_info.required_features)
+            train_dataset = partial(load_dataset, train_dataset, split="train", features=method_info.required_features)
 
             # Allow direct access to the stored images if needed for docker remote
             if hasattr(self.method, "mounts"):
                 typing.cast(Any, self.method).mounts.append((str(train_dataset_path), str(train_dataset_path)))
         if isinstance(test_dataset, (Path, str)):
-            test_dataset = partial(load_dataset, Path(test_dataset), split="test", features=method_info.required_features)
+            test_dataset = partial(load_dataset, test_dataset, split="test", features=method_info.required_features)
         assert test_dataset is not None, "test dataset must be specified"
         self._train_dataset_fn: Callable[[], Dataset] = train_dataset
         self._test_dataset_fn: Callable[[], Dataset] = test_dataset
@@ -126,6 +126,7 @@ class Trainer:
         self._average_image_size = None
         self._color_space = color_space
         self._expected_scene_scale = None
+        self._method_info = method_info
 
     def setup_data(self):
         logging.info("loading train dataset")
@@ -134,7 +135,7 @@ class Trainer:
         self.test_dataset = self._test_dataset_fn()
         method_info = self.method.get_info()
 
-        train_dataset.load_features(method_info.required_features)
+        train_dataset.load_features(method_info.required_features, method_info.supported_camera_models)
         assert train_dataset.cameras.image_sizes is not None, "image sizes must be specified"
         self._average_image_size = train_dataset.cameras.image_sizes.prod(-1).astype(np.float32).mean()
         self._expected_scene_scale = train_dataset.expected_scene_scale
@@ -148,6 +149,7 @@ class Trainer:
         self._color_space = train_dataset.color_space
         if self.test_dataset.color_space != self._color_space:
             raise RuntimeError(f"train dataset color space {self._color_space} != test dataset color space {self.test_dataset.color_space}")
+        self._method_info = method_info
 
     def save(self):
         path = os.path.join(str(self.output), f"checkpoint-{self.step}")
@@ -317,7 +319,7 @@ class Trainer:
 
             predictions = next(
                 iter(
-                    self.method.render(
+                    with_supported_camera_models(self._method_info.supported_camera_models)(self.method.render)(
                         cameras=dataset_slice.cameras,
                         progress_callback=update_progress,
                     )
@@ -395,7 +397,8 @@ def train_command(method, checkpoint, data, output, no_wandb, verbose, backend, 
     setup_logging(verbose)
 
     # Make paths absolute, and change working directory to output
-    data = os.path.abspath(data)
+    if "://" not in data:
+        data = os.path.abspath(data)
     output = os.path.abspath(output)
     os.chdir(output)
 
@@ -416,12 +419,12 @@ def train_command(method, checkpoint, data, output, no_wandb, verbose, backend, 
     logging.info(f"Using method: {method}, backend: {backend}")
 
     # Enable direct memory access to images and if supported by the backend
-    if backend in {"docker", "apptainer"}:
+    if backend in {"docker", "apptainer"} and "://" not in data:
         _method = partialclass(_method, mounts=[(data, data)])
     _method.install()
 
     trainer = Trainer(
-        train_dataset=Path(data),
+        train_dataset=data,
         output=Path(output),
         method=Annotated[_method, method],
         eval_all_iters=eval_all_iters,

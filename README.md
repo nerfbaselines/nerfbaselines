@@ -19,8 +19,23 @@ dependencies to be installed. Also, some methods are not implemented for this ba
 
 The backend can be set as the `--backend <backend>` argument or using the `NB_DEFAULT_BACKEND` environment variable.
 
+## Downloading data
+For some datasets, e.g. Mip-NeRF 360 or NerfStudio, the datasets can be downloaded automatically. You can specify the argument `--data external://dataset/scene` during training
+or download the dataset beforehand by running `nerfbaselines download-dataset dataset/scene`.
+Examples:
+```bash
+# Downloads the garden scene to the cache folder.
+nerfbaselines download-dataset mipnerf360/garden
+
+# Downloads all nerfstudio scenes to the cache folder.
+nerfbaselines download-dataset nerfstudio
+
+# Downloads kithen scene to folder kitchen
+nerfbaselines download-dataset mipnerf360/kitchen -o kitchen
+```
+
 ## Training
-To start the training use the `nerfbaselines train --method <method>` command. Use `--help` argument to learn about all implemented methods and supported features.
+To start the training use the `nerfbaselines train --method <method> --data <data>` command. Use `--help` argument to learn about all implemented methods and supported features.
 
 ## Rendering
 The `nerfbaselines render --checkpoint <checkpoint>` command can be used to render images from a trained checkpoint. Again, use `--help` to learn about the arguments.
@@ -38,13 +53,15 @@ Methods:
 
 Datasets/features:
 - [x] Mip-NeRF 360
-- [x] any COLMAP datasets
+- [x] any COLMAP dataset
+- [x] any NerfStudio dataset
+- [x] automatic dataset download
+- [x] undistorting images for methods that do not support complex camera models (Gaussian Splatting)
 - [ ] HDR images support
 - [ ] RAW images support
 - [ ] handling large datasets
 - [ ] Tanks and Temples
 - [ ] Blender
-- [ ] any NerfStudio datasets
 
 ## Contributing
 Contributions are very much welcome. Please open a PR with a dataset/method/feature that you want to contribute. The goal of this project is to slowly expand by implementing more and more methods.

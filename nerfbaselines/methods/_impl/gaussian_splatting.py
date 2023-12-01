@@ -156,7 +156,12 @@ class GaussianSplatting(Method):
         return loaded_step
 
     def get_info(self) -> MethodInfo:
-        info = MethodInfo(required_features=frozenset(("images", "points3D_xyz")), supports_undistortion=False, num_iterations=self.opt.iterations, loaded_step=self._loaded_step)
+        info = MethodInfo(
+            required_features=frozenset(("images", "points3D_xyz")),
+            supported_camera_models=frozenset((CameraModel.PINHOLE,)),
+            num_iterations=self.opt.iterations,
+            loaded_step=self._loaded_step,
+        )
         return info
 
     def _build_scene(self, dataset):

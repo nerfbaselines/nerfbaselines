@@ -95,7 +95,13 @@ class NerfStudio(Method):
             loaded_step=None,
             num_iterations=self.config.max_num_iterations,
             required_features=frozenset(features),
-            supports_undistortion=True,
+            supported_camera_models=frozenset(
+                (
+                    CameraModel.PINHOLE,
+                    CameraModel.OPENCV,
+                    CameraModel.OPENCV_FISHEYE,
+                )
+            ),
             batch_size=self.config.pipeline.datamanager.train_num_rays_per_batch,
             eval_batch_size=self.config.pipeline.model.eval_num_rays_per_chunk,
         )
@@ -121,13 +127,14 @@ class NerfStudio(Method):
         npmap["opencv_fisheye"] = npmap["fisheye"]
         camera_types = [npmap[CameraModel(cameras.camera_types[i]).name.lower()] for i in range(len(poses))]
         sizes = cameras.image_sizes
+        distortion_parameters = torch.from_numpy(cameras.distortion_parameters[..., [0, 1, 4, 5, 3, 4]])
         cameras = NSCameras(
             camera_to_worlds=poses.contiguous(),
             fx=intrinsics[..., 0].contiguous(),
             fy=intrinsics[..., 1].contiguous(),
             cx=intrinsics[..., 2].contiguous(),
             cy=intrinsics[..., 3].contiguous(),
-            distortion_params=torch.from_numpy(cameras.distortion_parameters).contiguous(),
+            distortion_params=distortion_parameters.contiguous(),
             width=torch.from_numpy(sizes[..., 0]).long().contiguous(),
             height=torch.from_numpy(sizes[..., 1]).long().contiguous(),
             camera_type=torch.tensor(camera_types, dtype=torch.long),
@@ -253,13 +260,14 @@ class NerfStudio(Method):
                     assert method.dataparser_params is not None
                 scene_box = SceneBox(aabb=torch.tensor([[-aabb_scale, -aabb_scale, -aabb_scale], [aabb_scale, aabb_scale, aabb_scale]], dtype=torch.float32))
                 th_poses = method._transform_poses(torch.from_numpy(train_dataset.cameras.poses).float())
+                distortion_parameters = torch.from_numpy(train_dataset.cameras.distortion_parameters[..., [0, 1, 4, 5, 3, 4]])
                 cameras = NSCameras(
                     camera_to_worlds=th_poses,
                     fx=torch.from_numpy(train_dataset.cameras.intrinsics[..., 0]).contiguous(),
                     fy=torch.from_numpy(train_dataset.cameras.intrinsics[..., 1]).contiguous(),
                     cx=torch.from_numpy(train_dataset.cameras.intrinsics[..., 2]).contiguous(),
                     cy=torch.from_numpy(train_dataset.cameras.intrinsics[..., 3]).contiguous(),
-                    distortion_params=torch.from_numpy(train_dataset.cameras.distortion_parameters).contiguous(),
+                    distortion_params=distortion_parameters.contiguous(),
                     width=torch.from_numpy(train_dataset.cameras.image_sizes[..., 0]).long().contiguous(),
                     height=torch.from_numpy(train_dataset.cameras.image_sizes[..., 1]).long().contiguous(),
                     camera_type=torch.tensor(camera_types, dtype=torch.long),

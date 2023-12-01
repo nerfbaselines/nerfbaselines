@@ -4,6 +4,7 @@ import numpy as np
 from nerfbaselines import Method, MethodInfo, Cameras, RenderOutput, CurrentProgress, Indices
 from nerfbaselines.backends.conda import CondaMethod
 from nerfbaselines.datasets import _colmap_utils as colmap_utils
+from nerfbaselines.cameras import CameraModel
 from unittest import mock
 import tarfile
 import pytest
@@ -54,7 +55,14 @@ class _TestMethod(Method):
     def get_info(self) -> MethodInfo:
         return MethodInfo(
             loaded_step=None,
-            supports_undistortion=False,
+            supported_camera_models=frozenset(
+                (
+                    CameraModel.PINHOLE,
+                    CameraModel.OPENCV,
+                    CameraModel.OPENCV_FISHEYE,
+                    CameraModel.FULL_OPENCV,
+                )
+            ),
             num_iterations=13,
         )
 
@@ -155,6 +163,50 @@ def test_train_command(tmp_path, wandb_init_run, no_wandb):
         # By default, the model should render all images at the end
         print(os.listdir(tmp_path / "output"))
         assert (tmp_path / "output" / "predictions-13.tar.gz").exists()
+    finally:
+        _TestMethod._reset()
+        if _ns_prefix_backup is not None:
+            os.environ["NS_PREFIX"] = _ns_prefix_backup
+        else:
+            os.environ.pop("NS_PREFIX", None)
+        registry.pop("_test", None)
+
+
+def test_train_command_undistort(tmp_path, wandb_init_run):
+    from nerfbaselines.train import train_command
+    from nerfbaselines.registry import registry, MethodSpec
+
+    render_was_called = False
+    setup_data_was_called = False
+
+    class _Method(_TestMethod):
+        def get_info(self) -> MethodInfo:
+            info = super().get_info()
+            info.supported_camera_models = frozenset((CameraModel.PINHOLE,))
+            return info
+
+        def setup_train(self, train_dataset, *args, **kwargs):
+            nonlocal setup_data_was_called
+            setup_data_was_called = True
+            assert all(train_dataset.cameras.camera_types == 0)
+            return super().setup_train(train_dataset, *args, **kwargs)
+
+        def render(self, cameras, *args, **kwargs):
+            nonlocal render_was_called
+            render_was_called = True
+            assert all(cameras.camera_types == 0)
+            return super().render(cameras, *args, **kwargs)
+
+    _ns_prefix_backup = os.environ.get("NS_PREFIX", None)
+    try:
+        os.environ["NS_PREFIX"] = str(tmp_path / "prefix")
+        registry["_test"] = MethodSpec(method=_Method, conda=CondaMethod.wrap(_Method, conda_name="_test", python_version="3.10", install_script=""))
+
+        # train_command.callback(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters)
+        make_dataset(tmp_path / "data")
+        (tmp_path / "output").mkdir()
+        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, True, "python", Indices([1]), Indices([]))
+        assert render_was_called
     finally:
         _TestMethod._reset()
         if _ns_prefix_backup is not None:

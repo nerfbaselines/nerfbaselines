@@ -31,11 +31,12 @@ try:
     from typing import FrozenSet
 except ImportError:
     from typing_extensions import FrozenSet  # type: ignore
-from .cameras import Cameras
+from .cameras import Cameras, CameraModel
 from .utils import mark_host
 
 
 ColorSpace = Literal["srgb", "linear"]
+NB_PREFIX = os.path.expanduser(os.environ.get("NB_PREFIX", "~/.cache/nerfbaselines"))
 
 
 @dataclass
@@ -86,13 +87,13 @@ class Dataset:
         return dataclasses.replace(self, **{k: index(v) for k, v in self.__dict__.items() if k not in {"file_paths_root", "points3D_xyz", "points3D_rgb", "metadata", "color_space"}})
 
     @mark_host
-    def load_features(self, required_features):
+    def load_features(self, required_features, supported_camera_models=None):
         # Import lazily here because the Dataset class
         # may be used in places where some of the dependencies
         # are not available.
         from .datasets._common import dataset_load_features
 
-        dataset_load_features(self, required_features)
+        dataset_load_features(self, required_features, supported_camera_models)
         return self
 
     @property
@@ -142,7 +143,7 @@ class MethodInfo:
     batch_size: Optional[int] = None
     eval_batch_size: Optional[int] = None
     required_features: FrozenSet[DatasetFeature] = field(default_factory=frozenset)
-    supports_undistortion: bool = False
+    supported_camera_models: FrozenSet = field(default_factory=lambda: frozenset((CameraModel.PINHOLE,)))
 
 
 @runtime_checkable

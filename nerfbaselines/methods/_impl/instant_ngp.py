@@ -80,21 +80,21 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
         camera["cy"] = dataset.cameras.intrinsics[i, 3]
         camera["k1"] = 0
         camera["k2"] = 0
-        camera["k3"] = 0
-        camera["k4"] = 0
         camera["p1"] = 0
         camera["p2"] = 0
+        camera["k3"] = 0
+        camera["k4"] = 0
         camera["is_fisheye"] = False
         cam_type = dataset.cameras.camera_types[i]
         if cam_type == CameraModel.PINHOLE.value:
             pass
         elif cam_type == CameraModel.OPENCV.value or cam_type == CameraModel.OPENCV_FISHEYE.value:
-            camera["k1"] = dataset.cameras.distortion_params[i, 0]
-            camera["k2"] = dataset.cameras.distortion_params[i, 1]
-            camera["k3"] = dataset.cameras.distortion_params[i, 2]
-            camera["k4"] = dataset.cameras.distortion_params[i, 3]
-            camera["p1"] = dataset.cameras.distortion_params[i, 4]
-            camera["p2"] = dataset.cameras.distortion_params[i, 5]
+            camera["k1"] = dataset.cameras.distortion_parameters[i, 0]
+            camera["k2"] = dataset.cameras.distortion_parameters[i, 1]
+            camera["p1"] = dataset.cameras.distortion_parameters[i, 2]
+            camera["p2"] = dataset.cameras.distortion_parameters[i, 3]
+            camera["k3"] = dataset.cameras.distortion_parameters[i, 4]
+            camera["k4"] = dataset.cameras.distortion_parameters[i, 5]
             if cam_type == CameraModel.OPENCV_FISHEYE.value:
                 camera["is_fisheye"] = True
         else:
@@ -184,7 +184,7 @@ class InstantNGP(Method):
         self._tempdir.__enter__()
 
     def get_info(self):
-        return MethodInfo(num_iterations=35_000, required_features=frozenset(("images",)), supports_undistortion=True)
+        return MethodInfo(num_iterations=35_000, required_features=frozenset(("images",)), supported_camera_models=frozenset((CameraModel.PINHOLE, CameraModel.OPENCV, CameraModel.OPENCV_FISHEYE)))
 
     def _setup(self, train_transforms):
         testbed = ngp.Testbed()

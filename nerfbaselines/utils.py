@@ -4,7 +4,7 @@ from pathlib import Path
 import types
 from functools import wraps
 import sys
-from typing import Any, Optional, Dict, TYPE_CHECKING, Union
+from typing import Any, Optional, Dict, TYPE_CHECKING, Union, List
 import numpy as np
 import logging
 
@@ -16,14 +16,15 @@ else:
     except ImportError:
 
         def cached_property(func):  # type: ignore
-            cache = None
+            key = "__cached_prop_" + func.__name__
 
             @wraps(func)
             def fn_cached(self):
-                nonlocal cache
-                if cache is None:
-                    cache = (func(self),)
-                return cache[0]
+                if key not in self.__dict__:
+                    self.__dict__[key] = result = func(self)
+                else:
+                    result = self.__dict__[key]
+                return result
 
             return property(fn_cached)
 
@@ -111,6 +112,24 @@ class Indices:
 def batched(array, batch_size):
     for i in range(0, len(array), batch_size):
         yield array[i : i + batch_size]
+
+
+def padded_stack(tensors: List[np.ndarray]) -> np.ndarray:
+    max_shape = tuple(max(s) for s in zip(*[x.shape for x in tensors]))
+    out_tensors = []
+    for x in tensors:
+        pads = [(0, m - s) for s, m in zip(x.shape, max_shape)]
+        out_tensors.append(np.pad(x, pads))
+    return np.stack(out_tensors, 0)
+
+
+def is_broadcastable(shape1, shape2):
+    for a, b in zip(shape1[::-1], shape2[::-1]):
+        if a == 1 or b == 1 or a == b:
+            pass
+        else:
+            return False
+    return True
 
 
 def convert_image_dtype(image, dtype):

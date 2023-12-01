@@ -195,7 +195,7 @@ def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.nda
     image_width: int = camera.width
     image_height: int = camera.height
     intrinsics = np.array([fl_x, fl_y, cx, cy], dtype=np.float32) / float(image_width)
-    distortion_params = np.array([out.get(k, 0.0) for k in ("k1", "k2", "k3", "k4", "p1", "p2")], dtype=np.float32)
+    distortion_params = np.array([out.get(k, 0.0) for k in ("k1", "k2", "p1", "p2", "k3", "k4")], dtype=np.float32)
     return intrinsics, camera_model.value, distortion_params, (image_width, image_height)
 
 

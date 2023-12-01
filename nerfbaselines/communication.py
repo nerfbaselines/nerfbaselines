@@ -16,11 +16,11 @@ import logging
 from dataclasses import dataclass, field, is_dataclass
 from multiprocessing.connection import Listener, Client, Connection
 from .types import Method, MethodInfo
+from .types import NB_PREFIX  # noqa: F401
 from .utils import partialmethod
 
 
 PACKAGE_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-NB_PREFIX = os.path.expanduser(os.environ.get("NB_PREFIX", "~/.cache/nerfbaselines"))
 
 
 @dataclass
