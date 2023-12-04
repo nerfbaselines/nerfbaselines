@@ -52,6 +52,7 @@ def render_all_images(method: Method, dataset: Dataset, output: Path, color_spac
     info = method.get_info()
     render = with_supported_camera_models(info.supported_camera_models)(method.render)
     allow_transparency = True
+    background_color = dataset.metadata.get("background_color", None)
     if color_space is None:
         color_space = dataset.color_space
     if expected_scene_scale is None:
@@ -69,8 +70,8 @@ def render_all_images(method: Method, dataset: Dataset, output: Path, color_spac
 
             predictions = render(dataset.cameras, progress_callback=update_progress)
             for i, pred in enumerate(predictions):
-                gt_image = image_to_srgb(dataset.images[i], np.uint8, color_space=color_space, allow_alpha=allow_transparency)
-                pred_image = image_to_srgb(pred["color"], np.uint8, color_space=color_space, allow_alpha=allow_transparency)
+                gt_image = image_to_srgb(dataset.images[i], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
+                pred_image = image_to_srgb(pred["color"], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
                 assert gt_image.shape[:-1] == pred_image.shape[:-1], f"gt size {gt_image.shape[:-1]} != pred size {pred_image.shape[:-1]}"
                 relative_name = Path(dataset.file_paths[i])
                 if dataset.file_paths_root is not None:

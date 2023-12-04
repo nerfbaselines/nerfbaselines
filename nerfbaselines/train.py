@@ -256,9 +256,9 @@ class Trainer:
         ):
             name = str(Path(name).relative_to(prefix).with_suffix(""))
             color = pred["color"]
-
-            color_srgb = image_to_srgb(color, np.uint8, color_space=self._color_space)
-            gt_srgb = image_to_srgb(gt, np.uint8, color_space=self._color_space)
+            background_color = self.test_dataset.metadata.get("background_color", None)
+            color_srgb = image_to_srgb(color, np.uint8, color_space=self._color_space, background_color=background_color)
+            gt_srgb = image_to_srgb(gt, np.uint8, color_space=self._color_space, background_color=background_color)
             if metrics is not None:
                 for k, v in compute_image_metrics(color_srgb, gt_srgb).items():
                     if k not in metrics:
@@ -337,8 +337,9 @@ class Trainer:
             gt = self.test_dataset.images[idx]
             color = predictions["color"]
 
-            color_srgb = image_to_srgb(color, np.uint8, color_space=self._color_space)
-            gt_srgb = image_to_srgb(gt, np.uint8, color_space=self._color_space)
+            background_color = self.test_dataset.metadata.get("background_color", None)
+            color_srgb = image_to_srgb(color, np.uint8, color_space=self._color_space, background_color=background_color)
+            gt_srgb = image_to_srgb(gt, np.uint8, color_space=self._color_space, background_color=background_color)
             metrics = compute_image_metrics(color_srgb, gt_srgb)
             image_path = dataset_slice.file_paths[0]
             if dataset_slice.file_paths_root is not None:

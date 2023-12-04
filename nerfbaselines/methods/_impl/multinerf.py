@@ -92,7 +92,15 @@ class NBDataset(MNDataset):
 
         # Rotate/scale poses to align ground with xy plane and fit to unit cube.
         poses = self.dataset.cameras.poses
-        if self._dataparser_transform is None:
+        if self._dataparser_transform is not None:
+            transform = self._dataparser_transform
+            scale = np.linalg.norm(transform[:3, :3], ord=2, axis=-2)
+            poses = camera_utils.unpad_poses(transform @ camera_utils.pad_poses(poses))
+            poses[..., :3, :3] = np.diag(1 / scale) @ poses[..., :3, :3]
+        elif self.dataset.metadata.get("type") == "blender":
+            transform = np.eye(4)
+            self._dataparser_transform = transform
+        else:
             # test_poses = poses.copy()
             poses, transform = camera_utils.transform_poses_pca(poses)
             self._dataparser_transform = transform
@@ -102,14 +110,15 @@ class NBDataset(MNDataset):
             # test_poses = camera_utils.unpad_poses(transform @ camera_utils.pad_poses(test_poses))
             # test_poses[..., :3, :3] = np.diag(1/scale) @ test_poses[..., :3, :3]
             # np.testing.assert_allclose(test_poses, poses, atol=1e-5)
-        else:
-            transform = self._dataparser_transform
-            scale = np.linalg.norm(transform[:3, :3], ord=2, axis=-2)
-            poses = camera_utils.unpad_poses(transform @ camera_utils.pad_poses(poses))
-            poses[..., :3, :3] = np.diag(1 / scale) @ poses[..., :3, :3]
         self.colmap_to_world_transform = transform
         self.poses = poses
-        self.images = self.dataset.images.astype(np.float32) / 255.0
+        if not self._eval:
+            self.images = self.dataset.images.astype(np.float32) / 255.0
+            if self.dataset.metadata.get("type") == "blender" and not self._eval:
+                # Blender renders images in sRGB space, so convert to linear.
+                self.images = self.images[..., :3] * self.images[..., 3:] + (1 - self.images[..., 3:])
+        else:
+            self.images = self.dataset.images
         self.camtoworlds = poses
         self.width, self.height = np.moveaxis(self.dataset.cameras.image_sizes, -1, 0)
         # if self.dataset.cameras.nears_fars is None:
@@ -142,29 +151,32 @@ class MultiNeRF(Method):
         self.cameras = None
         self.loss_threshold = None
         self.dataset = None
-        self.config = self._load_config()
-        self._config_str = gin.operative_config_str()
+        self.config = None
+        self.model = None
+        self._config_str = None
         self._dataparser_transform = None
         if checkpoint is not None:
             self._dataparser_transform = np.loadtxt(Path(checkpoint) / "dataparser_transform.txt")
             self.step = self._loaded_step = int(next(iter((x for x in os.listdir(checkpoint) if x.startswith("checkpoint_")))).split("_")[1])
+            self._config_str = (Path(checkpoint) / "config.gin").read_text()
+            self.config = self._load_config(self._config_str)
 
-    def _load_config(self):
-        config_paths = []
+    def _load_config(self, dataset_type=None):
+        if self.checkpoint is None:
+            # Find the config files root
+            import train
 
-        # Find the config files root
-        import train
-
-        configs_path = str(Path(train.__file__).absolute().parent / "configs")
-        config_paths.append(f"{configs_path}/360.gin")
-        gin.parse_config_files_and_bindings(
-            config_paths,
-            [
-                "Config.batch_size = %d" % self.batch_size,
-                "Config.max_steps = %d" % self.num_iterations,
-            ],
-            skip_unknown=True,
-        )
+            configs_path = str(Path(train.__file__).absolute().parent / "configs")
+            config_path = f"{configs_path}/360.gin"
+            if dataset_type == "blender":
+                config_path = f"{configs_path}/blender_256.gin"
+            gin.parse_config_file(config_path, skip_unknown=True)
+        else:
+            assert self._config_str is not None, "Config string must be set when loading from checkpoint"
+            gin.parse_config(self._config_str, skip_unknown=False)
+        gin.bind_parameter("Config.batch_size", self.batch_size)
+        gin.bind_parameter("Config.max_steps", self.num_iterations)
+        gin.finalize()
         config = configs.Config()
         config.lr_init *= self.learning_rate_multiplier
         config.lr_final *= self.learning_rate_multiplier
@@ -178,6 +190,11 @@ class MultiNeRF(Method):
         )
 
     def setup_train(self, train_dataset: Dataset, *, num_iterations):
+        if self.config is None:
+            self.config = self._load_config(train_dataset.metadata.get("type"))
+            if self._config_str is None:
+                self._config_str = gin.operative_config_str()
+
         rng = random.PRNGKey(20200823)
         # Shift the numpy random seed by host_id() to shuffle data loaded by different
         # hosts.
@@ -197,14 +214,14 @@ class MultiNeRF(Method):
 
         rng, key = random.split(rng)
         setup = train_utils.setup_model(self.config, key, dataset=dataset)
-        model, state, self.render_eval_pfn, train_pstep, self.lr_fn = setup
+        self.model, state, self.render_eval_pfn, train_pstep, self.lr_fn = setup
 
         variables = state.params
         num_params = jax.tree_util.tree_reduce(lambda x, y: x + jnp.prod(jnp.array(y.shape)), variables, initializer=0)
         print(f"Number of parameters being optimized: {num_params}")
 
-        if dataset.size > model.num_glo_embeddings and model.num_glo_features > 0:
-            raise ValueError(f"Number of glo embeddings {model.num_glo_embeddings} " f"must be at least equal to number of train images " f"{dataset.size}")
+        if dataset.size > self.model.num_glo_embeddings and self.model.num_glo_features > 0:
+            raise ValueError(f"Number of glo embeddings {self.model.num_glo_embeddings} " f"must be at least equal to number of train images " f"{dataset.size}")
 
         if self.checkpoint is not None:
             state = checkpoints.restore_checkpoint(self.checkpoint, state)
@@ -262,10 +279,13 @@ class MultiNeRF(Method):
             "psnr": float(fstats["psnr"]),
             "loss": float(fstats["loss"]),
             "learning_rate": float(fstats["learning_rate"]),
-            "loss_distortion": float(fstats["losses/distortion"]),
-            "loss_intelevel": float(fstats["losses/interlevel"]),
-            "loss_data": float(fstats["losses/data"]),
         }
+        if "losses/distortion" in fstats:
+            out["loss_distortion"] = float(fstats["losses/distortion"])
+        if "losses/interlevel" in fstats:
+            out["loss_interlevel"] = float(fstats["losses/interlevel"])
+        if "losses/data" in fstats:
+            out["loss_data"] = float(fstats["losses/data"])
         if self.config.enable_robustnerf_loss:
             out["loss_threshold"] = float(fstats["loss_threshold"])
         return out
@@ -314,7 +334,7 @@ class MultiNeRF(Method):
             accumulation = rendering["acc"]
             eps = np.finfo(accumulation.dtype).eps
             color = rendering["rgb"]
-            if not self.config.opaque_background:
+            if not self.model.opaque_background:
                 color = xnp.concatenate(
                     (
                         # Unmultiply alpha.

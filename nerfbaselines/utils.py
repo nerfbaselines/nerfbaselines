@@ -154,10 +154,17 @@ def linear_to_srgb(img):
     return np.where(img > limit, 1.055 * (img ** (1.0 / 2.4)) - 0.055, 12.92 * img)
 
 
-def image_to_srgb(tensor, dtype, color_space="srgb", allow_alpha: bool = False):
+def image_to_srgb(tensor, dtype, color_space="srgb", allow_alpha: bool = False, background_color: Optional[np.ndarray] = None):
+    # Remove alpha channel in uint8
     if tensor.shape[-1] == 4 and not allow_alpha:
         # NOTE: here we blend with black background
-        tensor = tensor[..., :3] * tensor[..., 3:]
+        if tensor.dtype == np.uint8:
+            tensor = convert_image_dtype(tensor, np.float32)
+        alpha = tensor[..., -1:]
+        tensor = tensor[..., :3] * tensor[..., -1:]
+        # Default is black background [0, 0, 0]
+        if background_color is not None:
+            tensor += (1 - alpha) * convert_image_dtype(background_color, np.float32)
 
     if color_space == "linear":
         tensor = convert_image_dtype(tensor, np.float32)

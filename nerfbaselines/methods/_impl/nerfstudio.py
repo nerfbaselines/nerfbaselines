@@ -13,6 +13,7 @@ import numpy as np
 from ...types import Method, ProgressCallback, CurrentProgress, MethodInfo
 from ...types import Dataset
 from ...cameras import CameraModel, Cameras
+from ...utils import convert_image_dtype
 
 import torch
 from nerfstudio.cameras import camera_utils
@@ -24,6 +25,7 @@ from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.engine.trainer import TrainingCallbackLocation
 from nerfstudio.engine.trainer import Trainer
 from nerfstudio.configs.method_configs import all_methods
+from nerfstudio.utils.colors import COLORS_DICT
 
 
 # Hack to add progress to existing models
@@ -54,6 +56,31 @@ def _hacked_get_outputs_for_camera_ray_bundle(self, camera_ray_bundle, update_ca
     return outputs
 
 
+def _map_distortion_parameters(distortion_parameters):
+    distortion_parameters = np.concatenate(
+        (
+            distortion_parameters[..., :6],
+            np.zeros((*distortion_parameters.shape[:-1], 6 - min(6, distortion_parameters.shape[-1])), dtype=distortion_parameters.dtype),
+        ),
+        -1,
+    )
+    distortion_parameters = distortion_parameters[..., [0, 1, 4, 5, 3, 4]]
+    return distortion_parameters
+
+
+def _config_safe_set(config, path, value):
+    path = path.split(".")
+    for p in path[:-1]:
+        if not hasattr(config, p):
+            return False
+        config = getattr(config, p)
+    p = path[-1]
+    if hasattr(config, p):
+        setattr(config, p, value)
+        return True
+    False
+
+
 class NerfStudio(Method):
     nerfstudio_name: Optional[str] = None
     require_points3D: bool = False
@@ -82,6 +109,20 @@ class NerfStudio(Method):
         self._mode = None
         self.dataparser_params = None
         self.require_points3D = require_points3D if require_points3D is not None else self.require_points3D
+
+    def _apply_config_patch_for_dataset(self, config, dataset: Dataset):
+        if dataset.metadata.get("type") == "blender":
+            logging.info("Applying config patch for dataset type blender")
+            if not _config_safe_set(config, "pipeline.model.near_plane", 2.0):
+                logging.warning("Flag pipeline.model.near_plane is not set (required for blender-type dataset)")
+            if not _config_safe_set(config, "pipeline.model.far_plane", 6.0):
+                logging.warning("Flag pipeline.model.far_plane is not set (required for blender-type dataset)")
+            if not _config_safe_set(config, "pipeline.datamanager.camera_optimizer.mode", "off"):
+                logging.warning("Flag pipeline.datamanager.camera_optimizer.mode is not set (required for blender-type dataset)")
+            if not _config_safe_set(config, "pipeline.model.use_average_appearance_embedding", False):
+                logging.warning("Flag pipeline.model.use_average_appearance_embedding is not set (required for blender-type dataset)")
+            if not _config_safe_set(config, "pipeline.model.background_color", "random"):
+                logging.warning("Flag pipeline.model.background_color is not set (required for blender-type dataset)")
 
     @property
     def batch_size(self):
@@ -127,7 +168,7 @@ class NerfStudio(Method):
         npmap["opencv_fisheye"] = npmap["fisheye"]
         camera_types = [npmap[CameraModel(cameras.camera_types[i]).name.lower()] for i in range(len(poses))]
         sizes = cameras.image_sizes
-        distortion_parameters = torch.from_numpy(cameras.distortion_parameters[..., [0, 1, 4, 5, 3, 4]])
+        distortion_parameters = torch.from_numpy(_map_distortion_parameters(cameras.distortion_parameters))
         cameras = NSCameras(
             camera_to_worlds=poses.contiguous(),
             fx=intrinsics[..., 0].contiguous(),
@@ -204,6 +245,7 @@ class NerfStudio(Method):
         method = self
         if self.checkpoint is not None:
             self.dataparser_params = torch.load(os.path.join(self.checkpoint, "dataparser_params.pth"), map_location="cpu")
+        self._apply_config_patch_for_dataset(self._original_config, train_dataset)
         self.config = copy.deepcopy(self._original_config)
         # We use this hack to release the memory after the data was copied to cached dataloader
         images_holder = [train_dataset.images]
@@ -246,7 +288,7 @@ class NerfStudio(Method):
                 # assumes that the scene is centered at the origin
                 if train_dataset.metadata.get("type") == "blender":
                     aabb_scale = 1.5
-                    method.dataparser_params = dict(dataparser_transform=torch.eye(4, dtype=torch.float32), dataparser_scale=1.0, alpha_color="white")
+                    method.dataparser_params = dict(dataparser_transform=torch.eye(4, dtype=torch.float32), dataparser_scale=1.0)
                 else:
                     aabb_scale = 1
                     if method.checkpoint is None:
@@ -260,7 +302,7 @@ class NerfStudio(Method):
                     assert method.dataparser_params is not None
                 scene_box = SceneBox(aabb=torch.tensor([[-aabb_scale, -aabb_scale, -aabb_scale], [aabb_scale, aabb_scale, aabb_scale]], dtype=torch.float32))
                 th_poses = method._transform_poses(torch.from_numpy(train_dataset.cameras.poses).float())
-                distortion_parameters = torch.from_numpy(train_dataset.cameras.distortion_parameters[..., [0, 1, 4, 5, 3, 4]])
+                distortion_parameters = torch.from_numpy(_map_distortion_parameters(train_dataset.cameras.distortion_parameters))
                 cameras = NSCameras(
                     camera_to_worlds=th_poses,
                     fx=torch.from_numpy(train_dataset.cameras.intrinsics[..., 0]).contiguous(),
@@ -302,11 +344,14 @@ class NerfStudio(Method):
                 class DatasetL(getattr(self, "_idataset_type", InputDataset)):
                     def get_image(self, image_idx: int):
                         img = images_holder[0][image_idx]
-                        if img.dtype == np.uint8:
-                            img = img.astype(np.float32) / 255.0
+                        img = convert_image_dtype(img, np.float32)
                         image = torch.from_numpy(img)
                         if self._dataparser_outputs.alpha_color is not None and image.shape[-1] == 4:
-                            image = image[:, :, :3] * image[:, :, -1:] + self._dataparser_outputs.alpha_color * (1.0 - image[:, :, -1:])
+                            if isinstance(self._dataparser_outputs.alpha_color, str):
+                                alpha_color = COLORS_DICT[self._dataparser_outputs.alpha_color]
+                            else:
+                                alpha_color = torch.from_numpy(np.array(alpha_color, dtype=np.float32))
+                            image = image[:, :, :3] * image[:, :, -1:] + alpha_color * (1.0 - image[:, :, -1:])
                         return image
 
                 return DatasetL

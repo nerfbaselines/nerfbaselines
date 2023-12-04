@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import json
 import zipfile
-from typing import Literal, Optional, List, Tuple
+from typing import Optional, List, Tuple
 
 import numpy as np
 from PIL import Image
@@ -138,7 +138,9 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
     """The interval between frames to use for eval. Only used when eval_mode is eval-interval."""
     # depth_unit_scale_factor: float = 1e-3
     """Scales the depth values to meters. Default value is 0.001 for a millimeter to meter conversion."""
-    eval_mode: Literal["fraction", "filename", "interval", "all"] = "fraction"
+
+    # Literal["fraction", "filename", "interval", "all"]
+    eval_mode = "fraction"
     """
     The method to use for splitting the dataset into train and eval.
     Fraction splits based on a percentage for train and the remaining for eval.

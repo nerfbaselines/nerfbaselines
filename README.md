@@ -52,16 +52,17 @@ Methods:
 - [ ] Zip-NeRF
 
 Datasets/features:
-- [x] Mip-NeRF 360
+- [x] Mip-NeRF 360 dataset
+- [x] Blender dataset
 - [x] any COLMAP dataset
 - [x] any NerfStudio dataset
 - [x] automatic dataset download
 - [x] undistorting images for methods that do not support complex camera models (Gaussian Splatting)
+- [ ] Tanks and Temples
+- [ ] LLFF dataset
 - [ ] HDR images support
 - [ ] RAW images support
 - [ ] handling large datasets
-- [ ] Tanks and Temples
-- [ ] Blender
 
 ## Contributing
 Contributions are very much welcome. Please open a PR with a dataset/method/feature that you want to contribute. The goal of this project is to slowly expand by implementing more and more methods.

@@ -88,7 +88,7 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
         cam_type = dataset.cameras.camera_types[i]
         if cam_type == CameraModel.PINHOLE.value:
             pass
-        elif cam_type == CameraModel.OPENCV.value or cam_type == CameraModel.OPENCV_FISHEYE.value:
+        elif cam_type in {CameraModel.OPENCV.value, CameraModel.OPENCV_FISHEYE.value}:
             camera["k1"] = dataset.cameras.distortion_parameters[i, 0]
             camera["k2"] = dataset.cameras.distortion_parameters[i, 1]
             camera["p1"] = dataset.cameras.distortion_parameters[i, 2]
@@ -222,6 +222,11 @@ class InstantNGP(Method):
 
             # Match nerf paper behaviour and train on a fixed bg.
             testbed.nerf.training.random_bg_color = False
+
+            # Blender uses background_color = [255, 255, 255, 255]
+            # NOTE: this is different from ingp official implementation
+            testbed.background_color = [1.0, 1.0, 1.0, 1.000]
+
         self.testbed = testbed
 
     def _write_images(self, dataset: Dataset, tmpdir: str):
@@ -358,8 +363,13 @@ class InstantNGP(Method):
             old_testbed_render_min_transmittance = self.testbed.nerf.render_min_transmittance
             old_testbed_shall_train = self.testbed.shall_train
             try:
-                # Evaluate metrics on black background
-                self.testbed.background_color = [0.0, 0.0, 0.0, 1.0]
+                if self.dataparser_params.get("nerf_compatibility", False):
+                    # Blender uses background_color = [255, 255, 255, 255]
+                    # NOTE: this is different from ingp official implementation
+                    self.testbed.background_color = [1.0, 1.0, 1.0, 1.000]
+                else:
+                    # Evaluate metrics on black background
+                    self.testbed.background_color = [0.0, 0.0, 0.0, 1.0]
 
                 # Prior nerf papers don't typically do multi-sample anti aliasing.
                 # So snap all pixels to the pixel centers.
@@ -396,8 +406,11 @@ class InstantNGP(Method):
                 # Unmultiply by alpha
                 image[..., 0:3] = np.divide(image[..., 0:3], image[..., 3:4], out=np.zeros_like(image[..., 0:3]), where=image[..., 3:4] != 0)
                 old_render_mode = testbed.render_mode
-                testbed.render_mode = ngp.RenderMode.Depth
-                depth = np.copy(testbed.render(resolution[0], resolution[1], spp, True))
+
+                ## testbed.render_mode = ngp.RenderMode.Depth
+                ## depth = np.copy(testbed.render(resolution[0], resolution[1], spp, True))
+                ## [ H, W, 4]
+
                 # testbed.render_mode = ngp.RenderMode.Normals
                 # normals = testbed.render(resolution[0], resolution[1], spp, True)
                 testbed.render_mode = old_render_mode
@@ -407,7 +420,7 @@ class InstantNGP(Method):
                     image = linear_to_srgb(image)
                 yield {
                     "color": image,
-                    "depth": depth,
+                    ## "depth": depth,
                     "accumulation": image[..., 3],
                 }
                 if progress_callback:

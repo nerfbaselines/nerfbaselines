@@ -60,7 +60,7 @@ def dataset_load_features(dataset: Dataset, required_features, supported_camera_
             dataset.color_space = "linear"
         else:
             assert dataset.color_space is None or dataset.color_space == "srgb"
-            image = np.array(PIL.Image.open(p).convert("RGB"), dtype=np.uint8)
+            image = np.array(PIL.Image.open(p), dtype=np.uint8)
             dataset.color_space = "srgb"
         images.append(image)
         image_sizes.append([image.shape[1], image.shape[0]])

@@ -104,3 +104,23 @@ jobs:
           pytest -s --run-apptainer -k '${{ matrix.method }}]'
           # Second run will use the cached env
           pytest -s --run-apptainer -k '${{ matrix.method }}]'
+
+  dataset-tests:
+    runs-on: ubuntu-latest
+    name: test-datasets
+    strategy:
+      matrix:
+        dataset: ["blender/lego", "mipnerf360/garden", "nerfstudio/poster"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.9
+      - name: Install nerfbaselines
+        run: |
+          pip install --upgrade pip
+          pip install -e .
+          pip install pytest
+      - name: Test datasets
+        run: |
+          nerfbaselines download-dataset '${{ matrix.dataset }}' -o /tmp/dataset

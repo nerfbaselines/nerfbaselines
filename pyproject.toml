@@ -29,6 +29,7 @@ dependencies = [
     "Pillow>=8.2.0",
     "matplotlib>=3.4.2",
     "requests>=2.25.1",
+    "gdown>=4.7.1",
 ]
 dynamic = ["version"]
 

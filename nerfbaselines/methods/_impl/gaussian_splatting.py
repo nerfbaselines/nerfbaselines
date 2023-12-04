@@ -1,3 +1,5 @@
+import shlex
+import logging
 import copy
 from typing import Optional, Iterable
 import os
@@ -8,6 +10,15 @@ from ...types import Method, MethodInfo, CurrentProgress, ProgressCallback
 from ...datasets import Dataset
 from ...cameras import CameraModel, Cameras
 from ...utils import cached_property
+
+try:
+    from shlex import join as shlex_join
+except ImportError:
+
+    def shlex_join(split_command):
+        """Return a shelshlex.ped string from *split_command*."""
+        return " ".join(shlex.quote(arg) for arg in split_command)
+
 
 from argparse import ArgumentParser
 
@@ -23,6 +34,7 @@ from scene.dataset_readers import storePly, fetchPly
 from utils.general_utils import safe_state
 from utils.image_utils import psnr
 from utils.loss_utils import l1_loss, ssim
+from utils.sh_utils import SH2RGB
 from scene import Scene, sceneLoadTypeCallbacks
 
 
@@ -54,7 +66,7 @@ def _load_cam(pose, intrinsics, camera_id, image_name, image_size, device=None):
     )
 
 
-def _convert_dataset_to_gaussian_splatting(dataset: Dataset, tempdir: str):
+def _convert_dataset_to_gaussian_splatting(dataset: Dataset, tempdir: str, white_background: bool = False):
     assert np.all(dataset.cameras.camera_types == CameraModel.PINHOLE.value), "Only pinhole cameras supported"
     if dataset is None:
         return SceneInfo(None, [], [], nerf_normalization=dict(radius=None), ply_path=None)
@@ -79,15 +91,38 @@ def _convert_dataset_to_gaussian_splatting(dataset: Dataset, tempdir: str):
         image_name = (
             os.path.relpath(str(dataset.file_paths[idx]), str(dataset.file_paths_root)) if dataset.file_paths is not None and dataset.file_paths_root is not None else os.path.basename(image_path)
         )
-        cam_info = CameraInfo(
-            uid=idx, R=R, T=T, FovY=float(FovY), FovX=float(FovX), image=Image.fromarray(dataset.images[idx]), image_path=image_path, image_name=image_name, width=int(width), height=int(height)
-        )
+
+        im_data = dataset.images[idx]
+        if dataset.metadata.get("type", None) == "blender":
+            assert white_background, "white_background must be set for blender scenes"
+            assert im_data.shape[-1] == 4
+            bg = np.array([1, 1, 1])
+            norm_data = im_data / 255.0
+            arr = norm_data[:, :, :3] * norm_data[:, :, 3:4] + (1 - norm_data[:, :, 3:4]) * bg
+            im_data = np.array(arr * 255.0, dtype=np.uint8)
+        else:
+            assert not white_background, "white_background is only supported for blender scenes"
+        image = Image.fromarray(im_data)
+
+        cam_info = CameraInfo(uid=idx, R=R, T=T, FovY=float(FovY), FovX=float(FovX), image=image, image_path=image_path, image_name=image_name, width=int(width), height=int(height))
         cam_infos.append(cam_info)
 
     cam_infos = sorted(cam_infos.copy(), key=lambda x: x.image_name)
     nerf_normalization = getNerfppNorm(cam_infos)
 
-    storePly(os.path.join(tempdir, "scene.ply"), dataset.points3D_xyz, dataset.points3D_rgb)
+    points3D_xyz = dataset.points3D_xyz
+    points3D_rgb = dataset.points3D_rgb
+    if points3D_xyz is None and dataset.metadata.get("type", None) == "blender":
+        # https://github.com/graphdeco-inria/gaussian-splatting/blob/2eee0e26d2d5fd00ec462df47752223952f6bf4e/scene/dataset_readers.py#L221C4-L221C4
+        num_pts = 100_000
+        logging.info(f"generating random point cloud ({num_pts})...")
+
+        # We create random points inside the bounds of the synthetic Blender scenes
+        points3D_xyz = np.random.random((num_pts, 3)) * 2.6 - 1.3
+        shs = np.random.random((num_pts, 3)) / 255.0
+        points3D_rgb = (SH2RGB(shs) * 255).astype(np.uint8)
+
+    storePly(os.path.join(tempdir, "scene.ply"), points3D_xyz, points3D_rgb)
     pcd = fetchPly(os.path.join(tempdir, "scene.ply"))
     scene_info = SceneInfo(point_cloud=pcd, train_cameras=cam_infos, test_cameras=[], nerf_normalization=nerf_normalization, ply_path=os.path.join(tempdir, "scene.ply"))
     return scene_info
@@ -103,24 +138,45 @@ class GaussianSplatting(Method):
         self.scene = None
 
         # Setup parameters
+        self._args_list = ["--source_path", "<empty>"]
+        if checkpoint is not None:
+            with open(os.path.join(checkpoint, "args.txt"), "r") as f:
+                self._args_list = shlex.split(f.read())
+        self._load_config()
+
+        self._viewpoint_stack = []
+        self._input_points = None
+
+    def _load_config(self):
         parser = ArgumentParser(description="Training script parameters")
         lp = ModelParams(parser)
         op = OptimizationParams(parser)
         pp = PipelineParams(parser)
-        args = parser.parse_args(["--source_path", "<empty>"])
+        args = parser.parse_args(self._args_list)
         self.dataset = lp.extract(args)
         self.opt = op.extract(args)
         self.pipe = pp.extract(args)
-
-        self._viewpoint_stack = []
-        self._input_points = None
 
     def setup_train(self, train_dataset, *, num_iterations: int):
         # Initialize system state (RNG)
         safe_state(True)
 
+        if self.checkpoint is None:
+            if train_dataset.metadata.get("type") == "blender":
+                # Blender scenes have white background
+                self._args_list.append("--white_background")
+                logging.info("overriding default background color to white for blender dataset")
+
+            assert "--iterations" not in self._args_list, "iterations should not be specified when loading from checkpoint"
+            self._args_list.extend(("--iterations", str(num_iterations)))
+            self._load_config()
+
+            # Verify parameters are set correctly
+            assert self.opt.iterations == num_iterations, "iterations should be equal to num_iterations"
+            if train_dataset.metadata.get("type") == "blender":
+                assert self.dataset.white_background, "white_background should be True for blender dataset"
+
         # Setup model
-        self.opt.iterations = num_iterations
         self.gaussians = GaussianModel(self.dataset.sh_degree)
         self.scene = self._build_scene(train_dataset)
         self.gaussians.training_setup(self.opt)
@@ -172,7 +228,7 @@ class GaussianSplatting(Method):
             opt.model_path = td if dataset is not None else self.checkpoint
             backup = sceneLoadTypeCallbacks["Colmap"]
             try:
-                sceneLoadTypeCallbacks["Colmap"] = lambda *args, **kwargs: _convert_dataset_to_gaussian_splatting(dataset, td)
+                sceneLoadTypeCallbacks["Colmap"] = lambda *args, **kwargs: _convert_dataset_to_gaussian_splatting(dataset, td, white_background=self.dataset.white_background)
                 return Scene(opt, self.gaussians, load_iteration=self.info.loaded_step if dataset is None else None)
             finally:
                 sceneLoadTypeCallbacks["Colmap"] = backup
@@ -259,3 +315,5 @@ class GaussianSplatting(Method):
     def save(self, path):
         self.gaussians.save_ply(os.path.join(path, f"point_cloud/iteration_{self.step}", "point_cloud.ply"))
         torch.save((self.gaussians.capture(), self.step), path + f"/chkpnt-{self.step}.pth")
+        with open(path + "/args.txt", "w") as f:
+            f.write(shlex_join(self._args_list))

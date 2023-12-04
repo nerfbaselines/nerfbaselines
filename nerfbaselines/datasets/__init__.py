@@ -10,6 +10,7 @@ SUPPORTED_DATASETS = [
     "mipnerf360",
     "colmap",
     "nerfstudio",
+    "blender",
 ]
 
 
