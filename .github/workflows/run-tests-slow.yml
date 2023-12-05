@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     name: run-tests-common
     strategy:
+      fail-fast: false
       matrix:
         python: ["3.7","3.8","3.9","3.10","3.11","3.12"]
     steps:
@@ -24,6 +25,15 @@ jobs:
           pip install pytest
       - name: Run tests
         run: pytest
+      - name: Install dev-extras
+        id: dev-extras
+        if: ${{ matrix.python == '3.9' }}
+        run: |
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          pip install 'jax[cpu]' dm-pix torchmetrics
+      - name: Run dev-extras tests
+        run: pytest --run-extras
+        if: ${{ steps.dev-extras.outcome == 'success' }}
 
   setup:
     runs-on: ubuntu-latest

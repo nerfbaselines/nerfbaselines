@@ -14,6 +14,7 @@ from tqdm import tqdm
 import numpy as np
 from PIL import Image
 import click
+from . import metrics
 from .datasets import load_dataset, Dataset
 from .utils import Indices, setup_logging, partialclass, convert_image_dtype, image_to_srgb, visualize_depth
 from .types import Method, CurrentProgress, ColorSpace
@@ -64,16 +65,32 @@ def compute_exponential_gamma(num_iters: int, initial_lr: float, final_lr: float
     return math.exp(gamma)
 
 
-def compute_image_metrics(pred, gt):
+@typing.overload
+def compute_image_metrics(pred: np.ndarray, gt: np.ndarray, reduce: bool = True) -> Dict[str, float]:
+    ...
+
+
+@typing.overload
+def compute_image_metrics(pred: np.ndarray, gt: np.ndarray, reduce: bool = False) -> Dict[str, np.ndarray]:
+    ...
+
+
+def compute_image_metrics(pred, gt, reduce=True):
     # NOTE: we blend with black background here!
+    def reduction(x):
+        if reduce:
+            return x.mean().item()
+        return x
+
     pred = pred[..., : gt.shape[-1]]
     pred = convert_image_dtype(pred, np.float32)
     gt = convert_image_dtype(gt, np.float32)
-    mse = ((pred - gt) ** 2).mean()
+    mse = metrics.mse(pred, gt)
     return {
-        "mse": mse,
-        "psnr": -10 * math.log10(mse),
-        "mae": np.abs(pred - gt).mean(),
+        "mse": reduction(mse),
+        "psnr": reduction(metrics.psnr(mse)),
+        "mae": reduction(metrics.mae(pred, gt)),
+        "ssim": reduction(metrics.ssim(pred, gt)),
     }
 
 
