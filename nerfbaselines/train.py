@@ -16,7 +16,7 @@ from PIL import Image
 import click
 from . import metrics
 from .datasets import load_dataset, Dataset
-from .utils import Indices, setup_logging, partialclass, convert_image_dtype, image_to_srgb, visualize_depth
+from .utils import Indices, setup_logging, partialclass, convert_image_dtype, image_to_srgb, visualize_depth, handle_cli_error
 from .types import Method, CurrentProgress, ColorSpace
 from .render import render_all_images, with_supported_camera_models
 
@@ -410,6 +410,7 @@ class IndicesClickType(click.ParamType):
 @click.option("--eval-single-iters", type=IndicesClickType(), default=Indices.every_iters(2_000), help="When to evaluate a single image")
 @click.option("--eval-all-iters", type=IndicesClickType(), default=Indices([-1]), help="When to evaluate all images")
 @click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NB_DEFAULT_BACKEND", None))
+@handle_cli_error
 def train_command(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters):
     logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)

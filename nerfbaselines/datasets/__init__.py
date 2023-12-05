@@ -3,7 +3,7 @@ from importlib import import_module
 import logging
 from pathlib import Path
 from ..types import Dataset, DatasetFeature, FrozenSet, NB_PREFIX
-from ._common import DatasetNotFoundError
+from ._common import DatasetNotFoundError, MultiDatasetError
 
 
 SUPPORTED_DATASETS = [
@@ -30,7 +30,7 @@ def download_dataset(path: str, output: Path):
             logging.debug(e)
             logging.debug(f"path {path} is not supported by {name} dataset")
             errors[name] = str(e)
-    raise DatasetNotFoundError(f"no supported dataset found for path {path}:" "".join(f"\n  {name}: {error}" for name, error in errors.items()))
+    raise MultiDatasetError(errors, f"no supported dataset found for path {path}")
 
 
 def load_dataset(path: Union[Path, str], split: str, features: FrozenSet[DatasetFeature]) -> Dataset:
@@ -54,4 +54,4 @@ def load_dataset(path: Union[Path, str], split: str, features: FrozenSet[Dataset
             logging.debug(e)
             logging.debug(f"{name} dataset not found in path {path}")
             errors[name] = str(e)
-    raise DatasetNotFoundError(f"no supported dataset found in path {path}:" "".join(f"\n  {name}: {error}" for name, error in errors.items()))
+    raise MultiDatasetError(errors, f"no supported dataset found in path {path}")

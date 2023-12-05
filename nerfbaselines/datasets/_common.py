@@ -75,3 +75,27 @@ def dataset_load_features(dataset: Dataset, required_features, supported_camera_
 
 class DatasetNotFoundError(Exception):
     pass
+
+
+class MultiDatasetError(DatasetNotFoundError):
+    def __init__(self, errors, message):
+        self.errors = errors
+        self.message = message
+        super().__init__(message + "\n" + "".join(f"\n  {name}: {error}" for name, error in errors.items()))
+
+    def write_to_logger(self, color=True, terminal_width=None):
+        if terminal_width is None:
+            terminal_width = min(os.get_terminal_size().columns, 120)
+        message = self.message
+        if color:
+            message = "\33[0m\33[31m" + message + "\33[0m"
+        for name, error in self.errors.items():
+            prefix = f"   {name}: "
+            mlen = terminal_width - len(prefix)
+            prefixlen = len(prefix)
+            if color:
+                prefix = f"\33[96m{prefix}\33[0m"
+            rows = [error[i : i + mlen] for i in range(0, len(error), mlen)]
+            mdetail = f'\n{" "*prefixlen}'.join(rows)
+            message += f"\n{prefix}{mdetail}"
+        logging.error(message)

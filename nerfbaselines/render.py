@@ -14,7 +14,7 @@ import numpy as np
 import typing
 from typing import Any
 from .datasets import load_dataset, Dataset
-from .utils import setup_logging, image_to_srgb, save_image, save_depth, visualize_depth
+from .utils import setup_logging, image_to_srgb, save_image, save_depth, visualize_depth, handle_cli_error
 from .types import Method, CurrentProgress
 from . import cameras as _cameras
 from . import registry
@@ -128,6 +128,7 @@ def render_all_images(method: Method, dataset: Dataset, output: Path, color_spac
 @click.option("--split", type=str, default="test")
 @click.option("--verbose", "-v", is_flag=True)
 @click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NB_DEFAULT_BACKEND", None))
+@handle_cli_error
 def render_command(checkpoint, data, output, split, verbose, backend):
     setup_logging(verbose)
 

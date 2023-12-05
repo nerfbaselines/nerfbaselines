@@ -57,6 +57,21 @@ def setup_logging(verbose: bool):
         handler.setFormatter(Formatter())
 
 
+def handle_cli_error(fn):
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            if hasattr(e, "write_to_logger"):
+                e.write_to_logger()
+            else:
+                logging.fatal(e)
+            sys.exit(1)
+
+    return wrapped
+
+
 def partialmethod(func, *args, **kwargs):
     def wrapped(self, *args2, **kwargs2):
         return func(self, *args, *args2, **kwargs, **kwargs2)

@@ -13,12 +13,18 @@ from ._common import DatasetNotFoundError
 
 
 BLENDER_SCENES = {"lego", "ship", "drums", "hotdog", "materials", "mic", "chair", "ficus"}
+BLENDER_SPLITS = {"train", "test", "val"}
 
 
 def load_blender_dataset(path: Path, split: str, **kwargs):
     assert isinstance(path, (Path, str)), "path must be a pathlib.Path or str"
-    assert split in {"train", "test", "val"}, "split must be one of 'train', 'test' or 'val'"
     path = Path(path)
+
+    for split in BLENDER_SPLITS:
+        if not (path / f"transforms_{split}.json").exists():
+            raise DatasetNotFoundError(f"Path {path} does not contain a blender dataset. Missing file: {path / f'transforms_{split}.json'}")
+
+    assert split in BLENDER_SPLITS, "split must be one of 'train', 'test' or 'val'"
 
     with (path / f"transforms_{split}.json").open("r", encoding="utf8") as fp:
         meta = json.load(fp)
