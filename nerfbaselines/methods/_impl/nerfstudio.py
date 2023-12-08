@@ -1,5 +1,4 @@
 # pylint: disable=protected-access
-import yaml
 import os
 from functools import partial
 import logging
@@ -15,6 +14,7 @@ from ...types import Dataset
 from ...cameras import CameraModel, Cameras
 from ...utils import convert_image_dtype
 
+import yaml
 import torch
 from nerfstudio.cameras import camera_utils
 from nerfstudio.cameras.cameras import Cameras as NSCameras, CameraType as NPCameraType
@@ -79,6 +79,87 @@ def _config_safe_set(config, path, value):
         setattr(config, p, value)
         return True
     False
+
+
+class _CustomDataParser(DataParser):
+    def __init__(self, method, dataset, config, *args, **kwargs):
+        self.dataset = dataset
+        self.method = method
+        super().__init__(config)
+
+    def _generate_dataparser_outputs(self, split: str = "train", **kwargs) -> DataparserOutputs:
+        if split != "train":
+            return DataparserOutputs(
+                [],
+                NSCameras(
+                    torch.zeros((1, 3, 4), dtype=torch.float32),
+                    torch.zeros((1,), dtype=torch.float32),
+                    torch.zeros((1,), dtype=torch.float32),
+                    torch.zeros((1,), dtype=torch.float32),
+                    torch.zeros((1,), dtype=torch.float32),
+                    torch.zeros((1,), dtype=torch.long),
+                    torch.zeros((1,), dtype=torch.long),
+                    torch.zeros((1,), dtype=torch.float32),
+                    torch.zeros((1,), dtype=torch.long),
+                ),
+                None,
+                None,
+                [],
+                {},
+            )
+        image_names = [f"{i:06d}.png" for i in range(len(self.dataset.cameras.poses))]
+        camera_types = [NPCameraType.PERSPECTIVE for _ in range(len(self.dataset.cameras.poses))]
+        npmap = {x.name.lower(): x.value for x in NPCameraType.__members__.values()}
+        npmap["pinhole"] = npmap["perspective"]
+        npmap["opencv"] = npmap["perspective"]
+        npmap["opencv_fisheye"] = npmap["fisheye"]
+        camera_types = [npmap[CameraModel(self.dataset.cameras.camera_types[i]).name.lower()] for i in range(len(self.dataset.cameras.poses))]
+
+        # in x,y,z order
+        # assumes that the scene is centered at the origin
+        if self.dataset.metadata.get("type") == "blender":
+            aabb_scale = 1.5
+            self.method.dataparser_params = dict(dataparser_transform=torch.eye(4, dtype=torch.float32), dataparser_scale=1.0)
+        else:
+            aabb_scale = 1
+            if self.method.checkpoint is None:
+                dp_trans, dp_scale = self.method._get_pose_transform(self.dataset.cameras.poses)
+                self.method.dataparser_params = dict(
+                    dataparser_transform=dp_trans,
+                    dataparser_scale=dp_scale,
+                )
+
+        if self.method.checkpoint is not None:
+            assert self.method.dataparser_params is not None
+        scene_box = SceneBox(aabb=torch.tensor([[-aabb_scale, -aabb_scale, -aabb_scale], [aabb_scale, aabb_scale, aabb_scale]], dtype=torch.float32))
+        th_poses = self.method._transform_poses(torch.from_numpy(self.dataset.cameras.poses).float())
+        distortion_parameters = torch.from_numpy(_map_distortion_parameters(self.dataset.cameras.distortion_parameters))
+        cameras = NSCameras(
+            camera_to_worlds=th_poses,
+            fx=torch.from_numpy(self.dataset.cameras.intrinsics[..., 0]).contiguous(),
+            fy=torch.from_numpy(self.dataset.cameras.intrinsics[..., 1]).contiguous(),
+            cx=torch.from_numpy(self.dataset.cameras.intrinsics[..., 2]).contiguous(),
+            cy=torch.from_numpy(self.dataset.cameras.intrinsics[..., 3]).contiguous(),
+            distortion_params=distortion_parameters.contiguous(),
+            width=torch.from_numpy(self.dataset.cameras.image_sizes[..., 0]).long().contiguous(),
+            height=torch.from_numpy(self.dataset.cameras.image_sizes[..., 1]).long().contiguous(),
+            camera_type=torch.tensor(camera_types, dtype=torch.long),
+        )
+        metadata = {}
+        if self.method.require_points3D:
+            assert self.dataset.points3D_xyz is not None, "Points3D are required but not provided"
+            metadata["points3D_xyz"] = torch.from_numpy(self.dataset.points3D_xyz).float()
+            metadata["points3D_rgb"] = torch.from_numpy(self.dataset.points3D_rgb)
+        return DataparserOutputs(
+            image_names,
+            cameras,
+            self.method.dataparser_params.get("alpha_color", None),
+            scene_box,
+            image_names if self.dataset.sampling_masks else None,
+            metadata,
+            dataparser_transform=self.method.dataparser_params["dataparser_transform"][..., :3, :].contiguous(),  # pylint: disable=protected-access
+            dataparser_scale=self.method.dataparser_params["dataparser_scale"],
+        )  # pylint: disable=protected-access
 
 
 class NerfStudio(Method):
@@ -242,7 +323,6 @@ class NerfStudio(Method):
         return transform_matrix_extended, scale_factor
 
     def setup_train(self, train_dataset: Dataset, *, num_iterations: int):
-        method = self
         if self.checkpoint is not None:
             self.dataparser_params = torch.load(os.path.join(self.checkpoint, "dataparser_params.pth"), map_location="cpu")
         self._apply_config_patch_for_dataset(self._original_config, train_dataset)
@@ -251,85 +331,7 @@ class NerfStudio(Method):
         images_holder = [train_dataset.images]
         del train_dataset.images
 
-        class CustomDataParser(DataParser):
-            def __init__(self, config, *args, **kwargs):
-                super().__init__(config)
-                method._dp = self
-
-            def _generate_dataparser_outputs(self, split: str = "train", **kwargs) -> DataparserOutputs:
-                if split != "train":
-                    return DataparserOutputs(
-                        [],
-                        NSCameras(
-                            torch.zeros((1, 3, 4), dtype=torch.float32),
-                            torch.zeros((1,), dtype=torch.float32),
-                            torch.zeros((1,), dtype=torch.float32),
-                            torch.zeros((1,), dtype=torch.float32),
-                            torch.zeros((1,), dtype=torch.float32),
-                            torch.zeros((1,), dtype=torch.long),
-                            torch.zeros((1,), dtype=torch.long),
-                            torch.zeros((1,), dtype=torch.float32),
-                            torch.zeros((1,), dtype=torch.long),
-                        ),
-                        None,
-                        None,
-                        [],
-                        {},
-                    )
-                image_names = [f"{i:06d}.png" for i in range(len(train_dataset.cameras.poses))]
-                camera_types = [NPCameraType.PERSPECTIVE for _ in range(len(train_dataset.cameras.poses))]
-                npmap = {x.name.lower(): x.value for x in NPCameraType.__members__.values()}
-                npmap["pinhole"] = npmap["perspective"]
-                npmap["opencv"] = npmap["perspective"]
-                npmap["opencv_fisheye"] = npmap["fisheye"]
-                camera_types = [npmap[CameraModel(train_dataset.cameras.camera_types[i]).name.lower()] for i in range(len(train_dataset.cameras.poses))]
-
-                # in x,y,z order
-                # assumes that the scene is centered at the origin
-                if train_dataset.metadata.get("type") == "blender":
-                    aabb_scale = 1.5
-                    method.dataparser_params = dict(dataparser_transform=torch.eye(4, dtype=torch.float32), dataparser_scale=1.0)
-                else:
-                    aabb_scale = 1
-                    if method.checkpoint is None:
-                        dp_trans, dp_scale = method._get_pose_transform(train_dataset.cameras.poses)
-                        method.dataparser_params = dict(
-                            dataparser_transform=dp_trans,
-                            dataparser_scale=dp_scale,
-                        )
-
-                if method.checkpoint is not None:
-                    assert method.dataparser_params is not None
-                scene_box = SceneBox(aabb=torch.tensor([[-aabb_scale, -aabb_scale, -aabb_scale], [aabb_scale, aabb_scale, aabb_scale]], dtype=torch.float32))
-                th_poses = method._transform_poses(torch.from_numpy(train_dataset.cameras.poses).float())
-                distortion_parameters = torch.from_numpy(_map_distortion_parameters(train_dataset.cameras.distortion_parameters))
-                cameras = NSCameras(
-                    camera_to_worlds=th_poses,
-                    fx=torch.from_numpy(train_dataset.cameras.intrinsics[..., 0]).contiguous(),
-                    fy=torch.from_numpy(train_dataset.cameras.intrinsics[..., 1]).contiguous(),
-                    cx=torch.from_numpy(train_dataset.cameras.intrinsics[..., 2]).contiguous(),
-                    cy=torch.from_numpy(train_dataset.cameras.intrinsics[..., 3]).contiguous(),
-                    distortion_params=distortion_parameters.contiguous(),
-                    width=torch.from_numpy(train_dataset.cameras.image_sizes[..., 0]).long().contiguous(),
-                    height=torch.from_numpy(train_dataset.cameras.image_sizes[..., 1]).long().contiguous(),
-                    camera_type=torch.tensor(camera_types, dtype=torch.long),
-                )
-                metadata = {}
-                if method.require_points3D:
-                    metadata["points3D_xyz"] = torch.from_numpy(train_dataset.points3D_xyz).float()
-                    metadata["points3D_rgb"] = torch.from_numpy(train_dataset.points3D_rgb)
-                return DataparserOutputs(
-                    image_names,
-                    cameras,
-                    method.dataparser_params.get("alpha_color", None),
-                    scene_box,
-                    image_names if train_dataset.sampling_masks else None,
-                    metadata,
-                    dataparser_transform=method.dataparser_params["dataparser_transform"][..., :3, :].contiguous(),  # pylint: disable=protected-access
-                    dataparser_scale=method.dataparser_params["dataparser_scale"],
-                )  # pylint: disable=protected-access
-
-        self.config.pipeline.datamanager.dataparser._target = CustomDataParser  # pylint: disable=protected-access
+        self.config.pipeline.datamanager.dataparser._target = partial(_CustomDataParser, self, train_dataset)
         self.config.max_num_iterations = num_iterations
 
         dm = self.config.pipeline.datamanager

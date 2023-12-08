@@ -92,7 +92,9 @@ def _convert_dataset_to_gaussian_splatting(dataset: Dataset, tempdir: str, white
             os.path.relpath(str(dataset.file_paths[idx]), str(dataset.file_paths_root)) if dataset.file_paths is not None and dataset.file_paths_root is not None else os.path.basename(image_path)
         )
 
-        im_data = dataset.images[idx]
+        w, h = dataset.cameras.image_sizes[idx]
+        im_data = dataset.images[idx][:h, :w]
+        assert im_data.dtype == np.uint8, "Gaussian Splatting supports images as uint8"
         if dataset.metadata.get("type", None) == "blender":
             assert white_background, "white_background must be set for blender scenes"
             assert im_data.shape[-1] == 4

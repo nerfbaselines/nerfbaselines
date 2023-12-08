@@ -1,13 +1,14 @@
 import os
 from typing import Optional
+from pathlib import Path
 import numpy as np
 import functools
 import gc
 from ...types import Method, MethodInfo, Dataset, CurrentProgress
 from ...cameras import Cameras, CameraModel
+from ...utils import padded_stack
 
 import gin
-from pathlib import Path
 import jax
 from jax import random
 import jax.numpy as jnp
@@ -113,7 +114,10 @@ class NBDataset(MNDataset):
         self.colmap_to_world_transform = transform
         self.poses = poses
         if not self._eval:
-            self.images = self.dataset.images.astype(np.float32) / 255.0
+            images = self.dataset.images
+            if isinstance(images, list):
+                images = padded_stack(images)
+            self.images = images.astype(np.float32) / 255.0
             if self.dataset.metadata.get("type") == "blender" and not self._eval:
                 # Blender renders images in sRGB space, so convert to linear.
                 self.images = self.images[..., :3] * self.images[..., 3:] + (1 - self.images[..., 3:])

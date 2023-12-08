@@ -17,6 +17,7 @@ import click
 from . import metrics
 from .datasets import load_dataset, Dataset
 from .utils import Indices, setup_logging, partialclass, convert_image_dtype, image_to_srgb, visualize_depth, handle_cli_error
+from .utils import remap_error
 from .types import Method, CurrentProgress, ColorSpace
 from .render import render_all_images, with_supported_camera_models
 
@@ -37,6 +38,7 @@ def make_grid(*images: np.ndarray, ncol=None, padding=2, max_width=1920, backgro
         ncol = len(images)
     nrow = math.ceil(len(images) / ncol)
     scale_factor = 1
+    height, width = np.max([x.shape[:2] for x in images], axis=0)
     if max_width is not None:
         scale_factor = min(1, max_width / (ncol * images[0].shape[-2]))
     if scale_factor != 1:
@@ -47,7 +49,6 @@ def make_grid(*images: np.ndarray, ncol=None, padding=2, max_width=1920, backgro
             return np.array(img)
 
         images = tuple(map(interpolate, images))
-    height, width = images[0].shape[0], images[0].shape[1]
     grid: np.ndarray = np.ndarray(
         (height * nrow + padding * (nrow - 1), width * ncol + padding * (ncol - 1), images[0].shape[2]),
         dtype=images[0].dtype,
@@ -56,7 +57,8 @@ def make_grid(*images: np.ndarray, ncol=None, padding=2, max_width=1920, backgro
     for i, image in enumerate(images):
         x = i % ncol
         y = i // ncol
-        grid[y * (height + padding) : y * (height + padding) + height, x * (width + padding) : x * (width + padding) + width] = image
+        h, w = image.shape[:2]
+        grid[y * (height + padding) : y * (height + padding) + h, x * (width + padding) : x * (width + padding) + w] = image
     return grid
 
 
@@ -145,6 +147,7 @@ class Trainer:
         self._expected_scene_scale = None
         self._method_info = method_info
 
+    @remap_error
     def setup_data(self):
         logging.info("loading train dataset")
         train_dataset: Dataset = self._train_dataset_fn()
@@ -204,6 +207,7 @@ class Trainer:
                 wandb_run: "wandb.sdk.wandb_run.Run" = wandb.init(dir=self.output)
                 self._wandb_run = wandb_run
 
+    @remap_error
     def train(self):
         if self._average_image_size is None:
             self.setup_data()
@@ -264,18 +268,19 @@ class Trainer:
         num_vis_images = 16
         vis_images: List[Tuple[np.ndarray, np.ndarray]] = []
         vis_depth: List[np.ndarray] = []
-        for (i, gt), name, pred in zip(
+        for (i, gt), name, pred, (w, h) in zip(
             enumerate(self.test_dataset.images),
             self.test_dataset.file_paths,
             render_all_images(
                 self.method, self.test_dataset, output=output, color_space=self._color_space, expected_scene_scale=self._expected_scene_scale, description=f"rendering all images at step={self.step}"
             ),
+            self.test_dataset.cameras.image_sizes,
         ):
             name = str(Path(name).relative_to(prefix).with_suffix(""))
             color = pred["color"]
             background_color = self.test_dataset.metadata.get("background_color", None)
             color_srgb = image_to_srgb(color, np.uint8, color_space=self._color_space, background_color=background_color)
-            gt_srgb = image_to_srgb(gt, np.uint8, color_space=self._color_space, background_color=background_color)
+            gt_srgb = image_to_srgb(gt[:h, :w], np.uint8, color_space=self._color_space, background_color=background_color)
             if metrics is not None:
                 for k, v in compute_image_metrics(color_srgb, gt_srgb).items():
                     if k not in metrics:
@@ -351,7 +356,8 @@ class Trainer:
 
             logging.debug("logging image to wandb")
             metrics = {}
-            gt = self.test_dataset.images[idx]
+            w, h = self.test_dataset.cameras.image_sizes[idx]
+            gt = self.test_dataset.images[idx][:h, :w]
             color = predictions["color"]
 
             background_color = self.test_dataset.metadata.get("background_color", None)
@@ -411,7 +417,7 @@ class IndicesClickType(click.ParamType):
 @click.option("--eval-all-iters", type=IndicesClickType(), default=Indices([-1]), help="When to evaluate all images")
 @click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NB_DEFAULT_BACKEND", None))
 @handle_cli_error
-def train_command(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters):
+def train_command(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters, num_iterations=None):
     logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)
 
@@ -440,7 +446,8 @@ def train_command(method, checkpoint, data, output, no_wandb, verbose, backend, 
     # Enable direct memory access to images and if supported by the backend
     if backend in {"docker", "apptainer"} and "://" not in data:
         _method = partialclass(_method, mounts=[(data, data)])
-    _method.install()
+    if hasattr(_method, "install"):
+        _method.install()
 
     trainer = Trainer(
         train_dataset=data,
@@ -449,6 +456,7 @@ def train_command(method, checkpoint, data, output, no_wandb, verbose, backend, 
         eval_all_iters=eval_all_iters,
         eval_single_iters=eval_single_iters,
         use_wandb=not no_wandb,
+        num_iterations=num_iterations,
     )
     try:
         trainer.setup_data()

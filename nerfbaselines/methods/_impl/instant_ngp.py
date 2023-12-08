@@ -11,14 +11,6 @@ from PIL import Image, ImageOps
 from ...types import Dataset, Method, MethodInfo, ProgressCallback, CurrentProgress
 from ...cameras import CameraModel, Cameras
 
-if os.getenv("NB_USE_GPU") != "0":
-    import pyngp as ngp
-else:
-    try:
-        import pyngp as ngp
-    except ImportError:
-        ngp = None
-
 
 AABB_SCALE = 32
 
@@ -76,8 +68,8 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
         camera["h"] = int(dataset.cameras.image_sizes[i, 1])
         camera["fl_x"] = float(dataset.cameras.intrinsics[i, 0])
         camera["fl_y"] = float(dataset.cameras.intrinsics[i, 1])
-        camera["cx"] = dataset.cameras.intrinsics[i, 2]
-        camera["cy"] = dataset.cameras.intrinsics[i, 3]
+        camera["cx"] = dataset.cameras.intrinsics[i, 2].item()
+        camera["cy"] = dataset.cameras.intrinsics[i, 3].item()
         camera["k1"] = 0
         camera["k2"] = 0
         camera["p1"] = 0
@@ -89,12 +81,12 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
         if cam_type == CameraModel.PINHOLE.value:
             pass
         elif cam_type in {CameraModel.OPENCV.value, CameraModel.OPENCV_FISHEYE.value}:
-            camera["k1"] = dataset.cameras.distortion_parameters[i, 0]
-            camera["k2"] = dataset.cameras.distortion_parameters[i, 1]
-            camera["p1"] = dataset.cameras.distortion_parameters[i, 2]
-            camera["p2"] = dataset.cameras.distortion_parameters[i, 3]
-            camera["k3"] = dataset.cameras.distortion_parameters[i, 4]
-            camera["k4"] = dataset.cameras.distortion_parameters[i, 5]
+            camera["k1"] = dataset.cameras.distortion_parameters[i, 0].item()
+            camera["k2"] = dataset.cameras.distortion_parameters[i, 1].item()
+            camera["p1"] = dataset.cameras.distortion_parameters[i, 2].item()
+            camera["p2"] = dataset.cameras.distortion_parameters[i, 3].item()
+            camera["k3"] = dataset.cameras.distortion_parameters[i, 4].item()
+            camera["k4"] = dataset.cameras.distortion_parameters[i, 5].item()
             if cam_type == CameraModel.OPENCV_FISHEYE.value:
                 camera["is_fisheye"] = True
         else:
@@ -180,6 +172,7 @@ class InstantNGP(Method):
         self.testbed = None
         self.n_steps = None
         self.dataparser_params = None
+        self.RenderMode = None
         self._tempdir = tempfile.TemporaryDirectory()
         self._tempdir.__enter__()
 
@@ -187,6 +180,9 @@ class InstantNGP(Method):
         return MethodInfo(num_iterations=35_000, required_features=frozenset(("images",)), supported_camera_models=frozenset((CameraModel.PINHOLE, CameraModel.OPENCV, CameraModel.OPENCV_FISHEYE)))
 
     def _setup(self, train_transforms):
+        import pyngp as ngp  # Depends on GPU
+
+        self.RenderMode = ngp.RenderMode
         testbed = ngp.Testbed()
         testbed.root_dir = os.path.dirname(train_transforms)
         testbed.load_training_data(str(train_transforms))
@@ -400,7 +396,7 @@ class InstantNGP(Method):
             for i in range(testbed.nerf.training.dataset.n_images):
                 resolution = testbed.nerf.training.dataset.metadata[i].resolution
                 testbed.set_camera_to_training_view(i)
-                testbed.render_mode = ngp.RenderMode.Shade
+                testbed.render_mode = self.RenderMode.Shade
                 image = np.copy(testbed.render(resolution[0], resolution[1], spp, True))
 
                 # Unmultiply by alpha

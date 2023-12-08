@@ -69,8 +69,8 @@ def render_all_images(method: Method, dataset: Dataset, output: Path, color_spac
                 pbar.update(progress.i - pbar.n)
 
             predictions = render(dataset.cameras, progress_callback=update_progress)
-            for i, pred in enumerate(predictions):
-                gt_image = image_to_srgb(dataset.images[i], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
+            for i, (pred, (w, h)) in enumerate(zip(predictions, dataset.cameras.image_sizes)):
+                gt_image = image_to_srgb(dataset.images[i][:h, :w], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
                 pred_image = image_to_srgb(pred["color"], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
                 assert gt_image.shape[:-1] == pred_image.shape[:-1], f"gt size {gt_image.shape[:-1]} != pred size {pred_image.shape[:-1]}"
                 relative_name = Path(dataset.file_paths[i])
@@ -89,7 +89,7 @@ def render_all_images(method: Method, dataset: Dataset, output: Path, color_spac
                 if color_space == "linear":
                     # Store the raw linear image as well
                     with open_fn(f"gt-color-linear/{relative_name.with_suffix('.bin')}") as f:
-                        save_image(f, dataset.images[i])
+                        save_image(f, dataset.images[i][:h, :w])
                     with open_fn(f"color-linear/{relative_name.with_suffix('.bin')}") as f:
                         save_image(f, pred["color"])
                 yield pred

@@ -65,6 +65,13 @@ class _LazyMethodMeta(type):
 
         def build(ns):
             def new(ncls, *args, **kwargs):
+                old_init = ncls.__init__
+
+                # For partialclass
+                if hasattr(old_init, "__original_func__"):
+                    args = old_init.__args__ + args
+                    kwargs = {**old_init.__kwargs__, **kwargs}
+
                 mod = importlib.import_module(module, methods.__package__)
                 ncls = getattr(mod, name)
                 assert inspect.isclass(ncls)

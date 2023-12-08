@@ -29,6 +29,30 @@ else:
             return property(fn_cached)
 
 
+class NoGPUError(RuntimeError):
+    def __init__(self, message="No GPUs available"):
+        super().__init__(message)
+
+
+def remap_error(fn):
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except RuntimeError as e:
+            # torch driver error
+            if "Found no NVIDIA driver on your system." in str(e):
+                raise NoGPUError from e
+            raise
+        except ImportError as e:
+            # pyngp import error
+            if "libcuda.so.1: cannot open shared object file" in str(e):
+                raise NoGPUError from e
+            raise
+
+    return wrapped
+
+
 class Formatter(logging.Formatter):
     def format(self, record: logging.LogRecord):
         levelname = record.levelname[0]
@@ -65,9 +89,9 @@ def handle_cli_error(fn):
         except Exception as e:
             if hasattr(e, "write_to_logger"):
                 e.write_to_logger()
+                sys.exit(1)
             else:
-                logging.fatal(e)
-            sys.exit(1)
+                raise e
 
     return wrapped
 

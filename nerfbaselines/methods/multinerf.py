@@ -16,7 +16,7 @@ MultiNeRFSpec = MethodSpec(
         install_script="""# Clone the repo.
 git clone https://github.com/jkulhanek/multinerf.git
 cd multinerf
-git checkout 06b0195dbe5a8a76c8aa3077122b6b6e877e76a2
+git checkout 0e6699cc01eb3f0e77e0f7c15057a3ee29ad74ba
 
 conda install -y pip conda-build
 conda develop "$PWD"

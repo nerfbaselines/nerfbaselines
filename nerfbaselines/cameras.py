@@ -3,7 +3,7 @@ from enum import Enum
 from dataclasses import dataclass
 import dataclasses
 import numpy as np
-from .utils import cached_property, padded_stack, is_broadcastable
+from .utils import cached_property, padded_stack, is_broadcastable, convert_image_dtype
 from .types import Protocol
 
 
@@ -591,6 +591,9 @@ def warp_image_between_cameras(cameras1: Cameras, cameras2: Cameras, images: np.
     out_image = xnp.reshape(out_image, (h, w, -1))
 
     # TODO: Resize image
+
+    # Cast image to original dtype
+    out_image = convert_image_dtype(out_image, images.dtype)
     return out_image
 
 

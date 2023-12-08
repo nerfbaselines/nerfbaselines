@@ -32,7 +32,7 @@ try:
 except ImportError:
     from typing_extensions import FrozenSet  # type: ignore
 from .cameras import Cameras, CameraModel
-from .utils import mark_host
+from .utils import mark_host, padded_stack
 
 
 ColorSpace = Literal["srgb", "linear"]
@@ -212,6 +212,7 @@ class RayMethod(Method):
     def __init__(self, batch_size, seed: int = 42, xnp=np):
         self.batch_size = batch_size
         self.train_dataset: Optional[Dataset] = None
+        self.train_images = None
         self.num_iterations: Optional[int] = None
         self.xnp = xnp
         self._rng: np.random.Generator = xnp.random.default_rng(seed)
@@ -244,6 +245,8 @@ class RayMethod(Method):
 
     def setup_train(self, train_dataset: Dataset, *, num_iterations: int):
         self.train_dataset = train_dataset
+        train_images, self.train_dataset.images = train_dataset.images, None
+        self.train_images = padded_stack(train_images)
         self.num_iterations = num_iterations
 
     def train_iteration(self, step: int):
@@ -258,7 +261,7 @@ class RayMethod(Method):
         xy = xnp.stack([x, y], -1)
         cameras = self.train_dataset.cameras[camera_indices]
         origins, directions = cameras.get_rays(xy, xnp=xnp)
-        colors = self.train_dataset.images[camera_indices, xy[..., 1], xy[..., 0]]
+        colors = self.train_images[camera_indices, xy[..., 1], xy[..., 0]]
         return self.train_iteration_rays(step=step, origins=origins, directions=directions, nears_fars=cameras.nears_fars, colors=colors)
 
     def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:

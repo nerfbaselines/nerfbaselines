@@ -34,7 +34,8 @@ def shell_command(method, backend, verbose):
 
     assert issubclass(_method, RemoteProcessMethod)
     methodobj = _method()
-    methodobj.install()
+    if hasattr(methodobj, "install"):
+        methodobj.install()
     env = methodobj._get_isolated_env()
     env["_NB_IS_DOCKERFILE"] = "1"
     args = methodobj._get_server_process_args(env)

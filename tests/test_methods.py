@@ -14,7 +14,7 @@ def test_supported_methods():
     assert "tetra-nerf" in methods
 
 
-@pytest.mark.parametrize("method_name", supported_methods())
+@pytest.mark.parametrize("method_name", [pytest.param(k, marks=[pytest.mark.method(k)]) for k in supported_methods()])
 @pytest.mark.parametrize("backend", ["docker", "apptainer"])
 def test_method(method_name, backend):
     spec = registry.get(method_name)
@@ -24,7 +24,7 @@ def test_method(method_name, backend):
 
 
 @pytest.mark.docker
-@pytest.mark.parametrize("method_name", supported_methods())
+@pytest.mark.parametrize("method_name", [pytest.param(k, marks=[pytest.mark.method(k)]) for k in supported_methods()])
 def test_method_docker(method_name):
     spec = registry.get(method_name)
     method_cls, backend_real = spec.build(backend="docker")
@@ -36,7 +36,7 @@ def test_method_docker(method_name):
 
 
 @pytest.mark.apptainer
-@pytest.mark.parametrize("method_name", supported_methods())
+@pytest.mark.parametrize("method_name", [pytest.param(k, marks=[pytest.mark.method(k)]) for k in supported_methods()])
 def test_method_apptainer(method_name):
     spec = registry.get(method_name)
     method_cls, backend_real = spec.build(backend="apptainer")
