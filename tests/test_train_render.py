@@ -1,3 +1,4 @@
+from typing import Iterable
 from pathlib import Path
 import os
 import numpy as np
@@ -66,7 +67,7 @@ class _TestMethod(Method):
             num_iterations=13,
         )
 
-    def render(self, cameras: Cameras, progress_callback=None) -> RenderOutput:
+    def render(self, cameras: Cameras, progress_callback=None) -> Iterable[RenderOutput]:
         _TestMethod._render_call_step.append(_TestMethod._last_step)
         for i in range(len(cameras)):
             cam = cameras[i]
@@ -90,8 +91,8 @@ class _TestMethod(Method):
         _TestMethod._last_step = step
         return {"loss": 0.1}
 
-    def save(self, path: str):
-        self._save_paths.append(path)
+    def save(self, path: Path):
+        self._save_paths.append(str(path))
 
 
 @pytest.fixture
@@ -162,7 +163,9 @@ def test_train_command(tmp_path, wandb_init_run, no_wandb):
 
         # By default, the model should render all images at the end
         print(os.listdir(tmp_path / "output"))
+        assert (tmp_path / "output" / "checkpoint-13").exists()
         assert (tmp_path / "output" / "predictions-13.tar.gz").exists()
+        assert (tmp_path / "output" / "results-13.json").exists()
     finally:
         _TestMethod._reset()
         if _ns_prefix_backup is not None:
@@ -245,6 +248,7 @@ def test_render_command(tmp_path, output_type):
             assert output.is_dir()
             assert (output / "color").exists()
             assert (output / "gt-color").exists()
+            assert (output / "info.json").exists()
         else:
             # Check tar file
             assert output.is_file()
@@ -252,6 +256,7 @@ def test_render_command(tmp_path, output_type):
                 print(tar.getmembers())
                 assert tar.getmember("color/2.png").isreg()
                 assert tar.getmember("gt-color/2.png").isreg()
+                assert tar.getmember("info.json").isreg()
                 assert tar.getmember("color/2.png").size > 0
                 assert tar.getmember("gt-color/2.png").size > 0
 

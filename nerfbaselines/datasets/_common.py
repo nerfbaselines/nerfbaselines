@@ -97,7 +97,11 @@ class MultiDatasetError(DatasetNotFoundError):
 
     def write_to_logger(self, color=True, terminal_width=None):
         if terminal_width is None:
-            terminal_width = min(os.get_terminal_size().columns, 120)
+            terminal_width = 120
+            try:
+                terminal_width = min(os.get_terminal_size().columns, 120)
+            except OSError:
+                pass
         message = self.message
         if color:
             message = "\33[0m\33[31m" + message + "\33[0m"

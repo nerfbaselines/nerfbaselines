@@ -1,10 +1,10 @@
-import io
 import struct
 from pathlib import Path
 import types
 from functools import wraps
 import sys
 from typing import Any, Optional, Dict, TYPE_CHECKING, Union, List
+from typing import BinaryIO
 import numpy as np
 import logging
 
@@ -215,7 +215,7 @@ def image_to_srgb(tensor, dtype, color_space="srgb", allow_alpha: bool = False, 
     return tensor
 
 
-def save_image(file: Union[io.FileIO, str, Path], tensor: np.ndarray):
+def save_image(file: Union[BinaryIO, str, Path], tensor: np.ndarray):
     if isinstance(file, (str, Path)):
         with open(file, "wb") as f:
             return save_image(f, tensor)
@@ -233,7 +233,24 @@ def save_image(file: Union[io.FileIO, str, Path], tensor: np.ndarray):
         image.save(file, format="png")
 
 
-def save_depth(file: Union[io.FileIO, str, Path], tensor: np.ndarray):
+def read_image(file: Union[BinaryIO, str, Path]) -> np.ndarray:
+    if isinstance(file, (str, Path)):
+        with open(file, "rb") as f:
+            return read_image(f)
+    path = Path(file.name)
+    if str(path).endswith(".bin"):
+        h, w = struct.unpack("ii", file.read(8))
+        itemsize = 2
+        img = np.frombuffer(file.read(h * w * 4 * itemsize), dtype=np.float16, count=h * w * 4, offset=8).reshape([h, w, 4])
+        assert img.itemsize == itemsize
+        return img.astype(np.float32)
+    else:
+        from PIL import Image
+
+        return np.array(Image.open(file))
+
+
+def save_depth(file: Union[BinaryIO, str, Path], tensor: np.ndarray):
     if isinstance(file, (str, Path)):
         with open(file, "wb") as f:
             return save_depth(f, tensor)

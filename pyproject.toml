@@ -33,12 +33,30 @@ dependencies = [
 ]
 dynamic = ["version"]
 
+[project.optional-dependencies]
+extras = [
+    'torch',
+    'jax',
+    'lpips',
+    'dm-pix',
+    'torchmetrics',
+]
+
+dev = [
+    'pytest',
+    'typeguard',
+]
+
+
 [project.urls]
 "Homepage" = "https://github.com/jkulhanek/nerfbaselines"
 "Bug Tracker" = "https://github.com/jkulhanek/nerfbaselines/issues"
 
 [project.scripts]
 nerfbaselines = "nerfbaselines.__main__:main"
+
+[tool.pytest.ini_options]
+addopts = '--typeguard-packages nerfbaselines'
 
 [tool.setuptools.packages.find]
 include = ["nerfbaselines*"]

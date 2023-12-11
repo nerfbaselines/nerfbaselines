@@ -20,6 +20,9 @@ def load_blender_dataset(path: Path, split: str, **kwargs):
     assert isinstance(path, (Path, str)), "path must be a pathlib.Path or str"
     path = Path(path)
 
+    scene = path.name
+    if scene not in BLENDER_SCENES:
+        raise DatasetNotFoundError(f"Scene {scene} not found in nerf_synthetic dataset. Supported scenes: {BLENDER_SCENES}.")
     for split in BLENDER_SPLITS:
         if not (path / f"transforms_{split}.json").exists():
             raise DatasetNotFoundError(f"Path {path} does not contain a blender dataset. Missing file: {path / f'transforms_{split}.json'}")
@@ -57,6 +60,7 @@ def load_blender_dataset(path: Path, split: str, **kwargs):
         color_space="srgb",
         metadata={
             "type": "blender",
+            "scene": scene,
             "background_color": np.array([255, 255, 255], dtype=np.uint8),
         },
     )

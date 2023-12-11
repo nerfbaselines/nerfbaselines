@@ -10,7 +10,7 @@ from collections import defaultdict
 from typing import Iterable, Optional
 import numpy as np
 from ...types import Method, ProgressCallback, CurrentProgress, MethodInfo
-from ...types import Dataset
+from ...types import Dataset, RenderOutput
 from ...cameras import CameraModel, Cameras
 from ...utils import convert_image_dtype
 
@@ -166,7 +166,7 @@ class NerfStudio(Method):
     nerfstudio_name: Optional[str] = None
     require_points3D: bool = False
 
-    def __init__(self, nerfstudio_name: Optional[str] = None, checkpoint: str = None, require_points3D: Optional[bool] = None):
+    def __init__(self, nerfstudio_name: Optional[str] = None, checkpoint: Optional[str] = None, require_points3D: Optional[bool] = None):
         self.checkpoint = checkpoint
         self.nerfstudio_name = nerfstudio_name or self.nerfstudio_name
         if checkpoint is not None:
@@ -210,7 +210,7 @@ class NerfStudio(Method):
         return self.config.pipeline.datamanager.train_num_rays_per_batch
 
     def get_info(self) -> MethodInfo:
-        features = ("images",)
+        features = ("color",)
         if self.require_points3D:
             features = features + ("points3D_xyz", "points3D_rgb")
         info = MethodInfo(
@@ -234,7 +234,7 @@ class NerfStudio(Method):
             info.loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(model_path))[-1]
         return info
 
-    def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[np.ndarray]:
+    def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
         if self._mode is None:
             self._setup_eval()
         poses = cameras.poses
@@ -250,7 +250,7 @@ class NerfStudio(Method):
         camera_types = [npmap[CameraModel(cameras.camera_types[i]).name.lower()] for i in range(len(poses))]
         sizes = cameras.image_sizes
         distortion_parameters = torch.from_numpy(_map_distortion_parameters(cameras.distortion_parameters))
-        cameras = NSCameras(
+        ns_cameras = NSCameras(
             camera_to_worlds=poses.contiguous(),
             fx=intrinsics[..., 0].contiguous(),
             fy=intrinsics[..., 1].contiguous(),
@@ -267,7 +267,7 @@ class NerfStudio(Method):
         if progress_callback:
             progress_callback(CurrentProgress(global_i, global_total, 0, len(poses)))
         for i in range(len(poses)):
-            ray_bundle = cameras.generate_rays(camera_indices=i, keep_shape=True)
+            ray_bundle = ns_cameras.generate_rays(camera_indices=i, keep_shape=True)
             get_outputs = self._trainer.pipeline.model.get_outputs_for_camera_ray_bundle
             if progress_callback and self._trainer.pipeline.model.__class__.get_outputs_for_camera_ray_bundle == Model.get_outputs_for_camera_ray_bundle:
 
@@ -444,7 +444,7 @@ class NerfStudio(Method):
         self.step = step + 1
         return {k: detach(v) for k, v in metrics.items()}
 
-    def save(self, path: str):
+    def save(self, path: Path):
         """
         Save model.
 
@@ -455,13 +455,13 @@ class NerfStudio(Method):
             self._setup_eval()
         assert isinstance(self._trainer, Trainer)
         bckp = self._trainer.checkpoint_dir
-        self._trainer.checkpoint_dir = Path(path)
-        config_yaml_path = Path(path) / "config.yml"
+        self._trainer.checkpoint_dir = path
+        config_yaml_path = path / "config.yml"
         config_yaml_path.write_text(yaml.dump(self._original_config), "utf8")
-        self._trainer.checkpoint_dir = Path(os.path.join(path, self._original_config.relative_model_dir))
+        self._trainer.checkpoint_dir = path / self._original_config.relative_model_dir
         self._trainer.save_checkpoint(self.step)
         self._trainer.checkpoint_dir = bckp
-        torch.save({k: v.cpu() if hasattr(v, "cpu") else v for k, v in self.dataparser_params.items()}, os.path.join(path, "dataparser_params.pth"))
+        torch.save({k: v.cpu() if hasattr(v, "cpu") else v for k, v in self.dataparser_params.items()}, str(path / "dataparser_params.pth"))
 
     def close(self):
         self._tmpdir.cleanup()

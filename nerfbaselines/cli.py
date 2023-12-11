@@ -9,6 +9,7 @@ from . import registry
 from .utils import setup_logging
 from .communication import RemoteProcessMethod, NB_PREFIX
 from .datasets import download_dataset
+from .evaluate import evaluate
 
 
 @click.group()
@@ -22,7 +23,7 @@ main.add_command(render_command)
 
 @main.command("shell")
 @click.option("--method", type=click.Choice(list(registry.supported_methods())), required=True)
-@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NB_DEFAULT_BACKEND", None))
+@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NB_BACKEND", None))
 @click.option("--verbose", "-v", is_flag=True)
 def shell_command(method, backend, verbose):
     logging.basicConfig(level=logging.INFO)
@@ -52,3 +53,11 @@ def download_dataset_command(dataset, output, verbose):
     if output is None:
         output = Path(NB_PREFIX) / "datasets" / dataset
     download_dataset(dataset, output)
+
+
+@main.command("evaluate")
+@click.argument("predictions", type=click.Path(file_okay=True, dir_okay=True, path_type=Path), required=True)
+@click.option("--output", "-o", type=click.Path(file_okay=True, dir_okay=False, path_type=Path), required=True)
+@click.option("--disable-extra-metrics", help="Disable extra metrics which need additional dependencies.", is_flag=True)
+def evaluate_command(predictions, output, disable_extra_metrics):
+    evaluate(predictions, output, disable_extra_metrics=disable_extra_metrics)

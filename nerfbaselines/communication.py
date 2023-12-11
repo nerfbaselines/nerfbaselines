@@ -1,4 +1,5 @@
 import types
+from pathlib import Path
 from time import sleep
 import subprocess
 import tempfile
@@ -212,15 +213,15 @@ class RemoteMethod(Method):
     def render(self, *args, **kwargs):
         return self._call("render", *args, **kwargs)
 
-    def save(self, path: str):
+    def save(self, path: Path):
         if self.shared_path is not None:
-            name = hashlib.sha256(path.encode("utf-8")).hexdigest()
+            name = hashlib.sha256(str(path).encode("utf-8")).hexdigest()
             local, remote = self.shared_path  # pylint: disable=unpacking-non-sequence
             local_path = os.path.join(local, name)
             remote_path = os.path.join(remote, name)
-            shutil.copytree(path, local_path, dirs_exist_ok=True)
+            shutil.copytree(str(path), local_path, dirs_exist_ok=True)
             self._call("save", remote_path)
-            shutil.copytree(local_path, path, dirs_exist_ok=True)
+            shutil.copytree(local_path, str(path), dirs_exist_ok=True)
         else:
             self._call("save", path)
 

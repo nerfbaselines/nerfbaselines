@@ -1,8 +1,22 @@
+from functools import wraps
 import numpy
 from typing import Optional, Callable, Union, Sequence, Tuple
 import numpy as np
 
 
+def _wrap_metric_arbitrary_shape(fn):
+    @wraps(fn)
+    def wrapped(a, b, **kwargs):
+        bs = a.shape[:-3]
+        a = np.reshape(a, (-1, *a.shape[-3:]))
+        b = np.reshape(b, (-1, *b.shape[-3:]))
+        out = fn(a, b, **kwargs)
+        return np.reshape(out, bs)
+
+    return wrapped
+
+
+@_wrap_metric_arbitrary_shape
 def dmpix_ssim(
     a: np.ndarray,
     b: np.ndarray,
@@ -160,6 +174,7 @@ def _gaussian_kernel_2d(
     return np.matmul(gaussian_kernel_x.T, gaussian_kernel_y)  # (kernel_size, 1) * (1, kernel_size)
 
 
+@_wrap_metric_arbitrary_shape
 def torchmetrics_ssim(
     a: np.ndarray,
     b: np.ndarray,
@@ -274,10 +289,14 @@ def torchmetrics_ssim(
 
 
 def _mean(metric):
-    return np.mean(metric, tuple(range(-len(metric.shape) + 1, 0)))
+    return np.mean(metric, (-3, -2, -1))
 
 
-def ssim(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+def _normalize_input(a):
+    return np.clip(a, 0, 1).astype(np.float32)
+
+
+def ssim(a: np.ndarray, b: np.ndarray) -> Union[np.ndarray, np.float32]:
     """
     Compute Structural Similarity Index Measure (the higher the better).
     Args:
@@ -288,12 +307,12 @@ def ssim(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """
     assert a.shape == b.shape, f"Images must have the same shape, got {a.shape} and {b.shape}"
     assert a.dtype.kind == "f" and b.dtype.kind == "f", f"Expected floating point inputs, got {a.dtype} and {b.dtype}"
-    a = np.clip(a, 0, 1)
-    b = np.clip(b, 0, 1)
+    a = _normalize_input(a)
+    b = _normalize_input(b)
     return dmpix_ssim(a, b)
 
 
-def mse(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+def mse(a: np.ndarray, b: np.ndarray) -> Union[np.ndarray, np.float32]:
     """
     Compute Mean Squared Error (the lower the better).
     Args:
@@ -304,12 +323,12 @@ def mse(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """
     assert a.shape == b.shape, f"Images must have the same shape, got {a.shape} and {b.shape}"
     assert a.dtype.kind == "f" and b.dtype.kind == "f", f"Expected floating point inputs, got {a.dtype} and {b.dtype}"
-    a = np.clip(a, 0, 1)
-    b = np.clip(b, 0, 1)
+    a = _normalize_input(a)
+    b = _normalize_input(b)
     return _mean((a - b) ** 2)
 
 
-def mae(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+def mae(a: np.ndarray, b: np.ndarray) -> Union[np.ndarray, np.float32]:
     """
     Compute Mean Absolute Error (the lower the better).
     Args:
@@ -320,12 +339,12 @@ def mae(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """
     assert a.shape == b.shape, f"Images must have the same shape, got {a.shape} and {b.shape}"
     assert a.dtype.kind == "f" and b.dtype.kind == "f", f"Expected floating point inputs, got {a.dtype} and {b.dtype}"
-    a = np.clip(a, 0, 1)
-    b = np.clip(b, 0, 1)
+    a = _normalize_input(a)
+    b = _normalize_input(b)
     return _mean(np.abs(a - b))
 
 
-def psnr(a: np.ndarray, b: Optional[np.ndarray] = None) -> np.ndarray:
+def psnr(a: Union[np.ndarray, np.float32, np.float64], b: Optional[np.ndarray] = None) -> Union[np.ndarray, np.float32, np.float64]:
     """
     Compute Peak Signal to Noise Ratio (the higher the better).
     It can reuse computed MSE values if b is None.
@@ -337,3 +356,73 @@ def psnr(a: np.ndarray, b: Optional[np.ndarray] = None) -> np.ndarray:
     """
     mse_value = a if b is None else mse(a, b)
     return -10 * np.log10(mse_value)
+
+
+_LPIPS_CACHE = {}
+_LPIPS_GPU_AVAILABLE = None
+
+
+def _lpips(a, b, net, version="0.1"):
+    global _LPIPS_GPU_AVAILABLE
+    assert a.shape == b.shape, f"Images must have the same shape, got {a.shape} and {b.shape}"
+    assert a.dtype.kind == "f" and b.dtype.kind == "f", f"Expected floating point inputs, got {a.dtype} and {b.dtype}"
+
+    import torch
+
+    lp_net = _LPIPS_CACHE.get(net)
+    if lp_net is None:
+        from lpips import LPIPS
+
+        lp_net = LPIPS(net="alex", version=version)
+        _LPIPS_CACHE[net] = lp_net
+
+    device = torch.device("cpu")
+    if _LPIPS_GPU_AVAILABLE is None:
+        _LPIPS_GPU_AVAILABLE = torch.cuda.is_available()
+        if _LPIPS_GPU_AVAILABLE:
+            try:
+                lp_net.cuda()
+                torch.zeros((1,), device="cuda").cpu()
+            except Exception:
+                _LPIPS_GPU_AVAILABLE = False
+
+    if _LPIPS_GPU_AVAILABLE:
+        device = torch.device("cuda")
+
+    batch_shape = a.shape[:-3]
+    img_shape = a.shape[-3:]
+    a = _normalize_input(a)
+    b = _normalize_input(b)
+    with torch.no_grad():
+        a = torch.from_numpy(a).float().view(-1, *img_shape).permute(0, 3, 1, 2).mul_(2).sub_(1).to(device)
+        b = torch.from_numpy(b).float().view(-1, *img_shape).permute(0, 3, 1, 2).mul_(2).sub_(1).to(device)
+        out = lp_net.to(device).forward(a, b)
+        out = out.cpu().numpy().reshape(batch_shape)
+        return out
+
+
+def lpips_alex(a: np.ndarray, b: np.ndarray) -> Union[np.ndarray, np.float32]:
+    """
+    Compute Learned Perceptual Image Patch Similarity (the lower the better).
+    Args:
+        a: Tensor of prediction images [B..., H, W, C].
+        b: Tensor of target images [B..., H, W, C].
+    Returns:
+        Tensor of LPIPS values for each image [B...].
+    """
+    return _lpips(a, b, net="alex")
+
+
+def lpips_vgg(a: np.ndarray, b: np.ndarray) -> Union[np.ndarray, np.float32]:
+    """
+    Compute Learned Perceptual Image Patch Similarity (the lower the better).
+    Args:
+        a: Tensor of prediction images [B..., H, W, C].
+        b: Tensor of target images [B..., H, W, C].
+    Returns:
+        Tensor of LPIPS values for each image [B...].
+    """
+    return _lpips(a, b, net="alex")
+
+
+lpips = lpips_alex

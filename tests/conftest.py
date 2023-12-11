@@ -1,3 +1,4 @@
+import tarfile
 import json
 import sys
 import pickle
@@ -10,8 +11,6 @@ import pytest
 from pathlib import Path
 import numpy as np
 from PIL import Image
-from nerfbaselines.utils import NoGPUError
-from nerfbaselines.datasets import _colmap_utils as colmap_utils
 
 
 class _nullcontext(contextlib.nullcontext):
@@ -20,6 +19,8 @@ class _nullcontext(contextlib.nullcontext):
 
 
 def make_dataset(path: Path, num_images=10):
+    from nerfbaselines.datasets import _colmap_utils as colmap_utils
+
     (path / "images").mkdir(parents=True)
     (path / "sparse" / "0").mkdir(parents=True)
     cameras = {
@@ -42,6 +43,8 @@ def make_dataset(path: Path, num_images=10):
 
 
 def make_blender_dataset(path: Path, num_images=10):
+    path = Path(path) / "lego"
+    path.mkdir(parents=True)
     w, h = 64, 64
 
     def create_split(split, num_images=3):
@@ -57,6 +60,7 @@ def make_blender_dataset(path: Path, num_images=10):
     create_split("train")
     create_split("test")
     create_split("val")
+    return path
 
 
 @pytest.fixture
@@ -68,7 +72,7 @@ def colmap_dataset_path(tmp_path):
 
 @pytest.fixture
 def blender_dataset_path(tmp_path):
-    make_blender_dataset(tmp_path)
+    tmp_path = make_blender_dataset(tmp_path)
     yield tmp_path
     return tmp_path
 
@@ -88,13 +92,15 @@ def patch_prefix(tmp_path):
 
 def run_test_train(tmp_path, dataset_path, method_name, backend="python"):
     from nerfbaselines.train import train_command
+    from nerfbaselines.render import get_checkpoint_sha
     from nerfbaselines.utils import Indices, remap_error
+    from nerfbaselines.utils import NoGPUError
 
     # train_command.callback(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters)
     (tmp_path / "output").mkdir()
     try:
         train_cmd = remap_error(train_command.callback)
-        train_cmd(method_name, None, str(dataset_path), str(tmp_path / "output"), True, True, backend, Indices.every_iters(5), Indices([-1]), num_iterations=13)
+        train_cmd(method_name, None, str(dataset_path), str(tmp_path / "output"), True, True, backend, Indices.every_iters(5), Indices([-1]), num_iterations=13, disable_extra_metrics=True)
     except NoGPUError:
         pytest.skip("no GPU available")
 
@@ -104,6 +110,12 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python"):
     # By default, the model should render all images at the end
     print(os.listdir(tmp_path / "output"))
     assert (tmp_path / "output" / "predictions-13.tar.gz").exists()
+    with tarfile.open(tmp_path / "output" / "predictions-13.tar.gz", "r:gz") as tar:
+        tar.extract(tar.getmember("info.json"), tmp_path / "tmpinfo")
+        with open(tmp_path / "tmpinfo" / "info.json", "r") as f:
+            info = json.load(f)
+    assert info["checkpoint_sha256"] is not None, "checkpoint sha not saved in info.json"
+    assert get_checkpoint_sha(tmp_path / "output" / "checkpoint-13") == info["checkpoint_sha256"], "checkpoint sha mismatch"
 
 
 @pytest.fixture(name="run_test_train", params=["blender", "colmap"])
@@ -180,6 +192,14 @@ def mock_torch():
         def view(self, *shape):
             return self.reshape(shape)
 
+        def mul_(self, value):
+            self *= value
+            return self
+
+        def sub_(self, value):
+            self -= value
+            return self
+
     def from_numpy(x):
         assert not isinstance(x, Tensor)
         return x.view(Tensor)
@@ -223,3 +243,14 @@ def mock_torch():
     torch.save = save
     with mock.patch.dict(sys.modules, {"torch": torch}):
         yield torch
+
+
+@pytest.fixture
+def mock_extras(mock_torch):
+    lpips = mock.MagicMock()
+
+    with mock.patch.dict(sys.modules, {"lpips": lpips}):
+        yield {
+            "torch": mock_torch,
+            "lpips": lpips,
+        }

@@ -40,6 +40,7 @@ def load_mipnerf360_dataset(path: Path, split: str, **kwargs):
     # We then select the same images as in the LLFF multinerf dataset loader
     dataset: Dataset = load_colmap_dataset(path, images_path=images_path, split=None, **kwargs)
     dataset.metadata["type"] = "mipnerf360"
+    dataset.metadata["scene"] = scene
 
     image_names = dataset.file_paths
     inds = np.argsort(image_names)

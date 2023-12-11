@@ -1,3 +1,5 @@
+import hashlib
+import tempfile
 from functools import wraps
 import contextlib
 import time
@@ -12,12 +14,36 @@ import click
 from tqdm import tqdm
 import numpy as np
 import typing
-from typing import Any
+from typing import Any, Iterable
 from .datasets import load_dataset, Dataset
 from .utils import setup_logging, image_to_srgb, save_image, save_depth, visualize_depth, handle_cli_error
-from .types import Method, CurrentProgress
+from .types import Method, CurrentProgress, RenderOutput
 from . import cameras as _cameras
 from . import registry
+from . import __version__
+
+
+def get_checkpoint_sha(path: Path) -> str:
+    path = Path(path)
+    if str(path).endswith(".tar.gz"):
+        with tarfile.open(path, "r:gz") as tar, tempfile.TemporaryDirectory() as tmpdir:
+            tar.extractall(tmpdir)
+            return get_checkpoint_sha(Path(tmpdir))
+
+    b = bytearray(128 * 1024)
+    mv = memoryview(b)
+
+    files = list(f for f in path.glob("**/*") if f.is_file())
+    files.sort()
+    sha = hashlib.sha256()
+    for f in files:
+        if f.name == "nb-info.json":
+            continue
+
+        with open(f, "rb", buffering=0) as f:
+            for n in iter(lambda: f.readinto(mv), 0):
+                sha.update(mv[:n])
+    return sha.hexdigest()
 
 
 def with_supported_camera_models(supported_camera_models):
@@ -48,7 +74,15 @@ def with_supported_camera_models(supported_camera_models):
     return decorator
 
 
-def render_all_images(method: Method, dataset: Dataset, output: Path, color_space: Optional[str] = None, expected_scene_scale: Optional[float] = None, description: str = "rendering all images"):
+def render_all_images(
+    method: Method,
+    dataset: Dataset,
+    output: Path,
+    color_space: Optional[str] = None,
+    expected_scene_scale: Optional[float] = None,
+    method_name: Optional[str] = None,
+    description: str = "rendering all images",
+) -> Iterable[RenderOutput]:
     info = method.get_info()
     render = with_supported_camera_models(info.supported_camera_models)(method.render)
     allow_transparency = True
@@ -57,6 +91,10 @@ def render_all_images(method: Method, dataset: Dataset, output: Path, color_spac
         color_space = dataset.color_space
     if expected_scene_scale is None:
         expected_scene_scale = dataset.expected_scene_scale
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        method.save(Path(tmpdir))
+        checkpoint_sha = get_checkpoint_sha(Path(tmpdir))
 
     def _predict_all(open_fn):
         assert dataset.images is not None, "dataset must have images loaded"
@@ -94,6 +132,27 @@ def render_all_images(method: Method, dataset: Dataset, output: Path, color_spac
                         save_image(f, pred["color"])
                 yield pred
 
+    def write_metadata(open_fn):
+        with open_fn("info.json") as fp:
+            background_color = dataset.metadata.get("background_color", None)
+            if isinstance(background_color, np.ndarray):
+                background_color = background_color.tolist()
+            fp.write(
+                json.dumps(
+                    {
+                        "method": method_name,
+                        "nb_version": __version__,
+                        "color_space": color_space,
+                        "checkpoint_sha256": checkpoint_sha,
+                        "expected_scene_scale": expected_scene_scale,
+                        "dataset_type": dataset.metadata.get("type", None),
+                        "dataset_scene": dataset.metadata.get("scene", None),
+                        "dataset_background_color": background_color,
+                    },
+                    indent=4,
+                ).encode("utf-8")
+            )
+
     if str(output).endswith(".tar.gz"):
         with tarfile.open(output, "w:gz") as tar:
 
@@ -110,6 +169,7 @@ def render_all_images(method: Method, dataset: Dataset, output: Path, color_spac
                     f.seek(0)
                     tar.addfile(tarinfo=tarinfo, fileobj=f)
 
+            write_metadata(open_fn)
             yield from _predict_all(open_fn)
     else:
 
@@ -118,6 +178,7 @@ def render_all_images(method: Method, dataset: Dataset, output: Path, color_spac
             Path(path).parent.mkdir(parents=True, exist_ok=True)
             return open(path, "wb")
 
+        write_metadata(open_fn)
         yield from _predict_all(open_fn)
 
 
@@ -127,7 +188,7 @@ def render_all_images(method: Method, dataset: Dataset, output: Path, color_spac
 @click.option("--output", type=Path, default="predictions", help="output directory or tar.gz file")
 @click.option("--split", type=str, default="test")
 @click.option("--verbose", "-v", is_flag=True)
-@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NB_DEFAULT_BACKEND", None))
+@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NB_BACKEND", None))
 @handle_cli_error
 def render_command(checkpoint, data, output, split, verbose, backend):
     setup_logging(verbose)
@@ -139,7 +200,8 @@ def render_command(checkpoint, data, output, split, verbose, backend):
     with (checkpoint / "nb-info.json").open("r") as f:
         ns_info = json.load(f)
 
-    method_spec = registry.get(ns_info["method"])
+    method_name = ns_info["method"]
+    method_spec = registry.get(method_name)
     method_cls, backend = method_spec.build(backend=backend, checkpoint=os.path.abspath(str(checkpoint)))
     logging.info(f"Using backend: {backend}")
 
@@ -153,7 +215,7 @@ def render_command(checkpoint, data, output, split, verbose, backend):
         dataset.load_features(method_info.required_features, method_info.supported_camera_models)
         if dataset.color_space != ns_info["color_space"]:
             raise RuntimeError(f"Dataset color space {dataset.color_space} != method color space {ns_info['color_space']}")
-        for _ in render_all_images(method, dataset, output=Path(output), color_space=dataset.color_space, expected_scene_scale=ns_info["expected_scene_scale"]):
+        for _ in render_all_images(method, dataset, output=Path(output), color_space=dataset.color_space, expected_scene_scale=ns_info["expected_scene_scale"], method_name=method_name):
             pass
     finally:
         if hasattr(method, "close"):

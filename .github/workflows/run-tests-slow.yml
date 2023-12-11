@@ -22,7 +22,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -e .
-          pip install pytest
+          pip install pytest typeguard
       - name: Run tests
         run: pytest -rA
       - name: Install dev-extras
@@ -30,7 +30,8 @@ jobs:
         if: ${{ matrix.python == '3.9' }}
         run: |
           pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-          pip install 'jax[cpu]' dm-pix torchmetrics
+          pip install 'jax[cpu]'
+          pip install -e ".[extras]"
       - name: Run dev-extras tests
         run: pytest --run-extras
         if: ${{ steps.dev-extras.outcome == 'success' }}
@@ -44,6 +45,13 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: 3.9
+      - name: Install nerfbaselines
+        run: |
+          pip install --upgrade pip
+          pip install -e .
+          pip install pytest typeguard
+      - name: Run tests
+        run: pytest -rA
       - id: data-step
         run: |
           pip install --upgrade pip
@@ -70,7 +78,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -e .
-          pip install pytest
+          pip install pytest typeguard
       - name: Run tests
         run: |
           export TCNN_CUDA_ARCHITECTURES="80"
@@ -105,7 +113,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -e .
-          pip install pytest
+          pip install pytest typeguard
       - name: Run tests
         run: |
           export TCNN_CUDA_ARCHITECTURES="80"
@@ -119,6 +127,7 @@ jobs:
   dataset-tests:
     runs-on: ubuntu-latest
     name: test-datasets
+    needs: setup
     strategy:
       matrix:
         dataset: ["blender/lego", "mipnerf360/garden", "nerfstudio/poster"]
@@ -131,7 +140,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -e .
-          pip install pytest
+          pip install pytest typeguard
       - name: Test datasets
         run: |
           nerfbaselines download-dataset '${{ matrix.dataset }}' -o /tmp/dataset

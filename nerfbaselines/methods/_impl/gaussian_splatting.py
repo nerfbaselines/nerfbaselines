@@ -6,7 +6,7 @@ import os
 import tempfile
 import numpy as np
 from PIL import Image
-from ...types import Method, MethodInfo, CurrentProgress, ProgressCallback
+from ...types import Method, MethodInfo, CurrentProgress, ProgressCallback, RenderOutput
 from ...datasets import Dataset
 from ...cameras import CameraModel, Cameras
 from ...utils import cached_property
@@ -215,7 +215,7 @@ class GaussianSplatting(Method):
 
     def get_info(self) -> MethodInfo:
         info = MethodInfo(
-            required_features=frozenset(("images", "points3D_xyz")),
+            required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset((CameraModel.PINHOLE,)),
             num_iterations=self.opt.iterations,
             loaded_step=self._loaded_step,
@@ -235,7 +235,7 @@ class GaussianSplatting(Method):
             finally:
                 sceneLoadTypeCallbacks["Colmap"] = backup
 
-    def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[np.ndarray]:
+    def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
         if self.scene is None:
             self._eval_setup()
         assert np.all(cameras.camera_types == CameraModel.PINHOLE.value), "Only pinhole cameras supported"
@@ -315,7 +315,7 @@ class GaussianSplatting(Method):
         return metrics
 
     def save(self, path):
-        self.gaussians.save_ply(os.path.join(path, f"point_cloud/iteration_{self.step}", "point_cloud.ply"))
-        torch.save((self.gaussians.capture(), self.step), path + f"/chkpnt-{self.step}.pth")
-        with open(path + "/args.txt", "w") as f:
+        self.gaussians.save_ply(os.path.join(str(path), f"point_cloud/iteration_{self.step}", "point_cloud.ply"))
+        torch.save((self.gaussians.capture(), self.step), str(path) + f"/chkpnt-{self.step}.pth")
+        with open(str(path) + "/args.txt", "w") as f:
             f.write(shlex_join(self._args_list))

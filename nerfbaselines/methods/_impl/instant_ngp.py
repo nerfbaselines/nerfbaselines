@@ -8,7 +8,7 @@ from typing import Optional, Iterable
 import tempfile
 import numpy as np
 from PIL import Image, ImageOps
-from ...types import Dataset, Method, MethodInfo, ProgressCallback, CurrentProgress
+from ...types import Dataset, Method, MethodInfo, ProgressCallback, CurrentProgress, RenderOutput
 from ...cameras import CameraModel, Cameras
 
 
@@ -177,7 +177,7 @@ class InstantNGP(Method):
         self._tempdir.__enter__()
 
     def get_info(self):
-        return MethodInfo(num_iterations=35_000, required_features=frozenset(("images",)), supported_camera_models=frozenset((CameraModel.PINHOLE, CameraModel.OPENCV, CameraModel.OPENCV_FISHEYE)))
+        return MethodInfo(num_iterations=35_000, required_features=frozenset(("color",)), supported_camera_models=frozenset((CameraModel.PINHOLE, CameraModel.OPENCV, CameraModel.OPENCV_FISHEYE)))
 
     def _setup(self, train_transforms):
         import pyngp as ngp  # Depends on GPU
@@ -386,7 +386,7 @@ class InstantNGP(Method):
                     json.dump(self._train_transforms, f)
                 self.testbed.load_training_data(str(Path(self._tempdir.name) / "transforms.json"))
 
-    def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[np.ndarray]:
+    def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
         if self.dataparser_params is None:
             self._setup_eval()
         with self._with_eval_setup(cameras) as testbed:

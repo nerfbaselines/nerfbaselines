@@ -14,17 +14,13 @@ from tqdm import tqdm
 import numpy as np
 from PIL import Image
 import click
-from . import metrics
 from .datasets import load_dataset, Dataset
-from .utils import Indices, setup_logging, partialclass, convert_image_dtype, image_to_srgb, visualize_depth, handle_cli_error
+from .utils import Indices, setup_logging, partialclass, image_to_srgb, visualize_depth, handle_cli_error
 from .utils import remap_error
 from .types import Method, CurrentProgress, ColorSpace
 from .render import render_all_images, with_supported_camera_models
-
-try:
-    from typing import Annotated
-except ImportError:
-    from typing_extensions import Annotated  # type: ignore
+from .evaluate import compute_metrics, test_extra_metrics, evaluate
+from . import __version__
 from . import registry
 
 if TYPE_CHECKING:
@@ -67,35 +63,6 @@ def compute_exponential_gamma(num_iters: int, initial_lr: float, final_lr: float
     return math.exp(gamma)
 
 
-@typing.overload
-def compute_image_metrics(pred: np.ndarray, gt: np.ndarray, reduce: bool = True) -> Dict[str, float]:
-    ...
-
-
-@typing.overload
-def compute_image_metrics(pred: np.ndarray, gt: np.ndarray, reduce: bool = False) -> Dict[str, np.ndarray]:
-    ...
-
-
-def compute_image_metrics(pred, gt, reduce=True):
-    # NOTE: we blend with black background here!
-    def reduction(x):
-        if reduce:
-            return x.mean().item()
-        return x
-
-    pred = pred[..., : gt.shape[-1]]
-    pred = convert_image_dtype(pred, np.float32)
-    gt = convert_image_dtype(gt, np.float32)
-    mse = metrics.mse(pred, gt)
-    return {
-        "mse": reduction(mse),
-        "psnr": reduction(metrics.psnr(mse)),
-        "mae": reduction(metrics.mae(pred, gt)),
-        "ssim": reduction(metrics.ssim(pred, gt)),
-    }
-
-
 class Trainer:
     def __init__(
         self,
@@ -110,8 +77,10 @@ class Trainer:
         eval_all_iters: Indices = Indices([-1]),
         use_wandb: bool = True,
         color_space: Optional[ColorSpace] = None,
+        run_extra_metrics: bool = False,
+        method_name: Optional[str] = None,
     ):
-        self.method_name = next(iter(getattr(method, "__metadata__", tuple())), None) or method.__name__
+        self.method_name = method_name or method.__name__
         self.method = method()
         method_info = self.method.get_info()
         if isinstance(train_dataset, (Path, str)):
@@ -138,6 +107,7 @@ class Trainer:
         self.eval_single_iters = eval_single_iters
         self.eval_all_iters = eval_all_iters
         self.use_wandb = use_wandb
+        self.run_extra_metrics = run_extra_metrics
         for v in vars(self).values():
             if isinstance(v, Indices):
                 v.total = self.num_iterations + 1
@@ -160,7 +130,7 @@ class Trainer:
         self._average_image_size = train_dataset.cameras.image_sizes.prod(-1).astype(np.float32).mean()
         self._expected_scene_scale = train_dataset.expected_scene_scale
 
-        self.test_dataset.load_features(method_info.required_features.union({"images"}))
+        self.test_dataset.load_features(method_info.required_features.union({"color"}))
         self.method.setup_train(train_dataset, num_iterations=self.num_iterations)
 
         assert train_dataset.color_space is not None
@@ -174,11 +144,12 @@ class Trainer:
     def save(self):
         path = os.path.join(str(self.output), f"checkpoint-{self.step}")
         os.makedirs(os.path.join(str(self.output), f"checkpoint-{self.step}"), exist_ok=True)
-        self.method.save(path)
+        self.method.save(Path(path))
         with open(os.path.join(path, "nb-info.json"), mode="w+", encoding="utf8") as f:
             json.dump(
                 {
                     "method": self.method_name,
+                    "nb_version": __version__,
                     "color_space": self._color_space,
                     "expected_scene_scale": self._expected_scene_scale,
                 },
@@ -218,6 +189,8 @@ class Trainer:
             for i in range(self.step, self.num_iterations):
                 self.step = i
                 metrics = self.train_iteration()
+                # Checkpoint changed, reset sha
+                self._checkpoint_sha = None
                 self.step = i + 1
                 self.log_metrics(metrics, "train/")
 
@@ -263,6 +236,10 @@ class Trainer:
         if output.exists():
             output.unlink()
             logging.warning(f"removed existing predictions at {output}")
+        output_metrics = self.output / f"results-{self.step}.json"
+        if output_metrics.exists():
+            output_metrics.unlink()
+            logging.warning(f"removed existing results at {output_metrics}")
 
         start = time.perf_counter()
         num_vis_images = 16
@@ -272,7 +249,13 @@ class Trainer:
             enumerate(self.test_dataset.images),
             self.test_dataset.file_paths,
             render_all_images(
-                self.method, self.test_dataset, output=output, color_space=self._color_space, expected_scene_scale=self._expected_scene_scale, description=f"rendering all images at step={self.step}"
+                self.method,
+                self.test_dataset,
+                output=output,
+                color_space=self._color_space,
+                expected_scene_scale=self._expected_scene_scale,
+                method_name=self.method_name,
+                description=f"rendering all images at step={self.step}",
             ),
             self.test_dataset.cameras.image_sizes,
         ):
@@ -281,17 +264,16 @@ class Trainer:
             background_color = self.test_dataset.metadata.get("background_color", None)
             color_srgb = image_to_srgb(color, np.uint8, color_space=self._color_space, background_color=background_color)
             gt_srgb = image_to_srgb(gt[:h, :w], np.uint8, color_space=self._color_space, background_color=background_color)
-            if metrics is not None:
-                for k, v in compute_image_metrics(color_srgb, gt_srgb).items():
-                    if k not in metrics:
-                        metrics[k] = 0
-                    metrics[k] += v / len(self.test_dataset)
             if len(vis_images) < num_vis_images:
                 vis_images.append((gt_srgb, color_srgb))
                 if "depth" in pred:
                     near_far = self.test_dataset.cameras.nears_fars[i] if self.test_dataset.cameras.nears_fars is not None else None
                     vis_depth.append(visualize_depth(pred["depth"], expected_scale=self._expected_scene_scale, near_far=near_far))
         elapsed = time.perf_counter() - start
+
+        # Compute metrics
+        info = evaluate(output, output_metrics, disable_extra_metrics=not self.run_extra_metrics, description=f"evaluating all images at step={self.step}")
+        metrics = info["metrics"]
 
         if self._wandb_run is not None:
             import wandb  # pylint: disable=import-outside-toplevel
@@ -363,7 +345,7 @@ class Trainer:
             background_color = self.test_dataset.metadata.get("background_color", None)
             color_srgb = image_to_srgb(color, np.uint8, color_space=self._color_space, background_color=background_color)
             gt_srgb = image_to_srgb(gt, np.uint8, color_space=self._color_space, background_color=background_color)
-            metrics = compute_image_metrics(color_srgb, gt_srgb)
+            metrics = compute_metrics(color_srgb, gt_srgb, run_extras=self.run_extra_metrics)
             image_path = dataset_slice.file_paths[0]
             if dataset_slice.file_paths_root is not None:
                 image_path = str(Path(image_path).relative_to(dataset_slice.file_paths_root))
@@ -415,11 +397,20 @@ class IndicesClickType(click.ParamType):
 @click.option("--verbose", "-v", is_flag=True)
 @click.option("--eval-single-iters", type=IndicesClickType(), default=Indices.every_iters(2_000), help="When to evaluate a single image")
 @click.option("--eval-all-iters", type=IndicesClickType(), default=Indices([-1]), help="When to evaluate all images")
-@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NB_DEFAULT_BACKEND", None))
+@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NB_BACKEND", None))
+@click.option("--disable-extra-metrics", help="Disable extra metrics which need additional dependencies.", is_flag=True)
 @handle_cli_error
-def train_command(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters, num_iterations=None):
+def train_command(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters, num_iterations=None, disable_extra_metrics=False):
     logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)
+
+    if not disable_extra_metrics:
+        try:
+            test_extra_metrics()
+        except ImportError as exc:
+            logging.error(exc)
+            logging.error("Extra metrics are not available and will be disabled. Please install the required dependencies by running `pip install nerfbaselines[extras]`.")
+            disable_extra_metrics = True
 
     # Make paths absolute, and change working directory to output
     if "://" not in data:
@@ -452,11 +443,13 @@ def train_command(method, checkpoint, data, output, no_wandb, verbose, backend, 
     trainer = Trainer(
         train_dataset=data,
         output=Path(output),
-        method=Annotated[_method, method],
+        method=_method,
         eval_all_iters=eval_all_iters,
         eval_single_iters=eval_single_iters,
         use_wandb=not no_wandb,
         num_iterations=num_iterations,
+        run_extra_metrics=not disable_extra_metrics,
+        method_name=method,
     )
     try:
         trainer.setup_data()

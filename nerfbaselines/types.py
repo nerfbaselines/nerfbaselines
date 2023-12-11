@@ -123,7 +123,7 @@ def batched(array, batch_size):
         yield array[i : i + batch_size]
 
 
-DatasetFeature = Literal["color", "points3D_xyz"]
+DatasetFeature = Literal["color", "points3D_xyz", "points3D_rgb"]
 
 
 if TYPE_CHECKING:
@@ -153,7 +153,7 @@ class Method(Protocol):
         """
         Install the method.
         """
-        raise NotImplementedError()
+        pass
 
     @abstractmethod
     def get_info(self) -> MethodInfo:
@@ -198,7 +198,7 @@ class Method(Protocol):
         raise NotImplementedError()
 
     @abstractmethod
-    def save(self, path: str):
+    def save(self, path: Path):
         """
         Save model.
 

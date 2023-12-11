@@ -66,28 +66,74 @@ def test_dmpix_ssim(kernel_size, sigma):
 @pytest.mark.parametrize("metric", ["torchmetrics_ssim", "dmpix_ssim", "ssim", "mse", "mae", "psnr"])
 def test_metric(metric):
     np.random.seed(42)
-    a = np.random.rand(10, 100, 200, 3)
-    b = np.random.rand(10, 100, 200, 3)
+    batch_shapes = [
+        (3,),
+        (2, 2),
+        (
+            2,
+            1,
+            1,
+        ),
+    ]
+    for bs in batch_shapes:
+        a = np.random.rand(*bs, 100, 200, 3)
+        b = np.random.rand(*bs, 100, 200, 3)
 
-    val = getattr(metrics, metric)(a, b)
-    assert isinstance(val, np.ndarray)
-    assert val.shape == (10,)
+        val = getattr(metrics, metric)(a, b)
+        assert isinstance(val, np.ndarray)
+        assert val.shape == bs
 
-    # Different shape raises error
-    with pytest.raises(Exception):
-        getattr(metrics, metric)(a, b[:-1])
+        # Different shape raises error
+        with pytest.raises(Exception):
+            getattr(metrics, metric)(a, b[:-1])
 
 
 def test_psnr():
     np.random.seed(42)
-    a = np.random.rand(10, 100, 200, 3)
-    b = np.random.rand(10, 100, 200, 3)
+    batch_shapes = [
+        (3,),
+        (2, 2),
+        (
+            2,
+            1,
+            1,
+        ),
+    ]
+    for bs in batch_shapes:
+        a = np.random.rand(*bs, 100, 200, 3)
+        b = np.random.rand(*bs, 100, 200, 3)
 
-    val = metrics.psnr(a, b)
-    val2 = metrics.psnr(metrics.mse(a, b))
-    assert isinstance(val, np.ndarray)
-    assert val.shape == (10,)
-    assert isinstance(val2, np.ndarray)
-    assert val2.shape == (10,)
+        val = metrics.psnr(a, b)
+        val2 = metrics.psnr(metrics.mse(a, b))
+        assert isinstance(val, np.ndarray)
+        assert val.shape == bs
+        assert isinstance(val2, np.ndarray)
+        assert val2.shape == bs
 
-    np.testing.assert_allclose(val, val2, atol=1e-5, rtol=0)
+        np.testing.assert_allclose(val, val2, atol=1e-5, rtol=0)
+
+
+@pytest.mark.extras
+@pytest.mark.parametrize("metric", ["lpips_vgg", "lpips_alex"])
+def test_lpips(metric):
+    np.random.seed(42)
+    batch_shapes = [
+        (3,),
+        (2, 2),
+        (
+            2,
+            1,
+            1,
+        ),
+    ]
+    for bs in batch_shapes:
+        a = np.random.rand(*bs, 33, 38, 3)
+        b = np.random.rand(*bs, 33, 38, 3)
+
+        val = getattr(metrics, metric)(a, b)
+        assert isinstance(val, np.ndarray)
+        assert val.shape == bs
+
+        # Different shape raises error
+        with pytest.raises(Exception):
+            getattr(metrics, metric)(a, b[:-1])

@@ -79,7 +79,7 @@ class _LazyMethodMeta(type):
 
             ns["__new__"] = new
 
-        ncls = types.new_class(name, exec_body=build)
+        ncls = types.new_class(name, exec_body=build, bases=(Method,))
         ncls.__module__ = module_base + module if module.startswith(".") else module
         ncls.__name__ = name
         return typing.cast(Type[Method], ncls)

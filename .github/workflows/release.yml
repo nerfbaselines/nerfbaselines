@@ -21,7 +21,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -e '.'
-        pip install twine pytest build
+        pip install twine pytest build typeguard
     - name: Run tests
       run: |
         python -m pytest
