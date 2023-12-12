@@ -24,6 +24,28 @@ dependencies to be installed. Also, some methods are not implemented for this ba
 
 The backend can be set as the `--backend <backend>` argument or using the `NB_BACKEND` environment variable.
 
+## Advanced installation
+NOTE: the default install does not install torch which is required for the LPIPS metric. If you
+want to use the metric, please install the additional dependencies (one of the following configurations):
+- CPU-only install
+```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+pip install jax[cpu]
+pip install 'nerfbaselines[extras]'
+```
+- CUDA 11.8 install
+```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+pip install jax[cuda11_pip]
+pip install 'nerfbaselines[extras]'
+```
+- CUDA 12.1 install
+```bash
+pip install torch torchvision torchaudio
+pip install jax[cuda12_pip]
+pip install 'nerfbaselines[extras]'
+```
+
 ## Downloading data
 For some datasets, e.g. Mip-NeRF 360 or NerfStudio, the datasets can be downloaded automatically. You can specify the argument `--data external://dataset/scene` during training
 or download the dataset beforehand by running `nerfbaselines download-dataset dataset/scene`.

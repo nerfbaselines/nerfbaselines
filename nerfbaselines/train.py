@@ -16,12 +16,13 @@ from PIL import Image
 import click
 from .datasets import load_dataset, Dataset
 from .utils import Indices, setup_logging, partialclass, image_to_srgb, visualize_depth, handle_cli_error
-from .utils import remap_error
+from .utils import remap_error, convert_image_dtype
 from .types import Method, CurrentProgress, ColorSpace
 from .render import render_all_images, with_supported_camera_models
-from .evaluate import compute_metrics, test_extra_metrics, evaluate
+from .upload_results import prepare_results_for_upload
 from . import __version__
 from . import registry
+from . import evaluate
 
 if TYPE_CHECKING:
     import wandb.sdk.wandb_run
@@ -45,10 +46,13 @@ def make_grid(*images: np.ndarray, ncol=None, padding=2, max_width=1920, backgro
             return np.array(img)
 
         images = tuple(map(interpolate, images))
+        height = (height + scale_factor - 1) // scale_factor
+        width = (width + scale_factor - 1) // scale_factor
     grid: np.ndarray = np.ndarray(
         (height * nrow + padding * (nrow - 1), width * ncol + padding * (ncol - 1), images[0].shape[2]),
         dtype=images[0].dtype,
     )
+    background = convert_image_dtype(np.array(background, dtype=np.float32 if isinstance(background, float) else np.uint8), images[0].dtype).item()
     grid.fill(background)
     for i, image in enumerate(images):
         x = i % ncol
@@ -79,6 +83,7 @@ class Trainer:
         color_space: Optional[ColorSpace] = None,
         run_extra_metrics: bool = False,
         method_name: Optional[str] = None,
+        generate_output_artifact: Optional[bool] = None,
     ):
         self.method_name = method_name or method.__name__
         self.method = method()
@@ -108,6 +113,7 @@ class Trainer:
         self.eval_all_iters = eval_all_iters
         self.use_wandb = use_wandb
         self.run_extra_metrics = run_extra_metrics
+        self.generate_output_artifact = generate_output_artifact
         for v in vars(self).values():
             if isinstance(v, Indices):
                 v.total = self.num_iterations + 1
@@ -116,6 +122,33 @@ class Trainer:
         self._color_space = color_space
         self._expected_scene_scale = None
         self._method_info = method_info
+
+        # Validate generate output artifact
+        if self.generate_output_artifact is None or self.generate_output_artifact:
+            messages = self._get_generate_output_artifact_problems()
+            if self.generate_output_artifact is None and messages:
+                logging.warning("Disabling output artifact generation due to the following problems:")
+                for message in messages:
+                    logging.warning(message)
+                self.generate_output_artifact = False
+            elif messages:
+                logging.error("Cannot generate output artifact due to the following problems:")
+                for message in messages:
+                    logging.error(message)
+                sys.exit(1)
+            else:
+                self.generate_output_artifact = True
+
+    def _get_generate_output_artifact_problems(self):
+        messages = []
+        # Model is saved automatically at the end!
+        # if self.num_iterations not in self.save_iters:
+        #     messages.append(f"num_iterations ({self.num_iterations}) must be in save_iters: {self.save_iters}")
+        if self.num_iterations not in self.eval_all_iters:
+            messages.append(f"num_iterations ({self.num_iterations}) must be in eval_all_iters: {self.eval_all_iters}")
+        if not self.run_extra_metrics:
+            messages.append("Extra metrics must be enabled. Please verify they are installed and not disabled by --disable-extra-metrics flag.")
+        return messages
 
     @remap_error
     def setup_data(self):
@@ -151,7 +184,7 @@ class Trainer:
                     "method": self.method_name,
                     "nb_version": __version__,
                     "color_space": self._color_space,
-                    "expected_scene_scale": self._expected_scene_scale,
+                    "expected_scene_scale": round(self._expected_scene_scale, 5),
                 },
                 f,
             )
@@ -211,6 +244,12 @@ class Trainer:
         # Save if not saved by default
         if self.step not in self.save_iters:
             self.save()
+
+        # Generate output artifact if enabled
+        if self.generate_output_artifact:
+            prepare_results_for_upload(
+                self.output / f"checkpoint-{self.step}", self.output / f"predictions-{self.step}.tar.gz", self.output / f"results-{self.step}.json", self.output / "output.zip", validate=False
+            )
 
     def log_metrics(self, metrics, prefix: str = ""):
         self.ensure_loggers_initialized()
@@ -272,7 +311,7 @@ class Trainer:
         elapsed = time.perf_counter() - start
 
         # Compute metrics
-        info = evaluate(output, output_metrics, disable_extra_metrics=not self.run_extra_metrics, description=f"evaluating all images at step={self.step}")
+        info = evaluate.evaluate(output, output_metrics, disable_extra_metrics=not self.run_extra_metrics, description=f"evaluating all images at step={self.step}")
         metrics = info["metrics"]
 
         if self._wandb_run is not None:
@@ -345,7 +384,7 @@ class Trainer:
             background_color = self.test_dataset.metadata.get("background_color", None)
             color_srgb = image_to_srgb(color, np.uint8, color_space=self._color_space, background_color=background_color)
             gt_srgb = image_to_srgb(gt, np.uint8, color_space=self._color_space, background_color=background_color)
-            metrics = compute_metrics(color_srgb, gt_srgb, run_extras=self.run_extra_metrics)
+            metrics = evaluate.compute_metrics(color_srgb, gt_srgb, run_extras=self.run_extra_metrics)
             image_path = dataset_slice.file_paths[0]
             if dataset_slice.file_paths_root is not None:
                 image_path = str(Path(image_path).relative_to(dataset_slice.file_paths_root))
@@ -399,14 +438,16 @@ class IndicesClickType(click.ParamType):
 @click.option("--eval-all-iters", type=IndicesClickType(), default=Indices([-1]), help="When to evaluate all images")
 @click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NB_BACKEND", None))
 @click.option("--disable-extra-metrics", help="Disable extra metrics which need additional dependencies.", is_flag=True)
+@click.option("--disable-output-artifact", "generate_output_artifact", help="Disable producing output artifact containing final model and predictions.", default=None, flag_value=False, is_flag=True)
+@click.option("--force-output-artifact", "generate_output_artifact", help="Force producing output artifact containing final model and predictions.", default=None, flag_value=True, is_flag=True)
 @handle_cli_error
-def train_command(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters, num_iterations=None, disable_extra_metrics=False):
+def train_command(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters, num_iterations=None, disable_extra_metrics=False, generate_output_artifact=None):
     logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)
 
     if not disable_extra_metrics:
         try:
-            test_extra_metrics()
+            evaluate.test_extra_metrics()
         except ImportError as exc:
             logging.error(exc)
             logging.error("Extra metrics are not available and will be disabled. Please install the required dependencies by running `pip install nerfbaselines[extras]`.")
@@ -449,6 +490,7 @@ def train_command(method, checkpoint, data, output, no_wandb, verbose, backend, 
         use_wandb=not no_wandb,
         num_iterations=num_iterations,
         run_extra_metrics=not disable_extra_metrics,
+        generate_output_artifact=generate_output_artifact,
         method_name=method,
     )
     try:

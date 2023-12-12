@@ -147,6 +147,20 @@ class Indices:
         start = iters if zero else 0
         return cls(slice(start, None, iters))
 
+    def __repr__(self):
+        if isinstance(self._steps, list):
+            return ",".join(map(str, self._steps))
+        elif isinstance(self._steps, slice):
+            out = f"{self._steps.start or ''}:{self._steps.stop or ''}"
+            if self._steps.step is not None:
+                out += f":{self._steps.step}"
+            return out
+        else:
+            return repr(self._steps)
+
+    def __str__(self):
+        return repr(self)
+
 
 def batched(array, batch_size):
     for i in range(0, len(array), batch_size):

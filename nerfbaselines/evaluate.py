@@ -25,7 +25,7 @@ def test_extra_metrics():
 
     """
     a = np.zeros((1, 48, 56, 3), dtype=np.float32)
-    b = np.zeros((1, 48, 56, 3), dtype=np.float32)
+    b = np.ones((1, 48, 56, 3), dtype=np.float32)
     compute_metrics(a, b, run_extras=True)
 
 
