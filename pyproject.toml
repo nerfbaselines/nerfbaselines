@@ -30,6 +30,7 @@ dependencies = [
     "matplotlib>=3.4.2",
     "requests>=2.25.1",
     "gdown>=4.7.1",
+    "tensorboard>=2.5.0",
 ]
 dynamic = ["version"]
 

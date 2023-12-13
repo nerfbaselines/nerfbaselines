@@ -100,7 +100,7 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python"):
     (tmp_path / "output").mkdir()
     try:
         train_cmd = remap_error(train_command.callback)
-        train_cmd(method_name, None, str(dataset_path), str(tmp_path / "output"), True, False, backend, Indices.every_iters(5), Indices([-1]), num_iterations=13, disable_extra_metrics=True)
+        train_cmd(method_name, None, str(dataset_path), str(tmp_path / "output"), False, backend, Indices.every_iters(5), Indices([-1]), num_iterations=13, disable_extra_metrics=True, vis="none")
     except NoGPUError:
         pytest.skip("no GPU available")
 
@@ -142,13 +142,13 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python"):
         tmp_path / "output" / "checkpoint-13",
         str(dataset_path),
         str(tmp_path / "output"),
-        True,
         False,
         backend,
         Indices.every_iters(5),
         Indices([-1]),
         num_iterations=14,
         disable_extra_metrics=True,
+        vis="none",
     )
     assert (tmp_path / "output" / "checkpoint-14").exists()
     assert (tmp_path / "output" / "predictions-14.tar.gz").exists()

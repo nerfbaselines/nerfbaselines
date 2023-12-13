@@ -1,3 +1,4 @@
+import io
 import sys
 import json
 import hashlib
@@ -17,7 +18,7 @@ import click
 from .datasets import load_dataset, Dataset
 from .utils import Indices, setup_logging, partialclass, image_to_srgb, visualize_depth, handle_cli_error
 from .utils import remap_error, convert_image_dtype
-from .types import Method, CurrentProgress, ColorSpace
+from .types import Method, CurrentProgress, ColorSpace, Literal, FrozenSet
 from .render import render_all_images, with_supported_camera_models
 from .upload_results import prepare_results_for_upload
 from . import __version__
@@ -68,6 +69,9 @@ def compute_exponential_gamma(num_iters: int, initial_lr: float, final_lr: float
     return math.exp(gamma)
 
 
+Visualization = Literal["none", "wandb", "tensorboard"]
+
+
 class Trainer:
     def __init__(
         self,
@@ -80,7 +84,7 @@ class Trainer:
         save_iters: Indices = Indices.every_iters(10_000, zero=True),
         eval_single_iters: Indices = Indices.every_iters(2_000),
         eval_all_iters: Indices = Indices([-1]),
-        use_wandb: bool = True,
+        loggers: FrozenSet[Visualization] = {},
         color_space: Optional[ColorSpace] = None,
         run_extra_metrics: bool = False,
         method_name: Optional[str] = None,
@@ -112,13 +116,14 @@ class Trainer:
 
         self.eval_single_iters = eval_single_iters
         self.eval_all_iters = eval_all_iters
-        self.use_wandb = use_wandb
+        self.loggers = loggers
         self.run_extra_metrics = run_extra_metrics
         self.generate_output_artifact = generate_output_artifact
         for v in vars(self).values():
             if isinstance(v, Indices):
                 v.total = self.num_iterations + 1
         self._wandb_run: Union["wandb.sdk.wandb_run.Run", None] = None
+        self._tensorboard_writer = None
         self._average_image_size = None
         self._color_space = color_space
         self._expected_scene_scale = None
@@ -150,6 +155,8 @@ class Trainer:
             messages.append(f"num_iterations ({self.num_iterations}) must be in eval_all_iters: {self.eval_all_iters}")
         if not self.run_extra_metrics:
             messages.append("Extra metrics must be enabled. Please verify they are installed and not disabled by --disable-extra-metrics flag.")
+        if "tensorboard" not in self.loggers:
+            messages.append("Tensorboard logger must be enabled. Please add `--vis tensorboard` to the command line arguments.")
         return messages
 
     @remap_error
@@ -206,12 +213,23 @@ class Trainer:
         return metrics
 
     def ensure_loggers_initialized(self):
-        if self.use_wandb and self._wandb_run is None:
+        loggers_init = False
+        if "wandb" in self.loggers and self._wandb_run is None:
             import wandb  # pylint: disable=import-outside-toplevel
 
             if not TYPE_CHECKING:
                 wandb_run: "wandb.sdk.wandb_run.Run" = wandb.init(dir=self.output)
                 self._wandb_run = wandb_run
+
+            loggers_init = True
+
+        if "tensorboard" in self.loggers and self._tensorboard_writer is None:
+            from tensorboard.summary.writer.event_file_writer import EventFileWriter
+
+            self._tensorboard_writer = EventFileWriter(str(self.output / "tensorboard"))
+            loggers_init = True
+        if loggers_init:
+            logging.info("initialized loggers " + ",".join(self.loggers))
 
     @remap_error
     def train(self):
@@ -250,13 +268,27 @@ class Trainer:
         # Generate output artifact if enabled
         if self.generate_output_artifact:
             prepare_results_for_upload(
-                self.output / f"checkpoint-{self.step}", self.output / f"predictions-{self.step}.tar.gz", self.output / f"results-{self.step}.json", self.output / "output.zip", validate=False
+                self.output / f"checkpoint-{self.step}",
+                self.output / f"predictions-{self.step}.tar.gz",
+                self.output / f"results-{self.step}.json",
+                self.output / "tensorboard",
+                self.output / "output.zip",
+                validate=False,
             )
 
     def log_metrics(self, metrics, prefix: str = ""):
         self.ensure_loggers_initialized()
         if self._wandb_run is not None:
             self._wandb_run.log({f"{prefix}{k}": v for k, v in metrics.items()}, step=self.step)
+        if self._tensorboard_writer is not None:
+            from tensorboard.compat.proto.summary_pb2 import Summary
+            from tensorboard.compat.proto.event_pb2 import Event
+
+            summaries = []
+            for k, val in metrics.items():
+                summaries.append(Summary.Value(tag=f"{prefix}{k}", simple_value=val))
+            summary = Summary(value=summaries)
+            self._tensorboard_writer.add_event(Event(summary=summary, step=self.step))
 
     def eval_all(self):
         if self.test_dataset is None:
@@ -316,11 +348,9 @@ class Trainer:
         info = evaluate.evaluate(output, output_metrics, disable_extra_metrics=not self.run_extra_metrics, description=f"evaluating all images at step={self.step}")
         metrics = info["metrics"]
 
-        if self._wandb_run is not None:
-            import wandb  # pylint: disable=import-outside-toplevel
-
+        if len(self.loggers) > 0:
             assert metrics is not None, "metrics must be computed"
-            logging.debug("logging metrics to wandb")
+            logging.debug("logging metrics to " + ",".join(self.loggers))
             metrics["fps"] = len(self.test_dataset) / elapsed
             metrics["rays-per-second"] = total_rays / elapsed
             metrics["time"] = elapsed
@@ -332,12 +362,25 @@ class Trainer:
                 make_grid(*[x[0] for x in vis_images], ncol=num_cols),
                 make_grid(*[x[1] for x in vis_images], ncol=num_cols),
             )
-            log_image = {
-                "eval-all-images/color": [wandb.Image(color_vis, caption="left: gt, right: prediction")],
-            }
-            if vis_depth:
-                log_image["eval-all-images/depth"] = [wandb.Image(make_grid(*vis_depth, ncol=num_cols), caption="depth")]
-            self._wandb_run.log(log_image, step=self.step)
+
+            if self._wandb_run is not None:
+                import wandb  # pylint: disable=import-outside-toplevel
+
+                log_image = {
+                    "eval-all-images/color": [wandb.Image(color_vis, caption="left: gt, right: prediction")],
+                }
+                if vis_depth:
+                    log_image["eval-all-images/depth"] = [wandb.Image(make_grid(*vis_depth, ncol=num_cols), caption="depth")]
+                self._wandb_run.log(log_image, step=self.step)
+            if self._tensorboard_writer is not None:
+                from tensorboard.compat.proto.summary_pb2 import Summary
+                from tensorboard.compat.proto.event_pb2 import Event
+
+                summaries = []
+                with io.BytesIO() as simg:
+                    Image.fromarray(color_vis).save(simg, format="png")
+                    summaries.append(Summary.Value(tag="eval-all-images/color", image=Summary.Image(encoded_image_string=simg.getvalue(), height=color_vis.shape[0], width=color_vis.shape[1])))
+                self._tensorboard_writer.add_event(Event(summary=Summary(value=summaries), step=self.step))
 
     def close(self):
         if self.method is not None and hasattr(self.method, "close"):
@@ -374,10 +417,8 @@ class Trainer:
 
         # Log to wandb
         self.ensure_loggers_initialized()
-        if self._wandb_run is not None:
-            import wandb  # pylint: disable=import-outside-toplevel
-
-            logging.debug("logging image to wandb")
+        if len(self.loggers) > 0:
+            logging.debug("logging image to " + ",".join(self.loggers))
             metrics = {}
             w, h = self.test_dataset.cameras.image_sizes[idx]
             gt = self.test_dataset.images[idx][:h, :w]
@@ -395,23 +436,55 @@ class Trainer:
             metrics["fps"] = 1 / elapsed
             metrics["rays-per-second"] = total_rays / elapsed
             metrics["time"] = elapsed
-            self.log_metrics(metrics, "eval-single-image/")
-            log_image = {
-                "eval-single-image/color": [
-                    wandb.Image(
-                        make_grid(
-                            gt_srgb,
-                            color_srgb,
-                        ),
-                        caption=f"{image_path}: left: gt, right: prediction",
-                    )
-                ],
-            }
+
             if "depth" in predictions:
                 depth = visualize_depth(predictions["depth"], expected_scale=self._expected_scene_scale)
-                log_image["eval-single-image/depth"] = [wandb.Image(depth, caption=f"{image_path}: depth")]
+            self.log_metrics(metrics, "eval-single-image/")
 
-            self._wandb_run.log(log_image, step=self.step)
+            if self._wandb_run is not None:
+                import wandb  # pylint: disable=import-outside-toplevel
+
+                log_image = {
+                    "eval-single-image/color": [
+                        wandb.Image(
+                            make_grid(
+                                gt_srgb,
+                                color_srgb,
+                            ),
+                            caption=f"{image_path}: left: gt, right: prediction",
+                        )
+                    ],
+                }
+                if "depth" in predictions:
+                    log_image["eval-single-image/depth"] = [wandb.Image(depth, caption=f"{image_path}: depth")]
+                self._wandb_run.log(log_image, step=self.step)
+            if self._tensorboard_writer is not None:
+                from tensorboard.compat.proto.summary_pb2 import Summary
+                from tensorboard.compat.proto.event_pb2 import Event
+                from tensorboard.plugins.image.metadata import create_summary_metadata
+
+                summaries = []
+                color_vis = make_grid(gt_srgb, color_srgb)
+                metadata = create_summary_metadata(
+                    display_name=image_path,
+                    description="left: gt, right: prediction",
+                )
+                with io.BytesIO() as simg:
+                    Image.fromarray(color_vis).save(simg, format="png")
+                    summaries.append(
+                        Summary.Value(tag="eval-single-images/color", metadata=metadata, image=Summary.Image(encoded_image_string=simg.getvalue(), height=color_vis.shape[0], width=color_vis.shape[1]))
+                    )
+                if "depth" in predictions:
+                    metadata = create_summary_metadata(
+                        display_name=image_path,
+                        description="depth",
+                    )
+                    with io.BytesIO() as simg:
+                        Image.fromarray(depth).save(simg, format="png")
+                        summaries.append(
+                            Summary.Value(tag="eval-single-images/depth", metadata=metadata, image=Summary.Image(encoded_image_string=simg.getvalue(), height=depth.shape[0], width=depth.shape[1]))
+                        )
+                self._tensorboard_writer.add_event(Event(summary=Summary(value=summaries), step=self.step))
 
 
 class IndicesClickType(click.ParamType):
@@ -434,7 +507,7 @@ class IndicesClickType(click.ParamType):
 @click.option("--checkpoint", type=click.Path(exists=True, path_type=Path), default=None)
 @click.option("--data", type=str, required=True)
 @click.option("--output", type=str, default=".")
-@click.option("--no-wandb", is_flag=True)
+@click.option("--vis", type=click.Choice(["none", "wandb", "tensorboard", "wandb+tensorboard"]), default="tensorboard", help="Logger to use. Defaults to tensorboard.")
 @click.option("--verbose", "-v", is_flag=True)
 @click.option("--eval-single-iters", type=IndicesClickType(), default=Indices.every_iters(2_000), help="When to evaluate a single image")
 @click.option("--eval-all-iters", type=IndicesClickType(), default=Indices([-1]), help="When to evaluate all images")
@@ -443,7 +516,7 @@ class IndicesClickType(click.ParamType):
 @click.option("--disable-output-artifact", "generate_output_artifact", help="Disable producing output artifact containing final model and predictions.", default=None, flag_value=False, is_flag=True)
 @click.option("--force-output-artifact", "generate_output_artifact", help="Force producing output artifact containing final model and predictions.", default=None, flag_value=True, is_flag=True)
 @handle_cli_error
-def train_command(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters, num_iterations=None, disable_extra_metrics=False, generate_output_artifact=None):
+def train_command(method, checkpoint, data, output, verbose, backend, eval_single_iters, eval_all_iters, num_iterations=None, disable_extra_metrics=False, generate_output_artifact=None, vis="none"):
     logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)
 
@@ -483,13 +556,25 @@ def train_command(method, checkpoint, data, output, no_wandb, verbose, backend, 
     if hasattr(_method, "install"):
         _method.install()
 
+    loggers = set()
+    if vis == "wandb":
+        loggers.add("wandb")
+    elif vis == "tensorboard":
+        loggers.add("tensorboard")
+    elif vis == "wandb+tensorboard" or vis == "tensorboard+wandb":
+        loggers = frozenset({"wandb", "tensorboard"})
+    elif vis == "none":
+        pass
+    else:
+        raise ValueError(f"unknown visualization tool {vis}")
+
     trainer = Trainer(
         train_dataset=data,
         output=Path(output),
         method=_method,
         eval_all_iters=eval_all_iters,
         eval_single_iters=eval_single_iters,
-        use_wandb=not no_wandb,
+        loggers=frozenset(loggers),
         num_iterations=num_iterations,
         run_extra_metrics=not disable_extra_metrics,
         generate_output_artifact=generate_output_artifact,

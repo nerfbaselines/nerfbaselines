@@ -96,18 +96,24 @@ def _zip_add_dir(zip: zipfile.ZipFile, dirpath: Path, arcname: Optional[str] = N
             raise ValueError(f"unknown file type: {name}")
 
 
-def prepare_results_for_upload(model_path: Path, predictions_path: Path, metrics_path: Path, output_path: Path, validate: bool = True):
+def prepare_results_for_upload(model_path: Path, predictions_path: Path, metrics_path: Path, tensorboard_path: Path, output_path: Path, validate: bool = True):
     """Prepares artifacts for upload to the NeRF benchmark.
 
     Args:
         model_path: Path to the model directory.
         predictions_path: Path to the predictions directory/file.
         metrics_path: Path to the metrics file.
+        tensorboard_path: Path to the tensorboard events file.
     """
     # Convert to Path objects (if strs)
     model_path = Path(model_path)
     predictions_path = Path(predictions_path)
     metrics_path = Path(metrics_path)
+    tensorboard_path = Path(tensorboard_path)
+    assert model_path.exists(), f"{model_path} does not exist"
+    assert predictions_path.exists(), f"{predictions_path} does not exist"
+    assert metrics_path.exists(), f"{metrics_path} does not exist"
+    assert tensorboard_path.exists(), f"{tensorboard_path} does not exist"
 
     # Load metrics
     with metrics_path.open("r", encoding="utf8") as f:
@@ -150,6 +156,7 @@ def prepare_results_for_upload(model_path: Path, predictions_path: Path, metrics
             zip.write(metrics_path, "results.json")
             _zip_add_dir(zip, model_path, arcname="checkpoint")
             _zip_add_dir(zip, predictions_path, arcname="predictions")
+            _zip_add_dir(zip, tensorboard_path, arcname="tensorboard")
 
         # Get the artifact SHA
         logging.info("computing output artifact SHA")
