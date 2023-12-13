@@ -34,6 +34,16 @@ def _report_ready():
     pass
 
 
+def _remap_error(e: Exception):
+    if e.__class__.__module__ == "builtins":
+        return e
+    elif e.__class__.__module__.startswith(_remap_error.__module__.split(".")[0]):
+        return e
+
+    # Remap exception
+    return RuntimeError(f"Exception {e.__class__.__name__}: {e}")
+
+
 def start_backend(method: Method, params: ConnectionParams, address: str = "localhost"):
     with Listener((address, params.port), authkey=params.authkey) as listener:
         _report_ready()
@@ -56,7 +66,7 @@ def start_backend(method: Method, params: ConnectionParams, address: str = "loca
                     except Exception as e:  # pylint: disable=broad-except
                         traceback.print_exc()
                         logging.error(f"Error while obtaining property {msg['property']} from {listener.last_accepted}")
-                        conn.send({"message": "error", "id": mid, "error": e})
+                        conn.send({"message": "error", "id": mid, "error": _remap_error(e)})
                 elif message == "call":
                     logging.debug(f"Calling method {msg['method']} from {listener.last_accepted}")
                     try:
@@ -70,10 +80,10 @@ def start_backend(method: Method, params: ConnectionParams, address: str = "loca
                     except Exception as e:  # pylint: disable=broad-except
                         traceback.print_exc()
                         logging.error(f"Error while calling method {msg['method']} from {listener.last_accepted}")
-                        conn.send({"message": "error", "id": mid, "error": e})
+                        conn.send({"message": "error", "id": mid, "error": _remap_error(e)})
                 else:
                     logging.error(f"Unknown message {msg} from {listener.last_accepted}")
-                    conn.send({"message": "error", "id": mid, "error": RuntimeError(f"Unknown message {msg}")})
+                    conn.send({"message": "error", "id": mid, "error": _remap_error(RuntimeError(f"Unknown message {msg}"))})
         logging.info("Client disconnected, shutting down")
 
 
@@ -116,7 +126,7 @@ def inject_callables(obj, conn, my_id):
 
 
 class RemoteMethod(Method):
-    def __init__(self, *args, checkpoint: Optional[str] = None, connection_params: Optional[ConnectionParams] = None, **kwargs):
+    def __init__(self, *args, checkpoint: Optional[Path] = None, connection_params: Optional[ConnectionParams] = None, **kwargs):
         self.connection_params = connection_params or ConnectionParams()
         self._client: Optional[Connection] = None
         self._message_counter = 0

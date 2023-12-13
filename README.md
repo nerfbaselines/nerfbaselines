@@ -15,6 +15,11 @@ pip install nerfbaselines
 ```
 Now you can use the `nerfbaselines` cli to interact with NerfBaselines.
 
+WARNING: the default installation only installs the core nerfbaselines package which does not depend on either PyTorch or JAX.
+However, the LPIPS metric requires PyTorch to be installed and will be disabled otherwise. Similarly, if you install JAX and
+have a GPU available, the dataloading and evaluation will be faster as some parts of the pipeline will be moved to GPU.
+Therefore, we recommend installing the `extras` package by following the **Advanced installation** section.
+
 The next step is to choose the backend which will be used to install different methods. At the moment there are the following backends implemented:
 - **docker**: Offers good isolation, requires `docker` to be installed and the user to have access to it (being in the docker user group).
 - **apptainer**: Similar level of isolation as `docker`, but does not require the user to have privileged access.
@@ -25,8 +30,11 @@ dependencies to be installed. Also, some methods are not implemented for this ba
 The backend can be set as the `--backend <backend>` argument or using the `NB_BACKEND` environment variable.
 
 ## Advanced installation
-NOTE: the default install does not install torch which is required for the LPIPS metric. If you
-want to use the metric, please install the additional dependencies (one of the following configurations):
+The LPIPS metric requires PyTorch to be installed and will be disabled otherwise. Similarly, if you install JAX and
+have a GPU available, the dataloading and evaluation will be faster as some parts of the pipeline will be moved to GPU.
+In this section we describe how to install the packages required for LPIPS and accelerated dataloading.
+We recommend this as the default installation (unless there is a reason for not installing PyTorch or JAX).
+Select one of the following configurations:
 - CPU-only install
 ```bash
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu

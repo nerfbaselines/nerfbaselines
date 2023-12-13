@@ -113,7 +113,10 @@ def render_all_images(
                 assert gt_image.shape[:-1] == pred_image.shape[:-1], f"gt size {gt_image.shape[:-1]} != pred size {pred_image.shape[:-1]}"
                 relative_name = Path(dataset.file_paths[i])
                 if dataset.file_paths_root is not None:
-                    relative_name = relative_name.relative_to(Path(dataset.file_paths_root))
+                    if str(relative_name).startswith("/undistorted/"):
+                        relative_name = Path(str(relative_name)[len("/undistorted/") :])
+                    else:
+                        relative_name = relative_name.relative_to(Path(dataset.file_paths_root))
                 with open_fn(f"gt-color/{relative_name.with_suffix('.png')}") as f:
                     save_image(f, gt_image)
                 with open_fn(f"color/{relative_name.with_suffix('.png')}") as f:
@@ -202,7 +205,7 @@ def render_command(checkpoint, data, output, split, verbose, backend):
 
     method_name = ns_info["method"]
     method_spec = registry.get(method_name)
-    method_cls, backend = method_spec.build(backend=backend, checkpoint=os.path.abspath(str(checkpoint)))
+    method_cls, backend = method_spec.build(backend=backend, checkpoint=Path(os.path.abspath(str(checkpoint))))
     logging.info(f"Using backend: {backend}")
 
     if hasattr(method_cls, "install"):
@@ -212,7 +215,7 @@ def render_command(checkpoint, data, output, split, verbose, backend):
     try:
         method_info = method.get_info()
         dataset = load_dataset(Path(data), split=split, features=method_info.required_features)
-        dataset.load_features(method_info.required_features, method_info.supported_camera_models)
+        dataset.load_features(method_info.required_features)
         if dataset.color_space != ns_info["color_space"]:
             raise RuntimeError(f"Dataset color space {dataset.color_space} != method color space {ns_info['color_space']}")
         for _ in render_all_images(method, dataset, output=Path(output), color_space=dataset.color_space, expected_scene_scale=ns_info["expected_scene_scale"], method_name=method_name):

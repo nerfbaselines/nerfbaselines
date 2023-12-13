@@ -92,7 +92,7 @@ def patch_prefix(tmp_path):
 
 def run_test_train(tmp_path, dataset_path, method_name, backend="python"):
     from nerfbaselines.train import train_command
-    from nerfbaselines.render import get_checkpoint_sha
+    from nerfbaselines.render import get_checkpoint_sha, render_command
     from nerfbaselines.utils import Indices, remap_error
     from nerfbaselines.utils import NoGPUError
 
@@ -100,7 +100,7 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python"):
     (tmp_path / "output").mkdir()
     try:
         train_cmd = remap_error(train_command.callback)
-        train_cmd(method_name, None, str(dataset_path), str(tmp_path / "output"), True, True, backend, Indices.every_iters(5), Indices([-1]), num_iterations=13, disable_extra_metrics=True)
+        train_cmd(method_name, None, str(dataset_path), str(tmp_path / "output"), True, False, backend, Indices.every_iters(5), Indices([-1]), num_iterations=13, disable_extra_metrics=True)
     except NoGPUError:
         pytest.skip("no GPU available")
 
@@ -114,8 +114,45 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python"):
         tar.extract(tar.getmember("info.json"), tmp_path / "tmpinfo")
         with open(tmp_path / "tmpinfo" / "info.json", "r") as f:
             info = json.load(f)
+        (tmp_path / "tmp-renders").mkdir(parents=True)
+        tar.extractall(tmp_path / "tmp-renders")
     assert info["checkpoint_sha256"] is not None, "checkpoint sha not saved in info.json"
     assert get_checkpoint_sha(tmp_path / "output" / "checkpoint-13") == info["checkpoint_sha256"], "checkpoint sha mismatch"
+
+    # Test restore checkpoint and render
+    render_cmd = remap_error(render_command.callback)
+    # render_command(checkpoint, data, output, split, verbose, backend):
+    render_cmd(tmp_path / "output" / "checkpoint-13", str(dataset_path), str(tmp_path / "output-render"), "test", verbose=False, backend=backend)
+
+    print(os.listdir(tmp_path / "output-render"))
+    assert (tmp_path / "output-render").exists()
+    # Verify the renders match the previous renders
+    for fname in (tmp_path / "output-render" / "color").glob("**/*"):
+        if not fname.is_file():
+            continue
+        fname = fname.relative_to(tmp_path / "output-render")
+        render = np.array(Image.open(tmp_path / "output-render" / fname))
+        render_old = np.array(Image.open(tmp_path / "tmp-renders" / fname))
+        np.testing.assert_allclose(render, render_old, err_msg=f"render mismatch for {fname}")
+
+    # Test can restore checkpoint and continue training
+    (tmp_path / "output" / "predictions-13.tar.gz").unlink()
+    train_cmd(
+        method_name,
+        tmp_path / "output" / "checkpoint-13",
+        str(dataset_path),
+        str(tmp_path / "output"),
+        True,
+        False,
+        backend,
+        Indices.every_iters(5),
+        Indices([-1]),
+        num_iterations=14,
+        disable_extra_metrics=True,
+    )
+    assert (tmp_path / "output" / "checkpoint-14").exists()
+    assert (tmp_path / "output" / "predictions-14.tar.gz").exists()
+    assert not (tmp_path / "output" / "predictions-13.tar.gz").exists()
 
 
 @pytest.fixture(name="run_test_train", params=["blender", "colmap"])
@@ -240,7 +277,22 @@ def mock_torch():
 
             pickle.dump(to_numpy_rec(value), file)
 
+    def load(file, map_location=None):
+        if not hasattr(file, "write"):
+            with open(file, "rb") as f:
+                return load(f)
+
+        def from_numpy_rec(x):
+            if isinstance(x, dict):
+                return {k: from_numpy_rec(v) for k, v in x.items()}
+            if isinstance(x, np.ndarray):
+                return x.view(Tensor)
+            return x
+
+        return from_numpy_rec(pickle.load(file))
+
     torch.save = save
+    torch.load = load
     with mock.patch.dict(sys.modules, {"torch": torch}):
         yield torch
 
@@ -254,3 +306,19 @@ def mock_extras(mock_torch):
             "torch": mock_torch,
             "lpips": lpips,
         }
+
+
+@pytest.fixture(autouse=True)
+def no_extras(request):
+    if request.node.get_closest_marker("extras") is not None:
+        yield None
+        return
+
+    from nerfbaselines import evaluate
+
+    def raise_import_error(*args, **kwargs):
+        raise ImportError()
+
+    with mock.patch.object(evaluate, "test_extra_metrics", raise_import_error):
+        yield None
+        return

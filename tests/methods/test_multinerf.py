@@ -1,3 +1,4 @@
+import os
 import gc
 import contextlib
 import pytest
@@ -96,8 +97,11 @@ def mock_multinerf():
             train_pstep,
             mock.MagicMock(),
         )
+        models.construct_model.return_value = (model, mock.MagicMock())
+        train_utils.create_optimizer.return_value = (mock.MagicMock(), mock.MagicMock())
 
         def render_image(_, val, *args, **kwargs):
+            np.random.seed(42 + val._i)
             w, h = image_sizes[val._i]
             return {
                 "acc": np.random.rand(h, w).astype(np.float32),
@@ -121,13 +125,18 @@ def mock_multinerf():
             from nerfbaselines.methods._impl.multinerf import MultiNeRF
 
             old_setup_train = MultiNeRF.setup_train
+            old_save = MultiNeRF.save
 
             def new_setup_train(self, train_dataset, *args, **kwargs):
                 nonlocal image_sizes
                 image_sizes = train_dataset.cameras.image_sizes
                 return old_setup_train(self, train_dataset, *args, **kwargs)
 
-            with mock.patch.object(MultiNeRF, "setup_train", new_setup_train):
+            def new_save(self, path):
+                old_save(self, path)
+                os.makedirs(path / f"checkpoint_{self.step}")
+
+            with mock.patch.object(MultiNeRF, "setup_train", new_setup_train), mock.patch.object(MultiNeRF, "save", new_save):
                 yield None
 
 

@@ -33,11 +33,12 @@ if TYPE_CHECKING:
 def make_grid(*images: np.ndarray, ncol=None, padding=2, max_width=1920, background=1.0):
     if ncol is None:
         ncol = len(images)
-    nrow = math.ceil(len(images) / ncol)
+    nrow = int(math.ceil(len(images) / ncol))
     scale_factor = 1
-    height, width = np.max([x.shape[:2] for x in images], axis=0)
+    height, width = tuple(map(int, np.max([x.shape[:2] for x in images], axis=0).tolist()))
+    dtype = images[0].dtype
     if max_width is not None:
-        scale_factor = min(1, max_width / (ncol * images[0].shape[-2]))
+        scale_factor = int(min(1, (max_width + ncol * images[0].shape[-2] - 1) // (ncol * images[0].shape[-2])))
     if scale_factor != 1:
 
         def interpolate(image) -> np.ndarray:
@@ -50,9 +51,9 @@ def make_grid(*images: np.ndarray, ncol=None, padding=2, max_width=1920, backgro
         width = (width + scale_factor - 1) // scale_factor
     grid: np.ndarray = np.ndarray(
         (height * nrow + padding * (nrow - 1), width * ncol + padding * (ncol - 1), images[0].shape[2]),
-        dtype=images[0].dtype,
+        dtype=dtype,
     )
-    background = convert_image_dtype(np.array(background, dtype=np.float32 if isinstance(background, float) else np.uint8), images[0].dtype).item()
+    background = convert_image_dtype(np.array(background, dtype=np.float32 if isinstance(background, float) else np.uint8), dtype).item()
     grid.fill(background)
     for i, image in enumerate(images):
         x = i % ncol
@@ -122,6 +123,7 @@ class Trainer:
         self._color_space = color_space
         self._expected_scene_scale = None
         self._method_info = method_info
+        self._total_train_time = 0
 
         # Validate generate output artifact
         if self.generate_output_artifact is None or self.generate_output_artifact:
@@ -429,7 +431,7 @@ class IndicesClickType(click.ParamType):
 
 @click.command("train")
 @click.option("--method", type=click.Choice(sorted(registry.supported_methods())), required=True, help="Method to use")
-@click.option("--checkpoint", type=str, default=None)
+@click.option("--checkpoint", type=click.Path(exists=True, path_type=Path), default=None)
 @click.option("--data", type=str, required=True)
 @click.option("--output", type=str, default=".")
 @click.option("--no-wandb", is_flag=True)
@@ -472,7 +474,7 @@ def train_command(method, checkpoint, data, output, no_wandb, verbose, backend, 
         method = info["method"]
 
     method_spec = registry.get(method)
-    _method, backend = method_spec.build(backend=backend, checkpoint=os.path.abspath(checkpoint) if checkpoint else None)
+    _method, backend = method_spec.build(backend=backend, checkpoint=Path(os.path.abspath(checkpoint)) if checkpoint else None)
     logging.info(f"Using method: {method}, backend: {backend}")
 
     # Enable direct memory access to images and if supported by the backend

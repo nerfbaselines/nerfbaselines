@@ -322,6 +322,8 @@ class InstantNGP(Method):
         }
 
     def save(self, path: Path):
+        if self.dataparser_params is None:
+            self._setup_eval()
         path = Path(path)
         path.mkdir(parents=True, exist_ok=True)
         with (path / "meta.json").open("w") as f:

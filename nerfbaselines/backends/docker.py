@@ -178,7 +178,7 @@ class DockerMethod(RemoteProcessMethod):
             "-v",
             shlex.quote(torch_home) + ":/var/nb-torch",
             *[f"-v={shlex.quote(src)}:{shlex.quote(dst)}" for src, dst in self.mounts or []],
-            *([f"-v={shlex.quote(self.checkpoint)}:{shlex.quote(self.checkpoint)}:ro"] if self.checkpoint is not None else []),
+            *([f"-v={shlex.quote(str(self.checkpoint))}:{shlex.quote(str(self.checkpoint))}:ro"] if self.checkpoint is not None else []),
             "--env",
             "CONDA_PKGS_DIRS=/var/nb-conda-pkgs",
             "--env",

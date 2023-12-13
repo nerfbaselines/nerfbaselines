@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass, field
 from typing import Any
 import enum
@@ -104,11 +105,12 @@ def mock_nerfstudio(mock_torch):
         assert len(eval_dataparser_outputs.image_filenames) == 0
         datamanager = config.pipeline.datamanager._target()
         dataset = datamanager.dataset_type(train_dataparser_outputs)
-        for i in range(3):
-            img = dataset.get_image(i)
-            assert img is not None
-            assert len(img.shape) == 3
-            assert img.dtype == torch.float32
+        if len(train_dataparser_outputs.image_filenames) > 0:
+            for i in range(3):
+                img = dataset.get_image(i)
+                assert img is not None
+                assert len(img.shape) == 3
+                assert img.dtype == torch.float32
 
     trainer.setup = mock.Mock(side_effect=setup)
 
@@ -147,8 +149,19 @@ def mock_nerfstudio(mock_torch):
         sys.modules["nerfstudio.models.base_model"].Model = Model
         sys.modules["nerfstudio.engine.trainer"].Trainer = type(trainer)
         sys.modules["yaml"].dump.return_value = "test"
+        sys.modules["yaml"].load.return_value = oconfig
         camera_utils.auto_orient_and_center_poses = lambda poses, *args, **kwargs: (poses, torch.eye(4)[:3])
-        yield None
+
+        from nerfbaselines.methods._impl.nerfstudio import NerfStudio
+
+        old_save = NerfStudio.save
+
+        def new_save(self, path):
+            old_save(self, path)
+            os.makedirs(path / "test" / f"ckpt-{self.step-1}.pth")
+
+        with mock.patch.object(NerfStudio, "save", new_save):
+            yield None
 
 
 @pytest.mark.parametrize(

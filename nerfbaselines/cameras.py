@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import dataclasses
 import numpy as np
 from .utils import cached_property, padded_stack, is_broadcastable, convert_image_dtype
-from .types import Protocol
+from .types import Protocol, runtime_checkable
 
 
 class CameraModel(Enum):
@@ -14,6 +14,7 @@ class CameraModel(Enum):
     FULL_OPENCV = 3
 
 
+@runtime_checkable
 class _DistortionFunction(Protocol):
     def __call__(self, params: np.ndarray, uv: np.ndarray, xnp=np) -> np.ndarray:
         ...

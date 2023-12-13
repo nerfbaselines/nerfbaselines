@@ -1,3 +1,4 @@
+from pathlib import Path
 import shlex
 import logging
 import copy
@@ -66,10 +67,10 @@ def _load_cam(pose, intrinsics, camera_id, image_name, image_size, device=None):
     )
 
 
-def _convert_dataset_to_gaussian_splatting(dataset: Dataset, tempdir: str, white_background: bool = False):
-    assert np.all(dataset.cameras.camera_types == CameraModel.PINHOLE.value), "Only pinhole cameras supported"
+def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: str, white_background: bool = False):
     if dataset is None:
         return SceneInfo(None, [], [], nerf_normalization=dict(radius=None), ply_path=None)
+    assert np.all(dataset.cameras.camera_types == CameraModel.PINHOLE.value), "Only pinhole cameras supported"
 
     cam_infos = []
     for idx, extr in enumerate(dataset.cameras.poses):
@@ -131,7 +132,7 @@ def _convert_dataset_to_gaussian_splatting(dataset: Dataset, tempdir: str, white
 
 
 class GaussianSplatting(Method):
-    def __init__(self, checkpoint: Optional[str] = None):
+    def __init__(self, checkpoint: Optional[Path] = None):
         self.checkpoint = checkpoint
         self.gaussians = None
         self.background = None
@@ -183,7 +184,8 @@ class GaussianSplatting(Method):
         self.scene = self._build_scene(train_dataset)
         self.gaussians.training_setup(self.opt)
         if self.checkpoint:
-            (model_params, self.step) = torch.load(self.checkpoint + f"/chkpnt-{self.info.loaded_step}.pth")
+            info = self.get_info()
+            (model_params, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{info.loaded_step}.pth")
             self.gaussians.restore(model_params, self.opt)
 
         bg_color = [1, 1, 1] if self.dataset.white_background else [0, 0, 0]
@@ -198,7 +200,8 @@ class GaussianSplatting(Method):
         # Setup model
         self.gaussians = GaussianModel(self.dataset.sh_degree)
         self.scene = self._build_scene(None)
-        (model_params, self.step) = torch.load(self.checkpoint + f"/chkpnt-{self.info.loaded_step}.pth")
+        info = self.get_info()
+        (model_params, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{info.loaded_step}.pth")
         self.gaussians.restore(model_params, self.opt)
 
         bg_color = [1, 1, 1] if self.dataset.white_background else [0, 0, 0]
@@ -210,7 +213,7 @@ class GaussianSplatting(Method):
         if self.checkpoint is not None:
             if not os.path.exists(self.checkpoint):
                 raise RuntimeError(f"Model directory {self.checkpoint} does not exist")
-            loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(self.checkpoint) if x.startswith("chkpnt-"))[-1]
+            loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(str(self.checkpoint)) if x.startswith("chkpnt-"))[-1]
         return loaded_step
 
     def get_info(self) -> MethodInfo:
@@ -227,11 +230,12 @@ class GaussianSplatting(Method):
         with tempfile.TemporaryDirectory() as td:
             os.mkdir(td + "/sparse")
             opt.source_path = td  # To trigger colmap loader
-            opt.model_path = td if dataset is not None else self.checkpoint
+            opt.model_path = td if dataset is not None else str(self.checkpoint)
             backup = sceneLoadTypeCallbacks["Colmap"]
             try:
+                info = self.get_info()
                 sceneLoadTypeCallbacks["Colmap"] = lambda *args, **kwargs: _convert_dataset_to_gaussian_splatting(dataset, td, white_background=self.dataset.white_background)
-                return Scene(opt, self.gaussians, load_iteration=self.info.loaded_step if dataset is None else None)
+                return Scene(opt, self.gaussians, load_iteration=info.loaded_step if dataset is None else None)
             finally:
                 sceneLoadTypeCallbacks["Colmap"] = backup
 
@@ -315,6 +319,8 @@ class GaussianSplatting(Method):
         return metrics
 
     def save(self, path):
+        if self.scene is None:
+            self._eval_setup()
         self.gaussians.save_ply(os.path.join(str(path), f"point_cloud/iteration_{self.step}", "point_cloud.ply"))
         torch.save((self.gaussians.capture(), self.step), str(path) + f"/chkpnt-{self.step}.pth")
         with open(str(path) + "/args.txt", "w") as f:

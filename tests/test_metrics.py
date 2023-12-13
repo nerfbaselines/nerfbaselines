@@ -13,8 +13,8 @@ def test_torchmetrics_ssim(kernel_size, sigma):
     import dm_pix
 
     np.random.seed(42)
-    a = np.random.rand(10, 100, 200, 3) * 0.9 + 0.05
-    b = np.random.rand(10, 100, 200, 3) * 0.9 + 0.05
+    a = np.random.rand(3, 47, 41, 3) * 0.9 + 0.05
+    b = np.random.rand(3, 47, 41, 3) * 0.9 + 0.05
 
     kwargs = {}
     if kernel_size is not None:
@@ -28,7 +28,7 @@ def test_torchmetrics_ssim(kernel_size, sigma):
     ssim = torchmetrics_ssim(a, b, data_range=(0.0, 1.0), **kwargs)
 
     assert isinstance(ssim, np.ndarray)
-    assert ssim.shape == (10,)
+    assert ssim.shape == (3,)
     np.testing.assert_allclose(ssim, reference_ssim, atol=1e-5, rtol=0)
 
     if kernel_size is None and sigma is None:
@@ -44,8 +44,8 @@ def test_dmpix_ssim(kernel_size, sigma):
     import dm_pix
 
     np.random.seed(42)
-    a = np.random.rand(10, 100, 200, 3) * 0.9 + 0.05
-    b = np.random.rand(10, 100, 200, 3) * 0.9 + 0.05
+    a = np.random.rand(3, 47, 41, 3) * 0.9 + 0.05
+    b = np.random.rand(3, 47, 41, 3) * 0.9 + 0.05
 
     kwargs = {}
     kwargs_dmpix = {}
@@ -59,7 +59,7 @@ def test_dmpix_ssim(kernel_size, sigma):
     ssim = dmpix_ssim(a, b, **kwargs)
 
     assert isinstance(ssim, np.ndarray)
-    assert ssim.shape == (10,)
+    assert ssim.shape == (3,)
     np.testing.assert_allclose(ssim, reference_ssim, atol=1e-5, rtol=0)
 
 
@@ -76,8 +76,8 @@ def test_metric(metric):
         ),
     ]
     for bs in batch_shapes:
-        a = np.random.rand(*bs, 100, 200, 3)
-        b = np.random.rand(*bs, 100, 200, 3)
+        a = np.random.rand(*bs, 47, 31, 3)
+        b = np.random.rand(*bs, 47, 31, 3)
 
         val = getattr(metrics, metric)(a, b)
         assert isinstance(val, np.ndarray)
@@ -100,8 +100,8 @@ def test_psnr():
         ),
     ]
     for bs in batch_shapes:
-        a = np.random.rand(*bs, 100, 200, 3)
-        b = np.random.rand(*bs, 100, 200, 3)
+        a = np.random.rand(*bs, 47, 31, 3)
+        b = np.random.rand(*bs, 47, 31, 3)
 
         val = metrics.psnr(a, b)
         val2 = metrics.psnr(metrics.mse(a, b))

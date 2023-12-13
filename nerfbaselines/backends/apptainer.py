@@ -132,7 +132,7 @@ class ApptainerMethod(RemoteProcessMethod):
             "--bind",
             shlex.quote(torch_home) + ":/var/nb-torch",
             *[f"--bind={shlex.quote(src)}:{shlex.quote(dst)}" for src, dst in self.mounts or []],
-            *([f"--bind={shlex.quote(self.checkpoint)}:{shlex.quote(self.checkpoint)}:ro"] if self.checkpoint is not None else []),
+            *([f"--bind={shlex.quote(str(self.checkpoint))}:{shlex.quote(str(self.checkpoint))}:ro"] if self.checkpoint is not None else []),
             *(sum((["--env", f"{name}={shlex.quote(env.get(name, ''))}"] for name in self._export_envs if name in env), [])),
             "--env",
             "NB_USE_GPU=" + ("1" if use_gpu else "0"),

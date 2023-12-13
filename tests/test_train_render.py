@@ -235,38 +235,32 @@ def test_train_command_extras(tmp_path):
 
 
 def test_train_command_no_extras(tmp_path):
-    from nerfbaselines import evaluate
+    from nerfbaselines.train import train_command
+    from nerfbaselines.registry import registry, MethodSpec
 
-    def raise_import_error(*args, **kwargs):
-        raise ImportError()
+    try:
+        registry["_test"] = MethodSpec(method=_TestMethod, conda=CondaMethod.wrap(_TestMethod, conda_name="_test", python_version="3.10", install_script=""))
 
-    with mock.patch.object(evaluate, "test_extra_metrics", raise_import_error):
-        from nerfbaselines.train import train_command
-        from nerfbaselines.registry import registry, MethodSpec
+        # train_command.callback(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters)
+        make_dataset(tmp_path / "data")
+        (tmp_path / "output").mkdir()
+        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, True, "python", Indices.every_iters(5), Indices([-1]))
 
-        try:
-            registry["_test"] = MethodSpec(method=_TestMethod, conda=CondaMethod.wrap(_TestMethod, conda_name="_test", python_version="3.10", install_script=""))
+        # By default, the model should render all images at the end
+        print(os.listdir(tmp_path / "output"))
+        assert (tmp_path / "output" / "checkpoint-13").exists()
+        assert (tmp_path / "output" / "predictions-13.tar.gz").exists()
+        assert (tmp_path / "output" / "results-13.json").exists()
+        with open(tmp_path / "output" / "results-13.json", "r") as f:
+            results = json.load(f)
+            assert "lpips" not in results["metrics"], "lpips should not be in results"
 
-            # train_command.callback(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters)
-            make_dataset(tmp_path / "data")
-            (tmp_path / "output").mkdir()
-            train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, True, "python", Indices.every_iters(5), Indices([-1]))
+        # LPIPS should not be computed without extras, output artifact should not be produced
+        assert not (tmp_path / "output" / "output.zip").exists()
 
-            # By default, the model should render all images at the end
-            print(os.listdir(tmp_path / "output"))
-            assert (tmp_path / "output" / "checkpoint-13").exists()
-            assert (tmp_path / "output" / "predictions-13.tar.gz").exists()
-            assert (tmp_path / "output" / "results-13.json").exists()
-            with open(tmp_path / "output" / "results-13.json", "r") as f:
-                results = json.load(f)
-                assert "lpips" not in results["metrics"], "lpips should not be in results"
-
-            # LPIPS should not be computed without extras, output artifact should not be produced
-            assert not (tmp_path / "output" / "output.zip").exists()
-
-        finally:
-            _TestMethod._reset()
-            registry.pop("_test", None)
+    finally:
+        _TestMethod._reset()
+        registry.pop("_test", None)
 
 
 def test_train_command_undistort(tmp_path, wandb_init_run):

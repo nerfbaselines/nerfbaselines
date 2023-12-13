@@ -19,6 +19,7 @@ from internal import camera_utils
 from internal import configs
 from internal import models
 from internal import train_utils  # pylint: disable=unused-import
+from internal import utils
 
 
 class NBDataset(MNDataset):
@@ -139,7 +140,7 @@ class MultiNeRF(Method):
 
     def __init__(self, checkpoint=None, batch_size: Optional[int] = None, num_iterations: Optional[int] = None, learning_rate_multiplier: Optional[float] = None):
         super().__init__()
-        self.checkpoint = checkpoint
+        self.checkpoint = str(checkpoint) if checkpoint is not None else None
         self.batch_size = self.batch_size if batch_size is None else batch_size
         self.num_iterations = self.num_iterations if num_iterations is None else num_iterations
         self.learning_rate_multiplier = self.learning_rate_multiplier if learning_rate_multiplier is None else learning_rate_multiplier
@@ -163,7 +164,7 @@ class MultiNeRF(Method):
             self._dataparser_transform = np.loadtxt(Path(checkpoint) / "dataparser_transform.txt")
             self.step = self._loaded_step = int(next(iter((x for x in os.listdir(checkpoint) if x.startswith("checkpoint_")))).split("_")[1])
             self._config_str = (Path(checkpoint) / "config.gin").read_text()
-            self.config = self._load_config(self._config_str)
+            self.config = self._load_config()
 
     def _load_config(self, dataset_type=None):
         if self.checkpoint is None:
@@ -193,11 +194,31 @@ class MultiNeRF(Method):
             supported_camera_models=frozenset((CameraModel.PINHOLE, CameraModel.OPENCV, CameraModel.OPENCV_FISHEYE)),
         )
 
+    def _setup_eval(self):
+        rng = random.PRNGKey(20200823)
+        np.random.seed(20201473 + jax.host_id())
+        rng, key = random.split(rng)
+
+        dummy_rays = utils.dummy_rays(include_exposure_idx=self.config.rawnerf_mode, include_exposure_values=True)
+        self.model, variables = models.construct_model(rng, dummy_rays, self.config)
+
+        state, self.lr_fn = train_utils.create_optimizer(self.config, variables)
+        self.render_eval_pfn = train_utils.create_render_fn(self.model)
+
+        if self.checkpoint is not None:
+            state = checkpoints.restore_checkpoint(self.checkpoint, state)
+        # Resume training at the step of the last checkpoint.
+        state = flax.jax_utils.replicate(state)
+        self.loss_threshold = 1.0
+
+        # Prefetch_buffer_size = 3 x batch_size.
+        rng = rng + jax.host_id()  # Make random seed separate across hosts.
+        self.rngs = random.split(rng, jax.local_device_count())  # For pmapping RNG keys.
+        self.state = state
+
     def setup_train(self, train_dataset: Dataset, *, num_iterations):
         if self.config is None:
             self.config = self._load_config(train_dataset.metadata.get("type"))
-            if self._config_str is None:
-                self._config_str = gin.operative_config_str()
 
         rng = random.PRNGKey(20200823)
         # Shift the numpy random seed by host_id() to shuffle data loaded by different
@@ -242,6 +263,8 @@ class MultiNeRF(Method):
         self.pdataset_iter = iter(pdataset)
         self.state = state
         self.dataset = dataset
+        if self._config_str is None:
+            self._config_str = gin.operative_config_str()
 
     @property
     def train_frac(self):
@@ -295,6 +318,8 @@ class MultiNeRF(Method):
         return out
 
     def save(self, path):
+        if self.render_eval_pfn is None:
+            self._setup_eval()
         if jax.host_id() == 0:
             state_to_save = jax.device_get(flax.jax_utils.unreplicate(self.state))
             checkpoints.save_checkpoint(str(path), state_to_save, int(self.step), keep=100)
@@ -303,6 +328,8 @@ class MultiNeRF(Method):
                 f.write(self._config_str)
 
     def render(self, cameras: Cameras, progress_callback=None):
+        if self.render_eval_pfn is None:
+            self._setup_eval()
         # Test-set evaluation.
         # We reuse the same random number generator from the optimization step
         # here on purpose so that the visualization matches what happened in

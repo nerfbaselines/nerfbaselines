@@ -166,8 +166,8 @@ class NerfStudio(Method):
     nerfstudio_name: Optional[str] = None
     require_points3D: bool = False
 
-    def __init__(self, nerfstudio_name: Optional[str] = None, checkpoint: Optional[str] = None, require_points3D: Optional[bool] = None):
-        self.checkpoint = checkpoint
+    def __init__(self, nerfstudio_name: Optional[str] = None, checkpoint: Optional[Path] = None, require_points3D: Optional[bool] = None):
+        self.checkpoint = str(checkpoint) if checkpoint is not None else None
         self.nerfstudio_name = nerfstudio_name or self.nerfstudio_name
         if checkpoint is not None:
             # Load nerfstudio checkpoint

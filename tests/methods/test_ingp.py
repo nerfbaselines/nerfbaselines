@@ -22,6 +22,7 @@ def mock_instant_ngp():
         return True
 
     testbed.nerf = mock.Mock()
+    np.random.seed(42 + testbed.training_step + 11)
     testbed.render.return_value = np.random.rand(h, w, 4).astype(np.float32)
     testbed.nerf.training = mock.Mock()
     testbed.nerf.training.dataset = mock.MagicMock()
@@ -35,6 +36,7 @@ def mock_instant_ngp():
         nonlocal test_view
         test_view = x
         w, h = image_sizes[test_view]
+        np.random.seed(42 + x + 13)
         testbed.render.return_value = np.random.rand(h, w, 4).astype(np.float32)
         metadata_mock.resolution = (w, h)
 
@@ -49,9 +51,27 @@ def mock_instant_ngp():
         def new_setup_train(self, train_dataset, *args, **kwargs):
             nonlocal image_sizes
             image_sizes = train_dataset.cameras.image_sizes
+            testbed.nerf.training.dataset.n_images = len(train_dataset.cameras)
             return old_setup_train(self, train_dataset, *args, **kwargs)
 
-        with mock.patch.object(instant_ngp.InstantNGP, "setup_train", new_setup_train):
+        old_render = instant_ngp.InstantNGP.render
+
+        def new_render(self, cameras, *args, **kwargs):
+            nonlocal image_sizes
+            nonlocal test_view
+            test_view = 0
+            old_image_sizes = image_sizes
+            old_n_images = testbed.nerf.training.dataset.n_images
+            image_sizes = cameras.image_sizes
+            testbed.nerf.training.dataset.n_images = len(cameras)
+            try:
+                out = old_render(self, cameras, *args, **kwargs)
+            finally:
+                image_sizes = old_image_sizes
+                testbed.nerf.training.dataset.n_images = old_n_images
+            return out
+
+        with mock.patch.object(instant_ngp.InstantNGP, "render", new_render), mock.patch.object(instant_ngp.InstantNGP, "setup_train", new_setup_train):
             yield None
 
 
