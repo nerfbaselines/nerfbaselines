@@ -89,9 +89,11 @@ class Trainer:
         run_extra_metrics: bool = False,
         method_name: Optional[str] = None,
         generate_output_artifact: Optional[bool] = None,
+        checkpoint: Union[str, Path, None] = None,
     ):
         self.method_name = method_name or method.__name__
-        self.method = method()
+        self.checkpoint = Path(checkpoint) if checkpoint is not None else None
+        self.method = method(**({"checkpoint": checkpoint} if checkpoint is not None else {}))
         method_info = self.method.get_info()
         if isinstance(train_dataset, (Path, str)):
             if test_dataset is None:
@@ -146,6 +148,12 @@ class Trainer:
             else:
                 self.generate_output_artifact = True
 
+        # Restore checkpoint if specified
+        if self.checkpoint is not None:
+            with open(self.checkpoint / "nb-info.json", mode="r", encoding="utf8") as f:
+                info = json.load(f)
+                self._total_train_time = info["total_train_time"]
+
     def _get_generate_output_artifact_problems(self):
         messages = []
         # Model is saved automatically at the end!
@@ -194,6 +202,7 @@ class Trainer:
                     "nb_version": __version__,
                     "color_space": self._color_space,
                     "expected_scene_scale": round(self._expected_scene_scale, 5),
+                    "total_train_time": round(self._total_train_time, 5),
                 },
                 f,
             )
@@ -202,9 +211,14 @@ class Trainer:
     def train_iteration(self):
         start = time.perf_counter()
         metrics = self.method.train_iteration(self.step)
-        elapsed = time.perf_counter() - start
 
+        elapsed = time.perf_counter() - start
+        self._total_train_time += elapsed
+
+        # Replace underscores with dashes for in metrics
+        metrics = {k.replace("_", "-"): v for k, v in metrics.items()}
         metrics["time"] = elapsed
+        metrics["total-train-time"] = self._total_train_time
         if "num_rays" in metrics:
             batch_size = metrics.pop("num_rays")
             metrics["rays-per-second"] = batch_size / elapsed
@@ -229,7 +243,17 @@ class Trainer:
             self._tensorboard_writer = EventFileWriter(str(self.output / "tensorboard"))
             loggers_init = True
         if loggers_init:
-            logging.info("initialized loggers " + ",".join(self.loggers))
+            logging.info("initialized loggers: " + ",".join(self.loggers))
+
+    def _update_accumulated_metrics(self, acc_metrics, metrics, n_iters_since_update):
+        for k, v in metrics.items():
+            assert "_" not in k, "metrics must not contain underscores"
+            if k not in acc_metrics:
+                acc_metrics[k] = 0
+            if k in {"total-train-time", "learning-rate"}:
+                acc_metrics[k] = v
+            else:
+                acc_metrics[k] = (acc_metrics[k] * (n_iters_since_update - 1) + v) / n_iters_since_update
 
     @remap_error
     def train(self):
@@ -238,14 +262,33 @@ class Trainer:
         if self.step == 0 and self.step in self.save_iters:
             self.save()
 
+        # Initialize loggers before training loop for better tqdm output
+        self.ensure_loggers_initialized()
+
+        update_frequency = 10
         with tqdm(total=self.num_iterations, initial=self.step, desc="training") as pbar:
+            last_update_i = self.step
+            acc_metrics = {}
             for i in range(self.step, self.num_iterations):
                 self.step = i
                 metrics = self.train_iteration()
                 # Checkpoint changed, reset sha
                 self._checkpoint_sha = None
                 self.step = i + 1
-                self.log_metrics(metrics, "train/")
+
+                # Update accumulated metrics
+                self._update_accumulated_metrics(acc_metrics, metrics, self.step - last_update_i)
+
+                # Log metrics and update progress bar
+                if self.step % update_frequency == 0:
+                    pbar.set_postfix(
+                        {
+                            "train/loss": f'{acc_metrics["loss"]:.4f}',
+                        }
+                    )
+                    pbar.update(self.step - last_update_i)
+                    last_update_i = self.step
+                    self.log_metrics(acc_metrics, "train/")
 
                 # Visualize and save
                 if self.step in self.save_iters:
@@ -254,12 +297,9 @@ class Trainer:
                     self.eval_single()
                 if self.step in self.eval_all_iters:
                     self.eval_all()
-                pbar.set_postfix(
-                    {
-                        "train/loss": f'{metrics["loss"]:.4f}',
-                    }
-                )
-                pbar.update(1)
+
+            if self.step % update_frequency != 0:
+                self.log_metrics(acc_metrics, "train/")
 
         # Save if not saved by default
         if self.step not in self.save_iters:

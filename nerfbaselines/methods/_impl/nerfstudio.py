@@ -368,15 +368,16 @@ class NerfStudio(Method):
         self.config.vis = None
         self.config.machine.device_type = "cuda"
         self.config.load_step = None
-        self._trainer = self.config.setup()
-        self._trainer.setup()
+        trainer = self.config.setup()
+        trainer.setup()
         if self.checkpoint is not None:
             self.config.load_dir = Path(os.path.join(self.checkpoint, self.config.relative_model_dir))
-            self._trainer._load_checkpoint()
+            trainer._load_checkpoint()
         if getattr(self.config.pipeline.datamanager, "train_num_times_to_repeat_images", None) == -1:
             logging.debug("NerfStudio will cache all images, we will release the memory now")
             images_holder[0] = None
         self._mode = "train"
+        self._trainer = trainer
 
     def _setup_eval(self):
         if self.checkpoint is None:
@@ -396,12 +397,12 @@ class NerfStudio(Method):
         self.config.machine.device_type = "cuda"
         self.config.load_step = None
         self.config.load_dir = Path(os.path.join(self.checkpoint, self.config.relative_model_dir))
-        self._trainer = self.config.setup()
-        self._trainer.setup()
-        if self.checkpoint is not None:
-            self._trainer._load_checkpoint()
+        trainer = self.config.setup()
+        trainer.setup()
+        trainer._load_checkpoint()
         self.dataparser_params = torch.load(os.path.join(self.checkpoint, "dataparser_params.pth"), map_location="cpu")
         self._mode = "eval"
+        self._trainer = trainer
 
     def _load_checkpoint(self):
         if self.checkpoint is not None:
@@ -451,6 +452,7 @@ class NerfStudio(Method):
         Args:
             path: Path to save.
         """
+        path = Path(path)
         if self._mode is None:
             self._setup_eval()
         assert isinstance(self._trainer, Trainer)

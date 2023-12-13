@@ -230,7 +230,7 @@ class RemoteMethod(Method):
             local_path = os.path.join(local, name)
             remote_path = os.path.join(remote, name)
             shutil.copytree(str(path), local_path, dirs_exist_ok=True)
-            self._call("save", remote_path)
+            self._call("save", Path(remote_path))
             shutil.copytree(local_path, str(path), dirs_exist_ok=True)
         else:
             self._call("save", path)

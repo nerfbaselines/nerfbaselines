@@ -175,6 +175,7 @@ class InstantNGP(Method):
         self.RenderMode = None
         self._tempdir = tempfile.TemporaryDirectory()
         self._tempdir.__enter__()
+        self._eval_setup_step = None
 
     def get_info(self):
         return MethodInfo(num_iterations=35_000, required_features=frozenset(("color",)), supported_camera_models=frozenset((CameraModel.PINHOLE, CameraModel.OPENCV, CameraModel.OPENCV_FISHEYE)))
@@ -185,7 +186,8 @@ class InstantNGP(Method):
         self.RenderMode = ngp.RenderMode
         testbed = ngp.Testbed()
         testbed.root_dir = os.path.dirname(train_transforms)
-        testbed.load_training_data(str(train_transforms))
+        if self._eval_setup_step is None:
+            testbed.load_training_data(str(train_transforms))
         if self.checkpoint is not None:
             testbed.load_snapshot(str(self.checkpoint / "checkpoint.ingp"))
         else:
@@ -263,6 +265,7 @@ class InstantNGP(Method):
 
     def setup_train(self, train_dataset: Dataset, *, num_iterations: int):
         # Write images
+        self._eval_setup_step = None
         tmpdir = self._tempdir.name
         self._write_images(train_dataset, tmpdir)
 
@@ -308,8 +311,8 @@ class InstantNGP(Method):
                 self.dataparser_params["dataparser_transform"] = np.array(self.dataparser_params["dataparser_transform"], dtype=np.float32)
             with (Path(tmpdir) / "transforms.json").open("w") as f:
                 json.dump(self._train_transforms, f)
+            self._eval_setup_step = current_step
             self._setup(Path(tmpdir) / "transforms.json")
-        self.testbed.training_step = current_step
 
     def train_iteration(self, step: int):
         current_frame = self.testbed.training_step
@@ -332,7 +335,7 @@ class InstantNGP(Method):
             json.dump(
                 {
                     "dataparser_params": out,
-                    "step": self.testbed.training_step,
+                    "step": self._eval_setup_step or self.testbed.training_step,
                 },
                 f,
                 indent=2,
@@ -384,9 +387,10 @@ class InstantNGP(Method):
                 self.testbed.snap_to_pixel_centers = old_testbed_snap_to_pixel_centers
                 self.testbed.nerf.render_min_transmittance = old_testbed_render_min_transmittance
                 self.testbed.shall_train = old_testbed_shall_train
-                with (Path(self._tempdir.name) / "transforms.json").open("w") as f:
-                    json.dump(self._train_transforms, f)
-                self.testbed.load_training_data(str(Path(self._tempdir.name) / "transforms.json"))
+                if self._eval_setup_step is None:
+                    with (Path(self._tempdir.name) / "transforms.json").open("w") as f:
+                        json.dump(self._train_transforms, f)
+                    self.testbed.load_training_data(str(Path(self._tempdir.name) / "transforms.json"))
 
     def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
         if self.dataparser_params is None:
