@@ -5,6 +5,7 @@ from nerfbaselines import metrics
 
 
 @pytest.mark.extras
+@pytest.mark.filterwarnings("ignore::UserWarning:torchvision")
 @pytest.mark.parametrize("kernel_size", [None, 3])
 @pytest.mark.parametrize("sigma", [None, 0.5])
 def test_torchmetrics_ssim(kernel_size, sigma):
@@ -38,6 +39,7 @@ def test_torchmetrics_ssim(kernel_size, sigma):
 
 
 @pytest.mark.extras
+@pytest.mark.filterwarnings("ignore::UserWarning:torchvision")
 @pytest.mark.parametrize("kernel_size", [None, 3])
 @pytest.mark.parametrize("sigma", [None, 0.5])
 def test_dmpix_ssim(kernel_size, sigma):
@@ -63,6 +65,7 @@ def test_dmpix_ssim(kernel_size, sigma):
     np.testing.assert_allclose(ssim, reference_ssim, atol=1e-5, rtol=0)
 
 
+@pytest.mark.filterwarnings("ignore::UserWarning:torchvision")
 @pytest.mark.parametrize("metric", ["torchmetrics_ssim", "dmpix_ssim", "ssim", "mse", "mae", "psnr"])
 def test_metric(metric):
     np.random.seed(42)
@@ -114,6 +117,8 @@ def test_psnr():
 
 
 @pytest.mark.extras
+@pytest.mark.filterwarnings("ignore:The parameter 'pretrained' is deprecated since 0.13")
+@pytest.mark.filterwarnings("ignore:Importing `spectral_angle_mapper` from `torchmetrics.functional` was deprecated")
 @pytest.mark.parametrize("metric", ["lpips_vgg", "lpips_alex"])
 def test_lpips(metric):
     np.random.seed(42)

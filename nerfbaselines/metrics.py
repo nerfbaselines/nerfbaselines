@@ -2,6 +2,12 @@ from functools import wraps
 import numpy
 from typing import Optional, Callable, Union, Sequence, Tuple
 import numpy as np
+import warnings
+
+warnings.filterwarnings("ignore", category=UserWarning, message=".*?The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future*?", module="torchvision")
+warnings.filterwarnings("ignore", category=UserWarning, message=".*?Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13*?", module="torchvision")
+warnings.filterwarnings("ignore", category=DeprecationWarning, message="distutils.*? is deprecated and will be removed in a future version.*?", module="torchmetrics")
+warnings.filterwarnings("ignore", category=FutureWarning, message="Importing `spectral_angle_mapper`*?", module="torchmetrics")
 
 
 def _wrap_metric_arbitrary_shape(fn):

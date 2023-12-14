@@ -41,6 +41,7 @@ extras = [
     'lpips',
     'dm-pix',
     'torchmetrics',
+    'viser',
 ]
 
 dev = [

@@ -160,7 +160,7 @@ def test_train_command(tmp_path, wandb_init_run, vis):
                 must_have.difference_update(args[0].keys())
             assert eval_single_calls == [5, 10]
             assert eval_all_calls == [13]
-            assert train_calls == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+            assert train_calls == [10, 13]
             assert len(must_have) == 0
 
         if "tensorboard" in vis:

@@ -280,7 +280,7 @@ class Trainer:
                 self._update_accumulated_metrics(acc_metrics, metrics, self.step - last_update_i)
 
                 # Log metrics and update progress bar
-                if self.step % update_frequency == 0:
+                if self.step % update_frequency == 0 or self.step == self.num_iterations:
                     pbar.set_postfix(
                         {
                             "train/loss": f'{acc_metrics["loss"]:.4f}',
@@ -297,9 +297,6 @@ class Trainer:
                     self.eval_single()
                 if self.step in self.eval_all_iters:
                     self.eval_all()
-
-            if self.step % update_frequency != 0:
-                self.log_metrics(acc_metrics, "train/")
 
         # Save if not saved by default
         if self.step not in self.save_iters:

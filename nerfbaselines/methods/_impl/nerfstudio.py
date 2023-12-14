@@ -88,22 +88,25 @@ class _CustomDataParser(DataParser):
         super().__init__(config)
 
     def _generate_dataparser_outputs(self, split: str = "train", **kwargs) -> DataparserOutputs:
-        if split != "train":
+        if split != "train" or self.dataset is None:
+            aabb_scale = self.method.dataparser_params["aabb_scale"]
+            scene_box = SceneBox(aabb=torch.tensor([[-aabb_scale, -aabb_scale, -aabb_scale], [aabb_scale, aabb_scale, aabb_scale]], dtype=torch.float32))
+            num_images = self.method.dataparser_params["num_images"]
             return DataparserOutputs(
-                [],
+                [Path("_.png") for _ in range(num_images)],
                 NSCameras(
-                    torch.zeros((1, 3, 4), dtype=torch.float32),
-                    torch.zeros((1,), dtype=torch.float32),
-                    torch.zeros((1,), dtype=torch.float32),
-                    torch.zeros((1,), dtype=torch.float32),
-                    torch.zeros((1,), dtype=torch.float32),
-                    torch.zeros((1,), dtype=torch.long),
-                    torch.zeros((1,), dtype=torch.long),
-                    torch.zeros((1,), dtype=torch.float32),
-                    torch.zeros((1,), dtype=torch.long),
+                    torch.zeros((num_images, 3, 4), dtype=torch.float32),
+                    torch.zeros((num_images,), dtype=torch.float32),
+                    torch.zeros((num_images,), dtype=torch.float32),
+                    torch.zeros((num_images,), dtype=torch.float32),
+                    torch.zeros((num_images,), dtype=torch.float32),
+                    torch.zeros((num_images,), dtype=torch.long),
+                    torch.zeros((num_images,), dtype=torch.long),
+                    torch.zeros((num_images,), dtype=torch.float32),
+                    torch.zeros((num_images,), dtype=torch.long),
                 ),
                 None,
-                None,
+                scene_box,
                 [],
                 {},
             )
@@ -119,7 +122,7 @@ class _CustomDataParser(DataParser):
         # assumes that the scene is centered at the origin
         if self.dataset.metadata.get("type") == "blender":
             aabb_scale = 1.5
-            self.method.dataparser_params = dict(dataparser_transform=torch.eye(4, dtype=torch.float32), dataparser_scale=1.0)
+            self.method.dataparser_params = dict(dataparser_transform=torch.eye(4, dtype=torch.float32), dataparser_scale=1.0, aabb_scale=1.5, num_images=len(image_names))
         else:
             aabb_scale = 1
             if self.method.checkpoint is None:
@@ -127,6 +130,8 @@ class _CustomDataParser(DataParser):
                 self.method.dataparser_params = dict(
                     dataparser_transform=dp_trans,
                     dataparser_scale=dp_scale,
+                    aabb_scale=1.0,
+                    num_images=len(image_names),
                 )
 
         if self.method.checkpoint is not None:
@@ -234,6 +239,7 @@ class NerfStudio(Method):
             info.loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(model_path))[-1]
         return info
 
+    @torch.no_grad()
     def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
         if self._mode is None:
             self._setup_eval()
@@ -260,7 +266,7 @@ class NerfStudio(Method):
             width=torch.from_numpy(sizes[..., 0]).long().contiguous(),
             height=torch.from_numpy(sizes[..., 1]).long().contiguous(),
             camera_type=torch.tensor(camera_types, dtype=torch.long),
-        )
+        ).to(self._trainer.pipeline.device)
         self._trainer.pipeline.eval()
         global_total = int(sizes.prod(-1).sum())
         global_i = 0
@@ -275,6 +281,7 @@ class NerfStudio(Method):
                     progress_callback(CurrentProgress(global_i + i, global_total, i, len(poses)))
 
                 get_outputs = partial(_hacked_get_outputs_for_camera_ray_bundle, self._trainer.pipeline.model, update_callback=local_progress)
+
             outputs = get_outputs(ray_bundle)
             global_i += int(sizes[i].prod(-1))
             if progress_callback:
@@ -322,30 +329,21 @@ class NerfStudio(Method):
         transform_matrix_extended = torch.cat([transform_matrix, torch.tensor([[0, 0, 0, 1]], dtype=transform_matrix.dtype)], -2)
         return transform_matrix_extended, scale_factor
 
-    def setup_train(self, train_dataset: Dataset, *, num_iterations: int):
-        if self.checkpoint is not None:
-            self.dataparser_params = torch.load(os.path.join(self.checkpoint, "dataparser_params.pth"), map_location="cpu")
-        self._apply_config_patch_for_dataset(self._original_config, train_dataset)
-        self.config = copy.deepcopy(self._original_config)
-        # We use this hack to release the memory after the data was copied to cached dataloader
-        images_holder = [train_dataset.images]
-        del train_dataset.images
+    def _patch_datamanager(self, config, dataset=None, _images_holder=None):
+        config.pipeline.datamanager.dataparser._target = partial(_CustomDataParser, self, dataset)
 
-        self.config.pipeline.datamanager.dataparser._target = partial(_CustomDataParser, self, train_dataset)
-        self.config.max_num_iterations = num_iterations
-
-        dm = self.config.pipeline.datamanager
+        dm = config.pipeline.datamanager
         if dm.__class__.__name__ == "ParallelDataManagerConfig":
             dm = VanillaDataManagerConfig(**{k.name: getattr(dm, k.name) for k in fields(VanillaDataManagerConfig)})
             dm._target = VanillaDataManager  # pylint: disable=protected-access
-            self.config.pipeline.datamanager = dm
+            config.pipeline.datamanager = dm
 
         class DM(dm._target):  # pylint: disable=protected-access
             @property
             def dataset_type(self):
                 class DatasetL(getattr(self, "_idataset_type", InputDataset)):
                     def get_image(self, image_idx: int):
-                        img = images_holder[0][image_idx]
+                        img = _images_holder[0][image_idx]
                         img = convert_image_dtype(img, np.float32)
                         image = torch.from_numpy(img)
                         if self._dataparser_outputs.alpha_color is not None and image.shape[-1] == 4:
@@ -362,8 +360,29 @@ class NerfStudio(Method):
             def dataset_type(self, value):
                 self._idataset_type = value
 
+        if dataset is None:
+            # setup_train is not called for eval dataset
+            def setup_train(self, *args, **kwargs):
+                self.train_camera_optimizer = self.config.camera_optimizer.setup(num_cameras=self.train_dataset.cameras.size, device=self.device)
+
+            DM.setup_train = setup_train
+            # setup_eval is not called for eval dataset
+            DM.setup_eval = lambda *args, **kwargs: None
+        config.pipeline.datamanager._target = DM  # pylint: disable=protected-access
+
+    def setup_train(self, train_dataset: Dataset, *, num_iterations: int):
+        if self.checkpoint is not None:
+            self.dataparser_params = torch.load(os.path.join(self.checkpoint, "dataparser_params.pth"), map_location="cpu")
+        self._apply_config_patch_for_dataset(self._original_config, train_dataset)
+        self.config = copy.deepcopy(self._original_config)
+        # We use this hack to release the memory after the data was copied to cached dataloader
+        images_holder = [train_dataset.images]
+        del train_dataset.images
+
+        self.config.max_num_iterations = num_iterations
+
+        self._patch_datamanager(self.config, train_dataset, images_holder)
         self.config.output_dir = Path(self._tmpdir.name)
-        self.config.pipeline.datamanager._target = DM  # pylint: disable=protected-access
         self.config.set_timestamp()
         self.config.vis = None
         self.config.machine.device_type = "cuda"
@@ -382,14 +401,11 @@ class NerfStudio(Method):
     def _setup_eval(self):
         if self.checkpoint is None:
             raise RuntimeError("Checkpoint must be provided to setup_eval")
+        self.dataparser_params = torch.load(os.path.join(self.checkpoint, "dataparser_params.pth"), map_location="cpu")
         self.config = copy.deepcopy(self._original_config)
         self.config.output_dir = Path(self._tmpdir.name)
+        self._patch_datamanager(self.config, None, None)
 
-        class DM(self.config.pipeline.datamanager):
-            def __init__(self, *args, **kwargs):
-                pass
-
-        self.config.pipeline.datamanager._target = DM  # pylint: disable=protected-access
         # Set eval batch size
         self.config.pipeline.model.eval_num_rays_per_chunk = 4096
         self.config.set_timestamp()
@@ -400,7 +416,6 @@ class NerfStudio(Method):
         trainer = self.config.setup()
         trainer.setup()
         trainer._load_checkpoint()
-        self.dataparser_params = torch.load(os.path.join(self.checkpoint, "dataparser_params.pth"), map_location="cpu")
         self._mode = "eval"
         self._trainer = trainer
 
@@ -409,7 +424,6 @@ class NerfStudio(Method):
             load_path = os.path.join(self.checkpoint, self.config.relative_model_dir, f"step-{self.info.loaded_step:09d}.ckpt")
             loaded_state = torch.load(load_path, map_location="cpu")
             self._trainer.pipeline.load_pipeline(loaded_state["pipeline"], loaded_state["step"])
-            print(loaded_state)
 
     def train_iteration(self, step: int):
         if self._mode != "train":

@@ -1,3 +1,4 @@
+from threading import Thread
 import types
 from pathlib import Path
 from time import sleep
@@ -16,9 +17,10 @@ import secrets
 import logging
 from dataclasses import dataclass, field, is_dataclass
 from multiprocessing.connection import Listener, Client, Connection
+from queue import Queue
 from .types import Method, MethodInfo
 from .types import NB_PREFIX  # noqa: F401
-from .utils import partialmethod
+from .utils import partialmethod, cancellable, CancellationToken, CancelledException
 
 
 PACKAGE_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -45,46 +47,85 @@ def _remap_error(e: Exception):
 
 
 def start_backend(method: Method, params: ConnectionParams, address: str = "localhost"):
-    with Listener((address, params.port), authkey=params.authkey) as listener:
-        _report_ready()
-        logging.info("Waiting for connection")
-        with listener.accept() as conn:
-            logging.info(f"Connection accepted from {listener.last_accepted}")
-            while not conn.closed:
-                msg = conn.recv()
-                message = msg["message"]
-                mid = msg["id"]
-                # do something with msg
-                if message == "close":
-                    conn.send({"message": "close_ack"})
-                    break
-                elif message == "get":
-                    logging.debug(f"Obtaining property {msg['property']} from {listener.last_accepted}")
-                    try:
-                        result = getattr(method, msg["property"])
-                        conn.send({"message": "result", "id": mid, "result": result})
-                    except Exception as e:  # pylint: disable=broad-except
-                        traceback.print_exc()
-                        logging.error(f"Error while obtaining property {msg['property']} from {listener.last_accepted}")
-                        conn.send({"message": "error", "id": mid, "error": _remap_error(e)})
-                elif message == "call":
-                    logging.debug(f"Calling method {msg['method']} from {listener.last_accepted}")
-                    try:
-                        fn = getattr(method, msg["method"])
-                        result = fn(*inject_callables(msg["args"], conn, mid), **inject_callables(msg["kwargs"], conn, mid))
-                        if inspect.isgeneratorfunction(fn):
-                            for r in result:
-                                conn.send({"message": "yield", "id": mid, "yield": r})
-                            result = None
-                        conn.send({"message": "result", "id": mid, "result": result})
-                    except Exception as e:  # pylint: disable=broad-except
-                        traceback.print_exc()
-                        logging.error(f"Error while calling method {msg['method']} from {listener.last_accepted}")
-                        conn.send({"message": "error", "id": mid, "error": _remap_error(e)})
-                else:
-                    logging.error(f"Unknown message {msg} from {listener.last_accepted}")
-                    conn.send({"message": "error", "id": mid, "error": _remap_error(RuntimeError(f"Unknown message {msg}"))})
-        logging.info("Client disconnected, shutting down")
+    cancellation_token = CancellationToken()
+    cancellation_tokens = {}
+
+    input_queue = Queue(maxsize=3)
+    output_queue = Queue(maxsize=3)
+
+    def handler():
+        with Listener((address, params.port), authkey=params.authkey) as listener:
+            _report_ready()
+            logging.info("Waiting for connection")
+            with listener.accept() as conn:
+                logging.info(f"Connection accepted from {listener.last_accepted}")
+                while not conn.closed and not cancellation_token.cancelled:
+                    if conn.poll():
+                        msg = conn.recv()
+                        message = msg["message"]
+                        mid = msg["id"]
+
+                        # do something with msg
+                        if message == "close":
+                            conn.send({"message": "close_ack", "id": mid})
+                            cancellation_token.cancel()
+                            break
+                        if message == "cancel":
+                            # if mid in cancellation_tokens:
+                            conn.send({"message": "cancel_ack", "id": mid})
+                            if mid in cancellation_tokens:
+                                cancellation_tokens[mid].cancel()
+                        elif message in {"call", "get"}:
+                            if msg.get("cancellable", False):
+                                cancellation_tokens[mid] = CancellationToken()
+                            input_queue.put(msg)
+                    elif not output_queue.empty():
+                        conn.send(output_queue.get())
+                    else:
+                        sleep(0.0001)
+
+    thread = Thread(target=handler, daemon=True)
+    thread.start()
+
+    while not cancellation_token.cancelled:
+        msg = input_queue.get()
+        message = msg["message"]
+        mid = msg["id"]
+
+        if message == "get":
+            logging.debug(f"Obtaining property {msg['property']}")
+            try:
+                result = getattr(method, msg["property"])
+                output_queue.put({"message": "result", "id": mid, "result": result})
+            except Exception as e:  # pylint: disable=broad-except
+                traceback.print_exc()
+                logging.error(f"Error while obtaining property {msg['property']}")
+                output_queue.put({"message": "error", "id": mid, "error": _remap_error(e)})
+        elif message == "call":
+            logging.debug(f"Calling method {msg['method']}")
+            try:
+                fn = getattr(method, msg["method"])
+                kwargs = inject_callables(msg["kwargs"], output_queue, mid)
+                args = inject_callables(msg["args"], output_queue, mid)
+                if msg["cancellable"]:
+                    fn = cancellable(fn)
+                    kwargs["cancellation_token"] = cancellation_tokens[mid]
+                result = fn(*args, **kwargs)
+                if inspect.isgeneratorfunction(fn):
+                    for r in result:
+                        output_queue.put({"message": "yield", "id": mid, "yield": r})
+                    result = None
+                output_queue.put({"message": "result", "id": mid, "result": result})
+            except Exception as e:  # pylint: disable=broad-except
+                if not isinstance(e, CancelledException):
+                    traceback.print_exc()
+                    logging.error(f"Error while calling method {msg['method']} from")
+                output_queue.put({"message": "error", "id": mid, "error": _remap_error(e)})
+            cancellation_tokens.pop(mid, None)
+        else:
+            logging.error(f"Unknown message {msg}")
+            output_queue.put({"message": "error", "id": mid, "error": _remap_error(RuntimeError(f"Unknown message {msg}"))})
+    logging.info("Client disconnected, shutting down")
 
 
 class RemoteCallable:
@@ -109,19 +150,19 @@ def replace_callables(obj, callables, depth=0):
     return obj
 
 
-def inject_callables(obj, conn, my_id):
+def inject_callables(obj, output_queue, my_id):
     if isinstance(obj, RemoteCallable):
 
         def callback(*args, **kwargs):
-            conn.send({"message": "callback", "id": my_id, "callback": obj.id, "args": args, "kwargs": kwargs})
+            output_queue.put({"message": "callback", "id": my_id, "callback": obj.id, "args": args, "kwargs": kwargs})
 
         return callback
     if isinstance(obj, dict):
-        return {k: inject_callables(v, conn, my_id) for k, v in obj.items()}
+        return {k: inject_callables(v, output_queue, my_id) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
-        return obj.__class__((inject_callables(v, conn, my_id) for v in obj))
+        return obj.__class__((inject_callables(v, output_queue, my_id) for v in obj))
     if is_dataclass(obj):
-        return obj.__class__(**{k: inject_callables(v, conn, my_id) for k, v in obj.__dict__.items()})
+        return obj.__class__(**{k: inject_callables(v, output_queue, my_id) for k, v in obj.__dict__.items()})
     return obj
 
 
@@ -133,6 +174,7 @@ class RemoteMethod(Method):
         self.args = args
         self.kwargs = kwargs
         self.checkpoint = checkpoint
+        self._cancellation_tokens = {}
 
     @property
     def encoded_args(self):
@@ -162,6 +204,9 @@ class RemoteMethod(Method):
 
     def _handle_call_result(self, client: Connection, my_id, callables):
         while not client.closed:
+            if not client.poll():
+                sleep(0.0001)
+                continue
             message = client.recv()
             if message["id"] != my_id:
                 continue
@@ -171,6 +216,8 @@ class RemoteMethod(Method):
                 callback = callables[message["callback"]]
                 callback(*message["args"], **message["kwargs"])
                 continue
+            elif message["message"] == "cancel_ack":
+                continue
             elif message["message"] == "result":
                 return message["result"]
             elif "yield" in message:
@@ -179,6 +226,9 @@ class RemoteMethod(Method):
                 def yield_fn():
                     yield original_message["yield"]
                     while not client.closed:
+                        if not client.poll():
+                            sleep(0.0001)
+                            continue
                         message = client.recv()
                         if message["id"] != my_id:
                             continue
@@ -206,34 +256,58 @@ class RemoteMethod(Method):
         client.send({"message": "get", "id": mid, "property": prop})
         return self._handle_call_result(client, mid, callables)
 
-    def _call(self, method, *args, **kwargs):
+    def _call(self, method, *args, cancellation_token: Optional[CancellationToken] = None, **kwargs):
         client = self._get_client()
         mid = self._message_counter
         self._message_counter += 1
         callables: List[Dict] = []
-        client.send({"message": "call", "id": mid, "method": method, "args": replace_callables(args, callables, depth=-1), "kwargs": replace_callables(kwargs, callables, depth=-1)})
+        if cancellation_token is not None:
+            assert type(cancellation_token).cancelled == CancellationToken.cancelled, "Custom cancellation tokens not supported"
+            assert type(cancellation_token).cancel == CancellationToken.cancel, "Custom cancellation tokens not supported"
+            old_cancel = cancellation_token.cancel
+
+            def _call_cancel():
+                client.send({"message": "cancel", "id": mid})
+                old_cancel()
+
+            cancellation_token.cancel = _call_cancel
+
+        client.send(
+            {
+                "message": "call",
+                "id": mid,
+                "method": method,
+                "cancellable": cancellation_token is not None,
+                "args": replace_callables(args, callables, depth=-1),
+                "kwargs": replace_callables(kwargs, callables, depth=-1),
+            }
+        )
         return self._handle_call_result(client, mid, callables)
 
+    @cancellable(mark_only=True)
     def train_iteration(self, *args, **kwargs):
         return self._call("train_iteration", *args, **kwargs)
 
+    @cancellable(mark_only=True)
     def setup_train(self, *args, **kwargs):
         return self._call("setup_train", *args, **kwargs)
 
+    @cancellable(mark_only=True)
     def render(self, *args, **kwargs):
         return self._call("render", *args, **kwargs)
 
-    def save(self, path: Path):
+    @cancellable(mark_only=True)
+    def save(self, path: Path, **kwargs):
         if self.shared_path is not None:
             name = hashlib.sha256(str(path).encode("utf-8")).hexdigest()
             local, remote = self.shared_path  # pylint: disable=unpacking-non-sequence
             local_path = os.path.join(local, name)
             remote_path = os.path.join(remote, name)
             shutil.copytree(str(path), local_path, dirs_exist_ok=True)
-            self._call("save", Path(remote_path))
+            self._call("save", Path(remote_path), **kwargs)
             shutil.copytree(local_path, str(path), dirs_exist_ok=True)
         else:
-            self._call("save", path)
+            self._call("save", path, **kwargs)
 
     def close(self):
         if self._client is not None:
@@ -334,6 +408,9 @@ start_backend(method, ConnectionParams(port=int(os.environ["NB_PORT"]), authkey=
             "TORCH_CUDA_ARCH_LIST",
             "CUDAARCHS",
             "GITHUB_ACTIONS",
+            "CONDA_PKGS_DIRS",
+            "PIP_CACHE_DIR",
+            "TORCH_HOME",
         }
         return {k: v for k, v in os.environ.items() if k.upper() in safe_env or k.startswith("NB_")}
 

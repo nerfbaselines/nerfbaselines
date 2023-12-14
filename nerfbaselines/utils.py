@@ -1,3 +1,4 @@
+import inspect
 import struct
 from pathlib import Path
 import types
@@ -53,6 +54,78 @@ def remap_error(fn):
     return wrapped
 
 
+class CancelledException(Exception):
+    pass
+
+
+class CancellationToken:
+    def __init__(self):
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    @property
+    def cancelled(self):
+        return self._cancelled
+
+    def _trace(self, frame, event, arg):
+        if event == "line":
+            if self.cancelled:
+                raise CancelledException
+        return self._trace
+
+    def _invoke_generator(self, fn, *args, **kwargs):
+        try:
+            sys.settrace(self._trace)
+            for r in fn(*args, **kwargs):
+                yield r
+        finally:
+            sys.settrace(None)
+
+    def invoke(self, fn, *args, **kwargs):
+        if inspect.isgeneratorfunction(fn):
+            return self._invoke_generator(fn, *args, **kwargs)
+
+        try:
+            sys.settrace(self._trace)
+            return fn(*args, **kwargs)
+        finally:
+            sys.settrace(None)
+
+
+def cancellable(fn=None, mark_only=False):
+    def wrap(fn):
+        if getattr(fn, "__cancellable__", False):
+            return fn
+        if mark_only:
+            fn.__cancellable__ = True
+            return fn
+
+        if inspect.isgeneratorfunction(fn):
+
+            @wraps(fn)
+            def wrapped(*args, cancellation_token: Optional[CancellationToken] = None, **kwargs):
+                if cancellation_token is not None:
+                    yield from cancellation_token.invoke(fn, *args, **kwargs)
+                else:
+                    yield from fn(*args, **kwargs)
+
+        else:
+
+            @wraps(fn)
+            def wrapped(*args, cancellation_token: Optional[CancellationToken] = None, **kwargs):
+                if cancellation_token is not None:
+                    return cancellation_token.invoke(fn, *args, **kwargs)
+                else:
+                    return fn(*args, **kwargs)
+
+        wrapped.__cancellable__ = True
+        return wrapped
+
+    return wrap if fn is None else wrap(fn)
+
+
 class Formatter(logging.Formatter):
     def format(self, record: logging.LogRecord):
         levelname = record.levelname[0]
@@ -79,6 +152,7 @@ def setup_logging(verbose: bool):
         logging.basicConfig(level=logging.INFO, **kwargs)
     for handler in logging.root.handlers:
         handler.setFormatter(Formatter())
+    logging.captureWarnings(True)
 
 
 def handle_cli_error(fn):

@@ -75,6 +75,16 @@ To start the training use the `nerfbaselines train --method <method> --data <dat
 ## Rendering
 The `nerfbaselines render --checkpoint <checkpoint>` command can be used to render images from a trained checkpoint. Again, use `--help` to learn about the arguments.
 
+## Interactive viewer
+Given a trained checkpoint, the interactive viewer can be launched as follows:
+```bash
+nerfbaselines viewer --checkpoint <checkpoin> --data <dataset>
+```
+Even though the argument `--data <dataset>` is optional, it is recommended, as for some methods some viewers use the camera poses
+to performa gravity alignement for better viewing experience.
+Again, you can use the `--backend <backend>` flag or `NS_BACKEND=<backend>` environment variable to change the backend.
+
+
 ## Implementation status
 Methods:
 - [x] Nerfacto
@@ -92,12 +102,15 @@ Datasets/features:
 - [x] any COLMAP dataset
 - [x] any NerfStudio dataset
 - [x] automatic dataset download
+- [x] interactive viewer
 - [x] undistorting images for methods that do not support complex camera models (Gaussian Splatting)
+- [x] logging to tensorboard, wandb
 - [ ] Tanks and Temples
 - [ ] LLFF dataset
 - [ ] HDR images support
 - [ ] RAW images support
 - [ ] handling large datasets
+- [ ] loading/creating camera trajectories in the interactive viewer
 
 ## Contributing
 Contributions are very much welcome. Please open a PR with a dataset/method/feature that you want to contribute. The goal of this project is to slowly expand by implementing more and more methods.
