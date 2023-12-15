@@ -17,7 +17,7 @@ import secrets
 import logging
 from dataclasses import dataclass, field, is_dataclass
 from multiprocessing.connection import Listener, Client, Connection
-from queue import Queue
+from queue import Queue, Empty
 from .types import Method, MethodInfo
 from .types import NB_PREFIX  # noqa: F401
 from .utils import partialmethod, cancellable, CancellationToken, CancelledException
@@ -51,7 +51,7 @@ def start_backend(method: Method, params: ConnectionParams, address: str = "loca
     cancellation_tokens = {}
 
     input_queue = Queue(maxsize=3)
-    output_queue = Queue(maxsize=3)
+    output_queue = Queue(maxsize=32)
 
     def handler():
         with Listener((address, params.port), authkey=params.authkey) as listener:
@@ -88,7 +88,10 @@ def start_backend(method: Method, params: ConnectionParams, address: str = "loca
     thread.start()
 
     while not cancellation_token.cancelled:
-        msg = input_queue.get()
+        try:
+            msg = input_queue.get(timeout=0.1)
+        except Empty:
+            continue
         message = msg["message"]
         mid = msg["id"]
 
@@ -96,10 +99,14 @@ def start_backend(method: Method, params: ConnectionParams, address: str = "loca
             logging.debug(f"Obtaining property {msg['property']}")
             try:
                 result = getattr(method, msg["property"])
+                if cancellation_token.cancelled:
+                    break
                 output_queue.put({"message": "result", "id": mid, "result": result})
             except Exception as e:  # pylint: disable=broad-except
                 traceback.print_exc()
                 logging.error(f"Error while obtaining property {msg['property']}")
+                if cancellation_token.cancelled:
+                    break
                 output_queue.put({"message": "error", "id": mid, "error": _remap_error(e)})
         elif message == "call":
             logging.debug(f"Calling method {msg['method']}")
@@ -113,13 +120,19 @@ def start_backend(method: Method, params: ConnectionParams, address: str = "loca
                 result = fn(*args, **kwargs)
                 if inspect.isgeneratorfunction(fn):
                     for r in result:
+                        if cancellation_token.cancelled:
+                            break
                         output_queue.put({"message": "yield", "id": mid, "yield": r})
                     result = None
+                if cancellation_token.cancelled:
+                    break
                 output_queue.put({"message": "result", "id": mid, "result": result})
             except Exception as e:  # pylint: disable=broad-except
                 if not isinstance(e, CancelledException):
                     traceback.print_exc()
                     logging.error(f"Error while calling method {msg['method']} from")
+                if cancellation_token.cancelled:
+                    break
                 output_queue.put({"message": "error", "id": mid, "error": _remap_error(e)})
             cancellation_tokens.pop(mid, None)
         else:

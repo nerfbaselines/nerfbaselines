@@ -8,3 +8,4 @@ dist/
 .pytest_cache/
 nerfbaselines/_version.py
 .vscode/launch.json
+web/

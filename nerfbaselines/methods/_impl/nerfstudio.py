@@ -107,8 +107,10 @@ class _CustomDataParser(DataParser):
                 ),
                 None,
                 scene_box,
-                [],
+                None,
                 {},
+                dataparser_transform=self.method.dataparser_params["dataparser_transform"][..., :3, :].contiguous(),
+                dataparser_scale=self.method.dataparser_params["dataparser_scale"],
             )
         image_names = [f"{i:06d}.png" for i in range(len(self.dataset.cameras.poses))]
         camera_types = [NPCameraType.PERSPECTIVE for _ in range(len(self.dataset.cameras.poses))]
