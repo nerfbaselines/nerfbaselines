@@ -4,6 +4,7 @@ import os
 import logging
 from pathlib import Path
 import click
+import json
 from gettext import gettext as _
 from .train import train_command
 from .render import render_command
@@ -101,6 +102,18 @@ def download_dataset_command(dataset, output, verbose):
 @click.option("--disable-extra-metrics", help="Disable extra metrics which need additional dependencies.", is_flag=True)
 def evaluate_command(predictions, output, disable_extra_metrics):
     evaluate(predictions, output, disable_extra_metrics=disable_extra_metrics)
+
+
+@main.command("compile-dataset-results", hidden=True)
+@click.option("--results", type=click.Path(file_okay=False, exists=True, dir_okay=True, path_type=Path), required=True)
+@click.option("--dataset", type=str, required=True)
+@click.option("--output", "-o", type=click.Path(file_okay=True, dir_okay=False, path_type=Path), required=True)
+def compile_dataset_results_command(results, dataset, output):
+    from .results import compile_dataset_results
+
+    dataset_info = compile_dataset_results(results, dataset)
+    with open(output, "w", encoding="utf8") as f:
+        json.dump(dataset_info, f, indent=2)
 
 
 main.add_command("nerfbaselines.viewer", "viewer")

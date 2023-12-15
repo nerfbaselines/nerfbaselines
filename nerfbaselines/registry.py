@@ -49,9 +49,12 @@ def auto_register(force=False):
     _auto_register_completed = True
 
 
-def register(spec: "MethodSpec", name: str, *args, **kwargs) -> "MethodSpec":
+def register(spec: "MethodSpec", name: str, *args, metadata=None, **kwargs) -> "MethodSpec":
     assert name not in registry, f"Method {name} already registered"
-    spec = dataclasses.replace(spec, args=spec.args + args, kwargs={**spec.kwargs, **kwargs})
+    if metadata is None:
+        metadata = {}
+    metadata = {**spec.metadata, **metadata}
+    spec = dataclasses.replace(spec, args=spec.args + args, kwargs={**spec.kwargs, **kwargs}, metadata=metadata)
     registry[name] = spec
     return spec
 
@@ -98,6 +101,7 @@ class MethodSpec:
     apptainer: Optional[Type[ApptainerMethod]] = None
     args: Tuple[Any, ...] = ()
     kwargs: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         assert self.conda is not None or self.docker is not None, "MethodSpec requires at least conda or docker backend"

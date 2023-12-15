@@ -60,6 +60,9 @@ nerfbaselines = "nerfbaselines.__main__:main"
 [tool.pytest.ini_options]
 addopts = '--typeguard-packages nerfbaselines'
 
+[tool.setuptools]
+include-package-data = true
+
 [tool.setuptools.packages.find]
 include = ["nerfbaselines*"]
 

@@ -1,0 +1,37 @@
+[
+    {
+        "id": "psnr",
+        "name": "PSNR",
+        "description": "Peak Signal to Noise Ratio. The higher the better.",
+        "ascending": true,
+        "link": "https://en.wikipedia.org/wiki/Peak_signal-to-noise_ratio"
+    },
+    {
+        "id": "ssim",
+        "name": "SSIM",
+        "description": "Structural Similarity Index. The higher the better. The implementation matches JAX's SSIM and torchmetrics's SSIM (with default parameters).",
+        "ascending": true,
+        "link": "https://en.wikipedia.org/wiki/Structural_similarity"
+    },
+    {
+        "id": "lpips",
+        "name": "LPIPS",
+        "description": "Learned Perceptual Image Patch Similarity. The lower the better. The implementation uses VGG backbone and matches lpips pip package with checkpoint version 0.1",
+        "ascending": false,
+        "link": "https://richzhang.github.io/PerceptualSimilarity/"
+    },
+    {
+        "id": "mse",
+        "name": "MSE",
+        "description": "Mean Squared Error. The lower the better.",
+        "ascending": false,
+        "link": "https://en.wikipedia.org/wiki/Mean_squared_error"
+    },
+    {
+        "id": "mae",
+        "name": "MAE",
+        "description": "Mean Absolute Error. The lower the better.",
+        "ascending": false,
+        "link": "https://en.wikipedia.org/wiki/Mean_absolute_error"
+    }
+]
