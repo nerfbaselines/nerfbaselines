@@ -1,0 +1,88 @@
+{
+  "id": "mipnerf360",
+  "name": "Mip-NeRF 360",
+  "description": "Mip-NeRF 360 is a novel neural radiance field (NeRF) based method for view synthesis of 360° scenes. It is based on the idea of mip-mapping, which is a technique for efficiently storing and rendering textures at multiple resolutions.",
+  "paper_link": "https://arxiv.org/abs/2104.00677",
+  "link": "https://arxiv.org/abs/2104.00677",
+  "scenes": [{
+    "id": "garden",
+    "name": "garden"
+  }, {
+    "id": "bonsai",
+    "name": "bonsai"
+  }, {
+    "id": "bonsai",
+    "name": "bonsai"
+  }, {
+    "id": "bonsai",
+    "name": "bonsai"
+  }, {
+    "id": "bonsai",
+    "name": "bonsai"
+  }, {
+    "id": "bonsai",
+    "name": "bonsai"
+  }, {
+    "id": "bonsai",
+    "name": "bonsai"
+  }, {
+    "id": "bonsai",
+    "name": "bonsai"
+  }, {
+    "id": "bonsai",
+    "name": "bonsai"
+  }],
+  "metrics": [{
+    "id": "psnr",
+    "name": "PSNR",
+    "ascending": true,
+    "description": "Peak Signal-to-Noise-Ratio"
+  }, {
+    "id": "ssim",
+    "name": "SSIM",
+    "ascending": true,
+    "description": "Structural Similarity Index"
+  }, {
+    "id": "lpips",
+    "name": "LPIPS",
+    "ascending": false,
+    "description": "Learned Perceptual Image Patch Similarity"
+  }],
+  "methods": [{
+    "id": "mipnerf360",
+    "name": "mipnerf360",
+    "psnr": 15.0,
+    "ssim": 0.89,
+    "lpips": 0.01,
+    "scenes": {
+      "garden": {
+        "psnr": 24.5,
+        "ssim": 0.8234,
+        "lpips": 0.005
+      },
+      "bonsai": {
+        "psnr": 24.5,
+        "ssim": 0.8234,
+        "lpips": 0.005
+      }
+    }
+  }, {
+    "id": "gaussian-splatting",
+    "name": "Gaussian Splatting",
+    "psnr": 21.0,
+    "ssim": 0.78,
+    "lpips": 0.02,
+    "scenes": {
+      "garden": {
+        "psnr": 23.5,
+        "ssim": 0.7234,
+        "lpips": 0.005
+      },
+      "bonsai": {
+        "psnr": 12.5,
+        "ssim": 0.3234,
+        "lpips": 0.005
+      }
+    }
+  }]
+}

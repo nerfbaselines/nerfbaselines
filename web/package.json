@@ -1,0 +1,32 @@
+{
+  "name": "nerfbaselines",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.11.1",
+    "@mantine/core": "^6.0.21",
+    "@mantine/dates": "^6.0.21",
+    "@mantine/hooks": "^6.0.21",
+    "@tabler/icons-react": "^2.44.0",
+    "dayjs": "^1.11.10",
+    "mantine-react-table": "^1.3.4",
+    "next": "14.0.4",
+    "react": "^18",
+    "react-dom": "^18"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.0.1",
+    "eslint": "^8",
+    "eslint-config-next": "14.0.4",
+    "typescript": "^5"
+  }
+}
