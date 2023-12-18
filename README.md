@@ -1,12 +1,19 @@
-# NerfBaselines
+<img width=112 height=112 align="left" src="assets/logo.png" />
+<h1>
+    <div>NerfBaselines</div>
+
 [![PyPI - Version](https://img.shields.io/pypi/v/nerfbaselines)](https://pypi.org/project/nerfbaselines/)
 [![GitHub License](https://img.shields.io/badge/license-MIT-%2397ca00)](https://github.com/jkulhanek/nerfbaselines/blob/main/LICENSE)
 [![Downloads](https://static.pepy.tech/badge/nerfbaselines)](https://pepy.tech/project/nerfbaselines)
+</h1>
 
+NerfBaselines is a framework for **evaluating and comparing existing NeRF methods**. Currently, most official implementations use different dataset loaders, evaluation protocols, and metrics, which renders the comparison of methods difficult. Therefore, this project aims to provide a **unified interface** for running and evaluating methods on different datasets in a consistent way using the same metrics. But instead of reimplementing the methods, **we use the official implementations** and wrap them so that they can be run easily using the same interface.
 
-The goal of this project is to provide a simple uniform way to benchmark different NeRF methods on standard datasets to allow for an easy comparison.
-The implemented methods use the original code published by the authors and, therefore, the resulting performance matches the original implementation.
-DISCLAIMER: This project is at a very early stage of its development. Stay tuned!
+**DISCLAIMER:** This project is at a very early stage of its development. Stay tuned!
+
+Please visit the <a href="https://jkulhanek.com/nerfbaselines">project page to see the results</a> of implemented methods on dataset benchmarks.<br/>
+
+### [Project Page + Results](https://jkulhanek.com/nerfbaselines)
 
 ## Getting started
 Start by installing the `nerfbaselines` pip package on your host system.
