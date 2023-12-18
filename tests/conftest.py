@@ -106,6 +106,9 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python"):
 
     # Test if model was saved at the end
     assert (tmp_path / "output" / "checkpoint-13").exists()
+    assert "nb-info.json" in os.listdir(tmp_path / "output" / "checkpoint-13")
+    info = json.load((tmp_path / "output" / "checkpoint-13" / "nb-info.json").open("r"))
+    assert "resources_utilization" in info
 
     # By default, the model should render all images at the end
     print(os.listdir(tmp_path / "output"))

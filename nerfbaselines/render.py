@@ -78,19 +78,19 @@ def render_all_images(
     method: Method,
     dataset: Dataset,
     output: Path,
-    color_space: Optional[str] = None,
-    expected_scene_scale: Optional[float] = None,
-    method_name: Optional[str] = None,
     description: str = "rendering all images",
+    ns_info: Optional[dict] = None,
 ) -> Iterable[RenderOutput]:
     info = method.get_info()
     render = with_supported_camera_models(info.supported_camera_models)(method.render)
     allow_transparency = True
     background_color = dataset.metadata.get("background_color", None)
-    if color_space is None:
-        color_space = dataset.color_space
-    if expected_scene_scale is None:
-        expected_scene_scale = dataset.expected_scene_scale
+    if ns_info is None:
+        ns_info = {}
+    else:
+        assert dataset.color_space == ns_info.get("color_space", "srgb"), f"Dataset color space {dataset.color_space} != method color space {ns_info['color_space']}"
+    color_space = dataset.color_space
+    expected_scene_scale = ns_info.get("expected_scene_scale", dataset.expected_scene_scale)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         method.save(Path(tmpdir))
@@ -143,14 +143,14 @@ def render_all_images(
             fp.write(
                 json.dumps(
                     {
-                        "method": method_name,
+                        **ns_info,
                         "nb_version": __version__,
-                        "color_space": color_space,
                         "checkpoint_sha256": checkpoint_sha,
-                        "expected_scene_scale": expected_scene_scale,
                         "dataset_type": dataset.metadata.get("type", None),
                         "dataset_scene": dataset.metadata.get("scene", None),
                         "dataset_background_color": background_color,
+                        "expected_scene_scale": round(expected_scene_scale, 5),
+                        "color_space": color_space,
                     },
                     indent=4,
                 ).encode("utf-8")
@@ -218,7 +218,7 @@ def render_command(checkpoint, data, output, split, verbose, backend):
         dataset.load_features(method_info.required_features)
         if dataset.color_space != ns_info["color_space"]:
             raise RuntimeError(f"Dataset color space {dataset.color_space} != method color space {ns_info['color_space']}")
-        for _ in render_all_images(method, dataset, output=Path(output), color_space=dataset.color_space, expected_scene_scale=ns_info["expected_scene_scale"], method_name=method_name):
+        for _ in render_all_images(method, dataset, output=Path(output), ns_info=ns_info):
             pass
     finally:
         if hasattr(method, "close"):

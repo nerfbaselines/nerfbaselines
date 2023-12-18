@@ -17,7 +17,7 @@ from PIL import Image
 import click
 from .datasets import load_dataset, Dataset
 from .utils import Indices, setup_logging, partialclass, image_to_srgb, visualize_depth, handle_cli_error
-from .utils import remap_error, convert_image_dtype
+from .utils import remap_error, convert_image_dtype, get_resources_utilization_info
 from .types import Method, CurrentProgress, ColorSpace, Literal, FrozenSet
 from .render import render_all_images, with_supported_camera_models
 from .upload_results import prepare_results_for_upload
@@ -67,6 +67,12 @@ def make_grid(*images: np.ndarray, ncol=None, padding=2, max_width=1920, backgro
 def compute_exponential_gamma(num_iters: int, initial_lr: float, final_lr: float) -> float:
     gamma = (math.log(final_lr) - math.log(initial_lr)) / num_iters
     return math.exp(gamma)
+
+
+def method_get_resources_utilization_info(method):
+    if hasattr(method, "call"):
+        return method.call(f"{get_resources_utilization_info.__module__}.{get_resources_utilization_info.__name__}")
+    return get_resources_utilization_info()
 
 
 Visualization = Literal["none", "wandb", "tensorboard"]
@@ -131,6 +137,7 @@ class Trainer:
         self._expected_scene_scale = None
         self._method_info = method_info
         self._total_train_time = 0
+        self._resources_utilization_info = None
 
         # Validate generate output artifact
         if self.generate_output_artifact is None or self.generate_output_artifact:
@@ -153,6 +160,7 @@ class Trainer:
             with open(self.checkpoint / "nb-info.json", mode="r", encoding="utf8") as f:
                 info = json.load(f)
                 self._total_train_time = info["total_train_time"]
+                self._resources_utilization_info = info["resources_utilization"]
 
     def _get_generate_output_artifact_problems(self):
         messages = []
@@ -191,21 +199,22 @@ class Trainer:
             raise RuntimeError(f"train dataset color space {self._color_space} != test dataset color space {self.test_dataset.color_space}")
         self._method_info = method_info
 
+    def _get_ns_info(self):
+        return {
+            "method": self.method_name,
+            "nb_version": __version__,
+            "color_space": self._color_space,
+            "expected_scene_scale": round(self._expected_scene_scale, 5),
+            "total_train_time": round(self._total_train_time, 5),
+            "resources_utilization": self._resources_utilization_info,
+        }
+
     def save(self):
         path = os.path.join(str(self.output), f"checkpoint-{self.step}")
         os.makedirs(os.path.join(str(self.output), f"checkpoint-{self.step}"), exist_ok=True)
         self.method.save(Path(path))
         with open(os.path.join(path, "nb-info.json"), mode="w+", encoding="utf8") as f:
-            json.dump(
-                {
-                    "method": self.method_name,
-                    "nb_version": __version__,
-                    "color_space": self._color_space,
-                    "expected_scene_scale": round(self._expected_scene_scale, 5),
-                    "total_train_time": round(self._total_train_time, 5),
-                },
-                f,
-            )
+            json.dump(self._get_ns_info(), f)
         logging.info(f"checkpoint saved at step={self.step}")
 
     def train_iteration(self):
@@ -255,6 +264,23 @@ class Trainer:
             else:
                 acc_metrics[k] = (acc_metrics[k] * (n_iters_since_update - 1) + v) / n_iters_since_update
 
+    def _update_resource_utilization_info(self):
+        update = False
+        util = {}
+        if self._resources_utilization_info is None:
+            update = True
+        elif self.step % 1000 == 11:
+            update = True
+            util = self._resources_utilization_info
+        if update:
+            logging.info(f"computing resource utilization at step={self.step}")
+            new_util = method_get_resources_utilization_info(self.method)
+            for k, v in new_util.items():
+                if k not in util:
+                    util[k] = 0
+                util[k] = max(util[k], v)
+            self._resources_utilization_info = util
+
     @remap_error
     def train(self):
         if self._average_image_size is None:
@@ -278,6 +304,9 @@ class Trainer:
 
                 # Update accumulated metrics
                 self._update_accumulated_metrics(acc_metrics, metrics, self.step - last_update_i)
+
+                # Update resource utilization info
+                self._update_resource_utilization_info()
 
                 # Log metrics and update progress bar
                 if self.step % update_frequency == 0 or self.step == self.num_iterations:
@@ -362,10 +391,8 @@ class Trainer:
                 self.method,
                 self.test_dataset,
                 output=output,
-                color_space=self._color_space,
-                expected_scene_scale=self._expected_scene_scale,
-                method_name=self.method_name,
                 description=f"rendering all images at step={self.step}",
+                ns_info=self._get_ns_info(),
             ),
             self.test_dataset.cameras.image_sizes,
         ):

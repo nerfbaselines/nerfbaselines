@@ -1,9 +1,11 @@
+import sys
+import os
+import subprocess
 import inspect
 import struct
 from pathlib import Path
 import types
 from functools import wraps
-import sys
 from typing import Any, Optional, Dict, TYPE_CHECKING, Union, List
 from typing import BinaryIO
 import numpy as np
@@ -379,3 +381,30 @@ def visualize_depth(depth: np.ndarray, expected_scale: Optional[float] = None, n
     depth_long = (depth_squashed * 255).astype(xnp.int32).clip(0, 255)
     out = xnp.array(matplotlib.colormaps[pallete].colors, dtype=xnp.float32)[255 - depth_long]
     return (out * 255).astype(xnp.uint8)
+
+
+def get_resources_utilization_info(pid=None):
+    if pid is None:
+        pid = os.getpid()
+
+    info = {}
+    # import psutil
+    # mem = psutil.virtual_memory()
+    # current_process = psutil.Process(pid)
+    # mem = current_process.memory_info().rss
+    # for child in current_process.children(recursive=True):
+    #     mem += child.memory_info().rss
+    # info["memory"] = (mem + 1024 * 1024 - 1) // (1024 * 1024)
+    try:
+        gpu_memory = 0
+        out = subprocess.check_output("nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader,nounits".split(), text=True).splitlines()
+        for line in out:
+            pid, used_memory = map(int, line.split(","))
+
+            gpu_memory += used_memory
+        info["gpu_memory"] = gpu_memory
+    except FileNotFoundError:
+        pass
+    except subprocess.CalledProcessError:
+        pass
+    return info

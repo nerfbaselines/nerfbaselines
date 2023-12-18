@@ -1,3 +1,4 @@
+import importlib
 from threading import Thread
 import types
 from pathlib import Path
@@ -109,9 +110,16 @@ def start_backend(method: Method, params: ConnectionParams, address: str = "loca
                     break
                 output_queue.put({"message": "error", "id": mid, "error": _remap_error(e)})
         elif message == "call":
-            logging.debug(f"Calling method {msg['method']}")
             try:
-                fn = getattr(method, msg["method"])
+                method_or_fn = msg.get("function", msg.get("method"))
+                if "function" in msg:
+                    logging.debug(f"Calling function {msg['function']}")
+                    splitter = msg["function"].rindex(".")
+                    package, fnname = msg["function"][:splitter], msg["function"][splitter + 1 :]
+                    fn = getattr(importlib.import_module(package), fnname)
+                else:
+                    logging.debug(f"Calling method {msg['method']}")
+                    fn = getattr(method, msg["method"])
                 kwargs = inject_callables(msg["kwargs"], output_queue, mid)
                 args = inject_callables(msg["args"], output_queue, mid)
                 if msg["cancellable"]:
@@ -130,7 +138,7 @@ def start_backend(method: Method, params: ConnectionParams, address: str = "loca
             except Exception as e:  # pylint: disable=broad-except
                 if not isinstance(e, CancelledException):
                     traceback.print_exc()
-                    logging.error(f"Error while calling method {msg['method']} from")
+                    logging.error(f"Error while calling method/function {method_or_fn} from")
                 if cancellation_token.cancelled:
                     break
                 output_queue.put({"message": "error", "id": mid, "error": _remap_error(e)})
@@ -269,8 +277,19 @@ class RemoteMethod(Method):
         client.send({"message": "get", "id": mid, "property": prop})
         return self._handle_call_result(client, mid, callables)
 
-    def _call(self, method, *args, cancellation_token: Optional[CancellationToken] = None, **kwargs):
+    def _call(self, *args, cancellation_token: Optional[CancellationToken] = None, **kwargs):
         client = self._get_client()
+        other_kwargs = {}
+        if "function" in kwargs:
+            assert "method" not in kwargs, "Cannot specify both method and function"
+            other_kwargs["function"] = kwargs.pop("function")
+        elif "method" in kwargs:
+            other_kwargs["method"] = kwargs.pop("method")
+        elif len(args) > 0:
+            other_kwargs["method"] = args[0]
+            args = args[1:]
+        else:
+            raise RuntimeError("Either method of function must be specified")
         mid = self._message_counter
         self._message_counter += 1
         callables: List[Dict] = []
@@ -289,13 +308,16 @@ class RemoteMethod(Method):
             {
                 "message": "call",
                 "id": mid,
-                "method": method,
                 "cancellable": cancellation_token is not None,
                 "args": replace_callables(args, callables, depth=-1),
                 "kwargs": replace_callables(kwargs, callables, depth=-1),
+                **other_kwargs,
             }
         )
         return self._handle_call_result(client, mid, callables)
+
+    def call(self, function: str, *args, **kwargs):
+        return self._call(*args, function=function, **kwargs)
 
     @cancellable(mark_only=True)
     def train_iteration(self, *args, **kwargs):

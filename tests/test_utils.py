@@ -62,3 +62,10 @@ def test_cancellable_generator():
     print(i)
     assert len(out) > 1, "Function was not called"
     assert was_called, "Function was not called"
+
+
+def test_get_resources_utilization_info():
+    from nerfbaselines.utils import get_resources_utilization_info
+
+    info = get_resources_utilization_info()
+    assert isinstance(info, dict)
