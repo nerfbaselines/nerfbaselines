@@ -388,23 +388,42 @@ def get_resources_utilization_info(pid=None):
         pid = os.getpid()
 
     info = {}
-    # import psutil
-    # mem = psutil.virtual_memory()
-    # current_process = psutil.Process(pid)
-    # mem = current_process.memory_info().rss
-    # for child in current_process.children(recursive=True):
-    #     mem += child.memory_info().rss
-    # info["memory"] = (mem + 1024 * 1024 - 1) // (1024 * 1024)
+
+    # Get all cpu memory and running processes
+    all_processes = set((pid,))
+    try:
+        mem = 0
+        out = subprocess.check_output("ps -ax -o pid= -o ppid= -o rss=".split(), text=True).splitlines()
+        mem_used = {}
+        children = {}
+        for line in out:
+            cpid, ppid, used_memory = map(int, line.split())
+            mem_used[cpid] = used_memory
+            children.setdefault(ppid, set()).add(cpid)
+        all_processes = set()
+        stack = [pid]
+        while stack:
+            cpid = stack.pop()
+            all_processes.add(cpid)
+            mem += mem_used[cpid]
+            stack.extend(children.get(cpid, []))
+        info["memory"] = (mem + 1024 - 1) // 1024
+    except FileNotFoundError:
+        pass
+    except subprocess.CalledProcessError:
+        pass
+
     try:
         gpu_memory = 0
         out = subprocess.check_output("nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader,nounits".split(), text=True).splitlines()
         for line in out:
-            pid, used_memory = map(int, line.split(","))
-
-            gpu_memory += used_memory
+            cpid, used_memory = map(int, line.split(","))
+            if cpid in all_processes:
+                gpu_memory += used_memory
         info["gpu_memory"] = gpu_memory
     except FileNotFoundError:
         pass
     except subprocess.CalledProcessError:
         pass
+
     return info
