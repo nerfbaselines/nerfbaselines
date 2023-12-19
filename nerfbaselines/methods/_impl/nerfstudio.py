@@ -153,9 +153,16 @@ class _CustomDataParser(DataParser):
             camera_type=torch.tensor(camera_types, dtype=torch.long),
         )
         metadata = {}
+        transform_matrix = self.method.dataparser_params["dataparser_transform"]
+        scale_factor = self.method.dataparser_params["dataparser_scale"]
         if self.method.require_points3D:
             assert self.dataset.points3D_xyz is not None, "Points3D are required but not provided"
-            metadata["points3D_xyz"] = torch.from_numpy(self.dataset.points3D_xyz).float()
+            xyz = torch.from_numpy(self.dataset.points3D_xyz).float()
+
+            # Transform poses using the dataparser transform
+            xyz = torch.cat((xyz, torch.ones_like(xyz[..., :1])), -1) @ transform_matrix.T
+            xyz *= scale_factor
+            metadata["points3D_xyz"] = xyz
             metadata["points3D_rgb"] = torch.from_numpy(self.dataset.points3D_rgb)
         return DataparserOutputs(
             image_names,
@@ -164,8 +171,8 @@ class _CustomDataParser(DataParser):
             scene_box,
             image_names if self.dataset.sampling_masks else None,
             metadata,
-            dataparser_transform=self.method.dataparser_params["dataparser_transform"][..., :3, :].contiguous(),  # pylint: disable=protected-access
-            dataparser_scale=self.method.dataparser_params["dataparser_scale"],
+            dataparser_transform=transform_matrix[..., :3, :].contiguous(),  # pylint: disable=protected-access
+            dataparser_scale=scale_factor,
         )  # pylint: disable=protected-access
 
 
