@@ -48,6 +48,10 @@ def load_metrics_from_results(results: Dict) -> Dict[str, List[float]]:
         data = base64.b64decode(v)
         values = list(struct.unpack(f"<{len(data)//4}f", data))
         out[k] = values
+    if "info" in results and "total_train_time" in results["info"]:
+        out["total_train_time"] = results["info"]["total_train_time"]
+    if "info" in results and "resources_utilization" in results["info"] and "gpu_memory" in results["info"]["resources_utilization"]:
+        out["gpu_memory"] = results["info"]["resources_utilization"]["gpu_memory"]
     return out
 
 

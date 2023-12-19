@@ -110,7 +110,9 @@ def evaluate_command(predictions, output, disable_extra_metrics):
 @click.option("--output", "-o", type=click.Path(file_okay=True, dir_okay=False, path_type=Path), required=True)
 def compile_dataset_results_command(results, dataset, output):
     from .results import compile_dataset_results
+    from .utils import setup_logging
 
+    setup_logging(False)
     dataset_info = compile_dataset_results(results, dataset)
     with open(output, "w", encoding="utf8") as f:
         json.dump(dataset_info, f, indent=2)
