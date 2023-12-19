@@ -26,7 +26,8 @@ export default async function Home() {
             datasetId={datasetResults.id} 
             methodResults={datasetResults.methods} 
             metrics={datasetResults.metrics}
-            scenes={datasetResults.scenes} />
+            scenes={datasetResults.scenes}
+            defaultMetric={datasetResults.default_metric || datasetResults.metrics[0].id} />
         </div>
       ))}
     </main>

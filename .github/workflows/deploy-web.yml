@@ -47,7 +47,7 @@ jobs:
           mkdir -p web/data
           pip install -e main
           for dataset in $(ls results | xargs -I {} ls -1 results/{} | sort | uniq); do
-            nerfbaselines compile-dataset-results --results results --dataset $dataset --output web/data/$dataset.json
+            nerfbaselines render-dataset-results --output-type json --results results --dataset $dataset --output web/data/$dataset.json
             echo "Generated web/data/$dataset.json"
           done
       - name: Setup Pages

@@ -3,6 +3,8 @@
   "name": "Mip-NeRF 360",
   "description": "Mip-NeRF 360 is a novel neural radiance field (NeRF) based method for view synthesis of 360° scenes. It is based on the idea of mip-mapping, which is a technique for efficiently storing and rendering textures at multiple resolutions.",
   "paper_link": "https://arxiv.org/abs/2104.00677",
+  "paper_title": "3D Gaussian Splatting for Real-Time Radiance Field Rendering",
+  "paper_authors": ["Bernhard Kerbl", "Georgios Kopanas", "Thomas Leimkühler", "George Drettakis"],
   "link": "https://arxiv.org/abs/2104.00677",
   "scenes": [{
     "id": "garden",

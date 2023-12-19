@@ -32,12 +32,20 @@ async function DatasetResults(dataset: string) {
               <div>Web: <a href={datasetResults.link} className="text-blue link-underline">{datasetResults.link}</a></div>
             )}
             {datasetResults.paper_link && (
-              <div>Paper: <a href={datasetResults.paper_link} className="text-blue link-underline">{datasetResults.paper_link}</a></div>
+              <div>Paper: <a href={datasetResults.paper_link} className="text-blue link-underline">{datasetResults.paper_title ?? datasetResults.paper_link}</a></div>
+            )}
+            {datasetResults.paper_authors && (
+              <div>Authors: <span style={{fontWeight:"normal", fontStyle:"italic"}}>{datasetResults.paper_authors.join(", ")}</span></div>
             )}
           </div>
         )}
       </div>
-      <DatasetResultsTable datasetId={dataset} methodResults={datasetResults.methods} metrics={datasetResults.metrics} scenes={datasetResults.scenes} />
+      <DatasetResultsTable 
+        datasetId={dataset} 
+        methodResults={datasetResults.methods}
+        metrics={datasetResults.metrics}
+        scenes={datasetResults.scenes}
+        defaultMetric={datasetResults.default_metric || datasetResults.metrics[0].id} />
       {datasetResults.metrics.map((metric) => (
         <div key={metric.id} className="result-set-panel">
           <div className="result-set-panel__header">
@@ -48,6 +56,7 @@ async function DatasetResults(dataset: string) {
             datasetId={dataset} 
             methodResults={datasetResults.methods} 
             metricDetail={metric.id} 
+            defaultMetric={metric.id}
             metrics={datasetResults.metrics}
             scenes={datasetResults.scenes} />
         </div>
@@ -74,7 +83,10 @@ async function MethodResults(method: string) {
               <div>Web: <a href={methodInfo.link} className="text-blue link-underline">{methodInfo.link}</a></div>
             )}
             {methodInfo.paper_link && (
-              <div>Paper: <a href={methodInfo.paper_link} className="text-blue link-underline">{methodInfo.paper_link}</a></div>
+              <div>Paper: <a href={methodInfo.paper_link} className="text-blue link-underline">{methodInfo.paper_title ?? methodInfo.paper_link}</a></div>
+            )}
+            {methodInfo.paper_authors && (
+              <div>Authors: <span style={{fontWeight:"normal", fontStyle:"ialic"}}>{methodInfo.paper_authors.join(", ")}</span></div>
             )}
           </div>
         )}
@@ -92,7 +104,8 @@ async function MethodResults(method: string) {
             methodResults={datasetResults.methods} 
             metrics={datasetResults.metrics}
             showMethod={false}
-            scenes={datasetResults.scenes} />
+            scenes={datasetResults.scenes}
+            defaultMetric={datasetResults.default_metric || datasetResults.metrics[0].id} />
         </div>
       ))}
     </main>

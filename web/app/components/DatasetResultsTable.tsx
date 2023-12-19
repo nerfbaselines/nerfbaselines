@@ -7,6 +7,7 @@ import {
   useMantineReactTable,
   type MRT_ColumnDef,
   type MRT_Cell,
+  MRT_ExpandButton,
 } from 'mantine-react-table';
 import Link from 'next/link';
 
@@ -30,6 +31,11 @@ function formatMemory(memory: number) {
   }
 }
 
+function formatNumber(number: number) {
+  if (isNaN(number)) return "-";
+  return number.toFixed(3);
+}
+
 export default function DatasetResultsTable({
   datasetId,
   methodResults,
@@ -37,6 +43,7 @@ export default function DatasetResultsTable({
   metricDetail,
   scenes,
   showMethod,
+  defaultMetric,
 }: {
   datasetId: string,
   methodResults: api.MethodResults[],
@@ -44,15 +51,31 @@ export default function DatasetResultsTable({
   scenes: api.Scene[],
   metricDetail?: string,
   showMethod?: boolean,
+  defaultMetric: string,
 }) {
-  const columns = useMemo<MRT_ColumnDef<api.MethodResults>[]>(
+  let enableExpanding = (metricDetail === undefined);
+  const sign = metrics.find((m: api.Metric) => m.id === defaultMetric)?.ascending?-1:1;
+  const getDefaultMetric = (row: any) => (row[defaultMetric] === undefined || row[defaultMetric] === null) ? Infinity : row[defaultMetric] * sign;
+  methodResults = methodResults.sort((a: any, b: any) => getDefaultMetric(a) - getDefaultMetric(b));
+  const columns = useMemo<MRT_ColumnDef<any>[]>(
     () => {
-      let list: MRT_ColumnDef<api.MethodResults>[] = [];
+      let list: MRT_ColumnDef<any>[] = [];
       if (showMethod ?? true) list.push({
           accessorKey: 'name',
           header: 'Method',
           Cell: ({ cell }: { cell: MRT_Cell<api.MethodResults> }) => (
             <Link href={`/${cell.getContext().row.original.id.replace(":", "--")}`}>{cell.getValue() as any}</Link>
+          ),
+        });
+      else list.push({
+          accessorKey: 'name',
+          header: 'Scene',
+          minSize: 30,
+          Cell: ({ cell }: { cell: MRT_Cell<api.MethodResults> }) => (
+            <>&nbsp;&nbsp;{cell.getValue()}</>
+          ),
+          AggregatedCell: ({ cell }: { cell: MRT_Cell<api.MethodResults> }) => (
+            <>average</>
           ),
         });
       if (metricDetail !== undefined) {
@@ -62,6 +85,9 @@ export default function DatasetResultsTable({
           size: 30,
           minSize: 30,
           enableClickToCopy: true,
+          Cell: ({ cell }: { cell: MRT_Cell<api.MethodResults> }) => (
+            <span>{formatNumber(cell.getValue<number>())}</span>
+          )
         })));
       } else {
         list = list.concat(metrics.map((metric) => ({
@@ -70,6 +96,9 @@ export default function DatasetResultsTable({
           size: 30,
           minSize: 30,
           enableClickToCopy: true,
+          Cell: ({ cell }: { cell: MRT_Cell<api.MethodResults> }) => (
+            <span>{formatNumber(cell.getValue<number>())}</span>
+          )
         })));
         list.push({
           accessorKey: 'total_train_time',
@@ -102,6 +131,15 @@ export default function DatasetResultsTable({
     enablePagination: false,
     enableDensityToggle: false,
     enableSorting: true,
+    enableExpanding: enableExpanding,
+    getSubRows: (originalRow: any, index: number) => (
+      originalRow.scenes && scenes.map((scene) => ({
+        ...scene,
+        ...originalRow.scenes[scene.id],
+      }))
+    ),
+    mantineExpandButtonProps: ({ row, table }) => (row.getCanExpand() ? ({}) : ({disabled:true, style: {visibility: "hidden"}})),
+    enableExpandAll: false,
     enableBottomToolbar: false,
     enableTopToolbar: false,
     initialState: {
