@@ -1,29 +1,33 @@
 {
   "info": {
     "method": "instant-ngp",
-    "nb_version": "0.0.9.dev0+ge5bf309.d20231215",
+    "nb_version": "0.0.9.dev3+gbf7a688.d20231218",
     "color_space": "srgb",
-    "checkpoint_sha256": "a83b852c84450e11b8b129ea336be688ac85a8d35c88ace6f039f6702d0f6748",
-    "expected_scene_scale": 2.1884069442749023,
+    "expected_scene_scale": 2.18841,
+    "total_train_time": 237.80531,
+    "resources_utilization": {
+      "gpu_memory": 5076
+    },
+    "checkpoint_sha256": "40b92fd4e19a9a34baf5716834553a854082cc03eec41a28233f6a3e196c3363",
     "dataset_type": "mipnerf360",
     "dataset_scene": "treehill",
     "dataset_background_color": null
   },
   "metrics": {
-    "psnr": 22.4155,
-    "ssim": 0.52873,
-    "mae": 0.04826,
-    "mse": 0.00643,
-    "lpips": 0.53994
+    "psnr": 22.38396,
+    "ssim": 0.52775,
+    "mae": 0.04862,
+    "mse": 0.00649,
+    "lpips": 0.54499
   },
   "metrics_raw": {
-    "psnr": "53CNQXRFoEGiqptB9HOiQZQ2p0Ew3LBB3OW8QXuKx0Ff4LFBsGXDQVxex0Htsa9BjSK/QZmmu0FsGrhBv/7EQYXPtUHydLlB",
-    "ssim": "9xQDP9RHBD9KLPk+rzEIP+CsDD852gM/JakLPyWRFD+Z+wc/apMPP078Dz9PagM/vN0HP3rVBT8hbQE/atwTPzqu/T54XfU+",
-    "mae": "qDeBPY9fZD0fHHg9L9plPZCBPT1Z8zs9xJsoPeqsKj2pP0o9vgAsPfOVIT0oAEc9n6suPdXfRD19u0I9cwsgPUFnWj1nF0U9",
-    "mse": "FMKLPM2QIjy2mjk866sYPKIfBTxUssk7kKKOO9v/UTvF4cM7k5lsOzILUzszk9A7kL2FOxTZkzvuvaM7CPdhOzjprjs6fJ07",
-    "lpips": "fDUEP8q+Ej968hQ/3LUWP0qJ+D7gOQk/riEHP4kCBD+GgQk/VxEHP/O7/z4BRQo/9DgLP853Cj9bmg0/s+n0PhZEGT9tEBM/"
+    "psnr": "J7CLQS1+n0EV8Z1BfuWkQfPZpkEUB7BBpd29QScAyUEMv65BIoHCQfQQx0HS5a5Bv0S+QbgJvEE/EbhB+mnEQUgRtkGQdLdB",
+    "ssim": "X3QDP3OqAz98Hvs+8oUIP5QSDD9ACgQ/SMcLPzQjFT8FswY/u/MNPz6VED8f8gE/WbAGP232BT9oiwE/1XMSP7I8/j7BWvU+",
+    "mae": "MdaHPQeRaD1DfWw9JiJWPVpzQD3RTUA9cq0nPSEOKD3HxlU9nS4xPRb5Ij3B4kg92400Pc7vQz0Mo0M997kiPWIxWT27xko9",
+    "mse": "h/2SPL8/Jjzl1i08mU0OPGiEBjxyls47X7eKOxJcSTtUWdY7LcJyO3fjVDuratU7Gx6JO5s1kjsy6aM7vcZlO12frTvu0qY7",
+    "lpips": "uvwGP3s0Ez8z/hI/OdQXPz1M+T6Cows/DawJP23rAj+Zxgs/fz0LPzRyAD8hJgs/TpoMP+T6Cz/zcA8/CvL5PliKGT8QQxQ/"
   },
-  "metrics_sha256": "ec65b8666acd6cbb3ff31fa0906855918101eeddf6284e8ffa4b4d4e9a8913d6",
-  "predictions_sha256": "2839a96d383c5bb512fa3b863c4a89920937c9ae925bf5ed2a9a867f682127f6",
+  "metrics_sha256": "6a4c3d041343a27322b2197716b841acc0a0681dc92e61d5ab9a7206489ad8a8",
+  "predictions_sha256": "f8fe34bbe1c6174bfea05d5f8ab32e11d381a4b5571caf2f7a140bfdd5f4321f",
   "ground_truth_sha256": "95b392ebdbe7f4c3d1de84e1ddbf1b15ee2668e20f25702b8b391b6ec854978e"
 }

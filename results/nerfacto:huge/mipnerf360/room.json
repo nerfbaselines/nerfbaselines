@@ -1,0 +1,34 @@
+{
+  "info": {
+    "method": "nerfacto:huge",
+    "nb_version": "0.0.10.dev1+g760091d",
+    "color_space": "srgb",
+    "expected_scene_scale": 2.65881,
+    "total_train_time": 8730.02525,
+    "resources_utilization": {
+      "memory": 13938,
+      "gpu_memory": 17946
+    },
+    "checkpoint_sha256": "2a25573d802d181e5814fc5c85b101a431a50de226acf8e6ce25c246845086ef",
+    "dataset_type": "mipnerf360",
+    "dataset_scene": "room",
+    "dataset_background_color": null
+  },
+  "metrics": {
+    "psnr": 26.33041,
+    "ssim": 0.85554,
+    "mae": 0.03611,
+    "mse": 0.00294,
+    "lpips": 0.16968
+  },
+  "metrics_raw": {
+    "psnr": "6UDLQUnW6UE01OZBO7zZQQQByUEH4M1Br0nLQXYM1EGi799BD8nlQXyM0UGQa+xB31DyQc5p20Htu8lB1Z3cQUGN60FoJuZBxnXkQeZy1kHQgOVBQnHpQWsm5kF4I8VBq+vVQVkT30FnfqtBQvHUQYgi0EFdKsRB9s3lQVrQ2EE0/MtBUyTUQRjZn0HzeZtBNAumQZqOsUEBM7FB",
+    "ssim": "kVJHP6mSUz8otlM/oSxTP1D8az81DFw/KLJOP73caj8MmGI/GHNmP5smUz8lPF4/B4hlP7tZWT91+14/YzhOP8BrXT+nSmA/FnVjP7EUXj/9cl8/gkZeP9w6Wj8FKU4/OSpgP+dqaD/1yEw/m+ZYP67AVz8xc04/OAdaPyMtQj9JomA/BLhaP0hVYz/ThWc/j2hSP1KBaj8Nrlo/",
+    "mae": "+50JPYt6szx3EsQ8KJzzPCsCMT3SpAw9D1EnPWDYED26ccM8DpHWPFK9DT1IDa08swWfPCRy6TzUwBs97XzsPOwSuTzX/rw8U57mPOb85Dy9u7Q8H524PL5TqjwgUQ492ITvPNPP8jzir3o9NBj6PLFZCj2vRCQ9q+LIPM7C8TyIKho927H3PJxTrj01QcQ9GBqJPfpghj2lkoA9",
+    "mse": "frc8OwCDnDqmqqo6M8j4OhFXSTtSAC872Yc8O+iCEjsoHtA6zt6vOiFxHTseTJE6aT11OlAN7To8J0U7pvvkOov5lDq8CK46b7W2Ol27CDv+TbE6rEyeOrIIrjqwCGE7ntMKOyhW1Tp0Yus7aMoOOy/7Izv0bGc7A8avOs53/zrLyDg7ax4SO+mOJDyEnzo8QK4JPO2wxTvOvMc7",
+    "lpips": "i1JSPnLzRD7VbUk+Rxs1Pv4k5D1kQB4+M+gqPsYh2j0/WyA+7gr3PTyPID4PyNw9DF/YPc9WHj65GPE9ixNgPsAFEz565vM9zbQoPutx/z3MeA4+YXBxPgDq+D1Ui1E+F1A1PjlDJj7uAg0+mg0/PhkmNz6UzSg++cJnPqigiT4UXAc+UKYXPqlQaT4NrD8+tu6QPtcAUD49d2w+"
+  },
+  "metrics_sha256": "362623f928105b405e711c946c8fc922d1d07e856bdc8ef65d11f7988bd12c3c",
+  "predictions_sha256": "21ce2afbcd47e02060381eb63579760749db6295d98b5057fbfc70726aaef539",
+  "ground_truth_sha256": "9bdd71e54d0959e907a14b5604f9701af4b6d3d2f724e64cc748b9fba443ec2d"
+}

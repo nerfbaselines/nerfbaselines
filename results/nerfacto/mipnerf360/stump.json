@@ -1,29 +1,34 @@
 {
   "info": {
     "method": "nerfacto",
-    "nb_version": "0.0.9.dev1+g4e1f674.d20231215",
+    "nb_version": "0.0.10.dev1+g760091d",
     "color_space": "srgb",
-    "checkpoint_sha256": "c62a32a7a797a410bede25b2b7fc24d086524f50132506598a11669978c17f1f",
-    "expected_scene_scale": 2.0879409313201904,
+    "expected_scene_scale": 2.08794,
+    "total_train_time": 630.15557,
+    "resources_utilization": {
+      "memory": 4701,
+      "gpu_memory": 4300
+    },
+    "checkpoint_sha256": "3c1928b92d23919f848d39177ea8bcd1da45519b6c262f98e6fc921f15fb35f0",
     "dataset_type": "mipnerf360",
     "dataset_scene": "stump",
     "dataset_background_color": null
   },
   "metrics": {
-    "psnr": 18.70421,
-    "ssim": 0.36691,
-    "mae": 0.08587,
-    "mse": 0.01401,
-    "lpips": 0.67366
+    "psnr": 18.58477,
+    "ssim": 0.3618,
+    "mae": 0.08772,
+    "mse": 0.01462,
+    "lpips": 0.70826
   },
   "metrics_raw": {
-    "psnr": "ssKBQdblnkHECo1BQ5iTQcp6jEEc4JdBc0udQfnlmEHpgoVBremWQVFsm0FXj6BBZCWaQUrVkEHtmqVB7U2VQQ==",
-    "ssim": "1GOfPpf6wz4gUr8+Hp/IPuecrz6FGcA+qJ/HPocSrT7LFqY+cu+5Pq/5wT5+K9c+yOy6PjXgqj6jTuU+cLSpPg==",
-    "mae": "AA7WPT4OlT1KULM9iIm0PSrD0D2K4a49p8SdPRYMqz0PUec9yh6tPU0tnj1/vpQ9D5qjPZoAtz138oc96VS4PQ==",
-    "mse": "Q5vDPPgeKTxNX408MCVqPOqtjzzVAE88aBsxPGL/SDzYlq88mtFUPMroOjyDOCE8RehBPBuEfTz8bQs8DOdePA==",
-    "lpips": "UCASP2oOET9cbhQ/GO8mP6ZsJT9ZWzQ/DohIP+JJKj+gHEg/hAA3P6Q/KT/WiRc/f6QtP9AzVz8o7wA/63dWPw=="
+    "psnr": "THR4QVVTmEEiV4dBQLaRQYprikHypZZB0lSaQbbCmkGmXIRBAFOWQXHtoEEI259BKPyaQeGolEFSxqlBPjKSQQ==",
+    "ssim": "CQyhPtXXrz6tJbc+pX+6PqHJrD7Ldro+ini9PtChsD7nWJ8+5smzPmoWyD5zjtk+VrW9PpyPrD7rBvU+IOqnPg==",
+    "mae": "Er/hPadDpz1Absg90Fy9PW512z1iQbU9Oh2qPfJVqT3+5OU99tavPWXBkj0JzpU9dJ2iPWy0rT2LUHw9K7e6PQ==",
+    "mse": "n2DlPL9WTDy1laY8NC93PDx0mDwTclY8SeBAPPmBPjzefrU8cnRYPCqGHzy8hSQ8/0c9PM0TYzz0Uvc7LcNzPA==",
+    "lpips": "eNMaP/QIHT+XhSc/3BosP3DsMD9i90U/eB5gP/HpPD9420Y/sCo9P9d5Kj82+hc/bCA5P+icXD956gE/tn1XPw=="
   },
-  "metrics_sha256": "57aab7206c3e16c451b564732ae1a0b0b98eac9a28b21cccd42892293d1eaaa4",
-  "predictions_sha256": "f36d53b5897cef375fe53996e1d745fab6fd7b8747aeaaac5e61e8fb3c1a0419",
+  "metrics_sha256": "aaeebf0f0a0558f9a039a2b47d06589054fa5d54cace53f0ea30a33019001e06",
+  "predictions_sha256": "ebb609958b518497489ed79fd92a63e2f2f32d21b43ff87787f62761dbe7fe86",
   "ground_truth_sha256": "3c6de40b7b32b2c8848710ac2233ae0ab27e7a4c02ce7fc79dfa4b4c7054ad35"
 }

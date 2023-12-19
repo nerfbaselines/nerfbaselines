@@ -1,29 +1,34 @@
 {
   "info": {
     "method": "gaussian-splatting",
-    "nb_version": "0.0.9.dev1+g4e1f674.d20231215",
+    "nb_version": "0.0.10.dev1+g760091d",
     "color_space": "srgb",
-    "checkpoint_sha256": "9b501497ce43328c1f2bd9cad3a134fbcfdbd067c978cfdf2524165239f07f9d",
-    "expected_scene_scale": 2.0606026649475098,
+    "expected_scene_scale": 2.0606,
+    "total_train_time": 1684.75755,
+    "resources_utilization": {
+      "memory": 7624,
+      "gpu_memory": 16020
+    },
+    "checkpoint_sha256": "530e06d13ea09e347e64b8aa5c42f985c93a8cfd14827710efacb52ffb9c0e18",
     "dataset_type": "mipnerf360",
     "dataset_scene": "garden",
     "dataset_background_color": null
   },
   "metrics": {
-    "psnr": 27.35587,
-    "ssim": 0.86608,
-    "mae": 0.02748,
+    "psnr": 27.36601,
+    "ssim": 0.86649,
+    "mae": 0.02735,
     "mse": 0.00226,
-    "lpips": 0.07606
+    "lpips": 0.07578
   },
   "metrics_raw": {
-    "psnr": "RIu/QdUyt0EaQt9BhOfFQYRgn0E4P9ZBFGLsQcsn6UG2WNhBgA/YQbFS10E+WulBqkTbQQ0L8EEIXvNBTO/PQR583EFGA/dBg6PhQUww7UGOgOpBhqzPQaHe2UFvMedB",
-    "ssim": "qQhWPyixRT9Ag1s/TDZRP+0ERz/uGF0/eQpoP3G+aD93P10/fdhbPwbVYz/uXGY/PrhbP5k8Zj/j/GU/5h5UP7HiVj+yQmo/D6FlPwK5aT/OV2Q/9QFVP306XD/WYWY/",
-    "mae": "4IUNPWXCIz1v29U8ZUEPPUIGRj3Kltg8GTKwPJ53vjxrGOM89NrdPKWrzDxjv7k8uRTaPGDlqDwO/aQ81HIEPRvB4jxr25081tzhPMFxtjyTyrY8xEvxPE586zxVz8w8",
-    "mse": "2iyEO7MPqDvPN9Q6xyBcO+XNJjxThwk703OROs+cnzq7dgE7rIgCO51VBTuvtZ46OwvuOsfogjoB7m06re0kO0ra5TreOlY6ICrGOm4ejjpEi5k62ismO17S9zoS46g6",
-    "lpips": "mQm2Pa8xAD7y2Js9kPWjPWw6AT7gAao9xVh6PcjHZj3jSI09b2ujPdjVjj20JHM9SmSdPYUBhD1M1389iKWfPZsCpD3gF4U98DCFPfELiD2ycY89HTm0PVf9lD1WaHw9"
+    "psnr": "VAy9Qemtt0FNGd9B01HGQdnCn0FUwtJBCT3sQUyY6EHSAdlB7enYQbC+2UGcL+pBqATbQXf370FjaPNBUqzRQcqm3EG+wPdBqlXhQQgb7kFqhOpBG2/QQbAh2UHi7eZB",
+    "ssim": "BM9VP5mSRj9KiFs/LINRP3/FRz8VK10/vh9oP+TYaD8aM10/0T5cP7/OYz9LJ2Y/7bFbP5M1Zj+PBmY/PTVUP672Vj/PgWo/IJRlP7+1aT/QRGQ/fjtVP9IJXD+Ai2Y/",
+    "mae": "dXYQPVz+IT048dY8JFUOPbaDQz2cuds89tavPPc9wTxIRuE8ez3cPDUgyzyYb7U8CT/bPGGuqDzrIqU8P/rxPEuO4jwNwZw8aDnjPHW+tDyG07Y8WEvxPAfI7zwTbsw8",
+    "mse": "AQWOO3TApTuZMdU6PoNZO2n4JDw8DRg7Og+SOl01ojoYDf46Crz+OqO2+Dqc8po6ZcPvOqUygzoZp206IuEcO67A5DrxtlE6E+jHOs5qijo0epk6TpMiO3sk/TqtLKo6",
+    "lpips": "Hx+zPflLAD6MIJs9vZSkPWJc/T3biqs9AMR4PfB7Zz1Y04w941yiPXm5jj0uGHM92sucPYJVhT1sW3090LafPRQyoz0n1oQ9Ue6GPVegiD3OKo89pBOyPRJfkz0uyXc9"
   },
-  "metrics_sha256": "fe93dce468781dccdf1418e100c81b7ca2e508e0eb48d584256d7413fc489830",
-  "predictions_sha256": "9209624323bf96617efbd8fb48e473b5ea126de203ccdcbd3d5adaeb7d3b3d7e",
+  "metrics_sha256": "c2ac020f5fc441f3de98010c70103d267d92e5e2439407b3a9ab99c0ee104ca7",
+  "predictions_sha256": "40fe59a7602ac77a9fac05d7f02053437b5d1e7275b1aa3c314eb244110986e1",
   "ground_truth_sha256": "d005b4c083846158cd38d9255dda8b6d4f23aa71d00f75ad900ff9a32443905a"
 }
