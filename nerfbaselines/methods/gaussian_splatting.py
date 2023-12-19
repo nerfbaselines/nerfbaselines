@@ -27,6 +27,6 @@ conda develop .
         "paper_title": "3D Gaussian Splatting for Real-Time Radiance Field Rendering",
         "paper_authors": ["Bernhard Kerbl", "Georgios Kopanas", "Thomas Leimkühler", "George Drettakis"],
         "paper_link": "https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/3d_gaussian_splatting_low.pdf",
-        "link": "",
+        "link": "https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/",
     },
 )

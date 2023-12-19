@@ -1,3 +1,5 @@
+import subprocess
+import tempfile
 import importlib
 import shlex
 import os
@@ -104,18 +106,46 @@ def evaluate_command(predictions, output, disable_extra_metrics):
     evaluate(predictions, output, disable_extra_metrics=disable_extra_metrics)
 
 
-@main.command("compile-dataset-results", hidden=True)
-@click.option("--results", type=click.Path(file_okay=False, exists=True, dir_okay=True, path_type=Path), required=True)
-@click.option("--dataset", type=str, required=True)
-@click.option("--output", "-o", type=click.Path(file_okay=True, dir_okay=False, path_type=Path), required=True)
-def compile_dataset_results_command(results, dataset, output):
-    from .results import compile_dataset_results
+@main.command("render-dataset-results")
+@click.option("--results", type=click.Path(file_okay=True, exists=True, dir_okay=True, path_type=Path), required=False)
+@click.option("--dataset", type=str, required=False)
+@click.option("--output-type", type=click.Choice(["markdown", "json"]), default="markdown")
+@click.option("--output", type=click.Path(file_okay=True, exists=False, dir_okay=False, path_type=Path), default=None)
+def render_dataset_results_command(results: Path, dataset, output_type, output):
+    from .results import compile_dataset_results, render_markdown_dataset_results_table
     from .utils import setup_logging
 
+    def render_output(dataset_info):
+        output_str = None
+        if output_type == "markdown":
+            output_str = render_markdown_dataset_results_table(dataset_info)
+        elif output_type == "json":
+            output_str = json.dumps(dataset_info, indent=2) + os.linesep
+        else:
+            raise RuntimeError(f"Output type {output_type} is not supported")
+        if output is None:
+            print(output_str, end="")
+        else:
+            with output.open("w", encoding="utf8") as f:
+                print(output_str, end="", file=f)
+
     setup_logging(False)
-    dataset_info = compile_dataset_results(results, dataset)
-    with open(output, "w", encoding="utf8") as f:
-        json.dump(dataset_info, f, indent=2)
+    if results is None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            subprocess.check_call("git clone https://github.com/jkulhanek/nerfbaselines.git --branch results --single-branch".split() + [tmpdir])
+            if dataset is None:
+                logging.fatal("--dataset must be provided")
+            dataset_info = compile_dataset_results(Path(tmpdir) / "results", dataset)
+            render_output(dataset_info)
+    elif results.is_dir():
+        if dataset is None:
+            logging.fatal("If --results is a directory, --dataset must be provided")
+        dataset_info = compile_dataset_results(results, dataset)
+        render_output(dataset_info)
+    else:
+        with results.open("r", encoding="utf8") as f:
+            dataset_info = json.load(f)
+        render_output(dataset_info)
 
 
 main.add_command("nerfbaselines.viewer", "viewer")

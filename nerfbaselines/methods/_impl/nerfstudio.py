@@ -161,6 +161,7 @@ class _CustomDataParser(DataParser):
 
             # Transform poses using the dataparser transform
             xyz = torch.cat((xyz, torch.ones_like(xyz[..., :1])), -1) @ transform_matrix.T
+            xyz = (xyz[..., :3] / xyz[..., 3:]).contiguous()
             xyz *= scale_factor
             metadata["points3D_xyz"] = xyz
             metadata["points3D_rgb"] = torch.from_numpy(self.dataset.points3D_rgb)

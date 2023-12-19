@@ -1,9 +1,9 @@
+import json
 import sys
 import pytest
-import json
 from pathlib import Path
 from unittest import mock
-from nerfbaselines.results import get_benchmark_datasets
+from nerfbaselines.results import get_benchmark_datasets, render_markdown_dataset_results_table
 from nerfbaselines.registry import registry
 
 
@@ -82,11 +82,31 @@ def test_compile_dataset_results(tmp_path, dataset, method):
     assert_compile_dataset_results_correct(results, dataset)
 
 
-def test_compile_dataset_results_command(tmp_path):
+def test_render_dataset_results_json_capture_command(tmp_path, capsys):
     dataset = next(iter(get_benchmark_datasets()))
     method = next(iter(registry.keys()))
 
-    with mock.patch.object(sys, "argv", ["nerfbaselines", "compile-dataset-results", "--results", str(tmp_path / "results"), "--dataset", dataset, "--output", str(tmp_path / "results.json")]):
+    with mock.patch.object(sys, "argv", ["nerfbaselines", "render-dataset-results", "--output-type", "json", "--results", str(tmp_path / "results"), "--dataset", dataset]):
+        mock_results(tmp_path.joinpath("results"), [dataset], [method])
+
+        import nerfbaselines.cli
+
+        with pytest.raises(SystemExit) as excinfo:
+            nerfbaselines.cli.main()
+            assert excinfo.value.code == 0
+
+        out, _ = capsys.readouterr()
+        results = json.loads(out)
+        assert_compile_dataset_results_correct(results, dataset)
+
+
+def test_render_dataset_results_json_command(tmp_path):
+    dataset = next(iter(get_benchmark_datasets()))
+    method = next(iter(registry.keys()))
+
+    with mock.patch.object(
+        sys, "argv", ["nerfbaselines", "render-dataset-results", "--output-type", "json", "--results", str(tmp_path / "results"), "--dataset", dataset, "--output", str(tmp_path / "results.json")]
+    ):
         mock_results(tmp_path.joinpath("results"), [dataset], [method])
 
         import nerfbaselines.cli
@@ -97,3 +117,96 @@ def test_compile_dataset_results_command(tmp_path):
 
         results = json.loads(tmp_path.joinpath("results.json").read_text(encoding="utf8"))
         assert_compile_dataset_results_correct(results, dataset)
+
+
+@pytest.fixture
+def dataset_results():
+    return json.loads(
+        """{
+  "id": "mipnerf360",
+  "name": "Mip-NeRF 360",
+  "description": "Mip-NeRF 360 is a novel neural radiance field (NeRF) based method for view synthesis of 360° scenes. It is based on the idea of mip-mapping, which is a technique for efficiently storing and rendering textures at multiple resolutions.",
+  "paper_link": "https://arxiv.org/abs/2104.00677",
+  "link": "https://arxiv.org/abs/2104.00677",
+  "default_metric": "psnr",
+  "scenes": [{
+    "id": "garden",
+    "name": "garden"
+  }, {
+    "id": "bonsai",
+    "name": "bonsai"
+  }],
+  "metrics": [{
+    "id": "psnr",
+    "name": "PSNR",
+    "ascending": true,
+    "description": "Peak Signal-to-Noise-Ratio"
+  }, {
+    "id": "ssim",
+    "name": "SSIM",
+    "ascending": true,
+    "description": "Structural Similarity Index"
+  }, {
+    "id": "lpips",
+    "name": "LPIPS",
+    "ascending": false,
+    "description": "Learned Perceptual Image Patch Similarity"
+  }],
+  "methods": [{
+    "id": "mipnerf360",
+    "name": "mipnerf360",
+    "psnr": 15.0,
+    "ssim": 0.89,
+    "lpips": 0.01,
+    "total_train_time": 100,
+    "scenes": {
+      "garden": {
+        "psnr": 24.5,
+        "ssim": 0.8234,
+        "lpips": 0.005,
+        "total_train_time": 100
+      },
+      "bonsai": {
+        "psnr": 24.5,
+        "ssim": 0.8234,
+        "lpips": 0.005,
+        "total_train_time": 100
+      }
+    }
+  }, {
+    "id": "gaussian-splatting",
+    "name": "Gaussian Splatting",
+    "psnr": 21.0,
+    "ssim": null,
+    "lpips": 0.02,
+    "total_train_time": 100,
+    "gpu_memory": 23500,
+    "scenes": {
+      "garden": {
+        "psnr": 23.5,
+        "ssim": 0.7234,
+        "lpips": 0.005,
+        "total_train_time": 100,
+        "gpu_memory": 23500
+      },
+      "bonsai": {
+        "psnr": 12.5,
+        "ssim": 0.3234,
+        "lpips": 0.005,
+        "total_train_time": 100,
+        "gpu_memory": 23500
+      }
+    }
+  }]
+}
+"""
+    )
+
+
+def test_render_markdown_dataset_results_table(dataset_results):
+    table = render_markdown_dataset_results_table(dataset_results)
+    lines = table.splitlines()
+    print(table)
+    assert len(lines) == 4
+    for line in lines:
+        assert len(line) == len(lines[0])

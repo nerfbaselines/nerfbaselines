@@ -98,3 +98,91 @@ def get_benchmark_datasets() -> List[str]:
     Get the list of registered benchmark datasets.
     """
     return [x.with_suffix("").name for x in (Path(datasets.__file__).absolute().parent.glob("*.json"))]
+
+
+def render_markdown_dataset_results_table(results) -> str:
+    """
+    Generates a markdown table from the output of the `compile_dataset_results` method.
+
+    Args:
+        results: Output of the `nerfbaselines.results.compile_dataset_results` method.
+    """
+    columns = ["name"]
+    table = [["Method"]]
+    align = "l"
+    column_orders = [None]
+
+    default_metric = results["default_metric"]
+    for metric in results["metrics"]:
+        columns.append(metric["id"])
+        table[-1].append(metric["name"])
+        column_orders.append(metric["ascending"])
+        align += "r"
+
+    # Add method's data
+    ord_values = [[] for _ in column_orders]
+    default_metric_id = None
+    for method in results["methods"]:
+        table.append([])
+        for i, (column, asc) in enumerate(zip(columns, column_orders)):
+            value = sort_value = method.get(column, None)
+            if column == default_metric:
+                default_metric_id = i
+            if isinstance(value, float):
+                value = f"{value:03f}"
+            elif value is None:
+                value = "-"
+            table[-1].append(value)
+            if asc is None:
+                continue
+            if sort_value is not None:
+                sort_value = -sort_value if asc else sort_value
+            else:
+                sort_value = float("inf")
+            ord_values[i].append(sort_value)
+
+    # Extract 1st,2nd,3rd places
+    order_table = []
+    for i, (asc, ord_vals) in enumerate(zip(column_orders, ord_values)):
+        order_table.append(None)
+        if asc is None:
+            continue
+        vals = sorted(list(set(ord_vals)))
+        order_table[-1] = [vals.index(x) if x != float("inf") else None for x in ord_vals]
+
+    def pad(value, align, cell_len):
+        cell_len += 2
+        value = f" {value} "
+        padding = (cell_len - len(value)) * " "
+        return (value + padding) if align == "l" else (padding + value)
+
+    def pad_splitter(align, cell_len):
+        cell_len += 2
+        value = (cell_len - 1) * "-"
+        return f":{value}" if align == "l" else f"{value}:"
+
+    # Add bold to best numbers in column and italics to second values
+    for i, order in enumerate(column_orders):
+        if order is None:
+            continue
+        for j, val in enumerate(table[1:]):
+            val = val[i]
+            if order_table[i][j] == 0:
+                val = f"**{val}**"
+            elif order_table[i][j] == 1:
+                val = f"*{val}*"
+            table[j + 1][i] = val
+
+    # Sort by the default metric
+    all_metrics = ",".join(x["id"] for x in results["metrics"])
+    assert default_metric_id is not None, f"Default metric {default_metric} was not found in the set of metrics {all_metrics}."
+    order = [x[1] for x in sorted([(v, i) for i, v in enumerate(ord_values[default_metric_id])])]
+    table = table[:1] + [table[i + 1] for i in order]
+
+    cell_lens = [max(len(x[i]) for x in table) for i in range(len(table[0]))]
+    table_str = ""
+    table_str += "|" + "|".join(map(pad, table[0], align, cell_lens)) + "|\n"
+    table_str += "|" + "|".join(map(pad_splitter, align, cell_lens)) + "|\n"
+    for row in table[1:]:
+        table_str += "|" + "|".join(map(pad, row, align, cell_lens)) + "|\n"
+    return table_str
