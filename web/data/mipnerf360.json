@@ -54,16 +54,19 @@
     "psnr": 15.0,
     "ssim": 0.89,
     "lpips": 0.01,
+    "total_train_time": 100,
     "scenes": {
       "garden": {
         "psnr": 24.5,
         "ssim": 0.8234,
-        "lpips": 0.005
+        "lpips": 0.005,
+        "total_train_time": 100
       },
       "bonsai": {
         "psnr": 24.5,
         "ssim": 0.8234,
-        "lpips": 0.005
+        "lpips": 0.005,
+        "total_train_time": 100
       }
     }
   }, {
@@ -72,16 +75,22 @@
     "psnr": 21.0,
     "ssim": 0.78,
     "lpips": 0.02,
+    "total_train_time": 100,
+    "gpu_memory": 23500,
     "scenes": {
       "garden": {
         "psnr": 23.5,
         "ssim": 0.7234,
-        "lpips": 0.005
+        "lpips": 0.005,
+        "total_train_time": 100,
+        "gpu_memory": 23500
       },
       "bonsai": {
         "psnr": 12.5,
         "ssim": 0.3234,
-        "lpips": 0.005
+        "lpips": 0.005,
+        "total_train_time": 100,
+        "gpu_memory": 23500
       }
     }
   }]

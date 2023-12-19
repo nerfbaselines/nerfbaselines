@@ -8,9 +8,9 @@ export async function generateStaticParams() {
   const datasets = await api.getDatasets();
   const methods = await api.getMethods();
   return datasets.map((dataset) => ({
-    slug: dataset.id,
+    slug: dataset.id.replace(":", "--"),
   })).concat(methods.map((method) => ({
-    slug: method.id,
+    slug: method.id.replace(":", "--"),
   })));
 }
 
@@ -105,10 +105,11 @@ export default async function Page({ params }: {
     slug: string
   }
 }) {
+  const slug = params.slug.replace("--", ":");
   const datasets = await api.getDatasets();
-  if (datasets.find((dataset) => dataset.id === params.slug) !== undefined) {
-    return await DatasetResults(params.slug);
+  if (datasets.find((dataset) => dataset.id === slug) !== undefined) {
+    return await DatasetResults(slug);
   } else {
-    return await MethodResults(params.slug);
+    return await MethodResults(slug);
   }
 }

@@ -10,6 +10,26 @@ import {
 } from 'mantine-react-table';
 import Link from 'next/link';
 
+function formatDuration(time: number) {
+  if (isNaN(time)) return "N/A";
+  if (time > 3600) {
+    return `${Math.floor(time / 3600)}h ${Math.floor(time / 60) % 60}m ${Math.ceil(time % 60)}s`;
+  } else if (time > 60) {
+    return `${Math.floor(time / 60)}m ${Math.ceil(time % 60)}s`;
+  } else {
+    return `${Math.ceil(time)}s`;
+  }
+}
+
+function formatMemory(memory: number) {
+  if (isNaN(memory)) return "N/A";
+  if (memory > 1024) {
+    return `${(memory / 1024).toFixed(2)} GB`
+  } else {
+    return `${(memory).toFixed(2)} MB`
+  }
+}
+
 export default function DatasetResultsTable({
   datasetId,
   methodResults,
@@ -32,11 +52,11 @@ export default function DatasetResultsTable({
           accessorKey: 'name',
           header: 'Method',
           Cell: ({ cell }: { cell: MRT_Cell<api.MethodResults> }) => (
-            <Link href={`/${cell.getContext().row.original.id}`}>{cell.getValue() as any}</Link>
+            <Link href={`/${cell.getContext().row.original.id.replace(":", "--")}`}>{cell.getValue() as any}</Link>
           ),
         });
       if (metricDetail !== undefined) {
-        return list.concat(scenes.map((scene) => ({
+        list = list.concat(scenes.map((scene) => ({
           accessorKey: `scenes.${scene.id}.${metricDetail}`,
           header: scene.name ?? scene.id,
           size: 30,
@@ -44,14 +64,33 @@ export default function DatasetResultsTable({
           enableClickToCopy: true,
         })));
       } else {
-        return list.concat(metrics.map((metric) => ({
+        list = list.concat(metrics.map((metric) => ({
           accessorKey: `${metric.id}`,
           header: metric.name,
           size: 30,
           minSize: 30,
           enableClickToCopy: true,
         })));
+        list.push({
+          accessorKey: 'total_train_time',
+          header: 'Time',
+          size: 30,
+          minSize: 30,
+          Cell: ({ cell }: { cell: MRT_Cell<api.MethodResults> }) => (
+            <span style={{textAlign: "right"}}>{formatDuration(cell.getValue<number>())}</span>
+          ),
+        });
+        list.push({
+          accessorKey: 'gpu_memory',
+          header: 'GPU Mem.',
+          size: 30,
+          minSize: 30,
+          Cell: ({ cell }: { cell: MRT_Cell<api.MethodResults> }) => (
+            <span>{formatMemory(cell.getValue<number>())}</span>
+          )
+        });
       }
+      return list;
     },
     [scenes, metrics]
   );
