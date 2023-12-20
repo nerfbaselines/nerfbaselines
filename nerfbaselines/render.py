@@ -187,7 +187,7 @@ def render_all_images(
 
 @click.command("render")
 @click.option("--checkpoint", type=Path, default=None, required=True)
-@click.option("--data", type=Path, default=None, required=True)
+@click.option("--data", type=str, default=None, required=True)
 @click.option("--output", type=Path, default="predictions", help="output directory or tar.gz file")
 @click.option("--split", type=str, default="test")
 @click.option("--verbose", "-v", is_flag=True)
@@ -214,7 +214,7 @@ def render_command(checkpoint, data, output, split, verbose, backend):
     method = method_cls()
     try:
         method_info = method.get_info()
-        dataset = load_dataset(Path(data), split=split, features=method_info.required_features)
+        dataset = load_dataset(data, split=split, features=method_info.required_features)
         dataset.load_features(method_info.required_features)
         if dataset.color_space != ns_info["color_space"]:
             raise RuntimeError(f"Dataset color space {dataset.color_space} != method color space {ns_info['color_space']}")

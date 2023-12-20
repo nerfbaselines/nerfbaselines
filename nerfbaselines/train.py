@@ -273,7 +273,7 @@ class Trainer:
             update = True
             util = self._resources_utilization_info
         if update:
-            logging.info(f"computing resource utilization at step={self.step}")
+            logging.debug(f"computing resource utilization at step={self.step}")
             new_util = method_get_resources_utilization_info(self.method)
             for k, v in new_util.items():
                 if k not in util:

@@ -23,9 +23,9 @@ def load_blender_dataset(path: Path, split: str, **kwargs):
     scene = path.name
     if scene not in BLENDER_SCENES:
         raise DatasetNotFoundError(f"Scene {scene} not found in nerf_synthetic dataset. Supported scenes: {BLENDER_SCENES}.")
-    for split in BLENDER_SPLITS:
-        if not (path / f"transforms_{split}.json").exists():
-            raise DatasetNotFoundError(f"Path {path} does not contain a blender dataset. Missing file: {path / f'transforms_{split}.json'}")
+    for dsplit in BLENDER_SPLITS:
+        if not (path / f"transforms_{dsplit}.json").exists():
+            raise DatasetNotFoundError(f"Path {path} does not contain a blender dataset. Missing file: {path / f'transforms_{dsplit}.json'}")
 
     assert split in BLENDER_SPLITS, "split must be one of 'train', 'test' or 'val'"
 

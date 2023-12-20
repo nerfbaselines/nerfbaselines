@@ -139,7 +139,11 @@ def evaluate(predictions: Path, output: Path, disable_extra_metrics: Optional[bo
     assert expected_scene_scale is not None, "Expected scene scale must be specified in info.json"
     background_color = info["dataset_background_color"]
     if background_color is not None:
-        background_color = np.array(background_color, dtype=np.float32)
+        background_color = np.array(background_color)
+        if background_color.dtype.kind == "f":
+            background_color = background_color.astype(np.float32)
+        else:
+            background_color = background_color.astype(np.uint8)
 
     # Run the evaluation
     metrics_lists = {}

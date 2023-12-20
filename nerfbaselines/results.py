@@ -129,7 +129,7 @@ def render_markdown_dataset_results_table(results) -> str:
             if column == default_metric:
                 default_metric_id = i
             if isinstance(value, float):
-                value = f"{value:03f}"
+                value = f"{value:.3f}"
             elif value is None:
                 value = "-"
             table[-1].append(value)

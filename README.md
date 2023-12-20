@@ -91,6 +91,16 @@ Even though the argument `--data <dataset>` is optional, it is recommended, as f
 to performa gravity alignement for better viewing experience.
 Again, you can use the `--backend <backend>` flag or `NS_BACKEND=<backend>` environment variable to change the backend.
 
+## Results
+### Mip-NeRF 360
+| Method                     |       PSNR |      SSIM |     LPIPS |
+|:---------------------------|-----------:|----------:|----------:|
+| Mip-NeRF 360               | **27.670** |   *0.792* |   *0.196* |
+| Gaussian Splatting         |   *27.439* | **0.814** | **0.180** |
+| Instant NGP                |     24.899 |     0.673 |     0.355 |
+| NerfStudio (Nerfacto-huge) |     22.536 |     0.634 |     0.243 |
+| NerfStudio                 |     22.230 |     0.573 |     0.403 |
+
 
 ## Implementation status
 Methods:
