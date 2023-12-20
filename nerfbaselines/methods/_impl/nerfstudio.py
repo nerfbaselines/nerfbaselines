@@ -217,8 +217,14 @@ class NerfStudio(Method):
                 logging.warning("Flag pipeline.datamanager.camera_optimizer.mode is not set (required for blender-type dataset)")
             if not _config_safe_set(config, "pipeline.model.use_average_appearance_embedding", False):
                 logging.warning("Flag pipeline.model.use_average_appearance_embedding is not set (required for blender-type dataset)")
-            if not _config_safe_set(config, "pipeline.model.background_color", "random"):
+            if not _config_safe_set(config, "pipeline.model.background_color", "white"):
                 logging.warning("Flag pipeline.model.background_color is not set (required for blender-type dataset)")
+            if not _config_safe_set(config, "pipeline.model.proposal_initial_sampler", "uniform"):
+                logging.warning("Flag pipeline.model.proposal_initial_sampler is not set (required for blender-type dataset)")
+            if not _config_safe_set(config, "pipeline.model.distortion_loss_mult", 0.0):
+                logging.warning("Flag pipeline.model.distortion_loss_mult is not set (required for blender-type dataset)")
+            if not _config_safe_set(config, "pipeline.model.disable_scene_contraction", True):
+                logging.warning("Flag pipeline.model.disable_scene_contraction is not set (required for blender-type dataset)")
 
     @property
     def batch_size(self):
