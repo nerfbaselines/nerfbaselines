@@ -15,6 +15,7 @@ from .utils import setup_logging
 from .communication import RemoteProcessMethod, NB_PREFIX
 from .datasets import download_dataset
 from .evaluate import evaluate
+from .results import MethodLink
 
 
 class LazyGroup(click.Group):
@@ -110,15 +111,16 @@ def evaluate_command(predictions, output, disable_extra_metrics):
 @click.option("--results", type=click.Path(file_okay=True, exists=True, dir_okay=True, path_type=Path), required=False)
 @click.option("--dataset", type=str, required=False)
 @click.option("--output-type", type=click.Choice(["markdown", "json"]), default="markdown")
+@click.option("--method-links", type=click.Choice(MethodLink.__args__), default="none")
 @click.option("--output", type=click.Path(file_okay=True, exists=False, dir_okay=False, path_type=Path), default=None)
-def render_dataset_results_command(results: Path, dataset, output_type, output):
+def render_dataset_results_command(results: Path, dataset, output_type, output, method_links="none"):
     from .results import compile_dataset_results, render_markdown_dataset_results_table
     from .utils import setup_logging
 
     def render_output(dataset_info):
         output_str = None
         if output_type == "markdown":
-            output_str = render_markdown_dataset_results_table(dataset_info)
+            output_str = render_markdown_dataset_results_table(dataset_info, method_links=method_links)
         elif output_type == "json":
             output_str = json.dumps(dataset_info, indent=2) + os.linesep
         else:

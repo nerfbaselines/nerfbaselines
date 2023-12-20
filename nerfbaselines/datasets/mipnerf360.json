@@ -1,7 +1,7 @@
 {
     "id": "mipnerf360",
     "name": "Mip-NeRF 360",
-    "description": "Mip-NeRF 360 is a collection of four indoor and five outdoor object-centric scenes. The camera trajectory is an orbit around the object with fixed elevation and radius. The test set takes each n-th frame of the trajectory as test view.",
+    "description": "Mip-NeRF 360 is a collection of four indoor and five outdoor object-centric scenes. The camera trajectory is an orbit around the object with fixed elevation and radius. The test set takes each n-th frame of the trajectory as test views.",
     "paper_title": "Mip-NeRF 360: Unbounded Anti-Aliased Neural Radiance Fields",
     "paper_authors": ["Jonathan T. Barron", "Ben Mildenhall", "Dor Verbin", "Pratul P. Srinivasan", "Peter Hedman"],
     "paper_link": "https://arxiv.org/pdf/2111.12077.pdf",

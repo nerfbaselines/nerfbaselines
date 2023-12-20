@@ -1,3 +1,4 @@
+import math
 from typing import List, Dict
 import base64
 import os
@@ -8,6 +9,10 @@ import warnings
 import numpy as np
 from . import metrics
 from . import datasets
+from .types import Literal, Optional
+
+
+MethodLink = Literal["paper", "website", "results", "none"]
 
 
 def get_dataset_info(dataset: str) -> Dict:
@@ -69,6 +74,10 @@ def compile_dataset_results(results_path: Path, dataset: str) -> Dict:
         method_data["id"] = method_id
         method_data["scenes"] = {}
 
+        # Skip methods not evaluated on the dataset
+        if not any(results_path.joinpath(method_id, dataset).glob("*.json")):
+            continue
+
         # Load the results
         agg_metrics = {}
         for scene in dataset_info["scenes"]:
@@ -100,7 +109,30 @@ def get_benchmark_datasets() -> List[str]:
     return [x.with_suffix("").name for x in (Path(datasets.__file__).absolute().parent.glob("*.json"))]
 
 
-def render_markdown_dataset_results_table(results) -> str:
+def format_duration(seconds: Optional[float]) -> str:
+    if seconds is None:
+        return "-"
+    parts = []
+    if seconds >= 3600:
+        parts.append(f"{int(seconds // 3600):d}h")
+        seconds = seconds % 3600
+    if seconds >= 60:
+        parts.append(f"{int(seconds // 60):d}m")
+        seconds = seconds % 60
+    parts.append(f"{math.ceil(seconds):d}s")
+    return " ".join(parts)
+
+
+def format_memory(memory: Optional[float]) -> str:
+    # Memory is in MB
+    if memory is None:
+        return "-"
+    if memory < 1024:
+        return f"{memory:.0f} MB"
+    return f"{memory / 1024:.1f} GB"
+
+
+def render_markdown_dataset_results_table(results, method_links: MethodLink = "none") -> str:
     """
     Generates a markdown table from the output of the `compile_dataset_results` method.
 
@@ -119,17 +151,46 @@ def render_markdown_dataset_results_table(results) -> str:
         column_orders.append(metric["ascending"])
         align += "r"
 
+    # Add train time and GPU memory
+    columns.append("total_train_time")
+    table[-1].append("Time")
+    column_orders.append(False)
+    columns.append("gpu_memory")
+    column_orders.append(False)
+    table[-1].append("GPU mem.")
+    align += "rr"
+
+    def get(data, path):
+        parts = path.split(".")
+        for p in parts[:-1]:
+            data = data.get(p, {})
+        return data.get(parts[-1], None)
+
     # Add method's data
     ord_values = [[] for _ in column_orders]
     default_metric_id = None
     for method in results["methods"]:
         table.append([])
         for i, (column, asc) in enumerate(zip(columns, column_orders)):
-            value = sort_value = method.get(column, None)
+            value = sort_value = get(method, column)
             if column == default_metric:
                 default_metric_id = i
-            if isinstance(value, float):
+            if column == "name":
+                # Render link if requested
+                if method_links == "paper" and "paper_link" in method:
+                    value = f"[{value}]({method['paper_link']})"
+                elif method_links == "website" and "link" in method:
+                    value = f"[{value}]({method['link']})"
+                elif method_links == "results":
+                    value = f"[{value}](https://jkulhanek.com/nerfbaselines/{method['id'].replace(':', '--')})"
+            elif column == "total_train_time":
+                value = format_duration(value)
+            elif column == "gpu_memory":
+                value = format_memory(value)
+            elif isinstance(value, float):
                 value = f"{value:.3f}"
+            elif isinstance(value, int):
+                value = f"{value:d}"
             elif value is None:
                 value = "-"
             table[-1].append(value)
