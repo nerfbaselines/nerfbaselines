@@ -34,6 +34,8 @@ export interface Dataset {
   id: string;
 }
 
+const datasetOrder = ["mipnerf360", "blender"];
+
 export async function getDatasetData(dataset: string) : Promise<DatasetResults> {
   const dataRaw = await fs.readFile(`./data/${dataset}.json`, {encoding: "utf8"});
   let data: DatasetResults = JSON.parse(dataRaw);
@@ -43,53 +45,48 @@ export async function getDatasetData(dataset: string) : Promise<DatasetResults> 
   return data;
 }
 
-export async function getMethodData(method: string) : Promise<DatasetResults[]> {
-  let datasets: DatasetResults[] = [];
-  const items = await fs.readdir("./data");
-  for (let i = 0; i < items.length; i++) {
-    const datasetId = items[i].replace(".json", "");
-    let data = await getDatasetData(datasetId);
-    data.methods = data.methods.filter((m: MethodResults) => m.id === method);
-    datasets.push(data);
-  }
-  return datasets;
+async function getAllDatasets() : Promise<DatasetResults[]> {
+  let datasetIds = ((await fs.readdir("./data"))
+    .filter((f: string) => f.endsWith(".json"))
+    .map((f: string) => f.replace(".json", ""))
+  );
+  datasetIds = (datasetOrder
+    .filter((d: string) => datasetIds.includes(d))
+    .concat(datasetIds.filter((d: string) => !datasetOrder.includes(d)))
+  );
+
+  return await Promise.all(datasetIds.map((datasetId: string) => getDatasetData(datasetId)));
 }
 
 export async function getDatasets() : Promise<Dataset[]> {
-  let datasets: Dataset[] = [];
-  const items = await fs.readdir("./data");
-  for (let i = 0; i < items.length; i++) {
-    const datasetId = items[i].replace(".json", "");
-    const dataset = await getDatasetData(datasetId);
-    datasets.push({
-      id: datasetId,
-      name: dataset.name,
-    });
-  }
-  return datasets;
+  return (await getAllDatasets()).map((d: DatasetResults) => ({
+    id: d.id,
+    name: d.name
+  }));
+}
+
+export async function getMethodData(method: string) : Promise<DatasetResults[]> {
+  return (await getAllDatasets()).map((d: DatasetResults) => ({
+    ...d,
+    methods: d.methods.filter((m: MethodResults) => m.id === method)
+   })).filter((d: DatasetResults) => d.methods.length > 0);
 }
 
 export async function getMethods() : Promise<BaseInfo[]> {
-  let methods: BaseInfo[] = [];
-  const methodIds = new Set<string>();
-  const items = await fs.readdir("./data");
-  for (let i = 0; i < items.length; i++) {
-    const datasetId = items[i].replace(".json", "");
-    const dataset = await getDatasetData(datasetId);
-    for (let method of dataset.methods) {
-      if (!methodIds.has(method.id)) {
-        methodIds.add(method.id);
-        methods.push({
-          id: method.id,
-          name: method.name,
-          description: method.description,
-          link: method.link,
-          paper_title: method.paper_title,
-          paper_link: method.paper_link,
-          paper_authors: method.paper_authors,
-        });
-      }
-    }
-  }
-  return methods;
+  const datasets = await getAllDatasets();
+  let methodIds = new Set<string>();
+  let rawMethods = datasets.flatMap((d: DatasetResults) => d.methods).filter((m: MethodResults) => {
+    const out = !methodIds.has(m.id)
+    methodIds.add(m.id);
+    return out;
+  });
+  return rawMethods.map((method: MethodResults) => ({
+    id: method.id,
+    name: method.name,
+    description: method.description,
+    link: method.link,
+    paper_title: method.paper_title,
+    paper_link: method.paper_link,
+    paper_authors: method.paper_authors,
+  }));
 }
