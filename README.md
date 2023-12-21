@@ -106,16 +106,19 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 | [Instant NGP](https://jkulhanek.com/nerfbaselines/instant-ngp)                   |     24.899 |     0.673 |     0.355 | **4m 16s** |   *5.6 GB* |
 | [NerfStudio (Nerfacto-huge)](https://jkulhanek.com/nerfbaselines/nerfacto--huge) |     22.536 |     0.634 |     0.243 | 2h 27m 27s |    17.5 GB |
 | [NerfStudio](https://jkulhanek.com/nerfbaselines/nerfacto)                       |     22.230 |     0.573 |     0.403 |  *10m 31s* | **4.3 GB** |
+| [Tetra-NeRF](https://jkulhanek.com/nerfbaselines/tetra-nerf)                     |          - |         - |         - |          - |          - |
 
 ### Blender
 Blender (nerf-synthetic) is a synthetic dataset used to benchmark NeRF methods. It consists of 8 scenes of an object placed on a white background. Cameras are placed on a semi-sphere around the object.
 Detailed results are available on the project page: [https://jkulhanek.com/nerfbaselines/blender](https://jkulhanek.com/nerfbaselines/blender)
 
-| Method                                                                       |       PSNR |      SSIM |     LPIPS |       Time |   GPU mem. |
-|:-----------------------------------------------------------------------------|-----------:|----------:|----------:|-----------:|-----------:|
-| [Gaussian Splatting](https://jkulhanek.com/nerfbaselines/gaussian-splatting) | **33.308** | **0.969** | **0.023** |    *6m 6s* |   *3.1 GB* |
-| [Instant NGP](https://jkulhanek.com/nerfbaselines/instant-ngp)               |   *32.191* |   *0.959* |   *0.031* | **2m 23s** | **2.6 GB** |
-| [NerfStudio](https://jkulhanek.com/nerfbaselines/nerfacto)                   |     24.590 |     0.899 |     0.116 |     9m 27s |     3.9 GB |
+| Method                                                                           |       PSNR |      SSIM |     LPIPS |       Time |   GPU mem. |
+|:---------------------------------------------------------------------------------|-----------:|----------:|----------:|-----------:|-----------:|
+| [Gaussian Splatting](https://jkulhanek.com/nerfbaselines/gaussian-splatting)     | **33.308** | **0.969** | **0.023** |    *6m 6s* |   *3.1 GB* |
+| [Instant NGP](https://jkulhanek.com/nerfbaselines/instant-ngp)                   |   *32.191* |   *0.959* |   *0.031* | **2m 23s** | **2.6 GB** |
+| [Mip-NeRF 360](https://jkulhanek.com/nerfbaselines/mipnerf360)                   |     30.345 |     0.951 |     0.038 | 3h 29m 39s |   114.8 GB |
+| [NerfStudio](https://jkulhanek.com/nerfbaselines/nerfacto)                       |     28.277 |     0.939 |     0.051 |    10m 34s |     3.9 GB |
+| [NerfStudio (Nerfacto-huge)](https://jkulhanek.com/nerfbaselines/nerfacto--huge) |     26.375 |     0.931 |     0.057 |  3h 8m 18s |    14.8 GB |
 
 ## Implementation status
 Methods:
