@@ -115,14 +115,20 @@ class MethodSpec:
             return "conda"
         should_install = []
         if self.docker is not None:
-            retcode = subprocess.run(["docker", "-v"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if retcode == 0:
-                return "docker"
+            try:
+                retcode = subprocess.run(["docker", "-v"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if retcode == 0:
+                    return "docker"
+            except FileNotFoundError:
+                pass
             should_install.append("docker")
         if self.apptainer is not None:
-            retcode = subprocess.run(["apptainer", "-v"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if retcode == 0:
-                return "apptainer"
+            try:
+                retcode = subprocess.run(["apptainer", "-v"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if retcode == 0:
+                    return "apptainer"
+            except FileNotFoundError:
+                pass
             should_install.append("apptainer")
         raise RuntimeError("No backend available, please install " + " or ".join(should_install))
 

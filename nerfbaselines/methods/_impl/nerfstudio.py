@@ -138,6 +138,7 @@ class _CustomDataParser(DataParser):
 
         if self.method.checkpoint is not None:
             assert self.method.dataparser_params is not None
+        self.method._patch_dataparser_params()
         scene_box = SceneBox(aabb=torch.tensor([[-aabb_scale, -aabb_scale, -aabb_scale], [aabb_scale, aabb_scale, aabb_scale]], dtype=torch.float32))
         th_poses = self.method._transform_poses(torch.from_numpy(self.dataset.cameras.poses).float())
         distortion_parameters = torch.from_numpy(_map_distortion_parameters(self.dataset.cameras.distortion_parameters))
@@ -205,6 +206,9 @@ class NerfStudio(Method):
         self._mode = None
         self.dataparser_params = None
         self.require_points3D = require_points3D if require_points3D is not None else self.require_points3D
+
+    def _patch_dataparser_params(self):
+        pass
 
     def _apply_config_patch_for_dataset(self, config, dataset: Dataset):
         if dataset.metadata.get("type") == "blender":

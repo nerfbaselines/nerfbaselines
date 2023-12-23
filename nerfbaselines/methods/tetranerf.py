@@ -1,11 +1,16 @@
 from ..backends import DockerMethod
-from .nerfstudio import NerfStudio
-from ..registry import MethodSpec
+from ..registry import MethodSpec, LazyMethod
+from ..types import Optional
+
+
+class TetraNeRF(LazyMethod["._impl.tetranerf", "TetraNeRF"]):
+    nerfstudio_name: Optional[str] = None
+    require_points3D: bool = True
 
 
 TetraNeRFSpec = MethodSpec(
-    method=NerfStudio,
-    docker=DockerMethod.wrap(NerfStudio, image="kulhanek/tetra-nerf:latest", python_path="python3", home_path="/home/user"),
+    method=TetraNeRF,
+    docker=DockerMethod.wrap(TetraNeRF, image="kulhanek/tetra-nerf:latest", python_path="python3", home_path="/home/user"),
     metadata={
         "name": "Tetra-NeRF",
         "paper_title": "Tetra-NeRF: Representing Neural Radiance Fields Using Tetrahedra",

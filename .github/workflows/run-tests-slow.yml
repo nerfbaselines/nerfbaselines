@@ -143,4 +143,8 @@ jobs:
           pip install pytest typeguard
       - name: Test datasets
         run: |
-          nerfbaselines download-dataset '${{ matrix.dataset }}' -o /tmp/dataset
+          scene_name="${{ matrix.dataset }}"
+          scene_name="${scene_name##*/}"
+          nerfbaselines download-dataset '${{ matrix.dataset }}' -o /tmp/$scene_name
+          python -c "import nerfbaselines.datasets as d;f=set(['color']);k=d.load_dataset('/tmp/$scene_name', split='train', features=f); k.load_features(f)"
+          python -c "import nerfbaselines.datasets as d;f=set(['color']);k=d.load_dataset('/tmp/$scene_name', split='test', features=f); k.load_features(f)"

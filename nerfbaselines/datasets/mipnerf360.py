@@ -97,10 +97,20 @@ def download_mipnerf360_dataset(path: str, output: Path):
                 for _, capture_name, output in captures:
                     output_tmp = output.with_suffix(".tmp")
                     output_tmp.mkdir(exist_ok=True, parents=True)
-                    for name in z.namelist():
-                        if name.startswith(capture_name):
-                            z.extract(name, output_tmp)
-                            has_any = True
+                    for info in z.infolist():
+                        if not info.filename.startswith(capture_name + "/"):
+                            continue
+                        # z.extract(name, output_tmp)
+                        has_any = True
+                        relname = info.filename[len(capture_name) + 1 :]
+                        target = output_tmp / relname
+                        target.parent.mkdir(exist_ok=True, parents=True)
+                        if info.is_dir():
+                            target.mkdir(exist_ok=True, parents=True)
+                        else:
+                            with z.open(info) as source, open(target, "wb") as target:
+                                shutil.copyfileobj(source, target)
+
                     shutil.rmtree(output, ignore_errors=True)
                     if not has_any:
                         raise RuntimeError(f"Capture '{capture_name}' not found in {url}.")
