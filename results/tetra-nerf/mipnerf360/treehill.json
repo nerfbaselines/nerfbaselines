@@ -1,29 +1,34 @@
 {
   "info": {
     "method": "tetra-nerf",
-    "nb_version": "0.0.9.dev3+gbf7a688",
+    "nb_version": "0.0.11.dev3+gc94345e.d20231219",
     "color_space": "srgb",
-    "checkpoint_sha256": "cc96c673b5b2bb372db55c4d8562aa44172d00efc4f9ab0fe4e7feaa0e87c762",
-    "expected_scene_scale": 2.1884069442749023,
+    "expected_scene_scale": 2.18841,
+    "total_train_time": 62305.5855,
+    "resources_utilization": {
+      "memory": 5399,
+      "gpu_memory": 13672
+    },
+    "checkpoint_sha256": "49a373afe32507865b7f1d657d3f47181611320d2eb5d2998bd77239f467128c",
     "dataset_type": "mipnerf360",
     "dataset_scene": "treehill",
     "dataset_background_color": null
   },
   "metrics": {
-    "psnr": 19.26043,
-    "ssim": 0.35395,
-    "mae": 0.07656,
-    "mse": 0.01291,
-    "lpips": 0.7769
+    "psnr": 22.11897,
+    "ssim": 0.47124,
+    "mae": 0.05219,
+    "mse": 0.00669,
+    "lpips": 0.58784
   },
   "metrics_raw": {
-    "psnr": "nYSCQbqPikEWb29BFLqTQRsUlUFIppxBm3CdQdTbr0E4BZFBgtWmQdQFpkF/FJpBksWkQTgXo0G53J1BhJCjQSHwoUFYxJpB",
-    "ssim": "bI3bPqN4xT7v47Q+nUDVPjWl1D4FU80+mA+4PuSRyj5OhKU+2QOxPiJitD7QU58+xuulPsPmpz5Md5M+uPe5PmVQnj4yaIo+",
-    "mae": "YibAPatauj3RS+Q9UMqZPZG3mD3MsIo9+eCOPR1+dT0AVq09+iyLPas0jD2yhZw9gnKNPeQqkj0wyJo9MeaKPYlOlD2j6aU9",
-    "mse": "VmO/PMfVlzwblgI9tEFpPDNbYDw8bTQ8ZV4wPDiYzztQJ3w8nJUGPI7DCTyrRkI8jtAOPAblFTzkPC48St0TPILzGjwHeT48",
-    "lpips": "Wto0Pw6aRT/Q7Eg/qYBBP4sNOz8i3UI/4RJAP4m9Qz9PJE8/7oNHP58TRT87dUs/rE9LP3edSj+nFEo/LpA+P8THUT8fzV0/"
+    "psnr": "CZSRQZkhnkGEXZ1BUn6kQVw4pUHM96xB+Ka7QZTsxkEbjaxBCby8Qb91xEF61KxBMyK4Qf4NvEGiUbVBDuq7QY1VuUG0d7FB",
+    "ssim": "RSz0PsSg9z4nXeU+ZVX5PoHAAT+QNvE+5KD+Pl3cBD9zLO8+A7/5Phmc/j62rOc+OTnqPmtJ7j5io+A+/gr7Pthx5D5mh8c+",
+    "mae": "7OOMPY6CgD34v4A9Tb1gPbXWVT109009dvg1PbrrLj3+v2M907VHPW4tLT3NXFg94UNMPV2MRj1wXU89hwJAPWYrTj2bC2E9",
+    "mse": "GCN4PNDkLDxovzA8nvYPPML7DDwdm+E7f9eTO8vCVTsSVOQ7sk6PO/l4ZTvpgOI7TJmjO6Ujkjt7Z7E7HLuSO8QKnjtZM8Y7",
+    "lpips": "WD8VP8cUFz/7uBo/uI4iP+8QCD9TNxA/EOUJP3VYDz9yPRU/rK4UPx9AEz9eJRY/stEXP08JFz+TBB4/YK0PP35zIT9STig/"
   },
-  "metrics_sha256": "3cf048729e538d0ad215b7b876fbfd27c96188c0ba856ac023116bf170737375",
-  "predictions_sha256": "f33d35dcbcbc3cc53894671844e931275fec894c6ace64ebec18b608d629e190",
+  "metrics_sha256": "fa6635b733e6d2b20405c09bd666dc8bbc744092193674c57af92b2821c65b56",
+  "predictions_sha256": "f7798efe94978acb21adffa19f338af36d6bdddb0f95269f8ebf4fcb22a4e326",
   "ground_truth_sha256": "95b392ebdbe7f4c3d1de84e1ddbf1b15ee2668e20f25702b8b391b6ec854978e"
 }
