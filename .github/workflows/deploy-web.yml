@@ -3,9 +3,6 @@ on:
   push:
     branches:
       - web
-  pull_request:
-    branches:
-      - web
   workflow_dispatch:
   workflow_call:
 
@@ -22,7 +19,80 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  setup-demos:
+    runs-on: ubuntu-latest
+    outputs:
+      gaussian-splatting: ${{ steps.output.outputs.gaussian-splatting }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main
+      - uses: actions/checkout@v4
+        with:
+          ref: results
+          path: results
+      - name: List scenes and methods
+        id: output
+        run: |
+          output=""
+          cd results
+          for dataset in $(ls results | xargs -I {} ls -1 results/{} | sort | uniq); do
+            for scene in $(ls results/gaussian-splatting/$dataset | xargs -I {} ls -1 results/gaussian-splatting/$dataset/{} | sort | uniq); do
+              scene="${scene##*/}"
+              scene="${scene%.*}"
+              hash="$(sha256sum results/gaussian-splatting/$dataset/$scene.json | cut -d' ' -f1)"
+              output+="{\"path\": \"$dataset/$scene\", \"hash\": \"$hash\", \"name\": \"$dataset--$scene\"},"
+            done
+          done
+          output="[${output%?}]"
+          echo "$output"
+          echo "gaussian-splatting=$output" >> $GITHUB_OUTPUT
+  demos:
+    needs:
+      - setup-demos
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.setup-demos.outputs.gaussian-splatting) }}
+    steps:
+      - name: Restore splats
+        uses: actions/cache@v3
+        id: cache-gs
+        with:
+          path: scenes/${{ matrix.name }}.splat
+          key: demos-gs-${{ matrix.hash }}
+      - uses: actions/setup-python@v5
+        if: steps.cache-gs.outputs.cache-hit != 'true'
+        with:
+          python-version: '3.x'
+      - name: Export splats
+        if: steps.cache-gs.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p tmp
+          git clone https://github.com/SpectacularAI/point-cloud-tools tmp
+          pip install -r tmp/requirements.txt
+          export PYTHONPATH="$PYTHONPATH:tmp"
+
+          echo "Exporting splats for $dataset/$scene"
+          wget --progress=bar:force:noscroll https://data.ciirc.cvut.cz/public/projects/2023NerfBaselines/data/gaussian-splatting/${{ matrix.path }}.zip -O tmp/${{ matrix.name }}.zip
+          unzip -p tmp/${{ matrix.name }}.zip checkpoint/point_cloud/iteration_30000/point_cloud.ply > tmp/${{ matrix.name }}.ply
+          mkdir -p scenes
+          python tmp/convert.py \
+            tmp/${{ matrix.name }}.ply \
+            ${{ matrix.name}}.splat \
+            --ply_input_format=inria
+      - uses: actions/upload-artifact@v3
+        with:
+          name: ${{ github.run_id }}-artifact-${{ matrix.name }}
+          path: ${{ matrix.name }}.splat
+          if-no-files-found: ignore
+          retention-days: 1
+  
   deploy:
+    needs:
+      - demos
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -40,7 +110,11 @@ jobs:
           rm -rf results
           git fetch origin results --depth 1
           git checkout origin/results --no-overlay -- results
-      - uses: actions/setup-python@v2
+      - name: Download generated artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: generated
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
       - name: Generate data
@@ -53,6 +127,10 @@ jobs:
             nerfbaselines render-dataset-results --output-type json --results results --dataset $dataset --output web/data/$dataset.json
             echo "Generated web/data/$dataset.json"
           done
+      - name: Copy splats to /public/demos
+        run: |
+          mkdir -p web/public/demos
+          find generated -name '*.splat' -exec cp {} web/public/demos \;
       - name: Setup Pages
         uses: actions/configure-pages@v4
       - name: Install and build

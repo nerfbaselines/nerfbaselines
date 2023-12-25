@@ -1,12 +1,8 @@
-import { Button } from '@mantine/core';
-import Image from 'next/image'
-import { useMemo } from 'react';
 import MainHeader from './components/MainHeader';
 import { IconExternalLink } from '@tabler/icons-react';
 import DatasetResultsTable from '@/app/components/DatasetResultsTable';
 import Link from 'next/link';
 import * as api from '@/utils/api';
-import logo from "@/public/logo.png";
 
 export default async function Home() {
   const datasets = await api.getDatasets();

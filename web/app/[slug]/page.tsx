@@ -10,7 +10,7 @@ export async function generateStaticParams() {
   return datasets.map((dataset) => ({
     slug: dataset.id.replace(":", "--"),
   })).concat(methods.map((method) => ({
-    slug: method.id.replace(":", "--"),
+    slug: "m-" + method.id.replace(":", "--"),
   })));
 }
 
@@ -118,11 +118,11 @@ export default async function Page({ params }: {
     slug: string
   }
 }) {
-  const slug = params.slug.replace("--", ":");
-  const datasets = await api.getDatasets();
-  if (datasets.find((dataset) => dataset.id === slug) !== undefined) {
-    return await DatasetResults(slug);
-  } else {
+  let slug = params.slug.replace("--", ":");
+  if (slug.startsWith("m-")) {
+    slug = slug.substring(2);
     return await MethodResults(slug);
+  } else {
+    return await DatasetResults(slug);
   }
 }

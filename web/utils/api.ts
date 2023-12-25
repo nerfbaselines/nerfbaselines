@@ -1,4 +1,6 @@
 import { promises as fs } from "fs";
+import { resolveHref } from 'next/dist/client/resolve-href';
+
 
 export interface BaseInfo {
   id: string;
@@ -20,6 +22,7 @@ export interface Metric extends BaseInfo {
 export interface Scene {
   id: string;
   name?: string;
+  demo_link: string | null;
 }
 
 export interface DatasetResults extends BaseInfo {
@@ -36,12 +39,31 @@ export interface Dataset {
 
 const datasetOrder = ["mipnerf360", "blender"];
 
+export function getDemoLink(dataset: string, method: string, scene: string) : string | null {
+  if (method == "gaussian-splatting") {
+    const splatLink = `https://jkulhanek.com/nerfbaselines/demos/${dataset.replace(":", "--")}--${scene.replace(":", "--")}.splat`
+    return `https://antimatter15.com/splat/?url=${encodeURIComponent(splatLink)}`;
+  }
+  return null;
+}
+
 export async function getDatasetData(dataset: string) : Promise<DatasetResults> {
   const dataRaw = await fs.readFile(`./data/${dataset}.json`, {encoding: "utf8"});
   let data: DatasetResults = JSON.parse(dataRaw);
   const defaultMetric = data.default_metric || data.metrics[0].id;
   const sign = data.metrics.find((m: Metric) => m.id === defaultMetric)?.ascending?-1:1;
+  let scenesMap: any = {};
+  data.scenes.forEach((s: Scene) => scenesMap[s.id] = s);
   data.methods.sort((a: any, b: any) => sign * (a[defaultMetric]-b[defaultMetric]));
+  data.methods = data.methods.map((m: any) => ({
+    ...m,
+    scenes: data.scenes.filter(x => m.scenes[x.id] !== undefined).map((s: any) => ({
+      ...s,
+      ...m.scenes[s.id],
+      demo_link: getDemoLink(dataset, m.id, s.id),
+      data_link: `https://data.ciirc.cvut.cz/public/projects/2023NerfBaselines/data/${m.id}/${dataset}/${s.id}.zip`
+    })),
+  }));
   return data;
 }
 
