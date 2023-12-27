@@ -182,7 +182,7 @@ def render_markdown_dataset_results_table(results, method_links: MethodLink = "n
                 elif method_links == "website" and "link" in method:
                     value = f"[{value}]({method['link']})"
                 elif method_links == "results":
-                    value = f"[{value}](https://jkulhanek.com/nerfbaselines/{method['id'].replace(':', '--')})"
+                    value = f"[{value}](https://jkulhanek.com/nerfbaselines/m-{method['id'].replace(':', '--')})"
             elif column == "total_train_time":
                 value = format_duration(value)
             elif column == "gpu_memory":

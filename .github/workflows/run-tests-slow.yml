@@ -25,6 +25,11 @@ jobs:
           pip install pytest typeguard
       - name: Run tests
         run: pytest -rA
+      - name: Test if README results are up to date
+        run: |
+          for dataset in blender mipnerf360; do
+            results=$(python -m nerfbaselines render-dataset-results --dataset $dataset --method-links results) python -c "import os;assert os.environ['results'] in open('README.md').read(), 'README.md is out of date. Please run \'python -m nerfbaselines render-dataset-results --dataset $dataset --method-links results\' and add the output to README.md file'"
+          done
       - name: Install dev-extras
         id: dev-extras
         if: ${{ matrix.python == '3.9' }}
