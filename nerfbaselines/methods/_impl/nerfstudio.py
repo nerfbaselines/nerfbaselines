@@ -64,7 +64,7 @@ def _map_distortion_parameters(distortion_parameters):
         ),
         -1,
     )
-    distortion_parameters = distortion_parameters[..., [0, 1, 4, 5, 3, 4]]
+    distortion_parameters = distortion_parameters[..., [0, 1, 4, 5, 2, 3]]
     return distortion_parameters
 
 

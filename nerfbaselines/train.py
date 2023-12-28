@@ -15,6 +15,7 @@ from tqdm import tqdm
 import numpy as np
 from PIL import Image
 import click
+from .io import open_any_directory
 from .datasets import load_dataset, Dataset
 from .utils import Indices, setup_logging, partialclass, image_to_srgb, visualize_depth, handle_cli_error
 from .utils import remap_error, convert_image_dtype, get_resources_utilization_info
@@ -592,63 +593,69 @@ def train_command(method, checkpoint, data, output, verbose, backend, eval_singl
             logging.error("Extra metrics are not available and will be disabled. Please install the required dependencies by running `pip install nerfbaselines[extras]`.")
             disable_extra_metrics = True
 
-    # Make paths absolute, and change working directory to output
-    if "://" not in data:
-        data = os.path.abspath(data)
-    output = os.path.abspath(output)
-    os.chdir(output)
-
     if method is None and checkpoint is None:
         logging.error("Either --method or --checkpoint must be specified")
         sys.exit(1)
 
+    def _train(checkpoint_path=None):
+        with open_any_directory(output, "w") as output_path:
+            # Make paths absolute, and change working directory to output
+            _data = data
+            if "://" not in _data:
+                _data = os.path.abspath(_data)
+            os.chdir(str(output_path))
+
+            method_spec = registry.get(method)
+            _method, _backend = method_spec.build(backend=backend, checkpoint=Path(os.path.abspath(checkpoint_path)) if checkpoint_path else None)
+            logging.info(f"Using method: {method}, backend: {_backend}")
+
+            # Enable direct memory access to images and if supported by the backend
+            if _backend in {"docker", "apptainer"} and "://" not in _data:
+                _method = partialclass(_method, mounts=[(_data, _data)])
+            if hasattr(_method, "install"):
+                _method.install()
+
+            loggers = set()
+            if vis == "wandb":
+                loggers.add("wandb")
+            elif vis == "tensorboard":
+                loggers.add("tensorboard")
+            elif vis == "wandb+tensorboard" or vis == "tensorboard+wandb":
+                loggers = frozenset({"wandb", "tensorboard"})
+            elif vis == "none":
+                pass
+            else:
+                raise ValueError(f"unknown visualization tool {vis}")
+
+            trainer = Trainer(
+                train_dataset=_data,
+                output=Path(output),
+                method=_method,
+                eval_all_iters=eval_all_iters,
+                eval_single_iters=eval_single_iters,
+                loggers=frozenset(loggers),
+                num_iterations=num_iterations,
+                run_extra_metrics=not disable_extra_metrics,
+                generate_output_artifact=generate_output_artifact,
+                method_name=method,
+            )
+            try:
+                trainer.setup_data()
+                trainer.train()
+            finally:
+                trainer.close()
+
     if checkpoint is not None:
-        with open(os.path.join(checkpoint, "nb-info.json"), "r", encoding="utf8") as f:
-            info = json.load(f)
-        if method is not None and method != info["method"]:
-            logging.error(f"Argument --method={method} is in conflict with the checkpoint's method {info['method']}.")
-            sys.exit(1)
-        method = info["method"]
-
-    method_spec = registry.get(method)
-    _method, backend = method_spec.build(backend=backend, checkpoint=Path(os.path.abspath(checkpoint)) if checkpoint else None)
-    logging.info(f"Using method: {method}, backend: {backend}")
-
-    # Enable direct memory access to images and if supported by the backend
-    if backend in {"docker", "apptainer"} and "://" not in data:
-        _method = partialclass(_method, mounts=[(data, data)])
-    if hasattr(_method, "install"):
-        _method.install()
-
-    loggers = set()
-    if vis == "wandb":
-        loggers.add("wandb")
-    elif vis == "tensorboard":
-        loggers.add("tensorboard")
-    elif vis == "wandb+tensorboard" or vis == "tensorboard+wandb":
-        loggers = frozenset({"wandb", "tensorboard"})
-    elif vis == "none":
-        pass
+        with open_any_directory(checkpoint) as checkpoint_path:
+            with open(os.path.join(checkpoint_path, "nb-info.json"), "r", encoding="utf8") as f:
+                info = json.load(f)
+            if method is not None and method != info["method"]:
+                logging.error(f"Argument --method={method} is in conflict with the checkpoint's method {info['method']}.")
+                sys.exit(1)
+            method = info["method"]
+            _train(checkpoint_path)
     else:
-        raise ValueError(f"unknown visualization tool {vis}")
-
-    trainer = Trainer(
-        train_dataset=data,
-        output=Path(output),
-        method=_method,
-        eval_all_iters=eval_all_iters,
-        eval_single_iters=eval_single_iters,
-        loggers=frozenset(loggers),
-        num_iterations=num_iterations,
-        run_extra_metrics=not disable_extra_metrics,
-        generate_output_artifact=generate_output_artifact,
-        method_name=method,
-    )
-    try:
-        trainer.setup_data()
-        trainer.train()
-    finally:
-        trainer.close()
+        _train(None)
 
 
 if __name__ == "__main__":

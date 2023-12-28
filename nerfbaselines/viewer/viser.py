@@ -1,22 +1,15 @@
-import os
-import logging
-import json
-from typing import Any
-import typing
 from pathlib import Path
 from collections import deque
 from time import perf_counter
 
-import click
 import numpy as np
 import viser
 
-from .types import Method, Dataset
-from .cameras import Cameras
-from .datasets._colmap_utils import qvec2rotmat, rotmat2qvec
-from .utils import setup_logging, handle_cli_error, CancellationToken, CancelledException, cancellable
-from . import registry
-from .datasets import load_dataset
+from ..types import Method, Dataset
+from ..cameras import Cameras
+from ..datasets._colmap_utils import qvec2rotmat, rotmat2qvec
+from ..utils import CancellationToken, CancelledException, cancellable
+from ..datasets import load_dataset
 
 
 def get_c2w(camera):
@@ -40,7 +33,7 @@ class ViserViewer:
         self.transform = transform if transform is not None else np.eye(4, dtype=np.float32)
         self._inv_transform = np.linalg.inv(self.transform)
 
-        self._render_state = 0
+        self._render_state = {}
 
         self._render_times = deque(maxlen=3)
         self.server = viser.ViserServer(port=self.port)
@@ -58,14 +51,14 @@ class ViserViewer:
         @self.server.on_client_connect
         def _(client: viser.ClientHandle):
             @client.camera.on_update
-            def _(_):
+            def _(_camera_handle: viser.CameraHandle):
                 self._reset_render()
 
         self._cancellation_token = None
         self._setup_gui()
 
     def _reset_render(self):
-        self._render_state = 0
+        self._render_state = {}
         if self._cancellation_token is not None:
             self._cancellation_token.cancel()
 
@@ -110,16 +103,15 @@ class ViserViewer:
             handle.on_click(_set_view_to_camera)
 
     def _update(self):
-        render_state = self._render_state
-        if render_state < 2:
-            for client in self.server.get_clients().values():
+        for client in self.server.get_clients().values():
+            render_state = self._render_state.get(client.client_id, 0)
+            if render_state < 2:
                 start = perf_counter()
                 camera = client.camera
 
                 w_total = self.resolution_slider.value
                 h_total = int(self.resolution_slider.value / camera.aspect)
-                focal_x = w_total / 2 / np.tan(camera.fov / 2)
-                focal_y = h_total / 2 / np.tan(camera.fov / 2)
+                focal = h_total / 2 / np.tan(camera.fov / 2)
 
                 num_rays_total = num_rays = w_total * h_total
                 w, h = w_total, h_total
@@ -139,7 +131,7 @@ class ViserViewer:
                             w = w_total
                             h = int(w / camera.aspect)
                         num_rays = w * h
-                self._render_state = render_state + 1
+                self._render_state[client.client_id] = render_state + 1
                 cancellation_token = self._cancellation_token = None
                 if render_state == 1:
                     cancellation_token = CancellationToken()
@@ -150,7 +142,7 @@ class ViserViewer:
                 c2w = self._inv_transform @ c2w
                 camera = Cameras(
                     poses=c2w[None, :3, :4],
-                    normalized_intrinsics=np.array([[focal_x, focal_y, w_total / 2, h_total / 2]], dtype=np.float32) / w_total,
+                    normalized_intrinsics=np.array([[focal, focal, w_total / 2, h_total / 2]], dtype=np.float32) / w_total,
                     camera_types=np.array([0], dtype=np.int32),
                     distortion_parameters=np.zeros((1, 8), dtype=np.float32),
                     image_sizes=np.array([[w, h]], dtype=np.int32),
@@ -160,12 +152,12 @@ class ViserViewer:
                     outputs = next(iter(cancellable(self.method.render)(camera, cancellation_token=self._cancellation_token)))
                 except CancelledException:
                     # if we got interrupted, don't send the output to the viewer
-                    self._render_state = 0
+                    self._render_state[client.client_id] = 0
                     continue
                 interval = perf_counter() - start
                 image = outputs["color"]
                 client.set_background_image(image, format="jpeg")
-                self._render_state = min(self._render_state, render_state + 1)
+                self._render_state[client.client_id] = min(self._render_state.get(client.client_id, 0), render_state + 1)
 
                 if render_state == 1 or len(self._render_times) < self._render_times.maxlen:
                     self._render_times.append(interval / num_rays * num_rays_total)
@@ -214,50 +206,17 @@ def get_orientation_transform(poses):
     return transform
 
 
-@click.command("viewer")
-@click.option("--checkpoint", type=click.Path(exists=True, path_type=Path), default=None, required=True)
-@click.option("--data", type=click.Path(exists=True, path_type=Path), default=None, required=False)
-@click.option("--verbose", "-v", is_flag=True)
-@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NB_BACKEND", None))
-@click.option("--port", type=int, default=6006)
-@handle_cli_error
-def main(checkpoint, data, verbose, backend, port=6006):
-    setup_logging(verbose)
+def run_viser_viewer(method: Method, data, port=6006):
+    if data is not None:
+        features = frozenset({"color"})
+        train_dataset = load_dataset(data, split="test", features=features)
+        test_dataset = load_dataset(data, split="train", features=features)
+        server = ViserViewer(method, port=port, transform=get_orientation_transform(train_dataset.cameras.poses))
 
-    # Read method nb-info
-    checkpoint = Path(checkpoint)
-    assert checkpoint.exists(), f"checkpoint path {checkpoint} does not exist"
-    assert (checkpoint / "nb-info.json").exists(), f"checkpoint path {checkpoint} does not contain nb-info.json"
-    with (checkpoint / "nb-info.json").open("r") as f:
-        ns_info = json.load(f)
-
-    method_name = ns_info["method"]
-    method_spec = registry.get(method_name)
-    method_cls, backend = method_spec.build(backend=backend)
-    logging.info(f"Using backend: {backend}")
-
-    if hasattr(method_cls, "install"):
-        method_cls.install()
-
-    method = method_cls(checkpoint=checkpoint.absolute())
-    try:
-        if data is not None:
-            features = frozenset({"color"})
-            train_dataset = load_dataset(Path(data), split="test", features=features)
-            test_dataset = load_dataset(Path(data), split="train", features=features)
-            server = ViserViewer(method, port=port, transform=get_orientation_transform(train_dataset.cameras.poses))
-
-            train_dataset.load_features(features)
-            server.add_dataset_views(train_dataset, "train")
-            test_dataset.load_features(features)
-            server.add_dataset_views(test_dataset, "test")
-        else:
-            server = ViserViewer(method, port=port)
-        server.run()
-    finally:
-        if hasattr(method, "close"):
-            typing.cast(Any, method).close()
-
-
-if __name__ == "__main__":
-    main()
+        train_dataset.load_features(features)
+        server.add_dataset_views(train_dataset, "train")
+        test_dataset.load_features(features)
+        server.add_dataset_views(test_dataset, "test")
+    else:
+        server = ViserViewer(method, port=port)
+    server.run()

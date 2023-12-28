@@ -7,7 +7,7 @@ import io
 import os
 import logging
 import tarfile
-from typing import Optional
+from typing import Optional, Union
 from pathlib import Path
 import json
 import click
@@ -18,6 +18,7 @@ from typing import Any, Iterable
 from .datasets import load_dataset, Dataset
 from .utils import setup_logging, image_to_srgb, save_image, save_depth, visualize_depth, handle_cli_error
 from .types import Method, CurrentProgress, RenderOutput
+from .io import open_any_directory
 from . import cameras as _cameras
 from . import registry
 from . import __version__
@@ -186,40 +187,41 @@ def render_all_images(
 
 
 @click.command("render")
-@click.option("--checkpoint", type=Path, default=None, required=True)
+@click.option("--checkpoint", type=str, default=None, required=True)
 @click.option("--data", type=str, default=None, required=True)
 @click.option("--output", type=Path, default="predictions", help="output directory or tar.gz file")
 @click.option("--split", type=str, default="test")
 @click.option("--verbose", "-v", is_flag=True)
 @click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NB_BACKEND", None))
 @handle_cli_error
-def render_command(checkpoint, data, output, split, verbose, backend):
+def render_command(checkpoint: Union[str, Path], data, output, split, verbose, backend):
+    checkpoint = str(checkpoint)
     setup_logging(verbose)
 
     # Read method nb-info
-    checkpoint = Path(checkpoint)
-    assert checkpoint.exists(), f"checkpoint path {checkpoint} does not exist"
-    assert (checkpoint / "nb-info.json").exists(), f"checkpoint path {checkpoint} does not contain nb-info.json"
-    with (checkpoint / "nb-info.json").open("r") as f:
-        ns_info = json.load(f)
+    with open_any_directory(checkpoint, mode="r") as checkpoint_path:
+        assert checkpoint_path.exists(), f"checkpoint path {checkpoint} does not exist"
+        assert (checkpoint_path / "nb-info.json").exists(), f"checkpoint path {checkpoint} does not contain nb-info.json"
+        with (checkpoint_path / "nb-info.json").open("r") as f:
+            ns_info = json.load(f)
 
-    method_name = ns_info["method"]
-    method_spec = registry.get(method_name)
-    method_cls, backend = method_spec.build(backend=backend, checkpoint=Path(os.path.abspath(str(checkpoint))))
-    logging.info(f"Using backend: {backend}")
+        method_name = ns_info["method"]
+        method_spec = registry.get(method_name)
+        method_cls, backend = method_spec.build(backend=backend, checkpoint=Path(os.path.abspath(str(checkpoint))))
+        logging.info(f"Using backend: {backend}")
 
-    if hasattr(method_cls, "install"):
-        method_cls.install()
+        if hasattr(method_cls, "install"):
+            method_cls.install()
 
-    method = method_cls()
-    try:
-        method_info = method.get_info()
-        dataset = load_dataset(data, split=split, features=method_info.required_features)
-        dataset.load_features(method_info.required_features)
-        if dataset.color_space != ns_info["color_space"]:
-            raise RuntimeError(f"Dataset color space {dataset.color_space} != method color space {ns_info['color_space']}")
-        for _ in render_all_images(method, dataset, output=Path(output), ns_info=ns_info):
-            pass
-    finally:
-        if hasattr(method, "close"):
-            typing.cast(Any, method).close()
+        method = method_cls()
+        try:
+            method_info = method.get_info()
+            dataset = load_dataset(data, split=split, features=method_info.required_features)
+            dataset.load_features(method_info.required_features)
+            if dataset.color_space != ns_info["color_space"]:
+                raise RuntimeError(f"Dataset color space {dataset.color_space} != method color space {ns_info['color_space']}")
+            for _ in render_all_images(method, dataset, output=Path(output), ns_info=ns_info):
+                pass
+        finally:
+            if hasattr(method, "close"):
+                typing.cast(Any, method).close()

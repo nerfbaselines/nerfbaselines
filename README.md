@@ -91,6 +91,8 @@ Even though the argument `--data <dataset>` is optional, it is recommended, as f
 to performa gravity alignement for better viewing experience.
 Again, you can use the `--backend <backend>` flag or `NS_BACKEND=<backend>` environment variable to change the backend.
 
+Currently, there are two viewers implemented: `viser` and `nerfstudio`. You can switch between the two by using the `--viewer <viewer>` flag.
+
 ## Results
 In this section we present results of implemented methods on standard benchmark datasets. For detailed results, visit the project page:
 [https://jkulhanek.com/nerfbaselines](https://jkulhanek.com/nerfbaselines)

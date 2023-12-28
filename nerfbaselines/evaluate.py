@@ -4,7 +4,7 @@ import struct
 import hashlib
 import base64
 import typing
-from typing import List, Dict
+from typing import List, Dict, Union
 import numpy as np
 import json
 from pathlib import Path
@@ -16,6 +16,7 @@ from tqdm import tqdm
 from .utils import read_image, convert_image_dtype
 from .types import Optional
 from .render import image_to_srgb
+from .io import open_any_directory
 from . import metrics
 
 
@@ -102,7 +103,7 @@ def _get_metrics_hash(metrics_lists):
     return metrics_sha.hexdigest()
 
 
-def evaluate(predictions: Path, output: Path, disable_extra_metrics: Optional[bool] = None, description: str = "evaluating"):
+def evaluate(predictions: Union[str, Path], output: Path, disable_extra_metrics: Optional[bool] = None, description: str = "evaluating"):
     """
     Evaluate a set of predictions.
 
@@ -115,70 +116,64 @@ def evaluate(predictions: Path, output: Path, disable_extra_metrics: Optional[bo
         A dictionary containing the results.
     """
 
-    if str(predictions).endswith(".tar.gz"):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with tarfile.open(predictions, "r:gz") as tar:
-                tar.extractall(tmpdir)
-                out = evaluate(Path(tmpdir), output=output, disable_extra_metrics=disable_extra_metrics, description=description)
+    with open_any_directory(str(predictions), "r") as predictions_path:
+        if disable_extra_metrics is None:
+            disable_extra_metrics = False
+            try:
+                test_extra_metrics()
+            except ImportError as exc:
+                logging.error(exc)
+                logging.error("Extra metrics are not available and will be disabled. Please install torch and jax and other required dependencies by running `pip install nerfbaselines[extras]`.")
+                disable_extra_metrics = True
+
+        with open(str(predictions_path / "info.json"), "r", encoding="utf8") as f:
+            info = json.load(f)
+        color_space = info.get("color_space")
+        assert color_space is not None, "Color space must be specified in info.json"
+        expected_scene_scale = info.get("expected_scene_scale")
+        assert expected_scene_scale is not None, "Expected scene scale must be specified in info.json"
+        background_color = info["dataset_background_color"]
+        if background_color is not None:
+            background_color = np.array(background_color)
+            if background_color.dtype.kind == "f":
+                background_color = background_color.astype(np.float32)
+            else:
+                background_color = background_color.astype(np.uint8)
+
+        # Run the evaluation
+        metrics_lists = {}
+        relpaths = [x.relative_to(predictions_path / "color") for x in (predictions_path / "color").glob("**/*") if x.is_file()]
+        relpaths.sort()
+
+        for relname in tqdm(relpaths, desc=description):
+            # Load the prediction
+            assert color_space == "srgb", "Only srgb color space is supported for now"
+            gt = read_image(predictions_path / "gt-color" / relname)
+            pred = read_image(predictions_path / "color" / relname)
+
+            gt_f = image_to_srgb(gt, np.float32, color_space=color_space, background_color=background_color)
+            pred_f = image_to_srgb(pred, np.float32, color_space=color_space, background_color=background_color)
+
+            # Evaluate the prediction
+            for k, v in compute_metrics(gt_f[None], pred_f[None], run_extras=not disable_extra_metrics, reduce=True).items():
+                if k not in metrics_lists:
+                    metrics_lists[f"{k}"] = []
+                metrics_lists[f"{k}"].append(v)
+
+        predictions_sha, ground_truth_sha = get_predictions_hashes(predictions_path)
+        precision = 5
+        out = {
+            "info": info,
+            "metrics": {k: round(np.mean(metrics_lists[k]).item(), precision) for k in metrics_lists},
+            "metrics_raw": {k: _encode_values(metrics_lists[k]) for k in metrics_lists},
+            "metrics_sha256": _get_metrics_hash(metrics_lists),
+            "predictions_sha256": predictions_sha,
+            "ground_truth_sha256": ground_truth_sha,
+        }
+
+        # If output is specified, write the results to a file
+        if os.path.exists(str(output)):
+            raise FileExistsError(f"{output} already exists")
+        with open(str(output), "w", encoding="utf8") as f:
+            json.dump(out, f, indent=2)
         return out
-
-    if disable_extra_metrics is None:
-        disable_extra_metrics = False
-        try:
-            test_extra_metrics()
-        except ImportError as exc:
-            logging.error(exc)
-            logging.error("Extra metrics are not available and will be disabled. Please install torch and jax and other required dependencies by running `pip install nerfbaselines[extras]`.")
-            disable_extra_metrics = True
-
-    with open(str(predictions / "info.json"), "r", encoding="utf8") as f:
-        info = json.load(f)
-    color_space = info.get("color_space")
-    assert color_space is not None, "Color space must be specified in info.json"
-    expected_scene_scale = info.get("expected_scene_scale")
-    assert expected_scene_scale is not None, "Expected scene scale must be specified in info.json"
-    background_color = info["dataset_background_color"]
-    if background_color is not None:
-        background_color = np.array(background_color)
-        if background_color.dtype.kind == "f":
-            background_color = background_color.astype(np.float32)
-        else:
-            background_color = background_color.astype(np.uint8)
-
-    # Run the evaluation
-    metrics_lists = {}
-    relpaths = [x.relative_to(predictions / "color") for x in (predictions / "color").glob("**/*") if x.is_file()]
-    relpaths.sort()
-
-    for relname in tqdm(relpaths, desc=description):
-        # Load the prediction
-        assert color_space == "srgb", "Only srgb color space is supported for now"
-        gt = read_image(predictions / "gt-color" / relname)
-        pred = read_image(predictions / "color" / relname)
-
-        gt_f = image_to_srgb(gt, np.float32, color_space=color_space, background_color=background_color)
-        pred_f = image_to_srgb(pred, np.float32, color_space=color_space, background_color=background_color)
-
-        # Evaluate the prediction
-        for k, v in compute_metrics(gt_f[None], pred_f[None], run_extras=not disable_extra_metrics, reduce=True).items():
-            if k not in metrics_lists:
-                metrics_lists[f"{k}"] = []
-            metrics_lists[f"{k}"].append(v)
-
-    predictions_sha, ground_truth_sha = get_predictions_hashes(predictions)
-    precision = 5
-    out = {
-        "info": info,
-        "metrics": {k: round(np.mean(metrics_lists[k]).item(), precision) for k in metrics_lists},
-        "metrics_raw": {k: _encode_values(metrics_lists[k]) for k in metrics_lists},
-        "metrics_sha256": _get_metrics_hash(metrics_lists),
-        "predictions_sha256": predictions_sha,
-        "ground_truth_sha256": ground_truth_sha,
-    }
-
-    # If output is specified, write the results to a file
-    if os.path.exists(str(output)):
-        raise FileExistsError(f"{output} already exists")
-    with open(str(output), "w", encoding="utf8") as f:
-        json.dump(out, f, indent=2)
-    return out
