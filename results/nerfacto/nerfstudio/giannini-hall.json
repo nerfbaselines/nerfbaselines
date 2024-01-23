@@ -1,0 +1,34 @@
+{
+  "info": {
+    "method": "nerfacto",
+    "nb_version": "0.0.13.dev2+g3faffed.d20240123",
+    "color_space": "srgb",
+    "expected_scene_scale": 4.92009,
+    "total_train_time": 835.80933,
+    "resources_utilization": {
+      "memory": 18365,
+      "gpu_memory": 4772
+    },
+    "checkpoint_sha256": "1d994932b77f13b1c211072c7a2de038cb7fb902d9b5d5b422eb1327bb07144f",
+    "dataset_type": "nerfstudio",
+    "dataset_scene": null,
+    "dataset_background_color": null
+  },
+  "metrics": {
+    "psnr": 18.79385,
+    "ssim": 0.55367,
+    "mae": 0.09061,
+    "mse": 0.01521,
+    "lpips": 0.46811
+  },
+  "metrics_raw": {
+    "psnr": "sDGmQVIKtEE0tadBVgSzQQGGpEGUN6RBMGmRQU42gUElvYhBU+d/QQ8PiEE3BJ5BaUulQdytoUHIWpxBNEmBQbCGpUFAZo1BMcqRQVS9dkHAXG9B3iSiQSdxmEF2hVtB/3SUQaHOk0FUlKNBAm6tQZqpoEGcgqVBlRqcQRNplkHG45lBiBSAQT+GiUF/IWFBPiFpQTVbjkHbj5hBMeiWQeiRpkG0AK1Bl8eaQZvPmUFzZalB",
+    "ssim": "mqsXP+wiHz9qYig//8AZP1C4Hj/fsA8/xiDuPnDq5j7gfvA+UKjZPrPB6D75sAs/z5UPP0u3CT82tQw/0VIxP/L2Fz/rbAQ/EGAbP2v01j4yUNY+TUMjP0hOFT8QNiI/LIMyPzxkLT+ELS8/dLcsP6HPHj/5PBc/fbIXPxto/D4cdw4/Mx3PPqdt/j5myKs+7JDVPo7e0z5TnuA+lLH4PkJoJD9rmyI/StwLP7LUKz9h0R8/",
+    "mae": "lZWMPcG0Xj0QuJc9GnpbPQYxlD0ZBY49LSm9PS7i+T0Y1N09ZnP9PdiD1j1LW4893YiAPQeHkT2GD5I9g2wPPtqihj1DPMs9xJTRPYFnBD7cSRE+9DmcPRZHtD0RKDw+x4HEPSLdyD0CsY09zpdqPZvZlz0B1Yg9opClPUluqT1ZoJM9y+PwPTKr2D1W6iE+CuUXPnQDwT3fpqI91teuPZlggj272lU93MinPbn/sD2OyX09",
+    "mse": "ExYJPOMNuDvlPQM8bY69O83WDzzmHBE81lV5PPO3xjw/A6A8Mw/OPOUsozxGdy08ia4MPCgcHDz59jU89kvGPE6/Czzz7Is8faF2PLEb6zyYuAI9/AgaPKynSzy96y096WdkPOa3aDwNzRM8l6DeO9W+IDy0zws8bkg3PBDrVzzaV0M8oUzNPHNvnDy0biA90/wOPeUfiDwC9Eo8stpUPHqcBzxSYeE7PWc+PF/JQzxLCPo7",
+    "lpips": "TBXePmrS4z5yz8E+ap7+PlF20D4/m/A+KsEMP3pTED++Og4/WJISP4kuGT/vog4/3NwKP+CNET+cou4+jkGhPvdmxz65vwg/XsehPkirFT9Ykgs/E6KyPggt0z4isdg+PhS9PuGB0T5DLas+4gW1PtiUwj6xOsk+TLnEPp5TBT+IwvA+KloSP1AiCT/FHSM/n5MUP88EJz/nNQw/qboGP+O0rj7aIqw+0UDrPs2ewT6RWdE+"
+  },
+  "metrics_sha256": "af7a4f4b6f44a931276665fa49877dfa0d74e32794a00aafceef1ed0a9f2af76",
+  "predictions_sha256": "7b406425d195e1abc18cf944764542b3f70bb3c71f7d4ed8af39fd1728fa8663",
+  "ground_truth_sha256": "9b9539ffe1d0f61be34225152316a2e231a67dfd0f466f98abcd42683c3a84dc"
+}

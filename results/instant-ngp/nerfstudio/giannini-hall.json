@@ -1,0 +1,34 @@
+{
+  "info": {
+    "method": "instant-ngp",
+    "nb_version": "0.0.13.dev2+g3faffed.d20240123",
+    "color_space": "srgb",
+    "expected_scene_scale": 4.92009,
+    "total_train_time": 278.47714,
+    "resources_utilization": {
+      "memory": 6624,
+      "gpu_memory": 5734
+    },
+    "checkpoint_sha256": "e3755822dd4c2a5ff2645309d274a1a5672b802cd5b5099659c0756a6e1c5a09",
+    "dataset_type": "nerfstudio",
+    "dataset_scene": null,
+    "dataset_background_color": null
+  },
+  "metrics": {
+    "psnr": 19.25333,
+    "ssim": 0.53953,
+    "mae": 0.07219,
+    "mse": 0.01253,
+    "lpips": 0.50664
+  },
+  "metrics_raw": {
+    "psnr": "GfugQUX3pUEG3Z9BoZqhQdrYn0EYHJ1BtOmUQUqNkkHSE5dBb7CPQdE6iEEoc5pBBAadQTD2mkHeeYNBPf6lQSIMlUHZj4pB/piaQRBIhUFrrIRBqOSpQZT6q0Hkt6dBDLOpQUB+qkG+op9BB7ijQRa6pEGdaZNBdlKjQfTmmkEBFJtBoIyJQUIPlkF0mIlB1KqJQYgglkF085BBOeGVQUZKn0GJ9p5BbSSWQRg1pkGgSaZB",
+    "ssim": "aQQRPxeuEz9nWhw/9YgKP3AiFT+sHQc/2eTnPi6K6z5hhPU+NLrkPpPC0T5YEwk/RMcFP/Me+j67DPU+pT8xP3AICT9trf4+80wdPyud1D5p/tA+5MkfPz72GT+3jys/uNY1PwPDKz+nSCw/cWosP9umHD/gyQw/tiYYP5G59z7MoxE/tPTYPggbBz+VDL0+kbnvPm+Gzj7f9NM+EvLkPnBVGz+Waxg/l6z/PsEXJj/Ylxk/",
+    "mae": "pcyBPRtEYj1P2Y49unpxPa8cgT3Ow4E9DumaPWMgpD0m0Zs9z3mxPVj+wz0mBI49KQ+KPZ7pjD1uzus92zdzPT1Lpj2xTbs9eY+dPfqBxD1h8Nc9PmhcPd4jVj2CyG89DZ9dPbtLPj1mEI89/N6GPfLdbD0x6qs9xRNwPe2Niz0ATpE9nz6zPVTJlj1dC8A9HQq8PQ5hlD2aKqY9So2YPbhChz3SGnc986eYPendaD0UIWg9",
+    "mse": "gEcfPFH9CTxPfCQ8pnIcPBGQJDxzDTI8rG1hPKFHcTwT0FM8SQCDPONfojwlOEA8uX4yPIhoPTzELro8p+EJPLWOYDw+1Zc8Rmc/PDnBsDwJ4LM8XHv2Owcf6DvAMwM8Stz3OxdD8jsjkSU8fTUTPMz/DjxjYGs8TeYUPKq7PTxAxjw8v1KcPBUcWjyOHZw8E8ubPL+vWTxjqHw80z1bPNQ4JzzFzSg8WpdZPKcICTzDtwg8",
+    "lpips": "kFnxPs9eAT8UJuI+uOEOP+Uq6T52GQU/k3oLPx4MED8IeAw/gdIWP0BDIj+pEw0/w2UPP1p5Fj+0pg8/wDHAPg5V7z5/fRk/pkm5PubiGj+AQxg/hp7NPnpn2T7Gq9g+7PHSPinS7T6kNcQ+epPOPtIp3z4MofE+9WfWPtuOED+Dnvw+EpscP7qLDD9dxSQ/MwASP8UwJz/ONRI/kmYSP55h1T45hdU+llAIP+of0T5I4+s+"
+  },
+  "metrics_sha256": "8bfa38a7f234fb5e74a3970d150f50ec8fc26f2ee8870ebc047353611bf9f148",
+  "predictions_sha256": "a098363ede2a213a4f402d70bc958a18450c154c4656bee4476090b60e041278",
+  "ground_truth_sha256": "9b9539ffe1d0f61be34225152316a2e231a67dfd0f466f98abcd42683c3a84dc"
+}
