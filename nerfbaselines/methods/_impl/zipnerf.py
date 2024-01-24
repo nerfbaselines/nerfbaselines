@@ -1,3 +1,4 @@
+from collections import namedtuple
 import json
 import logging
 import os
@@ -101,6 +102,16 @@ class MNDataset(datasets.Dataset):
 
         self.verbose = verbose
         super().__init__(split, None, config)
+
+    @staticmethod
+    def _get_scene_bbox(config: configs.Config):
+        if isinstance(config.scene_bbox, float):
+            b = config.scene_bbox
+            return np.array(((-b,) * 3, (b,) * 3))
+        elif config.scene_bbox is not None:
+            return np.array(config.scene_bbox)
+        else:
+            return None
 
     def _load_renderings(self, config: configs.Config):
         assert not config.rawnerf_mode, "RawNeRF mode is not supported for the ZipNeRF method yet"
@@ -255,10 +266,12 @@ class ZipNeRF(Method):
         self.opaque_background = True
         self._config_str = None
         self._dataparser_transform = None
+        self._camera_type = None
         if checkpoint is not None:
             with Path(checkpoint).joinpath("calibration.json").open("r") as fp:
                 meta = json.load(fp)
             self._dataparser_transform = meta["meters_per_colmap"], np.array(meta["colmap_to_world_transform"]).astype(np.float32)
+            self._camera_type = camera_utils.ProjectionType[meta["camera_type"]]
             self.step = self._loaded_step = int(next(iter((x for x in os.listdir(checkpoint) if x.startswith("checkpoint_")))).split("_")[1])
             self._config_str = (Path(checkpoint) / "config.gin").read_text()
             self.config = self._load_config()
@@ -292,7 +305,7 @@ class ZipNeRF(Method):
         )
 
     def _setup_eval(self):
-        rng = random.PRNGKey(self.config.jax_rng_seed)
+        rng = random.PRNGKey(20200823)
         np.random.seed(self.config.np_rng_seed + jax.process_index())
 
         if self.config.disable_pmap_and_jit:
@@ -301,8 +314,9 @@ class ZipNeRF(Method):
         dummy_rays = utils.dummy_rays(include_exposure_idx=self.config.rawnerf_mode, include_exposure_values=True)
         self.model, variables = models.construct_model(rng, dummy_rays, self.config)
 
+        fake_dataset = namedtuple("FakeDataset", ["camtype", "scene_bbox"])(self._camera_type, MNDataset._get_scene_bbox(self.config))
         state, self.lr_fn = train_utils.create_optimizer(self.config, variables)
-        self.render_eval_pfn = train_utils.create_render_fn(self.model)
+        self.render_eval_pfn = train_utils.create_render_fn(self.model, fake_dataset)
 
         if self.checkpoint is not None:
             state = checkpoints.restore_checkpoint(self.checkpoint, state)
@@ -330,6 +344,7 @@ class ZipNeRF(Method):
 
         dataset = MNDataset(train_dataset, self.config, "train", dataparser_transform=self._dataparser_transform)
         self._dataparser_transform = dataset.dataparser_transform
+        self._camera_type = dataset.camtype
         assert self._dataparser_transform is not None
 
         self.cameras = jax.tree_util.tree_map(np_to_jax, dataset.cameras)
@@ -415,7 +430,7 @@ class ZipNeRF(Method):
         if self.render_eval_pfn is None:
             self._setup_eval()
 
-        checkpoints.save_checkpoint_muliprocess(str(path), jax.device_get(flax.jax_utils.unreplicate(self.state)), int(self.step), keep=self.config.checkpoint_keep)
+        checkpoints.save_checkpoint_multiprocess(str(path), jax.device_get(flax.jax_utils.unreplicate(self.state)), int(self.step), keep=self.config.checkpoint_keep)
 
         if jax.process_index() == 0:
             with Path(path).joinpath("calibration.json").open("w+") as fp:
@@ -425,6 +440,7 @@ class ZipNeRF(Method):
                         {
                             "meters_per_colmap": meters_per_colmap,
                             "colmap_to_world_transform": colmap_to_world_transform.tolist(),
+                            "camera_type": self._camera_type.name,
                         }
                     )
                 )
