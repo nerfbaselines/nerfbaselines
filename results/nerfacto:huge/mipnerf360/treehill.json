@@ -1,34 +1,34 @@
 {
   "info": {
     "method": "nerfacto:huge",
-    "nb_version": "0.0.10.dev1+g760091d",
+    "nb_version": "0.0.13.dev7+g9305b12.d20240124",
     "color_space": "srgb",
     "expected_scene_scale": 2.18841,
-    "total_train_time": 8756.4966,
+    "total_train_time": 8008.18089,
     "resources_utilization": {
-      "memory": 5248,
-      "gpu_memory": 17914
+      "memory": 5238,
+      "gpu_memory": 15216
     },
-    "checkpoint_sha256": "bc3d5eafa1e327fec5ad0947683514773e7b67af3239487756a6794f64ab30a0",
+    "checkpoint_sha256": "2864d7a53c14348b53ff6fb8bff64d74894261e54d712f60cc345638615f228d",
     "dataset_type": "mipnerf360",
     "dataset_scene": "treehill",
     "dataset_background_color": null
   },
   "metrics": {
-    "psnr": 20.43117,
-    "ssim": 0.42009,
-    "mae": 0.06772,
-    "mse": 0.00989,
-    "lpips": 0.39554
+    "psnr": 21.65004,
+    "ssim": 0.5994,
+    "mae": 0.06112,
+    "mse": 0.00798,
+    "lpips": 0.33967
   },
   "metrics_raw": {
-    "psnr": "8nmAQRq/lEFSEp9BNsiTQcdXmEH4+qRB0tGvQbPNr0F+1KhBt+G3QTJmuEH4RaJB8U6vQU/Zr0FkR6BBEr+oQXhwoEFQD5VB",
-    "ssim": "dZfaPnyV7z4kQ/k+whLrPicu8D5Mvu0+s3vsPovG3T5JfeI+5hbTPu5Q0z5Qfss+HDHFPoqHyT4Y8LQ+sxbWPigHvD5ps54+",
-    "mae": "K0/WPXEIlz0jcIg98vehPZp3lT3jPHY9KQlpPTs7gT07TWM97YNQPUpoTD0vC3s932RrPblKcD1835Q9sSKIPVzmnT339rs9",
-    "mse": "wfjKPMKCYjz6Rig85eJoPJw8TDy39Q08EtTPO7bszzsIJP47BMqkO1NaojuDdhk8vujSO0enzzu8hyI86sD+O//HITwtemA8",
-    "lpips": "enTHPoDKyj40M8o+Xd3lPjzpqz4JaMk+MsDEPl2asz5zlco+q/LIPoQtvD5O4MQ+zbLMPttM0z7m1dU+dPeyPgcr8D6My98+"
+    "psnr": "7eyDQSyLnEFbx59BVvmgQdpJnkEGwq5Bp027QbRZx0ElQ7ZB+A/JQVVC0EHdGq1BLH62QdWZvUFE8KpBWDmpQfe7pUE7AZJB",
+    "ssim": "2ID0PgfEAT9LSwQ/yGUIP+HhDT97LQk/v0MaP9U2NT8TESQ/6N0wP44zMT/uPxs/ROkjP4BYJj//gRY/E90qP12aGD+ZKRU/",
+    "mae": "vz3APYMOij096YE92+mJPX9nhT1pKlc9STg9Pc8zND1VqDo9+egmPRNWFT02f1s9ka1jPbkHUD0Yz4Q9wfmTPbgGmz3ZRdY9",
+    "mse": "Lcq3PDv6NDwD4yQ8k08fPPEcLDz8RtY7dlWVO4InUzvlpqw7fgBJO1plIzvZt+A7hIKrOyXHizsnLe87f0b7O6jpCjz7G3U8",
+    "lpips": "cPG1PhzLuj4Oksc+LHnJPvqclj6igq4+JtSUPoRVlD70V6g+EVClPsy9mz4MzqM+2OOwPrlTqz4+37g+MrCePoMbyj6/Pb8+"
   },
-  "metrics_sha256": "7f741888b51a788939c047c19f920802a844976795c6427da2d96f67dcebbe70",
-  "predictions_sha256": "fd51df2ce43a26d91d230e8d71f11b8854e69c5e1623664e032307b5672ffde4",
+  "metrics_sha256": "2919a7e10ef9a011163dd83e89a947b069aa7c2ff46ca7d2a3619ce07a8f862c",
+  "predictions_sha256": "0ac76f2d4c384d24f922bf52ec84533adf956251001767cbaed226804fd6453b",
   "ground_truth_sha256": "95b392ebdbe7f4c3d1de84e1ddbf1b15ee2668e20f25702b8b391b6ec854978e"
 }

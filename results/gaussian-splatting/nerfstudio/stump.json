@@ -1,0 +1,34 @@
+{
+  "info": {
+    "method": "gaussian-splatting",
+    "nb_version": "0.0.13.dev7+g6d8119f.d20240124",
+    "color_space": "srgb",
+    "expected_scene_scale": 4.99867,
+    "total_train_time": 828.05657,
+    "resources_utilization": {
+      "memory": 3427,
+      "gpu_memory": 7812
+    },
+    "checkpoint_sha256": "ab883feefe97da34b39ef672292a49f3e08ab45fab859112de52d1c3c8e225eb",
+    "dataset_type": "nerfstudio",
+    "dataset_scene": null,
+    "dataset_background_color": null
+  },
+  "metrics": {
+    "psnr": 12.73157,
+    "ssim": 0.49419,
+    "mae": 0.12893,
+    "mse": 0.05587,
+    "lpips": 0.4964
+  },
+  "metrics_raw": {
+    "psnr": "l70+QZ73JkG16T9BKUQwQbjcP0FWG1pB2H5cQQyIW0Fij1NBvZosQX7FVkEXVF9B/yVAQak8Q0G2BWxBCrptQQ==",
+    "ssim": "p/r3PqdA4z71ido+U1HdPsjvDj/eSBQ/pW4MPwpt4j467eQ+K9PqPpcf6T6MQfE+MQsFP6xcCz8fKfg+kj4cPw==",
+    "mae": "9y8LPotRJD5daA4+fJUaPkJ1/j1Gkdw9hPb9PV/68z3+w/U9QksbPvQE9z3q6fY9SVYWPqw0Bj5YK/Y951K5PQ==",
+    "mse": "XpWDPeFCuT3RYYE9aA6iPQJ6gT1jfzE95n8rPULlLT2YCEM9RdOqPaI5Oj3xpSQ9wfGAPVytdj1mKAk9otUFPQ==",
+    "lpips": "bM7xPkHfAj+JSv8+BqoKP1rW/j4dNAE/2sr7PooGCz8rqP8+IWoOP+KcCD9btgA/KDb0PnOB4z5+tuU+abbWPg=="
+  },
+  "metrics_sha256": "80ade315900e61955f44fcf4c266d4730bbe1ded9e016a127faa394378049131",
+  "predictions_sha256": "4b3a48dcb0e8d1750c785b8dd83a61a562fe4a65c94b3a9d3c793d4f7163f5a8",
+  "ground_truth_sha256": "b9afb9e4264b9340733496e67dcfc9a01de04bb9c826175050c73f05e4142e2b"
+}
