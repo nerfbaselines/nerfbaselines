@@ -130,9 +130,9 @@ Methods:
 - [x] Gaussian Splatting
 - [x] Tetra-NeRF
 - [x] Mip-NeRF 360
+- [x] Zip-NeRF
 - [ ] NeRF
 - [ ] Mip-NeRF
-- [ ] Zip-NeRF
 
 Datasets/features:
 - [x] Mip-NeRF 360 dataset
