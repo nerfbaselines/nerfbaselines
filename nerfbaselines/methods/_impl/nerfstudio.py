@@ -230,6 +230,12 @@ class NerfStudio(Method):
             if not _config_safe_set(config, "pipeline.model.disable_scene_contraction", True):
                 logging.warning("Flag pipeline.model.disable_scene_contraction is not set (required for blender-type dataset)")
 
+        if dataset.metadata.get("type") == "mipnerf360":
+            if not _config_safe_set(config, "pipeline.datamanager.camera_optimizer.mode", "off"):
+                logging.warning("Flag pipeline.datamanager.camera_optimizer.mode is not set (required for blender-type dataset)")
+            if not _config_safe_set(config, "pipeline.model.use_average_appearance_embedding", False):
+                logging.warning("Flag pipeline.model.use_average_appearance_embedding is not set (required for blender-type dataset)")
+
     @property
     def batch_size(self):
         return self.config.pipeline.datamanager.train_num_rays_per_batch
