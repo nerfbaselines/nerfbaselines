@@ -12,7 +12,7 @@ from typing import Optional, List, Tuple
 import numpy as np
 from PIL import Image
 
-from ._colmap_utils import read_points3D_binary, read_points3D_text
+from ._colmap_utils import read_points3D_binary, read_points3D_text, Image as ColmapImage, qvec2rotmat, read_images_binary, read_images_text
 from ._common import DatasetNotFoundError
 from ..cameras import CameraModel, Cameras
 from ..types import Dataset, FrozenSet, DatasetFeature
@@ -123,6 +123,30 @@ def get_train_eval_split_all(image_filenames: List) -> Tuple[np.ndarray, np.ndar
     i_train = i_all
     i_eval = i_all
     return i_train, i_eval
+
+
+def estimate_applied_transform(images: List[ColmapImage], new_pose_map) -> np.ndarray:
+    # Compute relative rotation transforms
+    new_rotmat_map = {name: x[:3, :3] for name, x in new_pose_map.items()}
+    new_tvec_map = {name: x[:3, -1] for name, x in new_pose_map.items()}
+    trans = np.diag([1, -1, -1])
+    rel_rotmat_transformation = [new_rotmat_map[x.name] @ trans @ qvec2rotmat(x.qvec) for x in images.values() if x.name in new_rotmat_map]
+    assert np.stack(rel_rotmat_transformation).std(0).max() < 1e-5
+    rotation = np.stack(rel_rotmat_transformation).mean(0)
+
+    # Compute translation transforms
+    old_tvec = np.stack([-rotation @ qvec2rotmat(x.qvec).T @ x.tvec for x in images.values() if x.name in new_tvec_map])
+    new_tvec = np.stack([new_tvec_map[x.name] for x in images.values() if x.name in new_tvec_map], 0)
+    A = np.concatenate((old_tvec[..., None], np.eye(3)[None].repeat(len(old_tvec), axis=0)), -1).reshape(-1, 4)
+    b = new_tvec.reshape(-1)
+    scale_trans, residuals, *_ = np.linalg.lstsq(A, b, rcond=None)
+    assert residuals.max() < 1e-5
+    assert scale_trans[0] > 0
+    scale = scale_trans[0]
+    trans = scale_trans[1:] / scale
+
+    applied_transform = np.concatenate([rotation, trans[..., None]], -1)
+    return applied_transform, scale
 
 
 def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[int] = None, features: Optional[FrozenSet[DatasetFeature]] = None, **kwargs):
@@ -433,10 +457,13 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
             colmap_path = data_dir / "sparse"
         elif not colmap_path.exists():
             colmap_path = data_dir
+        images = None
         if (colmap_path / "points3D.bin").exists():
             points3D = read_points3D_binary(str(colmap_path / "points3D.bin"))
+            images = read_images_binary(str(colmap_path / "images.bin"))
         elif (colmap_path / "points3D.txt").exists():
             points3D = read_points3D_text(str(colmap_path / "points3D.txt"))
+            images = read_images_text(str(colmap_path / "images.txt"))
         else:
             raise RuntimeError(f"3D points are requested but not present in dataset {data_dir}")
         points3D_xyz = np.array([p.xyz for p in points3D.values()], dtype=np.float32)
@@ -445,6 +472,14 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
         # Transform xyz to match nerfstudio loader
         points3D_xyz = points3D_xyz[..., np.array([1, 0, 2])]
         points3D_xyz[..., 2] *= -1
+
+        # We need to load the oringal camera positions to compute the applied transform
+        new_pose_map = {os.path.split(str(name))[-1]: x for name, x in zip(image_filenames, cameras.poses)}
+        applied_transform, applied_scale = estimate_applied_transform(images, new_pose_map)
+        points3D_xyz = np.concatenate((points3D_xyz, np.ones_like(points3D_xyz[..., :1])), -1) @ applied_transform.T
+        # points3D_xyz = points3D_xyz[..., :3] / points3D_xyz[..., 3:]
+        points3D_xyz *= applied_scale
+
     return Dataset(
         cameras=cameras,
         file_paths=image_filenames,

@@ -588,7 +588,7 @@ def warp_image_between_cameras(cameras1: Cameras, cameras2: Cameras, images: np.
     source_point -= 0.5
 
     # Interpolate bilinear to obtain the image
-    out_image = interpolate_bilinear(image, source_point, xnp=xnp)
+    out_image = interpolate_bilinear(convert_image_dtype(image, xnp.float32), source_point, xnp=xnp)
     out_image = xnp.reshape(out_image, (h, w, -1))
 
     # TODO: Resize image

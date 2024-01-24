@@ -43,7 +43,6 @@ def _dataset_undistort_unsupported(dataset: Dataset, supported_camera_models):
     for i, camera in tqdm(undistort_tasks, desc="undistorting images"):
         undistorted_camera = cameras.undistort_camera(camera)
         ow, oh = camera.image_sizes
-        dataset.cameras[i] = undistorted_camera
         if dataset.file_paths is not None:
             dataset.file_paths[i] = os.path.join("/undistorted", os.path.split(dataset.file_paths[i])[-1])
         if dataset.sampling_mask_paths is not None:
@@ -53,6 +52,8 @@ def _dataset_undistort_unsupported(dataset: Dataset, supported_camera_models):
         if new_sampling_masks is not None:
             warped = cameras.warp_image_between_cameras(camera, undistorted_camera, new_sampling_masks[i][:oh, :ow])
             new_sampling_masks[i] = warped
+        # IMPORTANT: camera is modified in-place
+        dataset.cameras[i] = undistorted_camera
     if not was_list:
         dataset.images = padded_stack(new_images)
         dataset.sampling_masks = padded_stack(new_sampling_masks) if new_sampling_masks is not None else None
