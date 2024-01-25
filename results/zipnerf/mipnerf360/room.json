@@ -1,0 +1,34 @@
+{
+  "info": {
+    "method": "zipnerf",
+    "nb_version": "0.0.13.dev7+g6d8119f.d20240124",
+    "color_space": "srgb",
+    "expected_scene_scale": 2.65881,
+    "total_train_time": 19605.51204,
+    "resources_utilization": {
+      "memory": 14547,
+      "gpu_memory": 26822
+    },
+    "checkpoint_sha256": "c26f5122dc07ed6bf6d0c7e250759037be5531474ce341cd51a0fb06d1d80986",
+    "dataset_type": "mipnerf360",
+    "dataset_scene": "room",
+    "dataset_background_color": null
+  },
+  "metrics": {
+    "psnr": 32.95288,
+    "ssim": 0.92721,
+    "mae": 0.01393,
+    "mse": 0.00062,
+    "lpips": 0.1322
+  },
+  "metrics_raw": {
+    "psnr": "hB0EQlIGAULzHQhCSIMPQh3KCUKM/gFCRToLQvvEC0LDWAFCYOYOQjdbBkLHQhBCtxMSQquJAkImuARCgrwKQvD5A0LjYwxClhYHQmuDAELm8ARCapf8QeUvCEIE7OhB75oHQqAJ/0GobQ5CXu3/QSBH+kGn9PVB5RP8QfZp80GAmvlBvIwGQm9/30HAyghCmAbAQcoaC0Ie7AVC",
+    "ssim": "QnBnP8QhaT9jhWs/geBxPyt/cz8dIW8/yO9uP7OMdT+6+W4/weVyPwNacj8P4HA/F0JyP39oaz8SOnE/CnFpP/w4bT+ojXE/WalsP74EcD94lm8/Rd5gP4qgcD9UT2g/MJ9tP4xBaz+AwnM/FV1qPxE2az+sgmw/cd9jP+qFXz/p9Ww/jxVvP0RYcz+nlXU/L3JhP89YcD9fAWk/",
+    "mae": "yvRKPNzHjDx98U08QGUjPDcyGzxDhEY87FxNPOmrQjzTFTw8ztUiPNamUTxLGiw8hlQSPNyOgTzy7z08O8Y4PFbeczyrdB88ApBmPDLJQDxlFTI8czWBPHbgSTzgZYE8xgJOPFJCljz5TyA86Gd9PB7oijyhc5A8Sn6HPK/3tjxk1IA87bBOPCchkTxpTVg8UR8KPT3rLjwIpWo8",
+    "mse": "nIMCOnPtGzppUs851nCHOcxKvDlvdhM6FVWtOWUCqDlGEBk6A06MObRv5Tl/u4E5ZLVpOcLrDjqeG/w5zk2yOf2PAzq1HKI5Z/jbOeWVIDpG6fg5gHM2Oqx8zjlYsKA6QoXVOSEMKjpiKpA5nb8lOr4DQzoo2Vw6SCs5OlucbTof1kY6SuXiOXnC0jqva8c56VqCO0qQrjl5Pes5",
+    "lpips": "NZcJPmoj+z2qSOQ95KOdPa1S3T3wucE9yf6tPQpPrz1ggwI+9u3VPQu3nT1/N6E9ceasPSrkBD4Kucc93U0TPmvT9j2y5M89JOYePmRcxT15h7E9IWx0PmiEhD0fDAo+5TQXPv5oIz73G8M9IOUiPoHpHT681wg+B15PPoliTD7r2QE+sJXqPYqySz6mHyQ+4BlvPoVRUz47UFA+"
+  },
+  "metrics_sha256": "1534aab81aceb15f228e07b0971a117727363979c9b763f4ca17d617476adf3f",
+  "predictions_sha256": "219987fa7a8ca33df560f45c8347149d63752669466b22f8648ed28df8c39936",
+  "ground_truth_sha256": "9bdd71e54d0959e907a14b5604f9701af4b6d3d2f724e64cc748b9fba443ec2d"
+}
