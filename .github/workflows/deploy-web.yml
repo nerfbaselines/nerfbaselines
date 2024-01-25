@@ -57,18 +57,18 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.setup-demos.outputs.gaussian-splatting) }}
     steps:
-      - name: Restore splats
-        uses: actions/cache@v3
-        id: cache-gs
-        with:
-          path: scenes/${{ matrix.name }}.splat
-          key: demos-gs-${{ matrix.hash }}
+      # - name: Restore splats
+      #   uses: actions/cache@v3
+      #   id: cache-gs
+      #   with:
+      #     path: ${{ matrix.name }}.splat
+      #     key: demos-gs-${{ matrix.hash }}
       - uses: actions/setup-python@v5
-        if: steps.cache-gs.outputs.cache-hit != 'true'
+        # if: steps.cache-gs.outputs.cache-hit != 'true'
         with:
           python-version: '3.x'
       - name: Export splats
-        if: steps.cache-gs.outputs.cache-hit != 'true'
+        # if: steps.cache-gs.outputs.cache-hit != 'true'
         run: |
           mkdir -p tmp
           git clone https://github.com/SpectacularAI/point-cloud-tools tmp

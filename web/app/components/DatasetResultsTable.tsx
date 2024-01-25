@@ -58,7 +58,7 @@ export default function DatasetResultsTable({
 }) {
   let enableExpanding = (metricDetail === undefined);
   const sign = metrics.find((m: api.Metric) => m.id === defaultMetric)?.ascending?-1:1;
-  const getDefaultMetric = (row: any) => (row[defaultMetric] === undefined || row[defaultMetric] === null) ? Infinity : row[defaultMetric] * sign;
+  const getDefaultMetric = (row: any) => (!row || row[defaultMetric] === undefined || row[defaultMetric] === null) ? Infinity : row[defaultMetric] * sign;
   methodResults = methodResults.sort((a: any, b: any) => getDefaultMetric(a) - getDefaultMetric(b));
   const columns = useMemo<MRT_ColumnDef<any>[]>(
     () => {
@@ -83,7 +83,7 @@ export default function DatasetResultsTable({
         });
       if (metricDetail !== undefined) {
         list = list.concat(scenes.map((scene, i) => ({
-          accessorFn: (row) => row.scenes[i][metricDetail],
+          accessorFn: (row) => row.scenes[i] && row.scenes[i][metricDetail],
           header: scene.name ?? scene.id,
           size: 30,
           minSize: 30,
@@ -160,7 +160,7 @@ export default function DatasetResultsTable({
         originalRow.scenes.forEach((m: any) => {lookup[m.id] = m;});
         return scenes.map((scene) => ({
           ...scene,
-          ...lookup[scene.id],
+          ...lookup[scene.id] || {},
         }));
       }
     },
