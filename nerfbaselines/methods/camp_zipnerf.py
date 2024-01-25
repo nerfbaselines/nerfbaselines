@@ -1,16 +1,16 @@
 from ..registry import MethodSpec, CondaMethod, LazyMethod
 
 
-class ZipNerf(LazyMethod["._impl.zipnerf", "ZipNeRF"]):
+class CamP_ZipNerf(LazyMethod["._impl.camp_zipnerf", "CamP_ZipNeRF"]):
     batch_size: int = 8192
     num_iterations: int = 200_000
     learning_rate_multiplier: float = 1.0
 
 
-MethodSpec(
-    method=ZipNerf,
+CamP_ZipNerfSpec = MethodSpec(
+    method=CamP_ZipNerf,
     conda=CondaMethod.wrap(
-        ZipNerf,
+        CamP_ZipNerf,
         conda_name="zipnerf",
         python_version="3.11",
         install_script="""# Clone the repo.
@@ -35,6 +35,12 @@ conda develop "$PWD/internal/pycolmap/pycolmap"
 # ./scripts/run_all_unit_tests.sh
 """,
     ),
+    metadata={},
+)
+
+CamP_ZipNerfSpec.register(
+    "zipnerf",
+    camp=False,
     metadata={
         "name": "Zip-NeRF",
         "paper_title": "Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields",
@@ -42,7 +48,19 @@ conda develop "$PWD/internal/pycolmap/pycolmap"
         "paper_link": "https://arxiv.org/pdf/2304.06706.pdf",
         "link": "https://jonbarron.info/zipnerf/",
         "description": """Zip-NeRF is a radiance field method which addresses the aliasing problem in the case of hash-grid based methods (iNGP-based).
-Instead of sampling along the ray it samples along a spiral path - approximating integration along the frustum.
-""",
+Instead of sampling along the ray it samples along a spiral path - approximating integration along the frustum. """,
     },
-).register("zipnerf")
+)
+
+CamP_ZipNerfSpec.register(
+    "camp",
+    camp=True,
+    metadata={
+        "name": "Zip-NeRF",
+        "paper_title": "CamP: Camera Preconditioning for Neural Radiance Fields",
+        "paper_authors": ["Keunhong Park", "Philipp Henzler", "Ben Mildenhall", "Jonathan T. Barron", "Ricardo Martin-Brualla"],
+        "paper_link": "https://arxiv.org/pdf/2308.10902.pdf",
+        "link": "https://camp-nerf.github.io/",
+        "description": """CamP is an extension of Zip-NeRF which adds pose refinement to the training process. """,
+    },
+)

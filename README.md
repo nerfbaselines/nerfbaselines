@@ -131,6 +131,7 @@ Methods:
 - [x] Tetra-NeRF
 - [x] Mip-NeRF 360
 - [x] Zip-NeRF
+- [x] CamP
 - [ ] NeRF
 - [ ] Mip-NeRF
 

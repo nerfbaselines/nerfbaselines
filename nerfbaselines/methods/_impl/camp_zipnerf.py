@@ -125,7 +125,13 @@ class MNDataset(datasets.Dataset):
         pixtocams = pixtocams.astype(np.float32)
         self.camtype = camtype
 
-        images = [x[..., :3] / 255.0 for x in self.dataset.images]
+        images = []
+        for img in self.dataset.images:
+            img = img[..., :3] / 255.0
+            if self.dataset.metadata.get("type") == "blender" and img.shape[-1] == 4:
+                # Blend with white background.
+                img = img[..., :3] * img[..., 3:] + (1 - img[..., 3:])
+            images.append(img)
 
         # TODO: load exif data
         self.exifs = None
@@ -134,7 +140,10 @@ class MNDataset(datasets.Dataset):
 
         self.colmap_to_world_transform = np.eye(4)
 
-        if self.dataparser_transform is None:
+        if self.dataset.metadata.get("type") == "blender":
+            self.dataparser_transform = (None, np.eye(4))
+            meters_per_colmap = self.dataparser_transform[0]
+        elif self.dataparser_transform is None:
             meters_per_colmap = camera_utils.get_meters_per_colmap_from_calibration_images(config, poses, [x.name for x in self.dataset.file_paths])
 
             # Rotate/scale poses to align ground with xy plane and fit to unit cube.
@@ -238,17 +247,19 @@ class MNDataset(datasets.Dataset):
             print(f"*** resolution={(self.height, self.width)}")
 
 
-class ZipNeRF(Method):
+class CamP_ZipNeRF(Method):
     batch_size: int = 8192
     num_iterations: int = 200_000
     learning_rate_multiplier: float = 1.0
+    camp: bool = False
 
-    def __init__(self, checkpoint=None, batch_size: Optional[int] = None, num_iterations: Optional[int] = None, learning_rate_multiplier: Optional[float] = None):
+    def __init__(self, checkpoint=None, batch_size: Optional[int] = None, num_iterations: Optional[int] = None, learning_rate_multiplier: Optional[float] = None, camp: Optional[bool] = None):
         super().__init__()
         self.checkpoint = str(checkpoint) if checkpoint is not None else None
         self.batch_size = self.batch_size if batch_size is None else batch_size
         self.num_iterations = self.num_iterations if num_iterations is None else num_iterations
         self.learning_rate_multiplier = self.learning_rate_multiplier if learning_rate_multiplier is None else learning_rate_multiplier
+        self.camp = self.camp if camp is None else camp
 
         self._loaded_step = None
         self.pdataset_iter = None
@@ -286,6 +297,8 @@ class ZipNeRF(Method):
             if dataset_type == "blender":
                 config_path = f"{configs_path}/zipnerf/blender.gin"
             gin.parse_config_file(config_path, skip_unknown=True)
+            if self.camp:
+                gin.parse_config_file(f"{configs_path}/camp/camera_optim.gin", skip_unknown=True)
         else:
             assert self._config_str is not None, "Config string must be set when loading from checkpoint"
             gin.parse_config(self._config_str, skip_unknown=False)
