@@ -19,7 +19,10 @@ from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.data.datasets.base_dataset import InputDataset as NSDataset, DataparserOutputs
 from nerfstudio.utils import writer
 from nerfstudio.cameras.cameras import Cameras as NSCameras
-from nerfstudio.viewer.server.viewer_state import ViewerState
+try:
+    from nerfstudio.viewer.server.viewer_state import ViewerState
+except ImportError:
+    from nerfstudio.viewer_legacy.server.viewer_state import ViewerLegacyState as ViewerState
 from nerfstudio.cameras.rays import RayBundle
 
 

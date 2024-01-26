@@ -128,7 +128,7 @@ class MNDataset(datasets.Dataset):
         images = []
         for img in self.dataset.images:
             img = img[..., :3] / 255.0
-            if self.dataset.metadata.get("type") == "blender" and img.shape[-1] == 4:
+            if self.dataset.metadata.get("name") == "blender" and img.shape[-1] == 4:
                 # Blend with white background.
                 img = img[..., :3] * img[..., 3:] + (1 - img[..., 3:])
             images.append(img)
@@ -140,7 +140,7 @@ class MNDataset(datasets.Dataset):
 
         self.colmap_to_world_transform = np.eye(4)
 
-        if self.dataset.metadata.get("type") == "blender":
+        if self.dataset.metadata.get("name") == "blender":
             self.dataparser_transform = (None, np.eye(4))
             meters_per_colmap = self.dataparser_transform[0]
         elif self.dataparser_transform is None:
@@ -287,14 +287,14 @@ class CamP_ZipNeRF(Method):
             self._config_str = (Path(checkpoint) / "config.gin").read_text()
             self.config = self._load_config()
 
-    def _load_config(self, dataset_type=None):
+    def _load_config(self, dataset_name=None):
         if self.checkpoint is None:
             # Find the config files root
             import train
 
             configs_path = str(Path(train.__file__).absolute().parent / "configs")
             config_path = f"{configs_path}/zipnerf/360.gin"
-            if dataset_type == "blender":
+            if dataset_name == "blender":
                 config_path = f"{configs_path}/zipnerf/blender.gin"
             gin.parse_config_file(config_path, skip_unknown=True)
             if self.camp:
@@ -344,7 +344,7 @@ class CamP_ZipNeRF(Method):
 
     def setup_train(self, train_dataset: Dataset, *, num_iterations):
         if self.config is None:
-            self.config = self._load_config(train_dataset.metadata.get("type"))
+            self.config = self._load_config(train_dataset.metadata.get("name"))
 
         rng = random.PRNGKey(self.config.jax_rng_seed)
         np.random.seed(self.config.np_rng_seed + jax.process_index())

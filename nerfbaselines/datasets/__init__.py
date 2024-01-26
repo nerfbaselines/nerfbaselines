@@ -8,9 +8,10 @@ from ._common import DatasetNotFoundError, MultiDatasetError
 
 SUPPORTED_DATASETS = [
     "mipnerf360",
-    "colmap",
+    "tanksandtemples",
     "nerfstudio",
     "blender",
+    "colmap",
 ]
 
 

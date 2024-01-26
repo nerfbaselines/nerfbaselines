@@ -453,7 +453,7 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
         file_paths_root=images_root,
         points3D_xyz=points3D_xyz,
         points3D_rgb=points3D_rgb,
-        metadata={"type": "nerfstudio"},
+        metadata={"name": "nerfstudio"},
     )
 
 

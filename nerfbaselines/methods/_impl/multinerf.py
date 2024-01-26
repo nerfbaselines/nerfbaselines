@@ -99,7 +99,7 @@ class NBDataset(MNDataset):
             scale = np.linalg.norm(transform[:3, :3], ord=2, axis=-2)
             poses = camera_utils.unpad_poses(transform @ camera_utils.pad_poses(poses))
             poses[..., :3, :3] = np.diag(1 / scale) @ poses[..., :3, :3]
-        elif self.dataset.metadata.get("type") == "blender":
+        elif self.dataset.metadata.get("name") == "blender":
             transform = np.eye(4)
             self._dataparser_transform = transform
         else:
@@ -119,7 +119,7 @@ class NBDataset(MNDataset):
             if isinstance(images, list):
                 images = padded_stack(images)
             self.images = images.astype(np.float32) / 255.0
-            if self.dataset.metadata.get("type") == "blender" and not self._eval:
+            if self.dataset.metadata.get("name") == "blender" and not self._eval:
                 # Blender renders images in sRGB space, so convert to linear.
                 self.images = self.images[..., :3] * self.images[..., 3:] + (1 - self.images[..., 3:])
         else:
@@ -166,14 +166,14 @@ class MultiNeRF(Method):
             self._config_str = (Path(checkpoint) / "config.gin").read_text()
             self.config = self._load_config()
 
-    def _load_config(self, dataset_type=None):
+    def _load_config(self, dataset_name=None):
         if self.checkpoint is None:
             # Find the config files root
             import train
 
             configs_path = str(Path(train.__file__).absolute().parent / "configs")
             config_path = f"{configs_path}/360.gin"
-            if dataset_type == "blender":
+            if dataset_name == "blender":
                 config_path = f"{configs_path}/blender_256.gin"
             gin.parse_config_file(config_path, skip_unknown=True)
         else:
@@ -218,7 +218,7 @@ class MultiNeRF(Method):
 
     def setup_train(self, train_dataset: Dataset, *, num_iterations):
         if self.config is None:
-            self.config = self._load_config(train_dataset.metadata.get("type"))
+            self.config = self._load_config(train_dataset.metadata.get("name"))
 
         rng = random.PRNGKey(20200823)
         # Shift the numpy random seed by host_id() to shuffle data loaded by different

@@ -96,7 +96,7 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
         w, h = dataset.cameras.image_sizes[idx]
         im_data = dataset.images[idx][:h, :w]
         assert im_data.dtype == np.uint8, "Gaussian Splatting supports images as uint8"
-        if dataset.metadata.get("type", None) == "blender":
+        if dataset.metadata.get("name", None) == "blender":
             assert white_background, "white_background must be set for blender scenes"
             assert im_data.shape[-1] == 4
             bg = np.array([1, 1, 1])
@@ -115,7 +115,7 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
 
     points3D_xyz = dataset.points3D_xyz
     points3D_rgb = dataset.points3D_rgb
-    if points3D_xyz is None and dataset.metadata.get("type", None) == "blender":
+    if points3D_xyz is None and dataset.metadata.get("name", None) == "blender":
         # https://github.com/graphdeco-inria/gaussian-splatting/blob/2eee0e26d2d5fd00ec462df47752223952f6bf4e/scene/dataset_readers.py#L221C4-L221C4
         num_pts = 100_000
         logging.info(f"generating random point cloud ({num_pts})...")
@@ -165,7 +165,7 @@ class GaussianSplatting(Method):
         safe_state(True)
 
         if self.checkpoint is None:
-            if train_dataset.metadata.get("type") == "blender":
+            if train_dataset.metadata.get("name") == "blender":
                 # Blender scenes have white background
                 self._args_list.append("--white_background")
                 logging.info("overriding default background color to white for blender dataset")
@@ -176,7 +176,7 @@ class GaussianSplatting(Method):
 
             # Verify parameters are set correctly
             assert self.opt.iterations == num_iterations, "iterations should be equal to num_iterations"
-            if train_dataset.metadata.get("type") == "blender":
+            if train_dataset.metadata.get("name") == "blender":
                 assert self.dataset.white_background, "white_background should be True for blender dataset"
 
         # Setup model

@@ -81,6 +81,7 @@ def main(checkpoint: str, data, verbose, backend, viewer="viser", port=6006):
     setup_logging(verbose)
 
     # Read method nb-info
+    logging.info(f"Loading checkpoint {checkpoint}")
     with open_any_directory(checkpoint) as checkpoint_path:
         assert checkpoint_path.exists(), f"checkpoint path {checkpoint} does not exist"
         assert (checkpoint_path / "nb-info.json").exists(), f"checkpoint path {checkpoint} does not contain nb-info.json"

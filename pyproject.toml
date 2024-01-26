@@ -31,6 +31,7 @@ dependencies = [
     "requests>=2.25.1",
     "gdown>=4.7.1",
     "tensorboard>=2.5.0",
+    "mediapy>=1.1.2"
 ]
 dynamic = ["version"]
 

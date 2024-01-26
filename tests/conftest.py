@@ -160,8 +160,8 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python"):
 
 @pytest.fixture(name="run_test_train", params=["blender", "colmap"])
 def run_test_train_fixture(tmp_path_factory, request: pytest.FixtureRequest):
-    dataset_type = request.param
-    dataset_path = request.getfixturevalue(f"{dataset_type}_dataset_path")
+    dataset_name = request.param
+    dataset_path = request.getfixturevalue(f"{dataset_name}_dataset_path")
     test_name = request.node.name
     assert test_name.startswith("test_")
     assert "_train" in test_name
@@ -179,7 +179,7 @@ def run_test_train_fixture(tmp_path_factory, request: pytest.FixtureRequest):
         with tmp_path_factory.mktemp("output") as tmp_path:
             run_test_train(tmp_path, dataset_path, method_name, backend=backend)
 
-    run.dataset_type = dataset_type
+    run.dataset_name = dataset_name
     return run
 
 

@@ -151,3 +151,4 @@ def render_dataset_results_command(results: Path, dataset, output_type, output, 
 
 
 main.add_command("nerfbaselines.viewer", "viewer")
+main.add_command("nerfbaselines.render_trajectory", "render-trajectory")

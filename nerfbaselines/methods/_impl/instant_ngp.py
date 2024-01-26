@@ -279,7 +279,7 @@ class InstantNGP(Method):
                 current_step = meta["step"]
                 self.dataparser_params["dataparser_transform"] = np.array(self.dataparser_params["dataparser_transform"], dtype=np.float32)
         else:
-            loader = train_dataset.metadata.get("type")
+            loader = train_dataset.metadata.get("name")
             nerf_compatibility = False
             if loader == "blender":
                 aabb_scale = None

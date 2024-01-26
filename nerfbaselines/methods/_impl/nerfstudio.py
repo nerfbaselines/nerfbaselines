@@ -122,7 +122,7 @@ class _CustomDataParser(DataParser):
 
         # in x,y,z order
         # assumes that the scene is centered at the origin
-        if self.dataset.metadata.get("type") == "blender":
+        if self.dataset.metadata.get("name") == "blender":
             aabb_scale = 1.5
             self.method.dataparser_params = dict(dataparser_transform=torch.eye(4, dtype=torch.float32), dataparser_scale=1.0, aabb_scale=1.5, num_images=len(image_names))
         else:
@@ -211,7 +211,7 @@ class NerfStudio(Method):
         pass
 
     def _apply_config_patch_for_dataset(self, config, dataset: Dataset):
-        if dataset.metadata.get("type") == "blender":
+        if dataset.metadata.get("name") == "blender":
             logging.info("Applying config patch for dataset type blender")
             if not _config_safe_set(config, "pipeline.model.near_plane", 2.0):
                 logging.warning("Flag pipeline.model.near_plane is not set (required for blender-type dataset)")
@@ -230,7 +230,7 @@ class NerfStudio(Method):
             if not _config_safe_set(config, "pipeline.model.disable_scene_contraction", True):
                 logging.warning("Flag pipeline.model.disable_scene_contraction is not set (required for blender-type dataset)")
 
-        if dataset.metadata.get("type") == "mipnerf360":
+        if dataset.metadata.get("name") == "mipnerf360":
             if not _config_safe_set(config, "pipeline.datamanager.camera_optimizer.mode", "off"):
                 logging.warning("Flag pipeline.datamanager.camera_optimizer.mode is not set (required for blender-type dataset)")
             if not _config_safe_set(config, "pipeline.model.use_average_appearance_embedding", False):

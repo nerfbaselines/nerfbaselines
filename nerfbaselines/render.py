@@ -16,7 +16,7 @@ import numpy as np
 import typing
 from typing import Any, Iterable
 from .datasets import load_dataset, Dataset
-from .utils import setup_logging, image_to_srgb, save_image, save_depth, visualize_depth, handle_cli_error
+from .utils import setup_logging, image_to_srgb, save_image, save_depth, visualize_depth, handle_cli_error, convert_image_dtype
 from .types import Method, CurrentProgress, RenderOutput
 from .io import open_any_directory
 from . import cameras as _cameras
@@ -85,11 +85,20 @@ def render_all_images(
     info = method.get_info()
     render = with_supported_camera_models(info.supported_camera_models)(method.render)
     allow_transparency = True
-    background_color = dataset.metadata.get("background_color", None)
+    background_color =  dataset.metadata.get("background_color", None)
+    if background_color is not None:
+        background_color = convert_image_dtype(background_color, np.uint8)
     if ns_info is None:
         ns_info = {}
     else:
-        assert dataset.color_space == ns_info.get("color_space", "srgb"), f"Dataset color space {dataset.color_space} != method color space {ns_info['color_space']}"
+        assert dataset.color_space == ns_info.get("color_space", "srgb"), \
+            f"Dataset color space {dataset.color_space} != method color space {ns_info['color_space']}"
+        if "dataset_background_color" in ns_info:
+            info_background_color = ns_info.get("dataset_background_color")
+            if info_background_color is not None:
+                info_background_color = np.array(info_background_color, np.uint8)
+            assert info_background_color is None or (background_color is not None and np.array_equal(info_background_color, background_color)), \
+                f"Dataset background color {background_color} != method background color {info_background_color}"
     color_space = dataset.color_space
     expected_scene_scale = ns_info.get("expected_scene_scale", dataset.expected_scene_scale)
 
@@ -147,7 +156,7 @@ def render_all_images(
                         **ns_info,
                         "nb_version": __version__,
                         "checkpoint_sha256": checkpoint_sha,
-                        "dataset_type": dataset.metadata.get("type", None),
+                        "dataset_name": dataset.metadata.get("name", None),
                         "dataset_scene": dataset.metadata.get("scene", None),
                         "dataset_background_color": background_color,
                         "expected_scene_scale": round(expected_scene_scale, 5),

@@ -329,5 +329,5 @@ def load_colmap_dataset(path: Path, images_path: Optional[Path] = None, split: O
             else:
                 indices = test_indices_array
         dataset = dataset[indices]
-    dataset.metadata["type"] = "colmap"
+    dataset.metadata["name"] = "colmap"
     return dataset

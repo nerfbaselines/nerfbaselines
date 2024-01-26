@@ -29,7 +29,7 @@ def _generate_predictions(path, background_color=None):
                 "nb_version": "0.0.0",
                 "color_space": "srgb",
                 "expected_scene_scale": 1.0,
-                "dataset_type": "test",
+                "dataset_name": "test",
                 "dataset_scene": "test",
                 "dataset_background_color": background_color,
             },

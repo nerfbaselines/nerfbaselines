@@ -72,14 +72,15 @@ def _create_github_update_link(results):
     method = results["info"]["method"]
     if method is None:
         raise ValueError("method must be set")
-    dataset_type = results["info"]["dataset_type"]
-    if dataset_type is None:
-        raise ValueError("dataset_type must be set")
+    info = results["info"]
+    dataset_name = info["dataset_name"] if "dataset_name" in info else info["dataset_type"]
+    if dataset_name is None:
+        raise ValueError("dataset_name must be set")
     scene = results["info"]["dataset_scene"]
     if scene is None:
         raise ValueError("dataset_scene must be set")
     value = urllib.parse.quote_plus(json.dumps(results, indent=2))
-    url = f"https://github.com/jkulhanek/nerfbaselines/new/main?filename=results/{method}/{dataset_type}/{scene}.json&value={value}"
+    url = f"https://github.com/jkulhanek/nerfbaselines/new/main?filename=results/{method}/{dataset_name}/{scene}.json&value={value}"
     return url
 
 

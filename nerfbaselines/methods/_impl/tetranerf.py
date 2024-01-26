@@ -38,7 +38,7 @@ class TetraNeRF(NerfStudio):
 
     def setup_train(self, train_dataset: Dataset, *, num_iterations: int):
         dataset = train_dataset
-        dataset_name = dataset.metadata["type"]
+        dataset_name = dataset.metadata["name"]
         if dataset_name == "blender":
             # We use the official PC for the Blender dataset
             scene = dataset.metadata["scene"]

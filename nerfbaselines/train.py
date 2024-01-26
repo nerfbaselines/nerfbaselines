@@ -139,6 +139,7 @@ class Trainer:
         self._method_info = method_info
         self._total_train_time = 0
         self._resources_utilization_info = None
+        self._dataset_background_color = None
 
         # Validate generate output artifact
         if self.generate_output_artifact is None or self.generate_output_artifact:
@@ -188,6 +189,9 @@ class Trainer:
         assert train_dataset.cameras.image_sizes is not None, "image sizes must be specified"
         self._average_image_size = train_dataset.cameras.image_sizes.prod(-1).astype(np.float32).mean()
         self._expected_scene_scale = train_dataset.expected_scene_scale
+        self._dataset_background_color = train_dataset.metadata.get("background_color")
+        if self._dataset_background_color is not None:
+            assert isinstance(self._dataset_background_color, np.ndarray), "Dataset background color must be a numpy array"
 
         self.test_dataset.load_features(method_info.required_features.union({"color"}))
         self.method.setup_train(train_dataset, num_iterations=self.num_iterations)
@@ -198,6 +202,11 @@ class Trainer:
         self._color_space = train_dataset.color_space
         if self.test_dataset.color_space != self._color_space:
             raise RuntimeError(f"train dataset color space {self._color_space} != test dataset color space {self.test_dataset.color_space}")
+        test_background_color = self.test_dataset.metadata.get("background_color")
+        if not ((test_background_color is None and self._dataset_background_color is None) or np.array_equal(test_background_color, self._dataset_background_color)):
+            raise RuntimeError(f"train dataset color space {self._dataset_background_color} != test dataset color space {self.test_dataset.metadata.get('background_color')}")
+        if self._dataset_background_color is not None:
+            self._dataset_background_color = convert_image_dtype(self._dataset_background_color, np.uint8)
         self._method_info = method_info
 
     def _get_ns_info(self):
@@ -206,6 +215,7 @@ class Trainer:
             "nb_version": __version__,
             "color_space": self._color_space,
             "expected_scene_scale": round(self._expected_scene_scale, 5),
+            "dataset_background_color": self._dataset_background_color.tolist() if self._dataset_background_color is not None else None,
             "total_train_time": round(self._total_train_time, 5),
             "resources_utilization": self._resources_utilization_info,
         }

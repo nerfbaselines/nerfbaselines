@@ -135,7 +135,7 @@ jobs:
     needs: setup
     strategy:
       matrix:
-        dataset: ["blender/lego", "mipnerf360/garden", "nerfstudio/poster"]
+        dataset: ["blender/lego", "mipnerf360/garden", "nerfstudio/poster", "tanksandtemples/truck"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
@@ -150,6 +150,6 @@ jobs:
         run: |
           scene_name="${{ matrix.dataset }}"
           scene_name="${scene_name##*/}"
-          nerfbaselines download-dataset '${{ matrix.dataset }}' -o /tmp/$scene_name
-          python -c "import nerfbaselines.datasets as d;f=set(['color']);k=d.load_dataset('/tmp/$scene_name', split='train', features=f); k.load_features(f)"
-          python -c "import nerfbaselines.datasets as d;f=set(['color']);k=d.load_dataset('/tmp/$scene_name', split='test', features=f); k.load_features(f)"
+          nerfbaselines download-dataset '${{ matrix.dataset }}' -o /tmp/${{ matrix.dataset }}
+          python -c "import nerfbaselines.datasets as d;f=set(['color']);k=d.load_dataset('/tmp/${{ matrix.dataset }}', split='train', features=f); k.load_features(f)"
+          python -c "import nerfbaselines.datasets as d;f=set(['color']);k=d.load_dataset('/tmp/${{ matrix.dataset }}', split='test', features=f); k.load_features(f)"
