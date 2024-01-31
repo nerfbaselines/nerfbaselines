@@ -61,6 +61,7 @@ def mock_multinerf():
         sys.modules["gin"].operative_config_str.return_value = ""
         sys.modules["train"].__file__ = "train.py"
         sys.modules["jax"].host_id.return_value = 0
+        sys.modules["jax"].process_index.return_value = 0
         sys.modules["jax"].device_count.return_value = 4
         sys.modules["jax"].numpy = np
         sys.modules["jax"].random = random = mock.MagicMock()
@@ -80,6 +81,7 @@ def mock_multinerf():
         config.far = 6.0
         config.gc_every = 2
         config.enable_robustnerf_loss = False
+        config.max_steps = 30
         camera_utils.unpad_poses = lambda x: x[..., :3, :4]
         camera_utils.pad_poses = lambda x: np.concatenate([x, np.tile(np.array([0, 0, 0, 1], dtype=np.float32), (x.shape[0], 1, 1))], -2)
         camera_utils.transform_poses_pca = lambda x: (x, np.eye(4, dtype=np.float32))

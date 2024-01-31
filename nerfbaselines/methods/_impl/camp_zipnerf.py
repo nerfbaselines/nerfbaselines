@@ -249,7 +249,7 @@ class MNDataset(datasets.Dataset):
 
 class CamP_ZipNeRF(Method):
     batch_size: int = 8192
-    num_iterations: int = 200_000
+    num_iterations: Optional[int] = None  #  200_000
     learning_rate_multiplier: float = 1.0
     camp: bool = False
 
@@ -286,8 +286,9 @@ class CamP_ZipNeRF(Method):
             self.step = self._loaded_step = int(next(iter((x for x in os.listdir(checkpoint) if x.startswith("checkpoint_")))).split("_")[1])
             self._config_str = (Path(checkpoint) / "config.gin").read_text()
             self.config = self._load_config()
+            self.num_iterations = self.config.max_steps
 
-    def _load_config(self, dataset_name=None):
+    def _load_config(self, dataset_name=None, num_iterations=None):
         if self.checkpoint is None:
             # Find the config files root
             import train
@@ -299,15 +300,20 @@ class CamP_ZipNeRF(Method):
             gin.parse_config_file(config_path, skip_unknown=True)
             if self.camp:
                 gin.parse_config_file(f"{configs_path}/camp/camera_optim.gin", skip_unknown=True)
+            gin.bind_parameter("Config.batch_size", self.batch_size)
+            num_iterations = num_iterations or self.num_iterations
+            if num_iterations is not None:
+                gin.bind_parameter("Config.max_steps", num_iterations)
+            config = configs.Config()
+            config.lr_init *= self.learning_rate_multiplier
+            config.lr_final *= self.learning_rate_multiplier
+            gin.bind_parameter("Config.lr_init", config.lr_init)
+            gin.bind_parameter("Config.lr_final", config.lr_final)
         else:
             assert self._config_str is not None, "Config string must be set when loading from checkpoint"
             gin.parse_config(self._config_str, skip_unknown=False)
-        gin.bind_parameter("Config.batch_size", self.batch_size)
-        gin.bind_parameter("Config.max_steps", self.num_iterations)
         gin.finalize()
         config = configs.Config()
-        config.lr_init *= self.learning_rate_multiplier
-        config.lr_final *= self.learning_rate_multiplier
         return config
 
     def get_info(self):
@@ -345,6 +351,7 @@ class CamP_ZipNeRF(Method):
     def setup_train(self, train_dataset: Dataset, *, num_iterations):
         if self.config is None:
             self.config = self._load_config(train_dataset.metadata.get("name"))
+            self.num_iterations = self.config.max_steps
 
         rng = random.PRNGKey(self.config.jax_rng_seed)
         np.random.seed(self.config.np_rng_seed + jax.process_index())
@@ -415,7 +422,7 @@ class CamP_ZipNeRF(Method):
         if step % self.config.gc_every == 0:
             gc.collect()  # Disable automatic garbage collection for efficiency.
 
-        # Log training summaries. This is put behind a host_id check because in
+        # Log training summaries. This is put behind a process_index check because in
         # multi-host evaluation, all hosts need to run inference even though we
         # only use host 0 to record results.
         out = {}

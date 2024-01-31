@@ -172,13 +172,16 @@ class InstantNGP(Method):
         self.testbed = None
         self.n_steps = None
         self.dataparser_params = None
+        self.num_iterations = 35_000
         self.RenderMode = None
         self._tempdir = tempfile.TemporaryDirectory()
         self._tempdir.__enter__()
         self._eval_setup_step = None
 
     def get_info(self):
-        return MethodInfo(num_iterations=35_000, required_features=frozenset(("color",)), supported_camera_models=frozenset((CameraModel.PINHOLE, CameraModel.OPENCV, CameraModel.OPENCV_FISHEYE)))
+        return MethodInfo(
+            num_iterations=self.num_iterations, required_features=frozenset(("color",)), supported_camera_models=frozenset((CameraModel.PINHOLE, CameraModel.OPENCV, CameraModel.OPENCV_FISHEYE))
+        )
 
     def _setup(self, train_transforms):
         import pyngp as ngp  # Depends on GPU
@@ -263,8 +266,9 @@ class InstantNGP(Method):
                 dataset.sampling_masks[i] = maskname
                 mask.save(str(maskname))
 
-    def setup_train(self, train_dataset: Dataset, *, num_iterations: int):
+    def setup_train(self, train_dataset: Dataset, *, num_iterations: Optional[int]):
         # Write images
+        self.num_iterations = num_iterations or self.num_iterations
         self._eval_setup_step = None
         tmpdir = self._tempdir.name
         self._write_images(train_dataset, tmpdir)
@@ -336,6 +340,7 @@ class InstantNGP(Method):
                 {
                     "dataparser_params": out,
                     "step": self._eval_setup_step or self.testbed.training_step,
+                    "num_iterations": self.num_iterations,
                 },
                 f,
                 indent=2,

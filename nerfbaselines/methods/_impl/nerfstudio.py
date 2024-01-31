@@ -211,16 +211,19 @@ class NerfStudio(Method):
         pass
 
     def _apply_config_patch_for_dataset(self, config, dataset: Dataset):
+        # See https://github.com/nerfstudio-project/nerfstudio/tree/SIGGRAPH-2023-Code
+        # NOTE: we change the average_init_density!!
+        use_original_average_init_density = False
         if dataset.metadata.get("name") == "blender":
             logging.info("Applying config patch for dataset type blender")
             if not _config_safe_set(config, "pipeline.model.near_plane", 2.0):
                 logging.warning("Flag pipeline.model.near_plane is not set (required for blender-type dataset)")
             if not _config_safe_set(config, "pipeline.model.far_plane", 6.0):
                 logging.warning("Flag pipeline.model.far_plane is not set (required for blender-type dataset)")
-            if not _config_safe_set(config, "pipeline.datamanager.camera_optimizer.mode", "off"):
+            if not _config_safe_set(config, "pipeline.datamanager.camera_optimizer.mode", "off") and not _config_safe_set(config, "pipeline.model.camera_optimizer.mode", "off"):
                 logging.warning("Flag pipeline.datamanager.camera_optimizer.mode is not set (required for blender-type dataset)")
-            if not _config_safe_set(config, "pipeline.model.use_average_appearance_embedding", False):
-                logging.warning("Flag pipeline.model.use_average_appearance_embedding is not set (required for blender-type dataset)")
+            if not _config_safe_set(config, "pipeline.model.use_appearance_embedding", False):
+                logging.warning("Flag pipeline.model.use_appearance_embedding is not set (required for mipnerf360-type dataset)")
             if not _config_safe_set(config, "pipeline.model.background_color", "white"):
                 logging.warning("Flag pipeline.model.background_color is not set (required for blender-type dataset)")
             if not _config_safe_set(config, "pipeline.model.proposal_initial_sampler", "uniform"):
@@ -229,12 +232,25 @@ class NerfStudio(Method):
                 logging.warning("Flag pipeline.model.distortion_loss_mult is not set (required for blender-type dataset)")
             if not _config_safe_set(config, "pipeline.model.disable_scene_contraction", True):
                 logging.warning("Flag pipeline.model.disable_scene_contraction is not set (required for blender-type dataset)")
+            if use_original_average_init_density:
+                if not _config_safe_set(config, "pipeline.model.average_init_density", 1.0):
+                    logging.warning("Flag pipeline.model.average_init_density is not set (required for blender-type dataset)")
 
         if dataset.metadata.get("name") == "mipnerf360":
-            if not _config_safe_set(config, "pipeline.datamanager.camera_optimizer.mode", "off"):
-                logging.warning("Flag pipeline.datamanager.camera_optimizer.mode is not set (required for blender-type dataset)")
-            if not _config_safe_set(config, "pipeline.model.use_average_appearance_embedding", False):
-                logging.warning("Flag pipeline.model.use_average_appearance_embedding is not set (required for blender-type dataset)")
+            if not _config_safe_set(config, "max_num_iterations", 70000):
+                logging.warning("Flag max_num_iterations is not set (required for mipnerf360-type dataset)")
+            if not _config_safe_set(config, "pipeline.datamanager.camera_optimizer.mode", "off") and not _config_safe_set(config, "pipeline.model.camera_optimizer.mode", "off"):
+                logging.warning("Flag pipeline.datamanager.camera_optimizer.mode is not set (required for mipnerf360-type dataset)")
+            if not _config_safe_set(config, "pipeline.model.use_appearance_embedding", False):
+                logging.warning("Flag pipeline.model.use_appearance_embedding is not set (required for mipnerf360-type dataset)")
+            if use_original_average_init_density:
+                if not _config_safe_set(config, "pipeline.model.average_init_density", 1.0):
+                    logging.warning("Flag pipeline.model.average_init_density is not set (required for mipnerf360-type dataset)")
+
+        if dataset.metadata.get("name") == "nerfstudio":
+            if use_original_average_init_density:
+                if not _config_safe_set(config, "pipeline.model.average_init_density", 1.0):
+                    logging.warning("Flag pipeline.model.average_init_density is not set (required for nerfstudio-type dataset)")
 
     @property
     def batch_size(self):
@@ -364,23 +380,29 @@ class NerfStudio(Method):
             dm._target = VanillaDataManager  # pylint: disable=protected-access
             config.pipeline.datamanager = dm
 
+        def get_dataset_class(dataset_type):
+            class DatasetL(dataset_type):
+                def get_numpy_image(self, image_idx: int):
+                    return _images_holder[0][image_idx]
+
+                def get_image(self, image_idx: int):
+                    img = self.get_numpy_image(image_idx)
+                    img = convert_image_dtype(img, np.float32)
+                    image = torch.from_numpy(img)
+                    if self._dataparser_outputs.alpha_color is not None and image.shape[-1] == 4:
+                        if isinstance(self._dataparser_outputs.alpha_color, str):
+                            alpha_color = COLORS_DICT[self._dataparser_outputs.alpha_color]
+                        else:
+                            alpha_color = torch.from_numpy(np.array(alpha_color, dtype=np.float32))
+                        image = image[:, :, :3] * image[:, :, -1:] + alpha_color * (1.0 - image[:, :, -1:])
+                    return image
+
+            return DatasetL
+
         class DM(dm._target):  # pylint: disable=protected-access
             @property
             def dataset_type(self):
-                class DatasetL(getattr(self, "_idataset_type", InputDataset)):
-                    def get_image(self, image_idx: int):
-                        img = _images_holder[0][image_idx]
-                        img = convert_image_dtype(img, np.float32)
-                        image = torch.from_numpy(img)
-                        if self._dataparser_outputs.alpha_color is not None and image.shape[-1] == 4:
-                            if isinstance(self._dataparser_outputs.alpha_color, str):
-                                alpha_color = COLORS_DICT[self._dataparser_outputs.alpha_color]
-                            else:
-                                alpha_color = torch.from_numpy(np.array(alpha_color, dtype=np.float32))
-                            image = image[:, :, :3] * image[:, :, -1:] + alpha_color * (1.0 - image[:, :, -1:])
-                        return image
-
-                return DatasetL
+                return get_dataset_class(getattr(self, "_idataset_type", InputDataset))
 
             @dataset_type.setter
             def dataset_type(self, value):
@@ -396,7 +418,7 @@ class NerfStudio(Method):
             DM.setup_eval = lambda *args, **kwargs: None
         config.pipeline.datamanager._target = DM  # pylint: disable=protected-access
 
-    def setup_train(self, train_dataset: Dataset, *, num_iterations: int):
+    def setup_train(self, train_dataset: Dataset, *, num_iterations: Optional[int]):
         if self.checkpoint is not None:
             self.dataparser_params = torch.load(os.path.join(self.checkpoint, "dataparser_params.pth"), map_location="cpu")
         self._apply_config_patch_for_dataset(self._original_config, train_dataset)
@@ -405,7 +427,8 @@ class NerfStudio(Method):
         images_holder = [train_dataset.images]
         del train_dataset.images
 
-        self.config.max_num_iterations = num_iterations
+        if num_iterations is not None:
+            self.config.max_num_iterations = num_iterations
 
         self._patch_datamanager(self.config, train_dataset, images_holder)
         self.config.output_dir = Path(self._tmpdir.name)

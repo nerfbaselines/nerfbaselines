@@ -120,7 +120,7 @@ class Trainer:
 
         self.step = method_info.loaded_step or 0
         self.output = output
-        self.num_iterations = num_iterations or method_info.num_iterations or 100_000
+        self.num_iterations = num_iterations
         self.save_iters = save_iters
 
         self.eval_single_iters = eval_single_iters
@@ -128,9 +128,6 @@ class Trainer:
         self.loggers = loggers
         self.run_extra_metrics = run_extra_metrics
         self.generate_output_artifact = generate_output_artifact
-        for v in vars(self).values():
-            if isinstance(v, Indices):
-                v.total = self.num_iterations + 1
         self._wandb_run: Union["wandb.sdk.wandb_run.Run", None] = None
         self._tensorboard_writer = None
         self._average_image_size = None
@@ -141,9 +138,34 @@ class Trainer:
         self._resources_utilization_info = None
         self._dataset_background_color = None
 
+        # Restore checkpoint if specified
+        if self.checkpoint is not None:
+            with open(self.checkpoint / "nb-info.json", mode="r", encoding="utf8") as f:
+                info = json.load(f)
+                self._total_train_time = info["total_train_time"]
+                self._resources_utilization_info = info["resources_utilization"]
+
+    def _setup_num_iterations(self):
+        if self.num_iterations is None:
+            self.num_iterations = self._method_info.num_iterations
+        for v in vars(self).values():
+            if isinstance(v, Indices):
+                v.total = self.num_iterations + 1
+
+    def _validate_output_artifact(self):
         # Validate generate output artifact
         if self.generate_output_artifact is None or self.generate_output_artifact:
-            messages = self._get_generate_output_artifact_problems()
+            messages = []
+            # Model is saved automatically at the end!
+            # if self.num_iterations not in self.save_iters:
+            #     messages.append(f"num_iterations ({self.num_iterations}) must be in save_iters: {self.save_iters}")
+            if self.num_iterations not in self.eval_all_iters:
+                messages.append(f"num_iterations ({self.num_iterations}) must be in eval_all_iters: {self.eval_all_iters}")
+            if not self.run_extra_metrics:
+                messages.append("Extra metrics must be enabled. Please verify they are installed and not disabled by --disable-extra-metrics flag.")
+            if "tensorboard" not in self.loggers:
+                messages.append("Tensorboard logger must be enabled. Please add `--vis tensorboard` to the command line arguments.")
+
             if self.generate_output_artifact is None and messages:
                 logging.warning("Disabling output artifact generation due to the following problems:")
                 for message in messages:
@@ -156,26 +178,6 @@ class Trainer:
                 sys.exit(1)
             else:
                 self.generate_output_artifact = True
-
-        # Restore checkpoint if specified
-        if self.checkpoint is not None:
-            with open(self.checkpoint / "nb-info.json", mode="r", encoding="utf8") as f:
-                info = json.load(f)
-                self._total_train_time = info["total_train_time"]
-                self._resources_utilization_info = info["resources_utilization"]
-
-    def _get_generate_output_artifact_problems(self):
-        messages = []
-        # Model is saved automatically at the end!
-        # if self.num_iterations not in self.save_iters:
-        #     messages.append(f"num_iterations ({self.num_iterations}) must be in save_iters: {self.save_iters}")
-        if self.num_iterations not in self.eval_all_iters:
-            messages.append(f"num_iterations ({self.num_iterations}) must be in eval_all_iters: {self.eval_all_iters}")
-        if not self.run_extra_metrics:
-            messages.append("Extra metrics must be enabled. Please verify they are installed and not disabled by --disable-extra-metrics flag.")
-        if "tensorboard" not in self.loggers:
-            messages.append("Tensorboard logger must be enabled. Please add `--vis tensorboard` to the command line arguments.")
-        return messages
 
     @remap_error
     def setup_data(self):
@@ -207,13 +209,17 @@ class Trainer:
             raise RuntimeError(f"train dataset color space {self._dataset_background_color} != test dataset color space {self.test_dataset.metadata.get('background_color')}")
         if self._dataset_background_color is not None:
             self._dataset_background_color = convert_image_dtype(self._dataset_background_color, np.uint8)
-        self._method_info = method_info
+
+        self._method_info = self.method.get_info()
+        self._setup_num_iterations()
+        self._validate_output_artifact()
 
     def _get_ns_info(self):
         return {
             "method": self.method_name,
             "nb_version": __version__,
             "color_space": self._color_space,
+            "num_iterations": self._method_info.num_iterations,
             "expected_scene_scale": round(self._expected_scene_scale, 5),
             "dataset_background_color": self._dataset_background_color.tolist() if self._dataset_background_color is not None else None,
             "total_train_time": round(self._total_train_time, 5),
@@ -590,6 +596,7 @@ class IndicesClickType(click.ParamType):
 @click.option("--disable-extra-metrics", help="Disable extra metrics which need additional dependencies.", is_flag=True)
 @click.option("--disable-output-artifact", "generate_output_artifact", help="Disable producing output artifact containing final model and predictions.", default=None, flag_value=False, is_flag=True)
 @click.option("--force-output-artifact", "generate_output_artifact", help="Force producing output artifact containing final model and predictions.", default=None, flag_value=True, is_flag=True)
+@click.option("--num-iterations", type=int, help="Number of training iterations.", default=None)
 @handle_cli_error
 def train_command(method, checkpoint, data, output, verbose, backend, eval_single_iters, eval_all_iters, num_iterations=None, disable_extra_metrics=False, generate_output_artifact=None, vis="none"):
     logging.basicConfig(level=logging.INFO)
@@ -630,7 +637,7 @@ def train_command(method, checkpoint, data, output, verbose, backend, eval_singl
                 loggers.add("wandb")
             elif vis == "tensorboard":
                 loggers.add("tensorboard")
-            elif vis == "wandb+tensorboard" or vis == "tensorboard+wandb":
+            elif vis in {"wandb+tensorboard", "tensorboard+wandb"}:
                 loggers = frozenset({"wandb", "tensorboard"})
             elif vis == "none":
                 pass

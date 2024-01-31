@@ -135,7 +135,7 @@ class NBDataset(MNDataset):
 
 class MultiNeRF(Method):
     batch_size: int = 16384
-    num_iterations: int = 250_000
+    num_iterations: Optional[int] = None
     learning_rate_multiplier: float = 1.0
 
     def __init__(self, checkpoint=None, batch_size: Optional[int] = None, num_iterations: Optional[int] = None, learning_rate_multiplier: Optional[float] = None):
@@ -165,8 +165,9 @@ class MultiNeRF(Method):
             self.step = self._loaded_step = int(next(iter((x for x in os.listdir(checkpoint) if x.startswith("checkpoint_")))).split("_")[1])
             self._config_str = (Path(checkpoint) / "config.gin").read_text()
             self.config = self._load_config()
+            self.num_iterations = self.config.max_steps
 
-    def _load_config(self, dataset_name=None):
+    def _load_config(self, dataset_name=None, num_iterations=None):
         if self.checkpoint is None:
             # Find the config files root
             import train
@@ -176,15 +177,20 @@ class MultiNeRF(Method):
             if dataset_name == "blender":
                 config_path = f"{configs_path}/blender_256.gin"
             gin.parse_config_file(config_path, skip_unknown=True)
+            gin.bind_parameter("Config.batch_size", self.batch_size)
+            num_iterations = num_iterations or self.num_iterations
+            if num_iterations is not None:
+                gin.bind_parameter("Config.max_steps", num_iterations)
+            config = configs.Config()
+            config.lr_init *= self.learning_rate_multiplier
+            config.lr_final *= self.learning_rate_multiplier
+            gin.bind_parameter("Config.lr_init", config.lr_init)
+            gin.bind_parameter("Config.lr_final", config.lr_final)
         else:
             assert self._config_str is not None, "Config string must be set when loading from checkpoint"
             gin.parse_config(self._config_str, skip_unknown=False)
-        gin.bind_parameter("Config.batch_size", self.batch_size)
-        gin.bind_parameter("Config.max_steps", self.num_iterations)
         gin.finalize()
         config = configs.Config()
-        config.lr_init *= self.learning_rate_multiplier
-        config.lr_final *= self.learning_rate_multiplier
         return config
 
     def get_info(self):
@@ -196,7 +202,7 @@ class MultiNeRF(Method):
 
     def _setup_eval(self):
         rng = random.PRNGKey(20200823)
-        np.random.seed(20201473 + jax.host_id())
+        np.random.seed(20201473 + jax.process_index())
         rng, key = random.split(rng)
 
         dummy_rays = utils.dummy_rays(include_exposure_idx=self.config.rawnerf_mode, include_exposure_values=True)
@@ -212,18 +218,19 @@ class MultiNeRF(Method):
         self.loss_threshold = 1.0
 
         # Prefetch_buffer_size = 3 x batch_size.
-        rng = rng + jax.host_id()  # Make random seed separate across hosts.
+        rng = rng + jax.process_index()  # Make random seed separate across hosts.
         self.rngs = random.split(rng, jax.local_device_count())  # For pmapping RNG keys.
         self.state = state
 
     def setup_train(self, train_dataset: Dataset, *, num_iterations):
         if self.config is None:
-            self.config = self._load_config(train_dataset.metadata.get("name"))
+            self.config = self._load_config(train_dataset.metadata.get("name"), num_iterations=num_iterations)
+            self.num_iterations = self.config.max_steps
 
         rng = random.PRNGKey(20200823)
-        # Shift the numpy random seed by host_id() to shuffle data loaded by different
+        # Shift the numpy random seed by process_index() to shuffle data loaded by different
         # hosts.
-        np.random.seed(20201473 + jax.host_id())
+        np.random.seed(20201473 + jax.process_index())
 
         if self.config.batch_size % jax.device_count() != 0:
             raise ValueError("Batch size must be divisible by the number of devices.")
@@ -256,7 +263,7 @@ class MultiNeRF(Method):
 
         # Prefetch_buffer_size = 3 x batch_size.
         pdataset = flax.jax_utils.prefetch_to_device(dataset, 3)
-        rng = rng + jax.host_id()  # Make random seed separate across hosts.
+        rng = rng + jax.process_index()  # Make random seed separate across hosts.
         self.rngs = random.split(rng, jax.local_device_count())  # For pmapping RNG keys.
         gc.disable()  # Disable automatic garbage collection for efficiency.
         self.train_pstep = train_pstep
@@ -290,10 +297,10 @@ class MultiNeRF(Method):
         if self.step % self.config.gc_every == 0:
             gc.collect()  # Disable automatic garbage collection for efficiency.
 
-        # Log training summaries. This is put behind a host_id check because in
+        # Log training summaries. This is put behind a process_index check because in
         # multi-host evaluation, all hosts need to run inference even though we
         # only use host 0 to record results.
-        if jax.host_id() == 0:
+        if jax.process_index() == 0:
             stats = flax.jax_utils.unreplicate(stats)
 
         # Transpose and stack stats_buffer along axis 0.
@@ -320,7 +327,7 @@ class MultiNeRF(Method):
     def save(self, path):
         if self.render_eval_pfn is None:
             self._setup_eval()
-        if jax.host_id() == 0:
+        if jax.process_index() == 0:
             state_to_save = jax.device_get(flax.jax_utils.unreplicate(self.state))
             checkpoints.save_checkpoint(str(path), state_to_save, int(self.step), keep=100)
             np.savetxt(Path(path) / "dataparser_transform.txt", self._dataparser_transform)

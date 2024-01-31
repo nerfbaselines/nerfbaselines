@@ -1,9 +1,14 @@
 from ..registry import MethodSpec, CondaMethod, LazyMethod
 
+try:
+    from typing import Optional
+except ImportError:
+    from typing_extensions import Optional
+
 
 class MultiNeRF(LazyMethod["._impl.multinerf", "MultiNeRF"]):
     batch_size: int = 16384
-    num_iterations: int = 250_000
+    num_iterations: Optional[int] = None
     learning_rate_multiplier: float = 1.0
 
 

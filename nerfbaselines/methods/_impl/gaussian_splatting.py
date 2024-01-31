@@ -160,8 +160,9 @@ class GaussianSplatting(Method):
         self.opt = op.extract(args)
         self.pipe = pp.extract(args)
 
-    def setup_train(self, train_dataset, *, num_iterations: int):
+    def setup_train(self, train_dataset, *, num_iterations: Optional[int]):
         # Initialize system state (RNG)
+        self.opt.iterations = num_iterations or self.opt.iterations
         safe_state(True)
 
         if self.checkpoint is None:
@@ -171,11 +172,10 @@ class GaussianSplatting(Method):
                 logging.info("overriding default background color to white for blender dataset")
 
             assert "--iterations" not in self._args_list, "iterations should not be specified when loading from checkpoint"
-            self._args_list.extend(("--iterations", str(num_iterations)))
+            self._args_list.extend(("--iterations", str(self.opt.iterations)))
             self._load_config()
 
             # Verify parameters are set correctly
-            assert self.opt.iterations == num_iterations, "iterations should be equal to num_iterations"
             if train_dataset.metadata.get("name") == "blender":
                 assert self.dataset.white_background, "white_background should be True for blender dataset"
 

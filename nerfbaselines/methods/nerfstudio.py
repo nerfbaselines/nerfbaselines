@@ -12,10 +12,14 @@ NerfStudioConda = CondaMethod.wrap(
     conda_name="nerfstudio",
     python_version="3.10",
     install_script="""
-pip install torch==2.0.1+cu118 torchvision==0.15.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
+pip install torch==2.1.2+cu118 torchvision==0.16.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
 conda install -y -c "nvidia/label/cuda-11.8.0" cuda-toolkit
 pip install ninja git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
 pip install nerfstudio==0.3.4
+git clone https://github.com/nerfstudio-project/nerfstudio.git
+cd nerfstudio
+git checkout 3a90cb529f893fbf89625a915a53a7a71b97a575
+pip install -e .
 """,
 )
 

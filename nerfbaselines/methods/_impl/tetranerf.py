@@ -3,7 +3,7 @@ from tqdm import tqdm
 import tempfile
 import requests
 import numpy as np
-from .nerfstudio import NerfStudio
+from .nerfstudio import NerfStudio, Optional
 from ...datasets import Dataset
 
 
@@ -36,7 +36,7 @@ class TetraNeRF(NerfStudio):
         self.dataparser_params["alpha_color"] = "white"
         return super()._patch_dataparser_params()
 
-    def setup_train(self, train_dataset: Dataset, *, num_iterations: int):
+    def setup_train(self, train_dataset: Dataset, *, num_iterations: Optional[int]):
         dataset = train_dataset
         dataset_name = dataset.metadata["name"]
         if dataset_name == "blender":

@@ -1,9 +1,14 @@
 from ..registry import MethodSpec, CondaMethod, LazyMethod
 
+try:
+    from typing import Optional
+except ImportError:
+    from typing_extensions import Optional
+
 
 class CamP_ZipNerf(LazyMethod["._impl.camp_zipnerf", "CamP_ZipNeRF"]):
     batch_size: int = 8192
-    num_iterations: int = 200_000
+    num_iterations: Optional[int] = None
     learning_rate_multiplier: float = 1.0
 
 
