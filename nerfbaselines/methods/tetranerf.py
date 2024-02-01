@@ -1,9 +1,9 @@
 from ..backends import DockerMethod
-from ..registry import MethodSpec, LazyMethod
+from ..registry import MethodSpec, LazyMethod, register
 from ..types import Optional
 
 
-class TetraNeRF(LazyMethod["._impl.tetranerf", "TetraNeRF"]):
+class TetraNeRF(LazyMethod["._impl.tetranerf:TetraNeRF"]):
     nerfstudio_name: Optional[str] = None
     require_points3D: bool = True
 
@@ -22,8 +22,9 @@ TetraNeRFSpec = MethodSpec(
     },
 )
 
-TetraNeRFSpec.register("tetra-nerf", nerfstudio_name="tetra-nerf-original", require_points3D=True, metadata={})
-TetraNeRFSpec.register(
+register(TetraNeRFSpec, "tetra-nerf", nerfstudio_name="tetra-nerf-original", require_points3D=True, metadata={})
+register(
+    TetraNeRFSpec,
     "tetra-nerf:latest",
     nerfstudio_name="tetra-nerf",
     require_points3D=True,

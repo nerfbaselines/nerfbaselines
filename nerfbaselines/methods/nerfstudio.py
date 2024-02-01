@@ -1,8 +1,8 @@
 from typing import Optional
-from ..registry import CondaMethod, DockerMethod, ApptainerMethod, LazyMethod, MethodSpec, DEFAULT_DOCKER_IMAGE
+from ..registry import CondaMethod, DockerMethod, ApptainerMethod, LazyMethod, MethodSpec, DEFAULT_DOCKER_IMAGE, register
 
 
-class NerfStudio(LazyMethod["._impl.nerfstudio", "NerfStudio"]):
+class NerfStudio(LazyMethod["._impl.nerfstudio:NerfStudio"]):
     nerfstudio_name: Optional[str] = None
     require_points3D: bool = False
 
@@ -52,7 +52,8 @@ NerfStudioSpec = MethodSpec(
 )
 
 # Register supported methods
-NerfStudioSpec.register(
+register(
+    NerfStudioSpec,
     "nerfacto",
     nerfstudio_name="nerfacto",
     metadata={
@@ -60,7 +61,8 @@ NerfStudioSpec.register(
         "description": """NerfStudio (Nerfacto) is a method based on Instant-NGP which combines several improvements from different papers to achieve good quality on real-world scenes captured under normal conditions. It is fast to train (12 min) and render speed is ~1 FPS.""",
     },
 )
-NerfStudioSpec.register(
+register(
+    NerfStudioSpec,
     "nerfacto:big",
     nerfstudio_name="nerfacto-big",
     metadata={
@@ -68,7 +70,8 @@ NerfStudioSpec.register(
         "description": """Larger setup of Nerfacto model family. It has larger hashgrid and MLPs. It is slower to train and render, but it provides better quality.""",
     },
 )
-NerfStudioSpec.register(
+register(
+    NerfStudioSpec,
     "nerfacto:huge",
     nerfstudio_name="nerfacto-huge",
     metadata={

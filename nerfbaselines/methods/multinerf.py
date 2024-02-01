@@ -1,4 +1,4 @@
-from ..registry import MethodSpec, CondaMethod, LazyMethod
+from ..registry import MethodSpec, CondaMethod, LazyMethod, register
 
 try:
     from typing import Optional
@@ -6,7 +6,7 @@ except ImportError:
     from typing_extensions import Optional
 
 
-class MultiNeRF(LazyMethod["._impl.multinerf", "MultiNeRF"]):
+class MultiNeRF(LazyMethod["._impl.multinerf:MultiNeRF"]):
     batch_size: int = 16384
     num_iterations: Optional[int] = None
     learning_rate_multiplier: float = 1.0
@@ -49,7 +49,8 @@ conda develop "$PWD/internal/pycolmap/pycolmap"
         "link": "https://jonbarron.info/mipnerf360/",
     },
 )
-MultiNeRFSpec.register(
+register(
+    MultiNeRFSpec,
     "mipnerf360",
     metadata={
         "name": "Mip-NeRF 360",
@@ -58,7 +59,8 @@ It was designed for unbounded object-centric 360-degree capture and handles anti
 It is, however slower to train and render compared to other approaches.""",
     },
 )
-MultiNeRFSpec.register(
+register(
+    MultiNeRFSpec,
     "mipnerf360:single-gpu",
     batch_size=4096,
     num_iterations=1_000_000,

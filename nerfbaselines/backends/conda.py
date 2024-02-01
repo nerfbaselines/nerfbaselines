@@ -2,8 +2,22 @@ import shlex
 import os
 from typing import Optional
 import hashlib
+try:
+    from typing import TypedDict
+except ImportError:
+    from typing_extensions import TypedDict
 
 from ..communication import RemoteProcessMethod, NB_PREFIX
+
+
+class CondaMethodSpecDict(TypedDict, total=False):
+    conda_name: Optional[str]
+    environment: Optional[str]
+    python_version: Optional[str]
+    install_script: Optional[str]
+    environments_path: str
+    build_code: Optional[str]
+    python_path: str
 
 
 class CondaMethod(RemoteProcessMethod):

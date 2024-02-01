@@ -1,3 +1,5 @@
+import sys
+import logging
 import inspect
 import types
 import typing
@@ -5,12 +7,21 @@ import os
 import importlib
 import dataclasses
 import subprocess
-from typing import Optional, Type, Any, Tuple, Dict, Set
+from typing import Optional, Type, Any, Tuple, Dict, Set, Union
+from dataclasses import field, dataclass
 
 try:
     from typing import Literal
 except ImportError:
     from typing_extensions import Literal  # type: ignore
+try:
+    from typing import Required
+except ImportError:
+    from typing_extensions import Required  # type: ignore
+try:
+    from typing import TypedDict
+except ImportError:
+    from typing_extensions import TypedDict  # type: ignore
 try:
     from typing import FrozenSet
 except ImportError:
@@ -19,9 +30,12 @@ try:
     from typing import get_args
 except ImportError:
     from typing_extensions import get_args  # type: ignore
-from dataclasses import dataclass, field
+if sys.version_info < (3, 10):
+    from importlib_metadata import entry_points
+else:
+    from importlib.metadata import entry_points
 from .types import Method
-from .backends import DockerMethod, CondaMethod, ApptainerMethod
+from .backends import DockerMethod, CondaMethod, ApptainerMethod, CondaMethodSpecDict, DockerMethodSpecDict, ApptainerMethodSpecDict
 from .utils import partialclass
 
 
@@ -29,6 +43,51 @@ DEFAULT_DOCKER_IMAGE = "kulhanek/nerfbaselines:v1"
 Backend = Literal["conda", "docker", "apptainer", "python"]
 ALL_BACKENDS = list(get_args(Backend))
 registry = {}
+
+
+def discover_methods() -> Dict[str, Union["MethodSpec", "MethodSpecDict"]]:
+    """
+    Discovers all methods registered using the `nerfbaselines.method_configs` entrypoint.
+    And also methods in the NERFBASELINES_METHODS environment variable.
+    """
+    methods = {}
+    discovered_entry_points = entry_points(group="nerfbaselines.method_configs")
+    for name in discovered_entry_points.names:
+        spec = discovered_entry_points[name].load()
+        if not isinstance(spec, (MethodSpec, dict)):
+            logging.warning(f"Could not entry point {spec} as it is not an instance of {MethodSpec.__name__} or {MethodSpecDict.__name__}")
+            continue
+        methods[name] = spec
+
+    if "NERFBASELINES_METHODS" in os.environ:
+        try:
+            strings = os.environ["NERFBASELINES_METHODS"].split(",")
+            for definition in strings:
+                if not definition:
+                    continue
+                name, path = definition.split("=")
+                logging.info(f"Loading method {name} from environment variable")
+                modname, qualname_separator, qualname = path.partition(":")
+                method_config = importlib.import_module(modname)
+                if qualname_separator:
+                    for attr in qualname.split("."):
+                        method_config = getattr(method_config, attr)
+
+                # method_config specified as function or class -> instance
+                if callable(method_config):
+                    method_config = method_config()
+
+                # check for valid instance type
+                if not isinstance(spec, (MethodSpec, dict)):
+                    raise TypeError(f"Method is not an instance of {MethodSpec.__name__} or {MethodSpecDict.__name__}")
+
+                # save to methods
+                methods[name] = method_config
+        except Exception as e:
+            logging.exception(e)
+            logging.error("Could not load methods from environment variable NERFBASELINES_METHODS")
+
+    return methods
 
 
 # Auto register
@@ -46,10 +105,15 @@ def auto_register(force=False):
         if package.endswith(".py") and not package.startswith("_") and package != "__init__.py":
             package = package[:-3]
             importlib.import_module(f".methods.{package}", __package__)
+    for name, spec in discover_methods().items():
+        register(spec, name)
     _auto_register_completed = True
 
 
-def register(spec: "MethodSpec", name: str, *args, metadata=None, **kwargs) -> "MethodSpec":
+def register(spec: Union["MethodSpec", "MethodSpecDict"], name: str, *args, metadata=None, **kwargs) -> "MethodSpec":
+    if not isinstance(spec, MethodSpec):
+        assert isinstance(spec, dict), f"Method spec must be either {MethodSpec.__name__} or {MethodSpecDict.__name__}"
+        spec = convert_spec_dict_to_spec(spec)
     assert name not in registry, f"Method {name} already registered"
     if metadata is None:
         metadata = {}
@@ -59,12 +123,28 @@ def register(spec: "MethodSpec", name: str, *args, metadata=None, **kwargs) -> "
     return spec
 
 
-class _LazyMethodMeta(type):
-    def __getitem__(cls, __name: Tuple[str, str]) -> Type[Method]:
-        from . import methods
+def _make_entrypoint_absolute(entrypoint: str) -> str:
+    module, name = entrypoint.split(":")
+    if module.startswith("."):
+        module_base = current_module = _make_entrypoint_absolute.__module__
+        index = 1
+        while module_base == current_module:
+            frame = inspect.stack()[index]
+            module_base = inspect.getmodule(frame[0]).__name__
+            index += 1
+        if module == ".":
+            module = module_base
+        else:
+            module = ".".join(module_base.split(".")[:-1]) + module
+    return ":".join((module, name))
 
-        module, name = __name
-        module_base = methods.__package__
+
+class _LazyMethodMeta(type):
+    def __getitem__(cls, __name: str) -> Type[Method]:
+        __name = _make_entrypoint_absolute(__name)
+        qualname = __name.split(":", maxsplit=1)[-1]
+        name = qualname.split(".")[-1]
+        module = __name.split(":", maxsplit=1)[0]
 
         def build(ns):
             def new(ncls, *args, **kwargs):
@@ -75,15 +155,17 @@ class _LazyMethodMeta(type):
                     args = old_init.__args__ + args
                     kwargs = {**old_init.__kwargs__, **kwargs}
 
-                mod = importlib.import_module(module, methods.__package__)
-                ncls = getattr(mod, name)
-                assert inspect.isclass(ncls)
-                return ncls(*args, **kwargs)
+                method = importlib.import_module(module)
+                for attr in qualname.split("."):
+                    method = getattr(method, attr)
+
+                assert inspect.isclass(method)
+                return method(*args, **kwargs)
 
             ns["__new__"] = new
 
         ncls = types.new_class(name, exec_body=build, bases=(Method,))
-        ncls.__module__ = module_base + module if module.startswith(".") else module
+        ncls.__module__ = module
         ncls.__name__ = name
         return typing.cast(Type[Method], ncls)
 
@@ -91,6 +173,16 @@ class _LazyMethodMeta(type):
 class LazyMethod(object, metaclass=_LazyMethodMeta):
     def __class_getitem__(cls, __name: Tuple[str, str]) -> Type[Method]:
         return _LazyMethodMeta.__getitem__(cls, __name)
+
+
+class MethodSpecDict(TypedDict, total=False):
+    method: Required[str]
+    conda: CondaMethodSpecDict
+    docker: DockerMethodSpecDict
+    apptainer: ApptainerMethodSpecDict
+    args: Tuple[Any, ...]
+    kwargs: Dict[str, Any]
+    metadata: Dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -104,7 +196,7 @@ class MethodSpec:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
-        assert self.conda is not None or self.docker is not None, "MethodSpec requires at least conda or docker backend"
+        assert self.conda is not None or self.docker is not None, f"{MethodSpec.__name__} requires at least conda or docker backend"
         assert not hasattr(self.method, "method_name"), "method cannot have method_name property"
         assert not hasattr(self.conda, "method_name"), "conda cannot have method_name property"
         assert not hasattr(self.docker, "method_name"), "docker cannot have method_name property"
@@ -178,6 +270,28 @@ class MethodSpec:
 
     def register(self, name, *args, **kwargs) -> None:
         register(self, name, *args, **kwargs)
+
+
+def convert_spec_dict_to_spec(spec: MethodSpecDict) -> MethodSpec:
+    kwargs = spec.copy()
+
+    kwargs["method"] = method = LazyMethod[spec["method"]]
+    if "conda" in kwargs:
+        kwargs["conda"] = CondaMethod.wrap(
+            method,
+            **kwargs.pop("conda"),
+        )
+    if "docker" in kwargs:
+        kwargs["docker"] = DockerMethod.wrap(
+            method,
+            **kwargs.pop("docker"),
+        )
+    if "apptainer" in kwargs:
+        kwargs["apptainer"] = ApptainerMethod.wrap(
+            method,
+            **kwargs.pop("apptainer"),
+        )
+    return MethodSpec(**kwargs)
 
 
 def get(name: str) -> MethodSpec:

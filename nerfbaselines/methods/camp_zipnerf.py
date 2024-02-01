@@ -1,4 +1,4 @@
-from ..registry import MethodSpec, CondaMethod, LazyMethod
+from ..registry import MethodSpec, CondaMethod, LazyMethod, register
 
 try:
     from typing import Optional
@@ -6,7 +6,7 @@ except ImportError:
     from typing_extensions import Optional
 
 
-class CamP_ZipNerf(LazyMethod["._impl.camp_zipnerf", "CamP_ZipNeRF"]):
+class CamP_ZipNerf(LazyMethod["._impl.camp_zipnerf:CamP_ZipNeRF"]):
     batch_size: int = 8192
     num_iterations: Optional[int] = None
     learning_rate_multiplier: float = 1.0
@@ -43,7 +43,8 @@ conda develop "$PWD/internal/pycolmap/pycolmap"
     metadata={},
 )
 
-CamP_ZipNerfSpec.register(
+register(
+    CamP_ZipNerfSpec,
     "zipnerf",
     camp=False,
     metadata={
@@ -57,7 +58,8 @@ Instead of sampling along the ray it samples along a spiral path - approximating
     },
 )
 
-CamP_ZipNerfSpec.register(
+register(
+    CamP_ZipNerfSpec,
     "camp",
     camp=True,
     metadata={

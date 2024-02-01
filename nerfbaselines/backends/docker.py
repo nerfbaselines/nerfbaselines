@@ -2,9 +2,22 @@ import types
 import os
 from typing import Optional, List, Tuple
 import shlex
+try:
+    from typing import TypedDict
+except ImportError:
+    from typing_extensions import TypedDict
 from ..communication import RemoteProcessMethod, PACKAGE_PATH, NB_PREFIX
 from ..utils import partialmethod
 from .apptainer import ApptainerMethod
+
+
+class DockerMethodSpecDict(TypedDict, total=False):
+    image: str
+    mounts: Optional[List[Tuple[str, str]]]
+    home_path: str
+    environments_path: str
+    build_code: Optional[str]
+    python_path: str
 
 
 class DockerMethod(RemoteProcessMethod):
