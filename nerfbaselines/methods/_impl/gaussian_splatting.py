@@ -160,7 +160,7 @@ class GaussianSplatting(Method):
         self.opt = op.extract(args)
         self.pipe = pp.extract(args)
 
-    def setup_train(self, train_dataset, *, num_iterations: Optional[int]):
+    def setup_train(self, train_dataset, *, num_iterations: Optional[int] = None, config_overrides=None):
         # Initialize system state (RNG)
         self.opt.iterations = num_iterations or self.opt.iterations
         safe_state(True)
@@ -173,8 +173,13 @@ class GaussianSplatting(Method):
 
             assert "--iterations" not in self._args_list, "iterations should not be specified when loading from checkpoint"
             self._args_list.extend(("--iterations", str(self.opt.iterations)))
-            self._load_config()
 
+        for k, v in (config_overrides or {}).items():
+            self._args_list.append(f"--{k}")
+            self._args_list.append(str(v))
+        self._load_config()
+
+        if self.checkpoint is None:
             # Verify parameters are set correctly
             if train_dataset.metadata.get("name") == "blender":
                 assert self.dataset.white_background, "white_background should be True for blender dataset"

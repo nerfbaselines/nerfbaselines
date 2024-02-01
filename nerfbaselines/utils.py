@@ -10,6 +10,14 @@ from typing import Any, Optional, Dict, TYPE_CHECKING, Union, List
 from typing import BinaryIO
 import numpy as np
 import logging
+try:
+    from typing import get_args, get_origin
+except ImportError:
+    from typing_extensions import get_args, get_origin
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
 
 if TYPE_CHECKING:
     cached_property = property
@@ -427,3 +435,45 @@ def get_resources_utilization_info(pid=None):
         pass
 
     return info
+
+
+def cast_value(tp, value):
+    origin = get_origin(tp)
+    if origin is Literal:
+        for val in get_args(tp):
+            try:
+                value_casted = cast_value(type(val), value)
+                if val == value_casted:
+                    return value_casted
+            except ValueError:
+                pass
+            except TypeError:
+                pass
+        raise TypeError(f"Value {value} is not in {get_args(tp)}")
+            
+    if origin is Union:
+        for t in get_args(tp):
+            try:
+                return cast_value(t, value)
+            except ValueError:
+                pass
+            except TypeError:
+                pass
+        raise TypeError(f"Value {value} is not in {tp}")
+    if tp is type(None):
+        if str(value).lower() == "none":
+            return None
+        else:
+            raise TypeError(f"Value {value} is not None")
+    if tp is bool:
+        if str(value).lower() in {"true", "1", "yes"}:
+            return True
+        elif str(value).lower() in {"false", "0", "no"}:
+            return False
+        else:
+            raise TypeError(f"Value {value} is not a bool")
+    if tp in {int, float, bool, str}:
+        return tp(value)
+    if isinstance(value, tp):
+        return value
+    raise TypeError(f"Cannot cast value {value} to type {tp}")

@@ -167,7 +167,7 @@ class MultiNeRF(Method):
             self.config = self._load_config()
             self.num_iterations = self.config.max_steps
 
-    def _load_config(self, dataset_name=None, num_iterations=None):
+    def _load_config(self, dataset_name=None, num_iterations=None, config_overrides=None):
         if self.checkpoint is None:
             # Find the config files root
             import train
@@ -179,13 +179,16 @@ class MultiNeRF(Method):
             gin.parse_config_file(config_path, skip_unknown=True)
             gin.bind_parameter("Config.batch_size", self.batch_size)
             num_iterations = num_iterations or self.num_iterations
-            if num_iterations is not None:
-                gin.bind_parameter("Config.max_steps", num_iterations)
             config = configs.Config()
             config.lr_init *= self.learning_rate_multiplier
             config.lr_final *= self.learning_rate_multiplier
             gin.bind_parameter("Config.lr_init", config.lr_init)
             gin.bind_parameter("Config.lr_final", config.lr_final)
+            gin.parse_config([
+                f'{k} = {v}' for k, v in (config_overrides or {}).items()
+            ])
+            if num_iterations is not None:
+                gin.bind_parameter("Config.max_steps", num_iterations)
         else:
             assert self._config_str is not None, "Config string must be set when loading from checkpoint"
             gin.parse_config(self._config_str, skip_unknown=False)
@@ -222,9 +225,9 @@ class MultiNeRF(Method):
         self.rngs = random.split(rng, jax.local_device_count())  # For pmapping RNG keys.
         self.state = state
 
-    def setup_train(self, train_dataset: Dataset, *, num_iterations):
+    def setup_train(self, train_dataset: Dataset, *, num_iterations=None, config_overrides=None):
         if self.config is None:
-            self.config = self._load_config(train_dataset.metadata.get("name"), num_iterations=num_iterations)
+            self.config = self._load_config(train_dataset.metadata.get("name"), num_iterations=num_iterations, config_overrides=config_overrides)
             self.num_iterations = self.config.max_steps
 
         rng = random.PRNGKey(20200823)

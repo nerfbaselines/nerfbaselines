@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Optional, Callable, Iterable, List, Dict, TYPE_CHECKING
+from typing import Optional, Callable, Iterable, List, Dict, TYPE_CHECKING, Any
 from dataclasses import dataclass, field
 import dataclasses
 import os
@@ -177,13 +177,14 @@ class Method(Protocol):
         raise NotImplementedError()
 
     @abstractmethod
-    def setup_train(self, train_dataset: Dataset, *, num_iterations: int):
+    def setup_train(self, train_dataset: Dataset, *, num_iterations: Optional[int] = None, config_overrides: Optional[Dict[str, Any]] = None):
         """
         Setup training data, model, optimizer, etc.
 
         Args:
             train_dataset: Training dataset.
-            num_iterations: Number of iterations to train.
+            num_iterations: Optional number of iterations to train.
+            config_overrides: Optional set of config overrides.
         """
         raise NotImplementedError()
 

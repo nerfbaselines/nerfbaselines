@@ -7,21 +7,22 @@ import os
 import importlib
 import dataclasses
 import subprocess
-from typing import Optional, Type, Any, Tuple, Dict, Set, Union
+from typing import Optional, Type, Any, Tuple, Dict, Set, Union, TYPE_CHECKING
 from dataclasses import field, dataclass
 
 try:
     from typing import Literal
 except ImportError:
     from typing_extensions import Literal  # type: ignore
-try:
-    from typing import Required
-except ImportError:
-    from typing_extensions import Required  # type: ignore
-try:
-    from typing import TypedDict
-except ImportError:
-    from typing_extensions import TypedDict  # type: ignore
+if TYPE_CHECKING:
+    try:
+        from typing import Required
+    except ImportError:
+        from typing_extensions import Required  # type: ignore
+    try:
+        from typing import TypedDict
+    except ImportError:
+        from typing_extensions import TypedDict  # type: ignore
 try:
     from typing import FrozenSet
 except ImportError:
@@ -68,21 +69,17 @@ def discover_methods() -> Dict[str, Union["MethodSpec", "MethodSpecDict"]]:
                 name, path = definition.split("=")
                 logging.info(f"Loading method {name} from environment variable")
                 modname, qualname_separator, qualname = path.partition(":")
-                method_config = importlib.import_module(modname)
+                spec = importlib.import_module(modname)
                 if qualname_separator:
                     for attr in qualname.split("."):
-                        method_config = getattr(method_config, attr)
-
-                # method_config specified as function or class -> instance
-                if callable(method_config):
-                    method_config = method_config()
+                        spec = getattr(spec, attr)
 
                 # check for valid instance type
                 if not isinstance(spec, (MethodSpec, dict)):
                     raise TypeError(f"Method is not an instance of {MethodSpec.__name__} or {MethodSpecDict.__name__}")
 
                 # save to methods
-                methods[name] = method_config
+                methods[name] = spec
         except Exception as e:
             logging.exception(e)
             logging.error("Could not load methods from environment variable NERFBASELINES_METHODS")
@@ -175,14 +172,19 @@ class LazyMethod(object, metaclass=_LazyMethodMeta):
         return _LazyMethodMeta.__getitem__(cls, __name)
 
 
-class MethodSpecDict(TypedDict, total=False):
-    method: Required[str]
-    conda: CondaMethodSpecDict
-    docker: DockerMethodSpecDict
-    apptainer: ApptainerMethodSpecDict
-    args: Tuple[Any, ...]
-    kwargs: Dict[str, Any]
-    metadata: Dict[str, Any]
+if TYPE_CHECKING:
+
+    class MethodSpecDict(TypedDict, total=False):
+        method: Required[str]
+        conda: CondaMethodSpecDict
+        docker: DockerMethodSpecDict
+        apptainer: ApptainerMethodSpecDict
+        args: Tuple[Any, ...]
+        kwargs: Dict[str, Any]
+        metadata: Dict[str, Any]
+
+else:
+    MethodSpecDict = dict
 
 
 @dataclass(frozen=True)

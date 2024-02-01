@@ -97,6 +97,7 @@ class Trainer:
         method_name: Optional[str] = None,
         generate_output_artifact: Optional[bool] = None,
         checkpoint: Union[str, Path, None] = None,
+        config_overrides: Optional[Dict[str, Any]] = None,
     ):
         self.method_name = method_name or method.__name__
         self.checkpoint = Path(checkpoint) if checkpoint is not None else None
@@ -128,6 +129,7 @@ class Trainer:
         self.loggers = loggers
         self.run_extra_metrics = run_extra_metrics
         self.generate_output_artifact = generate_output_artifact
+        self.config_overrides = config_overrides
         self._wandb_run: Union["wandb.sdk.wandb_run.Run", None] = None
         self._tensorboard_writer = None
         self._average_image_size = None
@@ -196,7 +198,8 @@ class Trainer:
             assert isinstance(self._dataset_background_color, np.ndarray), "Dataset background color must be a numpy array"
 
         self.test_dataset.load_features(method_info.required_features.union({"color"}))
-        self.method.setup_train(train_dataset, num_iterations=self.num_iterations)
+
+        self.method.setup_train(train_dataset, num_iterations=self.num_iterations, **({"config_overrides": self.config_overrides} if self.config_overrides is not None else {}))
 
         assert train_dataset.color_space is not None
         if self._color_space is not None and self._color_space != train_dataset.color_space:
@@ -224,6 +227,9 @@ class Trainer:
             "dataset_background_color": self._dataset_background_color.tolist() if self._dataset_background_color is not None else None,
             "total_train_time": round(self._total_train_time, 5),
             "resources_utilization": self._resources_utilization_info,
+            # Date time in ISO format
+            "datetime": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "config_overrides": self.config_overrides,
         }
 
     def save(self):
@@ -583,6 +589,20 @@ class IndicesClickType(click.ParamType):
         return Indices([int(x) for x in value.split(",")])
 
 
+class SetParamOptionType(click.ParamType):
+    name = "key-value"
+
+    def convert(self, value, param, ctx):
+        if value is None:
+            return None
+        if isinstance(value, tuple):
+            return value
+        if "=" not in value:
+            self.fail(f"expected key=value pair, got {value}", param, ctx)
+        k, v = value.split("=", 1)
+        return k, v
+
+
 @click.command("train")
 @click.option("--method", type=click.Choice(sorted(registry.supported_methods())), required=True, help="Method to use")
 @click.option("--checkpoint", type=click.Path(exists=True, path_type=Path), default=None)
@@ -597,10 +617,28 @@ class IndicesClickType(click.ParamType):
 @click.option("--disable-output-artifact", "generate_output_artifact", help="Disable producing output artifact containing final model and predictions.", default=None, flag_value=False, is_flag=True)
 @click.option("--force-output-artifact", "generate_output_artifact", help="Force producing output artifact containing final model and predictions.", default=None, flag_value=True, is_flag=True)
 @click.option("--num-iterations", type=int, help="Number of training iterations.", default=None)
+@click.option("--set", "config_overrides", help="Override a parameter in the method.", type=SetParamOptionType(), multiple=True, default=None)
 @handle_cli_error
-def train_command(method, checkpoint, data, output, verbose, backend, eval_single_iters, eval_all_iters, num_iterations=None, disable_extra_metrics=False, generate_output_artifact=None, vis="none"):
+def train_command(
+    method,
+    checkpoint,
+    data,
+    output,
+    verbose,
+    backend,
+    eval_single_iters,
+    eval_all_iters,
+    num_iterations=None,
+    disable_extra_metrics=False,
+    generate_output_artifact=None,
+    vis="none",
+    config_overrides=None,
+):
     logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)
+
+    if config_overrides is not None and isinstance(config_overrides, (list, tuple)):
+        config_overrides = dict(config_overrides)
 
     if not disable_extra_metrics:
         try:
@@ -655,6 +693,7 @@ def train_command(method, checkpoint, data, output, verbose, backend, eval_singl
                 run_extra_metrics=not disable_extra_metrics,
                 generate_output_artifact=generate_output_artifact,
                 method_name=method,
+                config_overrides=config_overrides,
             )
             try:
                 trainer.setup_data()

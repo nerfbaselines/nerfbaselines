@@ -1,5 +1,6 @@
 # pylint: disable=protected-access
 import os
+import dataclasses
 from functools import partial
 import logging
 from dataclasses import fields
@@ -7,12 +8,13 @@ from pathlib import Path
 import copy
 import tempfile
 from collections import defaultdict
-from typing import Iterable, Optional
+from typing import Iterable, Optional, TypeVar
 import numpy as np
 from ...types import Method, ProgressCallback, CurrentProgress, MethodInfo
 from ...types import Dataset, RenderOutput
 from ...cameras import CameraModel, Cameras
 from ...utils import convert_image_dtype
+from ...utils import cast_value
 
 import yaml
 import torch
@@ -26,6 +28,9 @@ from nerfstudio.engine.trainer import TrainingCallbackLocation
 from nerfstudio.engine.trainer import Trainer
 from nerfstudio.configs.method_configs import all_methods
 from nerfstudio.utils.colors import COLORS_DICT
+
+
+T = TypeVar("T")
 
 
 # Hack to add progress to existing models
@@ -68,7 +73,7 @@ def _map_distortion_parameters(distortion_parameters):
     return distortion_parameters
 
 
-def _config_safe_set(config, path, value):
+def _config_safe_set(config, path, value, autocast=False):
     path = path.split(".")
     for p in path[:-1]:
         if not hasattr(config, p):
@@ -76,9 +81,12 @@ def _config_safe_set(config, path, value):
         config = getattr(config, p)
     p = path[-1]
     if hasattr(config, p):
+        if autocast:
+            assert dataclasses.is_dataclass(config)
+            value = cast_value(dataclasses.fields(config)[p].type, value)
         setattr(config, p, value)
         return True
-    False
+    return False
 
 
 class _CustomDataParser(DataParser):
@@ -411,17 +419,21 @@ class NerfStudio(Method):
         if dataset is None:
             # setup_train is not called for eval dataset
             def setup_train(self, *args, **kwargs):
-                self.train_camera_optimizer = self.config.camera_optimizer.setup(num_cameras=self.train_dataset.cameras.size, device=self.device)
+                if self.config.camera_optimizer is not None:
+                    self.train_camera_optimizer = self.config.camera_optimizer.setup(num_cameras=self.train_dataset.cameras.size, device=self.device)
 
             DM.setup_train = setup_train
             # setup_eval is not called for eval dataset
             DM.setup_eval = lambda *args, **kwargs: None
         config.pipeline.datamanager._target = DM  # pylint: disable=protected-access
 
-    def setup_train(self, train_dataset: Dataset, *, num_iterations: Optional[int]):
+    def setup_train(self, train_dataset: Dataset, *, num_iterations: Optional[int] = None, config_overrides=None):
         if self.checkpoint is not None:
             self.dataparser_params = torch.load(os.path.join(self.checkpoint, "dataparser_params.pth"), map_location="cpu")
         self._apply_config_patch_for_dataset(self._original_config, train_dataset)
+        for k, v in (config_overrides or {}).items():
+            if not _config_safe_set(self._original_config, k, v):
+                raise ValueError(f"Invalid config key {k}")
         self.config = copy.deepcopy(self._original_config)
         # We use this hack to release the memory after the data was copied to cached dataloader
         images_holder = [train_dataset.images]
@@ -470,7 +482,7 @@ class NerfStudio(Method):
 
     def _load_checkpoint(self):
         if self.checkpoint is not None:
-            load_path = os.path.join(self.checkpoint, self.config.relative_model_dir, f"step-{self.info.loaded_step:09d}.ckpt")
+            load_path = os.path.join(self.checkpoint, self.config.relative_model_dir, f"step-{self.get_info().loaded_step:09d}.ckpt")
             loaded_state = torch.load(load_path, map_location="cpu")
             self._trainer.pipeline.load_pipeline(loaded_state["pipeline"], loaded_state["step"])
 

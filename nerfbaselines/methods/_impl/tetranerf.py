@@ -36,7 +36,7 @@ class TetraNeRF(NerfStudio):
         self.dataparser_params["alpha_color"] = "white"
         return super()._patch_dataparser_params()
 
-    def setup_train(self, train_dataset: Dataset, *, num_iterations: Optional[int]):
+    def setup_train(self, train_dataset: Dataset, **kwargs):
         dataset = train_dataset
         dataset_name = dataset.metadata["name"]
         if dataset_name == "blender":
@@ -51,4 +51,4 @@ class TetraNeRF(NerfStudio):
             url = f"https://data.ciirc.cvut.cz/public/projects/2023TetraNeRF/assets/mipnerf360/{scene}.npz"
             logging.info(f"Downloading official point cloud for {dataset_name}/{scene} from {url}")
             dataset.points3D_xyz, dataset.points3D_rgb = download_pointcloud(url)
-        return super().setup_train(dataset, num_iterations=num_iterations)
+        return super().setup_train(dataset, **kwargs)

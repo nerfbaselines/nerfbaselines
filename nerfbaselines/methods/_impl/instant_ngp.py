@@ -4,23 +4,20 @@ import contextlib
 import json
 import os
 from pathlib import Path
-from typing import Optional, Iterable
+from typing import Optional, Iterable, Union
+try:
+    from typing import get_origin, get_args
+except ImportError:
+    from typing_extensions import get_origin, get_args
 import tempfile
 import numpy as np
 from PIL import Image, ImageOps
 from ...types import Dataset, Method, MethodInfo, ProgressCallback, CurrentProgress, RenderOutput
 from ...cameras import CameraModel, Cameras
+from ...utils import cast_value
 
 
 AABB_SCALE = 32
-
-
-def sharpness(imagePath):
-    import cv2
-
-    image = cv2.imread(imagePath)
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    return cv2.Laplacian(gray, cv2.CV_64F).var()
 
 
 def rotmat(a, b):
@@ -266,7 +263,7 @@ class InstantNGP(Method):
                 dataset.sampling_masks[i] = maskname
                 mask.save(str(maskname))
 
-    def setup_train(self, train_dataset: Dataset, *, num_iterations: Optional[int]):
+    def setup_train(self, train_dataset: Dataset, *, num_iterations: Optional[int] = None, config_overrides=None):
         # Write images
         self.num_iterations = num_iterations or self.num_iterations
         self._eval_setup_step = None
@@ -293,6 +290,11 @@ class InstantNGP(Method):
                 aabb_scale = AABB_SCALE
                 keep_coords = False
                 nerf_compatibility = False
+
+            config_overrides = config_overrides or {}
+            aabb_scale = cast_value(Optional[int], config_overrides.get("aabb_scale", aabb_scale))
+            keep_coords = cast_value(bool, config_overrides.get("keep_coords", keep_coords))
+            nerf_compatibility = cast_value(bool, config_overrides.get("nerf_compatibility", nerf_compatibility))
             self._train_transforms, self.dataparser_params = get_transforms(
                 train_dataset, aabb_scale=aabb_scale, keep_coords=keep_coords, nerf_compatibility=nerf_compatibility, color_space=train_dataset.color_space
             )

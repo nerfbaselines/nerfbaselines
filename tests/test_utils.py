@@ -2,6 +2,10 @@ import pytest
 from time import sleep, perf_counter
 from nerfbaselines.utils import Indices
 from nerfbaselines.utils import cancellable, CancellationToken, CancelledException
+try:
+    from typing import Literal, Optional
+except ImportError:
+    from typing_extensions import Literal, Optional
 
 
 def test_indices_last():
@@ -69,3 +73,19 @@ def test_get_resources_utilization_info():
 
     info = get_resources_utilization_info()
     assert isinstance(info, dict)
+
+
+def test_cast_value():
+    from nerfbaselines.utils import cast_value
+
+
+    assert cast_value(int, 1) is 1
+    assert cast_value(int, "1") is 1
+    assert cast_value(Optional[int], 1) is 1
+    assert cast_value(str, "1") is "1"
+
+    assert cast_value(Optional[int], 'none') is None
+    assert cast_value(Literal[3, "ok"], 'ok') is "ok"
+    assert cast_value(Literal[3, "ok"], '3') is 3
+    with pytest.raises(TypeError):
+        assert cast_value(Literal[3, "ok"], '5')
