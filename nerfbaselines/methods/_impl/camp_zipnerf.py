@@ -11,6 +11,7 @@ from ...types import Method, MethodInfo, Dataset, CurrentProgress
 from ...cameras import Cameras, CameraModel
 
 import gin
+import gin.config
 import chex
 import jax
 from jax import random
@@ -289,17 +290,21 @@ class CamP_ZipNeRF(Method):
             self.num_iterations = self.config.max_steps
 
     def _load_config(self, dataset_name=None, num_iterations=None, config_overrides=None):
-        if self.checkpoint is None:
-            # Find the config files root
-            import train
+        # Find the config files root
+        import train
 
-            configs_path = str(Path(train.__file__).absolute().parent / "configs")
-            config_path = f"{configs_path}/zipnerf/360.gin"
+        configs_path = str(Path(train.__file__).absolute().parent)
+        gin.add_config_file_search_path(configs_path)
+
+        # Fix a bug in gin
+        gin.config._FILE_READERS = gin.config._FILE_READERS[:1]
+        if self.checkpoint is None:
+            config_path = "configs/zipnerf/360.gin"
             if dataset_name == "blender":
-                config_path = f"{configs_path}/zipnerf/blender.gin"
+                config_path = "configs/zipnerf/blender.gin"
             gin.parse_config_file(config_path, skip_unknown=True)
             if self.camp:
-                gin.parse_config_file(f"{configs_path}/camp/camera_optim.gin", skip_unknown=True)
+                gin.parse_config_file("configs/camp/camera_optim.gin", skip_unknown=True)
             gin.bind_parameter("Config.batch_size", self.batch_size)
             num_iterations = num_iterations or self.num_iterations
             config = configs.Config()
@@ -307,9 +312,7 @@ class CamP_ZipNeRF(Method):
             config.lr_final *= self.learning_rate_multiplier
             gin.bind_parameter("Config.lr_init", config.lr_init)
             gin.bind_parameter("Config.lr_final", config.lr_final)
-            gin.parse_config([
-                f'{k} = {v}' for k, v in config_overrides.items()
-            ])
+            gin.parse_config([f"{k} = {v}" for k, v in config_overrides.items()])
             if num_iterations is not None:
                 gin.bind_parameter("Config.max_steps", num_iterations)
         else:

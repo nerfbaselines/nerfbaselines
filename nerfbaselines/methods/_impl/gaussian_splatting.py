@@ -145,7 +145,7 @@ class GaussianSplatting(Method):
         # Setup parameters
         self._args_list = ["--source_path", "<empty>"]
         if checkpoint is not None:
-            with open(os.path.join(checkpoint, "args.txt", encoding="utf8"), "r") as f:
+            with open(os.path.join(checkpoint, "args.txt"), "r", encoding="utf8") as f:
                 self._args_list = shlex.split(f.read())
         self._load_config()
 
@@ -180,15 +180,15 @@ class GaussianSplatting(Method):
                 self._load_config()
                 self._args_list.extend(("--iterations", str(num_iterations)))
                 iter_factor = num_iterations / 30_000
-                self._args_list.extend(("--densify_from_iter", str(int(self.opt.densify_from_iter*iter_factor))))
-                self._args_list.extend(("--densify_until_iter", str(int(self.opt.densify_until_iter*iter_factor))))
-                self._args_list.extend(("--densification_interval", str(int(self.opt.densification_interval*iter_factor))))
-                self._args_list.extend(("--density_reset_interval", str(int(self.opt.density_reset_interval*iter_factor))))
-                self._args_list.extend(("--position_lr_max_steps", str(int(self.opt.position_lr_max_steps*iter_factor))))
+                self._args_list.extend(("--densify_from_iter", str(int(self.opt.densify_from_iter * iter_factor))))
+                self._args_list.extend(("--densify_until_iter", str(int(self.opt.densify_until_iter * iter_factor))))
+                self._args_list.extend(("--densification_interval", str(int(self.opt.densification_interval * iter_factor))))
+                self._args_list.extend(("--opacity_reset_interval", str(int(self.opt.opacity_reset_interval * iter_factor))))
+                self._args_list.extend(("--position_lr_max_steps", str(int(self.opt.position_lr_max_steps * iter_factor))))
 
             config_overrides, _config_overrides = (self.config_overrides or {}), config_overrides
             config_overrides.update(_config_overrides or {})
-            for k, v in (config_overrides or {}).items():
+            for k, v in config_overrides.items():
                 self._args_list.append(f"--{k}")
                 self._args_list.append(str(v))
             self._load_config()
@@ -284,7 +284,7 @@ class GaussianSplatting(Method):
 
     def train_iteration(self, step):
         self.step = step
-        iteration = step + 1 # Gaussian Splatting is 1-indexed
+        iteration = step + 1  # Gaussian Splatting is 1-indexed
         del step
 
         self.gaussians.update_learning_rate(iteration)

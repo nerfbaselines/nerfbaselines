@@ -3,7 +3,7 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# This software is free for non-commercial, research and evaluation use 
+# This software is free for non-commercial, research and evaluation use
 # under the terms of the LICENSE.md file.
 #
 # For inquiries contact  george.drettakis@inria.fr
@@ -21,6 +21,7 @@ import numpy as np
 from PIL import Image
 from random import randint
 from argparse import ArgumentParser
+
 try:
     from shlex import join as shlex_join
 except ImportError:
@@ -28,6 +29,7 @@ except ImportError:
     def shlex_join(split_command):
         """Return a shelshlex.ped string from *split_command*."""
         return " ".join(shlex.quote(arg) for arg in split_command)
+
 
 import torch
 
@@ -101,9 +103,7 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
         R = np.transpose(R)
         image_path = dataset.file_paths[idx] if dataset.file_paths is not None else f"{idx:06d}.png"
         image_name = (
-            os.path.relpath(str(dataset.file_paths[idx]), str(dataset.file_paths_root)) 
-            if dataset.file_paths is not None and dataset.file_paths_root is not None 
-            else os.path.basename(image_path)
+            os.path.relpath(str(dataset.file_paths[idx]), str(dataset.file_paths_root)) if dataset.file_paths is not None and dataset.file_paths_root is not None else os.path.basename(image_path)
         )
 
         w, h = dataset.cameras.image_sizes[idx]
@@ -146,7 +146,6 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
 
 class MipSplatting(Method):
     config_overrides: Optional[dict] = None
-
 
     def __init__(self, checkpoint: Optional[Path] = None, config_overrides: Optional[dict] = None):
         self.checkpoint = checkpoint
@@ -196,11 +195,11 @@ class MipSplatting(Method):
                 self._load_config()
                 self._args_list.extend(("--iterations", str(num_iterations)))
                 iter_factor = num_iterations / 30_000
-                self._args_list.extend(("--densify_from_iter", str(int(self.opt.densify_from_iter*iter_factor))))
-                self._args_list.extend(("--densify_until_iter", str(int(self.opt.densify_until_iter*iter_factor))))
-                self._args_list.extend(("--densification_interval", str(int(self.opt.densification_interval*iter_factor))))
-                self._args_list.extend(("--density_reset_interval", str(int(self.opt.density_reset_interval*iter_factor))))
-                self._args_list.extend(("--position_lr_max_steps", str(int(self.opt.position_lr_max_steps*iter_factor))))
+                self._args_list.extend(("--densify_from_iter", str(int(self.opt.densify_from_iter * iter_factor))))
+                self._args_list.extend(("--densify_until_iter", str(int(self.opt.densify_until_iter * iter_factor))))
+                self._args_list.extend(("--densification_interval", str(int(self.opt.densification_interval * iter_factor))))
+                self._args_list.extend(("--opacity_reset_interval", str(int(self.opt.opacity_reset_interval * iter_factor))))
+                self._args_list.extend(("--position_lr_max_steps", str(int(self.opt.position_lr_max_steps * iter_factor))))
 
             config_overrides, _config_overrides = (self.config_overrides or {}), config_overrides
             config_overrides.update(_config_overrides or {})
@@ -310,7 +309,7 @@ class MipSplatting(Method):
 
     def train_iteration(self, step):
         self.step = step
-        iteration = step + 1 # Gaussian Splatting is 1-indexed
+        iteration = step + 1  # Gaussian Splatting is 1-indexed
         del step
 
         self.gaussians.update_learning_rate(iteration)
@@ -326,7 +325,7 @@ class MipSplatting(Method):
 
         # Pick a random high resolution camera
         if random.random() < 0.3 and self.dataset.sample_more_highres:
-            viewpoint_cam = self.trainCameras[self.highresolution_index[randint(0, len(self.highresolution_index)-1)]]
+            viewpoint_cam = self.trainCameras[self.highresolution_index[randint(0, len(self.highresolution_index) - 1)]]
 
         # Render
         # NOTE: random background color is not supported
@@ -372,11 +371,11 @@ class MipSplatting(Method):
                 if iteration < self.opt.iterations - 100:
                     # don't update in the end of training
                     self.gaussians.compute_3D_filter(cameras=self.trainCameras)
-        
+
             # Optimizer step
             if iteration < self.opt.iterations:
                 self.gaussians.optimizer.step()
-                self.gaussians.optimizer.zero_grad(set_to_none = True)
+                self.gaussians.optimizer.zero_grad(set_to_none=True)
 
         self.step = self.step + 1
         return metrics
