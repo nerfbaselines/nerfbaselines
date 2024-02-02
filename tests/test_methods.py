@@ -13,6 +13,7 @@ def test_supported_methods():
     assert "nerfacto" in methods
     assert "tetra-nerf" in methods
     assert "zipnerf" in methods
+    assert "mip-splatting" in methods
 
 
 @pytest.mark.parametrize("method_name", [pytest.param(k, marks=[pytest.mark.method(k)]) for k in supported_methods()])

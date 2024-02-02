@@ -141,6 +141,7 @@ Methods:
 - [x] Nerfacto
 - [x] Instant-NGP
 - [x] Gaussian Splatting
+- [x] Mip-Splatting
 - [x] Tetra-NeRF
 - [x] Mip-NeRF 360
 - [x] Zip-NeRF

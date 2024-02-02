@@ -9,3 +9,4 @@ dist/
 nerfbaselines/_version.py
 .vscode/launch.json
 web/
+build/

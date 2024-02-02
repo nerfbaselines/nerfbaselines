@@ -1,3 +1,15 @@
+#
+# Copyright (C) 2023, Inria
+# GRAPHDECO research group, https://team.inria.fr/graphdeco
+# All rights reserved.
+#
+# This software is free for non-commercial, research and evaluation use 
+# under the terms of the LICENSE.md file.
+#
+# For inquiries contact  george.drettakis@inria.fr
+#
+
+import random
 from pathlib import Path
 import shlex
 import logging
@@ -7,11 +19,8 @@ import os
 import tempfile
 import numpy as np
 from PIL import Image
-from ...types import Method, MethodInfo, CurrentProgress, ProgressCallback, RenderOutput
-from ...datasets import Dataset
-from ...cameras import CameraModel, Cameras
-from ...utils import cached_property
-
+from random import randint
+from argparse import ArgumentParser
 try:
     from shlex import join as shlex_join
 except ImportError:
@@ -20,11 +29,12 @@ except ImportError:
         """Return a shelshlex.ped string from *split_command*."""
         return " ".join(shlex.quote(arg) for arg in split_command)
 
-
-from argparse import ArgumentParser
-
 import torch
-from random import randint
+
+from ...types import Method, MethodInfo, CurrentProgress, ProgressCallback, RenderOutput
+from ...datasets import Dataset
+from ...cameras import CameraModel, Cameras
+from ...utils import cached_property
 
 from arguments import ModelParams, PipelineParams, OptimizationParams
 from gaussian_renderer import render
@@ -37,6 +47,7 @@ from utils.image_utils import psnr
 from utils.loss_utils import l1_loss, ssim
 from utils.sh_utils import SH2RGB
 from scene import Scene, sceneLoadTypeCallbacks
+from train import create_offset_gt
 
 
 def _load_cam(pose, intrinsics, camera_id, image_name, image_size, device=None):
@@ -76,7 +87,7 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
     for idx, extr in enumerate(dataset.cameras.poses):
         intr = dataset.cameras.intrinsics[idx]
         width, height = dataset.cameras.image_sizes[idx]
-        focal_length_x, focal_length_y, cx, cy = intr
+        focal_length_x, focal_length_y, _cx, _cy = intr
         FovY = focal2fov(focal_length_y, height)
         FovX = focal2fov(focal_length_x, width)
 
@@ -90,7 +101,9 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
         R = np.transpose(R)
         image_path = dataset.file_paths[idx] if dataset.file_paths is not None else f"{idx:06d}.png"
         image_name = (
-            os.path.relpath(str(dataset.file_paths[idx]), str(dataset.file_paths_root)) if dataset.file_paths is not None and dataset.file_paths_root is not None else os.path.basename(image_path)
+            os.path.relpath(str(dataset.file_paths[idx]), str(dataset.file_paths_root)) 
+            if dataset.file_paths is not None and dataset.file_paths_root is not None 
+            else os.path.basename(image_path)
         )
 
         w, h = dataset.cameras.image_sizes[idx]
@@ -131,8 +144,9 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
     return scene_info
 
 
-class GaussianSplatting(Method):
+class MipSplatting(Method):
     config_overrides: Optional[dict] = None
+
 
     def __init__(self, checkpoint: Optional[Path] = None, config_overrides: Optional[dict] = None):
         self.checkpoint = checkpoint
@@ -145,13 +159,15 @@ class GaussianSplatting(Method):
         # Setup parameters
         self._args_list = ["--source_path", "<empty>"]
         if checkpoint is not None:
-            with open(os.path.join(checkpoint, "args.txt", encoding="utf8"), "r") as f:
+            with open(os.path.join(checkpoint, "args.txt"), "r", encoding="utf8") as f:
                 self._args_list = shlex.split(f.read())
         self._load_config()
 
         self._viewpoint_stack = []
         self._input_points = None
 
+        self.trainCameras = None
+        self.highresolution_index = None
         if config_overrides is not None:
             self.config_overrides = config_overrides
 
@@ -188,7 +204,7 @@ class GaussianSplatting(Method):
 
             config_overrides, _config_overrides = (self.config_overrides or {}), config_overrides
             config_overrides.update(_config_overrides or {})
-            for k, v in (config_overrides or {}).items():
+            for k, v in config_overrides.items():
                 self._args_list.append(f"--{k}")
                 self._args_list.append(str(v))
             self._load_config()
@@ -211,6 +227,16 @@ class GaussianSplatting(Method):
         self.background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
         self._input_points = (train_dataset.points3D_xyz, train_dataset.points3D_rgb)
         self._viewpoint_stack = []
+
+        self.trainCameras = self.scene.getTrainCameras().copy()
+
+        # highresolution index
+        self.highresolution_index = []
+        for index, camera in enumerate(self.trainCameras):
+            if camera.image_width >= 800:
+                self.highresolution_index.append(index)
+
+        self.gaussians.compute_3D_filter(cameras=self.trainCameras)
 
     def _eval_setup(self):
         # Initialize system state (RNG)
@@ -273,7 +299,7 @@ class GaussianSplatting(Method):
                 progress_callback(CurrentProgress(global_i, global_total, 0, len(poses)))
             for i, pose in enumerate(poses):
                 viewpoint = _load_cam(pose, intrinsics[i], i, f"{i:06d}.png", sizes[i], device="cuda")
-                image = torch.clamp(render(viewpoint, self.gaussians, self.pipe, self.background)["render"], 0.0, 1.0)
+                image = torch.clamp(render(viewpoint, self.gaussians, self.pipe, self.background, kernel_size=self.dataset.kernel_size)["render"], 0.0, 1.0)
                 global_i += int(sizes[i].prod(-1))
                 if progress_callback:
                     progress_callback(CurrentProgress(global_i, global_total, i + 1, len(poses)))
@@ -298,17 +324,33 @@ class GaussianSplatting(Method):
             self._viewpoint_stack = self.scene.getTrainCameras().copy()
         viewpoint_cam = self._viewpoint_stack.pop(randint(0, len(self._viewpoint_stack) - 1))
 
-        # Render
-        bg = torch.rand((3), device="cuda") if self.opt.random_background else self.background
+        # Pick a random high resolution camera
+        if random.random() < 0.3 and self.dataset.sample_more_highres:
+            viewpoint_cam = self.trainCameras[self.highresolution_index[randint(0, len(self.highresolution_index)-1)]]
 
-        render_pkg = render(viewpoint_cam, self.gaussians, self.pipe, bg)
+        # Render
+        # NOTE: random background color is not supported
+        bg_color = [1, 1, 1] if self.dataset.white_background else [0, 0, 0]
+        background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
+
+        if self.dataset.ray_jitter:
+            subpixel_offset = torch.rand((int(viewpoint_cam.image_height), int(viewpoint_cam.image_width), 2), dtype=torch.float32, device="cuda") - 0.5
+            # subpixel_offset *= 0.0
+        else:
+            subpixel_offset = None
+        render_pkg = render(viewpoint_cam, self.gaussians, self.pipe, background, kernel_size=self.dataset.kernel_size, subpixel_offset=subpixel_offset)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
+        # sample gt_image with subpixel offset
+        if self.dataset.resample_gt_image:
+            gt_image = create_offset_gt(gt_image, subpixel_offset)
+
         Ll1 = l1_loss(image, gt_image)
         loss = (1.0 - self.opt.lambda_dssim) * Ll1 + self.opt.lambda_dssim * (1.0 - ssim(image, gt_image))
         loss.backward()
+
         with torch.no_grad():
             metrics = {"l1_loss": Ll1.detach().cpu().item(), "loss": loss.detach().cpu().item(), "psnr": psnr(image, gt_image).mean().detach().cpu().item()}
 
@@ -321,14 +363,21 @@ class GaussianSplatting(Method):
                 if iteration > self.opt.densify_from_iter and iteration % self.opt.densification_interval == 0:
                     size_threshold = 20 if iteration > self.opt.opacity_reset_interval else None
                     self.gaussians.densify_and_prune(self.opt.densify_grad_threshold, 0.005, self.scene.cameras_extent, size_threshold)
+                    self.gaussians.compute_3D_filter(cameras=self.trainCameras)
 
                 if iteration % self.opt.opacity_reset_interval == 0 or (self.dataset.white_background and iteration == self.opt.densify_from_iter):
                     self.gaussians.reset_opacity()
 
+            if iteration % 100 == 0 and iteration > self.opt.densify_until_iter:
+                if iteration < self.opt.iterations - 100:
+                    # don't update in the end of training
+                    self.gaussians.compute_3D_filter(cameras=self.trainCameras)
+        
             # Optimizer step
-            if iteration < self.opt.iterations + 1:
+            if iteration < self.opt.iterations:
                 self.gaussians.optimizer.step()
-                self.gaussians.optimizer.zero_grad(set_to_none=True)
+                self.gaussians.optimizer.zero_grad(set_to_none = True)
+
         self.step = self.step + 1
         return metrics
 
@@ -337,5 +386,5 @@ class GaussianSplatting(Method):
             self._eval_setup()
         self.gaussians.save_ply(os.path.join(str(path), f"point_cloud/iteration_{self.step}", "point_cloud.ply"))
         torch.save((self.gaussians.capture(), self.step), str(path) + f"/chkpnt-{self.step}.pth")
-        with open(str(path) + "/args.txt", "w") as f:
+        with open(str(path) + "/args.txt", "w", encoding="utf8") as f:
             f.write(shlex_join(self._args_list))

@@ -1,6 +1,6 @@
 from nerfbaselines.backends import CondaMethod
 
-class TestMethod:
+class _TestMethod:
     def __init__(self, test=1):
         self.test = test
 
@@ -10,7 +10,7 @@ def test_convert_spec_dict_to_spec():
 
 
     spec_dict: MethodSpecDict = {
-        "method": ".:TestMethod",
+        "method": ".:_TestMethod",
         "conda": {
             "conda_name": "test",
             "build_code": "",
@@ -19,11 +19,11 @@ def test_convert_spec_dict_to_spec():
     spec = convert_spec_dict_to_spec(spec_dict)
     method_class, _ = spec.build(backend="python")
     method = method_class()
-    assert isinstance(method, TestMethod)
+    assert isinstance(method, _TestMethod)
     assert method.test == 1
     
     spec_dict: MethodSpecDict = {
-        "method": TestMethod.__module__ + ":TestMethod",
+        "method": _TestMethod.__module__ + ":_TestMethod",
         "conda": {
             "conda_name": "test",
             "build_code": "",
@@ -32,7 +32,7 @@ def test_convert_spec_dict_to_spec():
     spec = convert_spec_dict_to_spec(spec_dict)
     method_class, _ = spec.build(backend="python")
     method = method_class()
-    assert isinstance(method, TestMethod)
+    assert isinstance(method, _TestMethod)
     assert method.test == 1
 
     conda_method = spec.build(backend="conda")[0]()
@@ -44,7 +44,7 @@ def test_convert_spec_dict_to_spec_method_args():
 
 
     spec_dict: MethodSpecDict = {
-        "method": ".:TestMethod",
+        "method": ".:_TestMethod",
         "conda": {
             "conda_name": "test",
             "build_code": "",
@@ -56,11 +56,11 @@ def test_convert_spec_dict_to_spec_method_args():
     spec = convert_spec_dict_to_spec(spec_dict)
     method_class, _ = spec.build(backend="python")
     method = method_class()
-    assert isinstance(method, TestMethod)
+    assert isinstance(method, _TestMethod)
     assert method.test == 2
     
     spec_dict: MethodSpecDict = {
-        "method": TestMethod.__module__ + ":TestMethod",
+        "method": _TestMethod.__module__ + ":_TestMethod",
         "conda": {
             "conda_name": "test",
             "build_code": "",
@@ -72,7 +72,7 @@ def test_convert_spec_dict_to_spec_method_args():
     spec = convert_spec_dict_to_spec(spec_dict)
     method_class, _ = spec.build(backend="python")
     method = method_class()
-    assert isinstance(method, TestMethod)
+    assert isinstance(method, _TestMethod)
     assert method.test == 2
 
     conda_method = spec.build(backend="conda")[0]()
@@ -84,7 +84,7 @@ def test_register_spec():
 
 
     register({
-        "method": ".:TestMethod",
+        "method": ".:_TestMethod",
         "conda": {
             "conda_name": "test",
             "build_code": "",
@@ -92,5 +92,5 @@ def test_register_spec():
     }, "_test_" + test_register_spec.__name__)
     method_class, _ = get("_test_" + test_register_spec.__name__).build(backend="python")
     method = method_class()
-    assert isinstance(method, TestMethod)
+    assert isinstance(method, _TestMethod)
     assert method.test == 1
