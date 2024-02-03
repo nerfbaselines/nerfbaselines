@@ -13,6 +13,7 @@ import mediapy
 import click
 from tqdm import tqdm
 import numpy as np
+
 try:
     from typing import get_args
 except ImportError:
@@ -26,7 +27,6 @@ from .cameras import Cameras, CameraModel
 
 from .io import open_any_directory
 from . import registry
-from . import __version__
 
 
 OutputType = Literal["color", "depth"]
@@ -47,9 +47,10 @@ def render_frames(
     background_color = ns_info.get("background_color") if ns_info is not None else None
     expected_scene_scale = ns_info.get("expected_scene_scale") if ns_info is not None else None
     allow_transparency = True
-    
+
     def _predict_all():
         with tqdm(desc=description) as pbar:
+
             def update_progress(progress: CurrentProgress):
                 if pbar.total != progress.total:
                     pbar.reset(total=progress.total)
@@ -84,10 +85,7 @@ def render_frames(
         # Handle video
 
         w, h = cameras.image_sizes[0]
-        with mediapy.VideoWriter(output,
-                                 (h, w),
-                                 metadata=mediapy.VideoMetadata(len(cameras), (h, w), fps, bps=None)
-                                ) as writer:
+        with mediapy.VideoWriter(output, (h, w), metadata=mediapy.VideoMetadata(len(cameras), (h, w), fps, bps=None)) as writer:
             for i, frame in enumerate(_predict_all()):
                 writer.add_image(frame)
     else:
@@ -115,7 +113,7 @@ def three_js_perspective_camera_focal_length(fov: float, image_height: int):
     return focal_length
 
 
-def read_nerfstudio_trajectory(data: Dict[str, Any]) -> 'Trajectory':
+def read_nerfstudio_trajectory(data: Dict[str, Any]) -> "Trajectory":
     if "seconds" in data:
         seconds = data["seconds"]
         fps = len(data["camera_path"]) / seconds
@@ -156,7 +154,7 @@ def read_nerfstudio_trajectory(data: Dict[str, Any]) -> 'Trajectory':
         fxs.append(focal_length)
         fys.append(focal_length)
         cxs.append(w / 2)
-        cys.append(h/ 2)
+        cys.append(h / 2)
 
     camera_to_worlds = np.stack(c2ws, 0)
     fx = np.array(fxs, dtype=np.float32)
@@ -167,12 +165,14 @@ def read_nerfstudio_trajectory(data: Dict[str, Any]) -> 'Trajectory':
     return Trajectory(
         cameras=Cameras(
             poses=camera_to_worlds,
-            normalized_intrinsics=intrinsics/w,
+            normalized_intrinsics=intrinsics / w,
             image_sizes=np.array((w, h), dtype=np.int32)[None].repeat(len(camera_to_worlds), 0),
             camera_types=np.array([camera_type.value] * len(camera_to_worlds), dtype=np.int32),
             distortion_parameters=np.zeros((len(camera_to_worlds), 0), dtype=np.float32),
-            nears_fars=None),
-        fps=fps)
+            nears_fars=None,
+        ),
+        fps=fps,
+    )
 
 
 @dataclass
@@ -181,7 +181,7 @@ class Trajectory:
     fps: float
 
     @classmethod
-    def from_json(cls, data: Union[Dict[str, Any], IO]) -> 'Trajectory':
+    def from_json(cls, data: Union[Dict[str, Any], IO]) -> "Trajectory":
         if not isinstance(data, dict):
             # Load the data from IO
             if isinstance(data, (str, Path)):

@@ -1,5 +1,5 @@
 import math
-from typing import List, Dict
+from typing import List, Dict, TYPE_CHECKING
 import base64
 import os
 import struct
@@ -11,11 +11,47 @@ from . import metrics
 from . import datasets
 from .types import Literal, Optional
 
+try:
+    from typing import TypedDict
+except ImportError:
+    pass
+
 
 MethodLink = Literal["paper", "website", "results", "none"]
 
 
-def get_dataset_info(dataset: str) -> Dict:
+if TYPE_CHECKING:
+
+    class SceneInfo(TypedDict):
+        id: str
+        name: str
+
+    class MetricInfo(TypedDict):
+        id: str
+        name: str
+        description: str
+        ascending: bool
+        link: str
+
+    class DatasetInfo(TypedDict):
+        id: str
+        name: str
+        description: str
+        scenes: List[SceneInfo]
+        metrics: List[MetricInfo]
+        default_metric: str
+        paper_title: str
+        paper_authors: List[str]
+        paper_link: str
+        link: str
+
+else:
+    DatasetInfo = dict
+    SceneInfo = dict
+    MetricInfo = dict
+
+
+def get_dataset_info(dataset: str) -> DatasetInfo:
     """
     Get the dataset info from the dataset repository.
 
@@ -70,7 +106,7 @@ def compile_dataset_results(results_path: Path, dataset: str) -> Dict:
     dataset_info["methods"] = []
     for method_id in os.listdir(results_path):
         method_spec = registry.get(method_id)
-        method_data = method_spec.metadata
+        method_data = method_spec.metadata.copy()
         method_data["id"] = method_id
         method_data["scenes"] = {}
 

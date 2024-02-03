@@ -11,6 +11,7 @@ SUPPORTED_DATASETS = [
     "tanksandtemples",
     "nerfstudio",
     "blender",
+    "llff",
     "colmap",
 ]
 

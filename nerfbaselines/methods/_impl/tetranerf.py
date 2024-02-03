@@ -3,7 +3,7 @@ from tqdm import tqdm
 import tempfile
 import requests
 import numpy as np
-from .nerfstudio import NerfStudio, Optional
+from .nerfstudio import NerfStudio
 from ...datasets import Dataset
 
 

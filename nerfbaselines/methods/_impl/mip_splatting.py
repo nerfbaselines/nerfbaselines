@@ -167,8 +167,8 @@ class MipSplatting(Method):
 
         self.trainCameras = None
         self.highresolution_index = None
-        if config_overrides is not None:
-            self.config_overrides = config_overrides
+        self.config_overrides = self.config_overrides or {}
+        self.config_overrides.update(config_overrides or {})
 
     def _load_config(self):
         parser = ArgumentParser(description="Training script parameters")

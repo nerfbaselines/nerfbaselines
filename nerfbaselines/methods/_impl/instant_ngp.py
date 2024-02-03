@@ -4,11 +4,8 @@ import contextlib
 import json
 import os
 from pathlib import Path
-from typing import Optional, Iterable, Union
-try:
-    from typing import get_origin, get_args
-except ImportError:
-    from typing_extensions import get_origin, get_args
+from typing import Optional, Iterable
+
 import tempfile
 import numpy as np
 from PIL import Image, ImageOps

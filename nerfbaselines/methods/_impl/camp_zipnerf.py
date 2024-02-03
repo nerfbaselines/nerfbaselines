@@ -128,7 +128,7 @@ class MNDataset(datasets.Dataset):
 
         images = []
         for img in self.dataset.images:
-            img = img[..., :3] / 255.0
+            img = img.astype(np.float32) / 255.0
             if self.dataset.metadata.get("name") == "blender" and img.shape[-1] == 4:
                 # Blend with white background.
                 img = img[..., :3] * img[..., 3:] + (1 - img[..., 3:])
@@ -141,7 +141,14 @@ class MNDataset(datasets.Dataset):
 
         self.colmap_to_world_transform = np.eye(4)
 
-        if self.dataset.metadata.get("name") == "blender":
+        if self.dataparser_transform is not None:
+            self.colmap_to_world_transform = self.dataparser_transform[1]
+            meters_per_colmap = self.dataparser_transform[0]
+
+            transform, scale = get_transform_and_scale(self.colmap_to_world_transform)
+            poses = unpad_poses(transform @ pad_poses(poses))
+            poses[:, :3, 3] *= scale
+        elif self.dataset.metadata.get("name") == "blender":
             self.dataparser_transform = (None, np.eye(4))
             meters_per_colmap = self.dataparser_transform[0]
         elif self.dataparser_transform is None:
@@ -165,13 +172,6 @@ class MNDataset(datasets.Dataset):
             test_poses = unpad_poses(transform @ pad_poses(test_poses))
             test_poses[:, :3, 3] *= scale
             np.testing.assert_allclose(test_poses, poses)
-        else:
-            self.colmap_to_world_transform = self.dataparser_transform[1]
-            meters_per_colmap = self.dataparser_transform[0]
-
-            transform, scale = get_transform_and_scale(self.colmap_to_world_transform)
-            poses = unpad_poses(transform @ pad_poses(poses))
-            poses[:, :3, 3] *= scale
 
         self.scene_metadata = {"meters_per_colmap": self.dataparser_transform[0]}
         self.poses = poses
