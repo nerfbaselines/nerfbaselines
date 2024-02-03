@@ -1,34 +1,35 @@
 {
   "info": {
     "method": "nerfacto",
-    "nb_version": "0.0.13.dev2+g3faffed.d20240123",
+    "nb_version": "0.0.15.dev2+g11c3765",
     "color_space": "srgb",
+    "num_iterations": 30000,
     "expected_scene_scale": 4.92009,
-    "total_train_time": 835.80933,
+    "dataset_background_color": null,
+    "total_train_time": 839.05411,
     "resources_utilization": {
-      "memory": 18365,
-      "gpu_memory": 4772
+      "memory": 17696,
+      "gpu_memory": 5288
     },
-    "checkpoint_sha256": "1d994932b77f13b1c211072c7a2de038cb7fb902d9b5d5b422eb1327bb07144f",
-    "dataset_type": "nerfstudio",
-    "dataset_scene": null,
-    "dataset_background_color": null
+    "checkpoint_sha256": "3be5c89ed51f43b798487e5f166cf8592176789a10f59503c335ab0f5f8c0e66",
+    "dataset_name": "nerfstudio",
+    "dataset_scene": null
   },
   "metrics": {
-    "psnr": 18.79385,
-    "ssim": 0.55367,
-    "mae": 0.09061,
-    "mse": 0.01521,
-    "lpips": 0.46811
+    "psnr": 17.45254,
+    "ssim": 0.48864,
+    "mae": 0.10139,
+    "mse": 0.02043,
+    "lpips": 0.43508
   },
   "metrics_raw": {
-    "psnr": "sDGmQVIKtEE0tadBVgSzQQGGpEGUN6RBMGmRQU42gUElvYhBU+d/QQ8PiEE3BJ5BaUulQdytoUHIWpxBNEmBQbCGpUFAZo1BMcqRQVS9dkHAXG9B3iSiQSdxmEF2hVtB/3SUQaHOk0FUlKNBAm6tQZqpoEGcgqVBlRqcQRNplkHG45lBiBSAQT+GiUF/IWFBPiFpQTVbjkHbj5hBMeiWQeiRpkG0AK1Bl8eaQZvPmUFzZalB",
-    "ssim": "mqsXP+wiHz9qYig//8AZP1C4Hj/fsA8/xiDuPnDq5j7gfvA+UKjZPrPB6D75sAs/z5UPP0u3CT82tQw/0VIxP/L2Fz/rbAQ/EGAbP2v01j4yUNY+TUMjP0hOFT8QNiI/LIMyPzxkLT+ELS8/dLcsP6HPHj/5PBc/fbIXPxto/D4cdw4/Mx3PPqdt/j5myKs+7JDVPo7e0z5TnuA+lLH4PkJoJD9rmyI/StwLP7LUKz9h0R8/",
-    "mae": "lZWMPcG0Xj0QuJc9GnpbPQYxlD0ZBY49LSm9PS7i+T0Y1N09ZnP9PdiD1j1LW4893YiAPQeHkT2GD5I9g2wPPtqihj1DPMs9xJTRPYFnBD7cSRE+9DmcPRZHtD0RKDw+x4HEPSLdyD0CsY09zpdqPZvZlz0B1Yg9opClPUluqT1ZoJM9y+PwPTKr2D1W6iE+CuUXPnQDwT3fpqI91teuPZlggj272lU93MinPbn/sD2OyX09",
-    "mse": "ExYJPOMNuDvlPQM8bY69O83WDzzmHBE81lV5PPO3xjw/A6A8Mw/OPOUsozxGdy08ia4MPCgcHDz59jU89kvGPE6/Czzz7Is8faF2PLEb6zyYuAI9/AgaPKynSzy96y096WdkPOa3aDwNzRM8l6DeO9W+IDy0zws8bkg3PBDrVzzaV0M8oUzNPHNvnDy0biA90/wOPeUfiDwC9Eo8stpUPHqcBzxSYeE7PWc+PF/JQzxLCPo7",
-    "lpips": "TBXePmrS4z5yz8E+ap7+PlF20D4/m/A+KsEMP3pTED++Og4/WJISP4kuGT/vog4/3NwKP+CNET+cou4+jkGhPvdmxz65vwg/XsehPkirFT9Ykgs/E6KyPggt0z4isdg+PhS9PuGB0T5DLas+4gW1PtiUwj6xOsk+TLnEPp5TBT+IwvA+KloSP1AiCT/FHSM/n5MUP88EJz/nNQw/qboGP+O0rj7aIqw+0UDrPs2ewT6RWdE+"
+    "psnr": "YUSfQfKDqEG4y55B+OGsQYX1m0FlNJlBLiOIQQKPcUFltXdB/8djQb4ue0GYYYxBYoaYQeYSmEFcBpRBzQ58QQnwlEEkZohBXsqHQayQZEGuQ2JBeKiQQftWhkH57E1BB5KJQY6KikFSCptBSC2iQZ7clEFpbZJBhxqCQfiWikGiOopB/uBxQcGPgEHc001BqNhVQSyJiEEIpotBG0+LQbF5nkFy5qFBmoiQQSDok0F2UKFB",
+    "ssim": "3MAKP1gZEj/HqB0/lbUSP89wFT+qpAE/dXfLPgBowj4Gab8+OZmcPqBTyj6hF/A+Df0DP3qt/T7x+Pk+XAMpP5ci/j6LWPA+X3wBPxA4uz6658U+XCsHPyS04z7bdg4/3MYkP+3wID86HSU/2EQgP5GdDz9DMAI/8fzoPi1e1j6GxAA/wq2uPqnG2j5LXYA+b8CqPkhowz5of7M+13XKPiDkGT/ClxQ/3WX9Pu9DIT/4QRY/",
+    "mae": "QgOQPdIJcj1AZ6I9KspiPT3qpT2d0aY9E3bZPcUEDD57ugI+JmcWPiZJ9j0vua89JY+RPYZnnT2oS6A9+oQTPt1coj1imdU9oInhPR1rEz5YAhw+ONS6PVOF1T3zM0k+UCXdPUCM3D1s4JU97sF8Pbihpz25uaU9sNjYPfiIwj1+ua49nYgCPpcN7z0XbDY+6PMoPkAV0T2NVr897yLJPfD3kT3MdnQ9uxK9PcjBuj0qXIU9",
+    "mse": "M1UnPPE5ADxJnik8CiniO1oMODyxO0c8g86iPMxO/Twu2uc8q20aPbiL3DxDFpA8XytLPBfTTTzGQ2c8CcnZPJpEYTznlaE8wXCkPDOyGD0n1h09+8t+PMFzqzzCgVM9cjqcPGHslzzi+jw8uOMZPKLCYTxsJXI8Na/BPCK2lzxuS5k8oCT8PIV5yjxBzlM9mbg8PVDzoDxhKJM8WpqUPJswKzy2Hhs8F7Z/PFoNaDwKwh08",
+    "lpips": "KqjOPk4d1T5Wh7M+Ri3zPu6kxz76Euk+34YEPxdSCT/iCQk/42IRP+6pFD+NugU/WR4BP4WwBT+uhdk+jJSMPlE2tD6ROPw+lT2MPo/yDj+p/gY/yWefPvyHuz6jBb8+6S6lPgnjvD6bwpQ+PTyfPipfrD5ibLc+2UKuPn5f+j6g090+zckLPyDiAz8Htx0/dtAOP1IgHD8nrAA/rnD3PjKxnz4Kkpk+69TaPtf4sz6nub8+"
   },
-  "metrics_sha256": "af7a4f4b6f44a931276665fa49877dfa0d74e32794a00aafceef1ed0a9f2af76",
-  "predictions_sha256": "7b406425d195e1abc18cf944764542b3f70bb3c71f7d4ed8af39fd1728fa8663",
+  "metrics_sha256": "9c31039692f0a365db6982fa3f7afd59e7047cbfdbf008285c4096763c311be0",
+  "predictions_sha256": "bc3f5795b0b2ada14f5faaaa7897129b56217a83ed52236177b48308ae971443",
   "ground_truth_sha256": "9b9539ffe1d0f61be34225152316a2e231a67dfd0f466f98abcd42683c3a84dc"
 }

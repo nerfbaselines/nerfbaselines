@@ -1,34 +1,35 @@
 {
   "info": {
     "method": "nerfacto",
-    "nb_version": "0.0.13.dev2+g3faffed.d20240123",
+    "nb_version": "0.0.15.dev2+g11c3765",
     "color_space": "srgb",
+    "num_iterations": 30000,
     "expected_scene_scale": 4.99867,
-    "total_train_time": 826.05206,
+    "dataset_background_color": null,
+    "total_train_time": 820.05031,
     "resources_utilization": {
-      "memory": 7585,
-      "gpu_memory": 4770
+      "memory": 7215,
+      "gpu_memory": 5286
     },
-    "checkpoint_sha256": "8ceaf59d1c0b38fafd747b238dc86a2b00aa4bdfc64652b293e1f49f23532402",
-    "dataset_type": "nerfstudio",
-    "dataset_scene": null,
-    "dataset_background_color": null
+    "checkpoint_sha256": "70297f4b25abfb0bfa177df4f32ec58984ef44b2c7b8e47c0243b22ad618d977",
+    "dataset_name": "nerfstudio",
+    "dataset_scene": null
   },
   "metrics": {
-    "psnr": 22.66039,
-    "ssim": 0.76907,
-    "mae": 0.05809,
-    "mse": 0.00571,
-    "lpips": 0.21315
+    "psnr": 22.4298,
+    "ssim": 0.80005,
+    "mae": 0.06065,
+    "mse": 0.00619,
+    "lpips": 0.21022
   },
   "metrics_raw": {
-    "psnr": "fCrPQZdoukFsR6JBiD2sQb3LrUEoYa5BCXSqQZZBxkFrwLlBD7WvQcOoq0Fweb9BKOKxQb6axEEkQ7NBTzWxQQ==",
-    "ssim": "yzZFPyN2Rz89TkQ/OJVBPyyWOT92CzY/6pBAP3ppTz89KEI/nl81P4E2LT9fpUQ//hRZPzoPXT/RDEw/T2BQPw==",
-    "mae": "QwEVPWRLWj1ifKI9RLWHPaEygz1wv4A9pEiMPaRuMj2J2Fo9cL9+Pbhaiz3x3UM9I8d/PWO+ND1JzGg9uJ12PQ==",
-    "mse": "X54oO846mTsZcBk8YmHmOylL3Dumn9g7XYryOwbpWTuNJ5w7YoDQOydE6ju7cIQ7tdfDOyCFZDv3OLw7iq/HOw==",
-    "lpips": "huw/PhzjTz75Pjc+rgNhPn/xej6yuYQ+2lRqPvyCSz4CV1w+uU9+Pq4skT6SGVA+D+4yPhFaGT5kM0c+NkxhPg=="
+    "psnr": "HtvQQUiMsEFq75ZBmGmjQeCgrUHqqa5Bx7eoQbKUyEGWXqxBW6KrQUJXs0Fx9sVBlTSzQVLFwUHb9LVBim6xQQ==",
+    "ssim": "On9PP+wARj/0i0Q/Dm1IP3dFRz/zlEg/tepOP5qFUj8WxUE/CCxEP9vQQj+MjlI/mmNaP8xxXD9i5FA/ZC9WPw==",
+    "mae": "FJUTPc7SgT3LIL49taWcPewCiD1QTn49V6GSPcFKLD1+tIY9gk+JPe7IeT0Q4jE9Bfx5PcdlPT2RdFs9uEV7PQ==",
+    "mse": "7pwgO1CEyzt7rlQ8S4MUPJNb3Tve29Y7b/b+O6HOSzubhuU7XW/qOxrMuztMwls76oe8O27wdzuoLa47qWfGOw==",
+    "lpips": "ZJ8/PnLlUD4TnDw+DP1fPqTCbz6ezIE+VNBlPiAkSz7MNFo+hbl3PqI1hz5m1Us+Q/EpPn2iHj5a9Ek+0AVkPg=="
   },
-  "metrics_sha256": "12b9c375bc8c159e677bd98997d8e3c0294eaacea4aad813802e192111124e17",
-  "predictions_sha256": "7b134c7d81d124129882d374664f1e7de92fda480392670985fb49e032dab673",
+  "metrics_sha256": "5d3116b0167e69f3d8ae72603b142aaa8ebff5e1d72ebb0e7132b67b8658e00d",
+  "predictions_sha256": "e2af68038c48a45286e69c38080bc1a3c88746412147bce443f006fab776d873",
   "ground_truth_sha256": "b9afb9e4264b9340733496e67dcfc9a01de04bb9c826175050c73f05e4142e2b"
 }
