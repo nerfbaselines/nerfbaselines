@@ -1,0 +1,37 @@
+{
+  "info": {
+    "method": "zipnerf",
+    "nb_version": "0.0.15.dev4+g85602f4",
+    "color_space": "srgb",
+    "num_iterations": 200000,
+    "expected_scene_scale": 4.92009,
+    "dataset_background_color": null,
+    "total_train_time": 19061.4778,
+    "resources_utilization": {
+      "memory": 19133,
+      "gpu_memory": 26824
+    },
+    "datetime": "2024-02-02T22:34:42+0100",
+    "config_overrides": {},
+    "checkpoint_sha256": "cea2310c3e72b7ae22a6e17e2df2f9004f133fa727c81e58776565062ea72f85",
+    "dataset_name": "nerfstudio",
+    "dataset_scene": null
+  },
+  "metrics": {
+    "psnr": 22.91848,
+    "ssim": 0.7442,
+    "mae": 0.04964,
+    "mse": 0.00606,
+    "lpips": 0.21428
+  },
+  "metrics_raw": {
+    "psnr": "VVi/QcY/y0ECccZBtbG/QZyNtEF3f7JBPcasQZ4QrkFGqK9B6tqnQfTzn0HURL5BZg7FQYn2vEFpI11Bvm2yQVd5tUG2P61B1J3AQRD6qkF34qBB0TzTQdBn1kGA8NRBEizKQTnWy0G01bRBTu+8QQkvxkHbMLZB4L3HQcb2vEGAFcJBCY+iQXhlqkEG7K1B/HCqQdj4rUFiyqdBOJyzQV22uUEI2rhBZNy2QQw+xUFaMrlB",
+    "ssim": "KS9AP9NKQD9dC0k/zSMxP2SeOj9M5DA/CIIuP0mOMj/OCDE/7SEpP4C/KD90u0E/mCA9PxavNz/TPxs/r5ZXPx2VST+myzo/+FhSP/7yLT+a1i0/txJWPytMUz+Bo10/0VZhP/DjVT+6mUo/yGxdP33bUT/tc0Q/eKpRPz2DQT8kA0I/lBUlP0TfLT+hHTA/WT8xPwahHD+d6yc/Uzg1Pwp9Rj9U0Eg/E6Y8P1IgSj8EQUE/",
+    "mae": "5ZE3PYCADD1JZyM9GIMoPRUcTD2dSEU9wVRUPcWPUj0w20s9MvtsPUicgz1Uwiw9S74TPeSaID1mrBA+bwmFPas4Wz3oxlM9YGBAPYXxZj1v3I09KZ8HPYVB9Dy85Ac9yeQpPQr3HT1XTl09RiRUPfCBID1e0UQ9YjYlPZMHLD0S6xs9/jl1PauvVD1wCGQ9qOVlPboGUD3Al3E95OtFPQybMz2yikA9s+tHPao3Gj3X6009",
+    "mse": "Ku+EO669PDtjwFg76pqDO4NbtTvHaMA71N3iOx2Y2jstzdA7v68CPOUPJDzHHYk7WJFhOy1ejjue6yk9AcvAOzOdsDsGyt87SSiAO77p7juYuB883PgVOwLnCDuDzQ473K5COz2TOTu75LM70nuOO3xdWjvhAa07GcpQOzVdjjvXtnU7GzUYPBrw8jvQfts7rJ/yO9ot2zv57QI8zVi6O8RUnDuLQKA74rOpO9BcYDszq547",
+    "lpips": "nKFzPoqojz4wdV8+sn6xPpCThD6DIZE+NIGEPgL0hT78NH0+GMmGPvQriT4yJEs+beZfPnVPfD7s67E+TL/TPdxgHz7Lb2I+PKfaPTwteT72+Yc+8uHSPWBy7z2HG+89kgr8PYhJKD6wQhw+FYL6PR1nET7Xuio+RLzwPQJzVz6oTVc+tsKVPjysez67Nnk+03iIPguYsD6kkIE+BBN3PmjYND6bNzE++VR1PtwEQD7+uU0+"
+  },
+  "metrics_sha256": "c471870eb76cbca922b7fba2a676fc3866f02f0c617733131bce25d10a9af113",
+  "predictions_sha256": "4b78660e410e6ac301c891c46a21ca3f4450e33597b954eb602a2f32551a3c18",
+  "ground_truth_sha256": "9b9539ffe1d0f61be34225152316a2e231a67dfd0f466f98abcd42683c3a84dc"
+}

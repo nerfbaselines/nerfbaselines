@@ -1,0 +1,37 @@
+{
+  "info": {
+    "method": "zipnerf",
+    "nb_version": "0.0.15.dev4+g85602f4",
+    "color_space": "srgb",
+    "num_iterations": 200000,
+    "expected_scene_scale": 5.04539,
+    "dataset_background_color": null,
+    "total_train_time": 18934.62434,
+    "resources_utilization": {
+      "memory": 7528,
+      "gpu_memory": 26824
+    },
+    "datetime": "2024-02-02T22:26:21+0100",
+    "config_overrides": {},
+    "checkpoint_sha256": "fcb1e62cd5df38207e968df9e0801e2a55f2f31f8c7d373ddfeb2099b9fb3481",
+    "dataset_name": "nerfstudio",
+    "dataset_scene": null
+  },
+  "metrics": {
+    "psnr": 23.69841,
+    "ssim": 0.86743,
+    "mae": 0.04891,
+    "mse": 0.00542,
+    "lpips": 0.108
+  },
+  "metrics_raw": {
+    "psnr": "4qLgQXuwz0HYINRBRyi4QdrIxUEpqL5BQsfJQaQw40ENFJhBkteWQUROsUHG+65BTmejQQ==",
+    "ssim": "Q+ZlPy1LXD+WRWM/VEBbP7YRXD8oGGo/H7tfP3pBaT+eyFU/ghFMP54qYz+mF14/7NZTPw==",
+    "mae": "g6/mPIRYFD1NhNs87OYYPY12Nz0xYC49e5T/PJLy3jx18as9lXqwPQcFWj0Yc389ckibPQ==",
+    "mse": "JffLOuoYJjsQLRI7qnyjO2jjXDv0l4c79uZEO9+CvTpAzE08oUBVPE4gxzv549Q7E40UPA==",
+    "lpips": "2ieKPWaRwj2dZ8U97brrPZvFxj3iTaA9BnSsPWGOxD3AZCo+h8gfPnxqzj2g0sQ9YvwePg=="
+  },
+  "metrics_sha256": "87ac779cd04812d30008625c3cea0cb75668b0c7367ce3ee0db44f05c4e13633",
+  "predictions_sha256": "03692445b7b7fd3d1891e8022137b5c0498ce3165f8d7b23315e0618fd308d2e",
+  "ground_truth_sha256": "f950625c9639b78f2535bd38c6e292a8cc92e51d41b831a3f47ce4002c638136"
+}

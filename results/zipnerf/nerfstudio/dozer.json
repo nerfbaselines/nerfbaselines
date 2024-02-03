@@ -1,0 +1,37 @@
+{
+  "info": {
+    "method": "zipnerf",
+    "nb_version": "0.0.15.dev4+g85602f4",
+    "color_space": "srgb",
+    "num_iterations": 200000,
+    "expected_scene_scale": 4.80894,
+    "dataset_background_color": null,
+    "total_train_time": 19359.33146,
+    "resources_utilization": {
+      "memory": 15754,
+      "gpu_memory": 26824
+    },
+    "datetime": "2024-02-02T22:39:09+0100",
+    "config_overrides": {},
+    "checkpoint_sha256": "5359400d663c44eb3e855ecd58186e2523ea6e91ed78f335f8cd5dbe96a56a62",
+    "dataset_name": "nerfstudio",
+    "dataset_scene": null
+  },
+  "metrics": {
+    "psnr": 26.30807,
+    "ssim": 0.83559,
+    "mae": 0.03026,
+    "mse": 0.0027,
+    "lpips": 0.17862
+  },
+  "metrics_raw": {
+    "psnr": "xvXUQVFl20EU2N9B2r/PQYz930HGaNFBAM2cQcbq3UHIscVBlQOaQcTLykGeGtZBC3HSQdal1kEWYdJBq6PYQQTN00EgJeBBYnjUQUrqyUE65NJBY4LIQU4U30E8ltlBmsDUQRAw1UHl69lB2/TTQeD31UHnRtZB8pPVQcGK10EnV+BB1bXTQR/Y2UE=",
+    "ssim": "N7pWP67XXD/NZl4/ALJbP6eBXT9hYVc/CnFUPz42XD83X1Q/o3JCPw3QST9DelU/k11RP6gwUz86jVQ/W9hWPx3YVT/MPV0/iDxVP4TZVj+MXlM/RRNIP9mGVj9aDlc/1d5cP9ARWj+oqVQ/Jm5SP0huVD8Pr1U/AYZUP2GoWD/ihls/MkFTP55DWT8=",
+    "mae": "r/7dPLmHwTx9A8A88GECPf2WtDzOzeM8O8CQPQlYzTyhaRc9AEmpPcpRBz0z9uE8lkT4PMWg6zxygf48Rp/XPPf32zw6rrg8bvLkPGHD5DwnRec80pYKPdypyDxRw9I8RIbNPLrx1TxUO9U8Xd/sPGSG6Dx6bOI8fe/sPFBZ1DxbArw8LYvlPFsa0Dw=",
+    "mse": "3LcOO/Ar7Tprq9A6f88lO9jKzzpFEx47laQzPOmR3DpFdl07U6VCPP03PzuGGAo7mXIZO3bzBzskuRk7m2AAO2qPEzuu3s46lb4QO9YgRDsoeRc7JTpMO0JQ1TrV2Pk67ZIPOy/JDTvNc/c6nOYSO9+iCjvvaAk72zMMOyF/BDuotc06B/ITO84A+Do=",
+    "lpips": "zXQqPhztMT4EPS0+UHMoPgxsUj5oeiY+gnNyPr5mXT5rnTg+bnhfPrRsSz7jOyg+660iPkVIID6UkTA+SN4mPmgoLD4ZuB4+his3PqHSOD6QOUo+fix2PkKzKj7KJC8+ed42PlAnLj6e/jk+OsYvPmf5Hz7JUik+MQQyPo/mHj6XAyw+OTc3PgNgPz4="
+  },
+  "metrics_sha256": "77559170b3d98cf6cf94eb5693616d2e396ba315fa26ddf11777cbde6961b247",
+  "predictions_sha256": "c8b19f2140b82ef02771804d1d79e1b89c43282e3d3c35026856b00dcf5450fd",
+  "ground_truth_sha256": "27b9f10c50918c75e0457f83a117fc576a3f496b27d52446cc58fa2cf41213f2"
+}
