@@ -9,6 +9,7 @@ from ._common import DatasetNotFoundError, MultiDatasetError
 SUPPORTED_DATASETS = [
     "mipnerf360",
     "tanksandtemples",
+    "phototourism",
     "nerfstudio",
     "blender",
     "llff",

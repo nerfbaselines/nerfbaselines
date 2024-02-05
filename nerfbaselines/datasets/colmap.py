@@ -199,14 +199,21 @@ def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.nda
     return intrinsics, camera_model.value, distortion_params, (image_width, image_height)
 
 
-def load_colmap_dataset(path: Path, images_path: Optional[Path] = None, split: Optional[str] = None, test_indices: Optional[Indices] = None, features: Optional[FrozenSet[DatasetFeature]] = None):
+def load_colmap_dataset(path: Path, 
+        images_path: Optional[Path] = None, 
+        split: Optional[str] = None, 
+        test_indices: Optional[Indices] = None,
+        features: Optional[FrozenSet[DatasetFeature]] = None,
+        colmap_path: Optional[Path] = None):
     if features is None:
         features = typing.cast(FrozenSet[DatasetFeature], {})
     load_points = "points3D_xyz" in features or "points3D_rgb" in features
     if split:
         assert split in {"train", "test"}
     # Load COLMAP dataset
-    colmap_path = path / "sparse" / "0"
+    if colmap_path is None:
+        colmap_path = Path("sparse") / "0"
+    colmap_path = path / colmap_path
     if images_path is None:
         images_path = Path("images")
     images_path = path / images_path
