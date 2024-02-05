@@ -32,7 +32,7 @@ The next step is to choose the backend which will be used to install different m
 dependencies to be installed. Also, some methods are not implemented for this backend because they rely on dependencies not found on `conda`.
 - **python** (not recommended): Will run everything directly in the current environment. Everything needs to be installed in the environment for this backend to work.
 
-The backend can be set as the `--backend <backend>` argument or using the `NB_BACKEND` environment variable.
+The backend can be set as the `--backend <backend>` argument or using the `NERFBASELINES_BACKEND` environment variable.
 
 ## Advanced installation
 The LPIPS metric requires PyTorch to be installed and will be disabled otherwise. Similarly, if you install JAX and

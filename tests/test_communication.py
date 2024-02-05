@@ -98,7 +98,7 @@ def test_render_cancellable(use_remote_method):
             return MethodInfo()
 
         def render(self, cameras, progress_callback=None):
-            for i in range(100):
+            for i in range(400):
                 sleep(0.001)
                 yield i
 
@@ -128,7 +128,7 @@ def test_render_cancellable(use_remote_method):
                 vals.append(v)
                 if v > 3:
                     cancelation_token.cancel()
-        assert len(vals) < 60
+        assert len(vals) < 100
 
         vals = []
         with pytest.raises(CancelledException):
@@ -136,4 +136,4 @@ def test_render_cancellable(use_remote_method):
                 vals.append(v)
                 if v > 3:
                     cancelation_token.cancel()
-        assert len(vals) < 60
+        assert len(vals) < 100

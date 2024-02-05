@@ -67,7 +67,7 @@ main.add_command(render_command)
 
 @main.command("shell")
 @click.option("--method", type=click.Choice(list(registry.supported_methods())), required=True)
-@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NB_BACKEND", None))
+@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @click.option("--verbose", "-v", is_flag=True)
 def shell_command(method, backend, verbose):
     logging.basicConfig(level=logging.INFO)

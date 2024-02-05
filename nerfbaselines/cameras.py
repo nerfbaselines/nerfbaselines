@@ -370,6 +370,7 @@ class Cameras:
 
     image_sizes: Optional[np.ndarray]  # [N, 2]
     nears_fars: Optional[np.ndarray]  # [N, 2]
+    metadata: Optional[np.ndarray] = None
 
     @cached_property
     def intrinsics(self):
@@ -396,6 +397,7 @@ class Cameras:
             distortion_parameters=self.distortion_parameters[index],
             image_sizes=self.image_sizes[index] if self.image_sizes is not None else None,
             nears_fars=self.nears_fars[index] if self.nears_fars is not None else None,
+            metadata=self.metadata[index] if self.metadata is not None else None,
         )
 
     def __setitem__(self, index, value):
@@ -409,6 +411,8 @@ class Cameras:
             self.image_sizes[index] = value.image_sizes
         if self.nears_fars is not None:
             self.nears_fars[index] = value.nears_fars
+        if self.metadata is not None:
+            self.metadata[index] = value.metadata
 
     def __iter__(self):
         for i in range(len(self)):
@@ -480,10 +484,14 @@ class Cameras:
             distortion_parameters=np.concatenate([v.distortion_parameters for v in values]),
             image_sizes=np.concatenate([v.image_sizes for v in values]) if any(v.image_sizes is not None for v in values) else None,
             nears_fars=np.concatenate([v.nears_fars for v in values]) if any(v.nears_fars is not None for v in values) else None,
+            metadata=np.concatenate([v.metadata for v in values]) if any(v.metadata is not None for v in values) else None,
         )
 
     def with_image_sizes(self, image_sizes: np.ndarray) -> "Cameras":
         return dataclasses.replace(self, image_sizes=image_sizes)
+
+    def with_metadata(self, metadata: np.ndarray) -> "Cameras":
+        return dataclasses.replace(self, metadata=metadata)
 
 
 # def undistort_images(cameras: Cameras, images: np.ndarray) -> np.ndarray:

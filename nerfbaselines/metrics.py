@@ -403,7 +403,7 @@ def _lpips(a, b, net, version="0.1"):
         a = torch.from_numpy(a).float().view(-1, *img_shape).permute(0, 3, 1, 2).mul_(2).sub_(1).to(device)
         b = torch.from_numpy(b).float().view(-1, *img_shape).permute(0, 3, 1, 2).mul_(2).sub_(1).to(device)
         out = lp_net.to(device).forward(a, b)
-        out = out.cpu().numpy().reshape(batch_shape)
+        out = out.detach().cpu().numpy().reshape(batch_shape)
         return out
 
 

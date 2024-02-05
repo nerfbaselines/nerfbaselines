@@ -24,6 +24,28 @@ from . import registry
 from . import __version__
 
 
+def build_update_progress(pbar: tqdm):
+    old_image_i = -1
+
+    def update_progress(progress: CurrentProgress):
+        nonlocal old_image_i
+
+        report_update = False
+        if pbar.total != progress.total:
+            pbar.reset(total=progress.total)
+            report_update = True
+        if progress.image_i != old_image_i:
+            report_update = True
+            old_image_i = progress.image_i
+        elif progress.i % 10 == 0:
+            report_update = True
+
+        if report_update:
+            pbar.set_postfix({"image": f"{min(progress.image_i+1, progress.image_total)}/{progress.image_total}"})
+            pbar.update(progress.i - pbar.n)
+    return update_progress
+
+
 def get_checkpoint_sha(path: Path) -> str:
     path = Path(path)
     if str(path).endswith(".tar.gz"):
@@ -110,13 +132,7 @@ def render_all_images(
         assert dataset.images is not None, "dataset must have images loaded"
         with tqdm(desc=description) as pbar:
 
-            def update_progress(progress: CurrentProgress):
-                if pbar.total != progress.total:
-                    pbar.reset(total=progress.total)
-                pbar.set_postfix({"image": f"{min(progress.image_i+1, progress.image_total)}/{progress.image_total}"})
-                pbar.update(progress.i - pbar.n)
-
-            predictions = render(dataset.cameras, progress_callback=update_progress)
+            predictions = render(dataset.cameras, progress_callback=build_update_progress(pbar))
             for i, (pred, (w, h)) in enumerate(zip(predictions, dataset.cameras.image_sizes)):
                 gt_image = image_to_srgb(dataset.images[i][:h, :w], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
                 pred_image = image_to_srgb(pred["color"], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
@@ -201,7 +217,7 @@ def render_all_images(
 @click.option("--output", type=Path, default="predictions", help="output directory or tar.gz file")
 @click.option("--split", type=str, default="test")
 @click.option("--verbose", "-v", is_flag=True)
-@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NB_BACKEND", None))
+@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @handle_cli_error
 def render_command(checkpoint: Union[str, Path], data, output, split, verbose, backend):
     checkpoint = str(checkpoint)

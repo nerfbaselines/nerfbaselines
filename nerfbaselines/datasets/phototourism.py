@@ -72,6 +72,10 @@ def load_phototourism_dataset(path: Path, split: str, use_nerfw_split=None, **kw
     return dataset[indices]
 
 
+# https://www.cs.ubc.ca/%7Ekmyi/imw2020/data.html
+# We further removed the hagia_sophia_interior, westminster_abbey in 2022 due to data inconsistencies.
+# We removed the prague_old_town in 2021 due to data inconsistencies.
+
 _phototourism_downloads = {
     "brandenburg-gate": "https://www.cs.ubc.ca/research/kmyi_data/imw2020/TrainingData/brandenburg_gate.tar.gz",
     "buckingham-palace": "https://www.cs.ubc.ca/research/kmyi_data/imw2020/TrainingData/buckingham_palace.tar.gz",
@@ -83,16 +87,16 @@ _phototourism_downloads = {
     "taj-mahal": "https://www.cs.ubc.ca/research/kmyi_data/imw2020/TrainingData/taj_mahal.tar.gz",
     "temple-nara": "https://www.cs.ubc.ca/research/kmyi_data/imw2020/TrainingData/temple_nara_japan.tar.gz",
     "trevi-fountain": "https://www.cs.ubc.ca/research/kmyi_data/imw2020/TrainingData/trevi_fountain.tar.gz",
-    "sacre-coeur": "https://www.cs.ubc.ca/research/kmyi_data/imw2020/TrainingData/sacre-coeur.tar.gz",
-    "prague-old-town": "https://www.cs.ubc.ca/research/kmyi_data/imw2020/TrainingData/prague-old-town.tar.gz",
-    "hagia-sophia": "https://www.cs.ubc.ca/research/kmyi_data/imw2020/TrainingData/hagia-sophia.tar.gz",
+    "sacre-coeur": "https://www.cs.ubc.ca/research/kmyi_data/imw2020/TrainingData/sacre_coeur.tar.gz",
+    # "prague-old-town": "https://www.cs.ubc.ca/research/kmyi_data/imw2020/TrainingData/prague_old_town.tar.gz",
+    "hagia-sophia": "https://www.cs.ubc.ca/research/kmyi_data/imw2020/TrainingData/hagia_sophia.tar.gz",
 }
 
 _test_lists = {
     "brandenburg-gate": "https://nerf-w.github.io/data/selected_images/brandenburg.tsv",
     "trevi-fountain": "https://nerf-w.github.io/data/selected_images/trevi.tsv",
     "sacre-coeur": "https://nerf-w.github.io/data/selected_images/sacre.tsv",
-    "prague-old-town": "https://nerf-w.github.io/data/selected_images/prague.tsv",
+    # "prague-old-town": "https://nerf-w.github.io/data/selected_images/prague.tsv",
     "hagia-sophia": "https://nerf-w.github.io/data/selected_images/hagia.tsv",
     "taj-mahal": "https://nerf-w.github.io/data/selected_images/taj_mahal.tsv",
 }
@@ -115,6 +119,10 @@ def download_phototourism_dataset(path: str, output: Path):
         raise DatasetNotFoundError(
             f"Capture '{capture_name}' not a valid {DATASET_NAME} scene."
         )
+
+    if output.exists():
+        logging.info(f"Dataset {DATASET_NAME}/{capture_name} already exists in {output}")
+        return
 
     url = _phototourism_downloads[capture_name]
     response = requests.get(url, stream=True)

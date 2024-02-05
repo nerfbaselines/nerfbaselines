@@ -73,7 +73,7 @@ def get_orientation_transform(poses):
 @click.option("--checkpoint", default=None, required=True)
 @click.option("--data", type=str, default=None, required=False)
 @click.option("--verbose", "-v", is_flag=True)
-@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NB_BACKEND", None))
+@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @click.option("--port", type=int, default=6006)
 @click.option("--viewer", type=click.Choice(["viser", "nerfstudio"]), default="viser")
 @handle_cli_error

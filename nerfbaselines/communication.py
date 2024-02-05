@@ -47,6 +47,42 @@ def _remap_error(e: Exception):
     return RuntimeError(f"Exception {e.__class__.__name__}: {e}")
 
 
+MESSAGE_SIZE = 128 * 1024 * 1024  # 128 MB
+
+
+def send(connection: Connection, message):
+    message_bytes = pickle.dumps(message)
+    for i in range(0, len(message_bytes), MESSAGE_SIZE):
+        connection.send_bytes(message_bytes[i : i + MESSAGE_SIZE])
+    if len(message_bytes) % MESSAGE_SIZE == 0:
+        connection.send_bytes(b"")
+
+def build_recv(connection: Connection):
+    def recv():
+        message_bytes = connection.recv_bytes()
+        message_len = len(message_bytes)
+        while message_len == MESSAGE_SIZE:
+            new_message = connection.recv_bytes()
+            message_len = len(new_message)
+            message_bytes += new_message
+        return pickle.loads(message_bytes)
+    return recv
+
+
+# def build_recv_with_buffer(connection: Connection):
+#     # Create a buffer to hold full message
+#     buffer = bytearray(MESSAGE_SIZE)
+#     
+#     def recv():
+#         message_len = connection.recv_bytes_into(buffer)
+#         total_message = buffer[:message_len]
+#         while message_len == MESSAGE_SIZE:
+#             message_len = connection.recv_bytes_into(buffer)
+#             total_message += buffer[:message_len]
+#         return pickle.loads(total_message)
+#     return recv
+
+
 def start_backend(method: Method, params: ConnectionParams, address: str = "localhost"):
     cancellation_token = CancellationToken()
     cancellation_tokens = {}
@@ -60,20 +96,21 @@ def start_backend(method: Method, params: ConnectionParams, address: str = "loca
             logging.info("Waiting for connection")
             with listener.accept() as conn:
                 logging.info(f"Connection accepted from {listener.last_accepted}")
+                recv = build_recv(conn)
                 while not conn.closed and not cancellation_token.cancelled:
                     if conn.poll():
-                        msg = conn.recv()
+                        msg = recv()
                         message = msg["message"]
                         mid = msg["id"]
 
                         # do something with msg
                         if message == "close":
-                            conn.send({"message": "close_ack", "id": mid})
+                            send(conn, {"message": "close_ack", "id": mid})
                             cancellation_token.cancel()
                             break
                         if message == "cancel":
                             # if mid in cancellation_tokens:
-                            conn.send({"message": "cancel_ack", "id": mid})
+                            send(conn, {"message": "cancel_ack", "id": mid})
                             if mid in cancellation_tokens:
                                 cancellation_tokens[mid].cancel()
                         elif message in {"call", "get"}:
@@ -81,7 +118,7 @@ def start_backend(method: Method, params: ConnectionParams, address: str = "loca
                                 cancellation_tokens[mid] = CancellationToken()
                             input_queue.put(msg)
                     elif not output_queue.empty():
-                        conn.send(output_queue.get())
+                        send(conn, output_queue.get())
                     else:
                         sleep(0.0001)
 
@@ -134,6 +171,7 @@ def start_backend(method: Method, params: ConnectionParams, address: str = "loca
                     result = None
                 if cancellation_token.cancelled:
                     break
+
                 output_queue.put({"message": "result", "id": mid, "result": result})
             except Exception as e:  # pylint: disable=broad-except
                 if not isinstance(e, CancelledException):
@@ -196,6 +234,7 @@ class RemoteMethod(Method):
         self.kwargs = kwargs
         self.checkpoint = checkpoint
         self._cancellation_tokens = {}
+        self._recv = None
 
     @property
     def encoded_args(self):
@@ -221,14 +260,15 @@ class RemoteMethod(Method):
     def _get_client(self):
         if self._client is None or self._client.closed:
             self._client = Client(("localhost", self.connection_params.port), authkey=self.connection_params.authkey)
-        return self._client
+            self._recv = build_recv(self._client)
+        return self._client, self._recv
 
-    def _handle_call_result(self, client: Connection, my_id, callables):
+    def _handle_call_result(self, client: Connection, recv, my_id, callables):
         while not client.closed:
             if not client.poll():
                 sleep(0.0001)
                 continue
-            message = client.recv()
+            message = recv()
             if message["id"] != my_id:
                 continue
             elif message["message"] == "error":
@@ -250,7 +290,7 @@ class RemoteMethod(Method):
                         if not client.poll():
                             sleep(0.0001)
                             continue
-                        message = client.recv()
+                        message = recv()
                         if message["id"] != my_id:
                             continue
                         if message["message"] == "error":
@@ -270,15 +310,15 @@ class RemoteMethod(Method):
         raise RuntimeError("Connection closed")
 
     def _get(self, prop):
-        client = self._get_client()
+        client, recv = self._get_client()
         mid = self._message_counter
         self._message_counter += 1
         callables: List[Dict] = []
-        client.send({"message": "get", "id": mid, "property": prop})
-        return self._handle_call_result(client, mid, callables)
+        send(client, {"message": "get", "id": mid, "property": prop})
+        return self._handle_call_result(client, recv, mid, callables)
 
-    def _call(self, *args, cancellation_token: Optional[CancellationToken] = None, **kwargs):
-        client = self._get_client()
+    def _call(self, *args, cancellation_token: Optional[CancellationToken] = None, _large_message=False, **kwargs):
+        client, recv = self._get_client()
         other_kwargs = {}
         if "function" in kwargs:
             assert "method" not in kwargs, "Cannot specify both method and function"
@@ -299,22 +339,21 @@ class RemoteMethod(Method):
             old_cancel = cancellation_token.cancel
 
             def _call_cancel():
-                client.send({"message": "cancel", "id": mid})
+                send(client, {"message": "cancel", "id": mid})
                 old_cancel()
 
             cancellation_token.cancel = _call_cancel
 
-        client.send(
-            {
-                "message": "call",
-                "id": mid,
-                "cancellable": cancellation_token is not None,
-                "args": replace_callables(args, callables, depth=-1),
-                "kwargs": replace_callables(kwargs, callables, depth=-1),
-                **other_kwargs,
-            }
-        )
-        return self._handle_call_result(client, mid, callables)
+        message = {
+            "message": "call",
+            "id": mid,
+            "cancellable": cancellation_token is not None,
+            "args": replace_callables(args, callables, depth=-1),
+            "kwargs": replace_callables(kwargs, callables, depth=-1),
+            **other_kwargs,
+        }
+        send(client, message)
+        return self._handle_call_result(client, recv, mid, callables)
 
     def call(self, function: str, *args, **kwargs):
         return self._call(*args, function=function, **kwargs)
@@ -325,7 +364,7 @@ class RemoteMethod(Method):
 
     @cancellable(mark_only=True)
     def setup_train(self, *args, **kwargs):
-        return self._call("setup_train", *args, **kwargs)
+        return self._call("setup_train", *args, **kwargs, _large_message=True)
 
     @cancellable(mark_only=True)
     def render(self, *args, **kwargs):
@@ -349,10 +388,10 @@ class RemoteMethod(Method):
             mid = self._message_counter + 1
             # Try recv
             try:
-                self._client.send({"message": "close", "id": mid})
+                send(self._client, {"message": "close", "id": mid})
                 while not self._client.closed:
                     try:
-                        self._client.recv()
+                        self._recv()
                     except EOFError:
                         break
             except BrokenPipeError:

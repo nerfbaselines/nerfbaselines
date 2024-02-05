@@ -198,7 +198,7 @@ class Trajectory:
 @click.option("--output", type=click.Path(path_type=Path), default=None, help="output a mp4/directory/tar.gz file")
 @click.option("--output-type", type=click.Choice(get_args(OutputType)), default="color", help="output type")
 @click.option("--verbose", "-v", is_flag=True)
-@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NB_BACKEND", None))
+@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @handle_cli_error
 def main(checkpoint: Union[str, Path], trajectory: Path, output, output_type: OutputType, verbose, backend):
     checkpoint = str(checkpoint)

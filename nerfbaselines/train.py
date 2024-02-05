@@ -484,13 +484,13 @@ class Trainer:
         dataset_slice = self.test_dataset[idx : idx + 1]
         total_rays = 0
         with tqdm(desc=f"rendering single image at step={self.step}") as pbar:
-
             def update_progress(stat: CurrentProgress):
                 nonlocal total_rays
                 total_rays = stat.total
                 if pbar.total != stat.total:
                     pbar.reset(total=stat.total)
-                pbar.update(stat.i - pbar.n)
+                if stat.i % 10 == 0 or stat.i == stat.total:
+                    pbar.update(stat.i - pbar.n)
 
             predictions = next(
                 iter(
@@ -612,7 +612,7 @@ class SetParamOptionType(click.ParamType):
 @click.option("--verbose", "-v", is_flag=True)
 @click.option("--eval-single-iters", type=IndicesClickType(), default=Indices.every_iters(2_000), help="When to evaluate a single image")
 @click.option("--eval-all-iters", type=IndicesClickType(), default=Indices([-1]), help="When to evaluate all images")
-@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NB_BACKEND", None))
+@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @click.option("--disable-extra-metrics", help="Disable extra metrics which need additional dependencies.", is_flag=True)
 @click.option("--disable-output-artifact", "generate_output_artifact", help="Disable producing output artifact containing final model and predictions.", default=None, flag_value=False, is_flag=True)
 @click.option("--force-output-artifact", "generate_output_artifact", help="Force producing output artifact containing final model and predictions.", default=None, flag_value=True, is_flag=True)
