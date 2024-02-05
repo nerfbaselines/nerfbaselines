@@ -240,9 +240,8 @@ class NerfStudio(Method):
                 logging.warning("Flag pipeline.model.distortion_loss_mult is not set (required for blender-type dataset)")
             if not _config_safe_set(config, "pipeline.model.disable_scene_contraction", True):
                 logging.warning("Flag pipeline.model.disable_scene_contraction is not set (required for blender-type dataset)")
-            if use_original_average_init_density:
-                if not _config_safe_set(config, "pipeline.model.average_init_density", 1.0):
-                    logging.warning("Flag pipeline.model.average_init_density is not set (required for blender-type dataset)")
+            if not _config_safe_set(config, "pipeline.model.average_init_density", 1.0):
+                logging.warning("Flag pipeline.model.average_init_density is not set (required for blender-type dataset)")
 
         if dataset.metadata.get("name") == "mipnerf360":
             if not _config_safe_set(config, "max_num_iterations", 70000):
