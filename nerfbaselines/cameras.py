@@ -493,6 +493,17 @@ class Cameras:
     def with_metadata(self, metadata: np.ndarray) -> "Cameras":
         return dataclasses.replace(self, metadata=metadata)
 
+    def clone(self) -> "Cameras":
+        return dataclasses.replace(
+            self,
+            poses=np.copy(self.poses),
+            normalized_intrinsics=np.copy(self.normalized_intrinsics),
+            camera_types=np.copy(self.camera_types),
+            distortion_parameters=np.copy(self.distortion_parameters),
+            image_sizes=np.copy(self.image_sizes) if self.image_sizes is not None else None,
+            nears_fars=np.copy(self.nears_fars) if self.nears_fars is not None else None,
+            metadata=np.copy(self.metadata) if self.metadata is not None else None)
+
 
 # def undistort_images(cameras: Cameras, images: np.ndarray) -> np.ndarray:
 #     """

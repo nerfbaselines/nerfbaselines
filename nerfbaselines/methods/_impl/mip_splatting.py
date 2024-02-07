@@ -42,14 +42,59 @@ from arguments import ModelParams, PipelineParams, OptimizationParams
 from gaussian_renderer import render
 from scene import GaussianModel
 from scene.cameras import Camera
-from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov, CameraInfo
+import scene.dataset_readers
+from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov
 from scene.dataset_readers import storePly, fetchPly
+from scene.dataset_readers import CameraInfo as _old_CameraInfo
 from utils.general_utils import safe_state
 from utils.image_utils import psnr
 from utils.loss_utils import l1_loss, ssim
 from utils.sh_utils import SH2RGB
 from scene import Scene, sceneLoadTypeCallbacks
 from train import create_offset_gt
+from utils import camera_utils
+from utils.general_utils import PILtoTorch
+
+
+#
+# Patch Gaussian Splatting to include sampling masks
+#
+# Patch loadCam to include sampling mask
+_old_loadCam = camera_utils.loadCam
+def loadCam(args, id, cam_info, resolution_scale):
+    camera = _old_loadCam(args, id, cam_info, resolution_scale)
+
+    sampling_mask = None
+    if cam_info.sampling_mask is not None:
+        sampling_mask = PILtoTorch(cam_info.sampling_mask, (camera.image_width, camera.image_height))
+    setattr(camera, "sampling_mask", sampling_mask)
+    setattr(camera, "_patched", True)
+    return camera
+camera_utils.loadCam = loadCam
+
+
+# Patch CameraInfo to add sampling mask
+class CameraInfo(_old_CameraInfo):
+    def __new__(cls, *args, sampling_mask=None, **kwargs):
+        self = super(CameraInfo, cls).__new__(cls, *args, **kwargs)
+        self.sampling_mask = sampling_mask
+        return self
+scene.dataset_readers.CameraInfo = CameraInfo
+
+
+def normalize_ssim(ssim_value, mask_percentage):
+    # SSIM is in the range [-1, 1], 1 is perfect match
+    # Move to [0, 1]
+    ssim_value = ssim_value / 2.0 + 0.5
+    # Invert, 0 is perfect match
+    ssim_value = 1.0 - ssim_value
+    # Normalize by mask percentage
+    ssim_value = ssim_value / mask_percentage
+    # Undo inversion, 1 is perfect match
+    ssim_value = 1.0 - ssim_value
+    # Move to [-1, 1]
+    ssim_value = ssim_value * 2.0 - 1.0
+    return ssim_value
 
 
 def _load_cam(pose, intrinsics, camera_id, image_name, image_size, device=None):
@@ -120,7 +165,16 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
             assert not white_background, "white_background is only supported for blender scenes"
         image = Image.fromarray(im_data)
 
-        cam_info = CameraInfo(uid=idx, R=R, T=T, FovY=float(FovY), FovX=float(FovX), image=image, image_path=image_path, image_name=image_name, width=int(width), height=int(height))
+        sampling_mask = None
+        if dataset.sampling_masks is not None:
+            sampling_mask = Image.fromarray((dataset.sampling_masks[idx] * 255).astype(np.uint8))
+
+        cam_info = CameraInfo(
+            uid=idx, R=R, T=T, 
+            FovY=float(FovY), FovX=float(FovX), 
+            image=image, image_path=image_path, image_name=image_name, 
+            width=int(width), height=int(height),
+            sampling_mask=sampling_mask)
         cam_infos.append(cam_info)
 
     cam_infos = sorted(cam_infos.copy(), key=lambda x: x.image_name)
@@ -228,6 +282,8 @@ class MipSplatting(Method):
         self._viewpoint_stack = []
 
         self.trainCameras = self.scene.getTrainCameras().copy()
+        if any(not getattr(cam, "_patched", False) for cam in self._viewpoint_stack):
+            raise RuntimeError("could not patch loadCam!")
 
         # highresolution index
         self.highresolution_index = []
@@ -326,6 +382,8 @@ class MipSplatting(Method):
         # Pick a random high resolution camera
         if random.random() < 0.3 and self.dataset.sample_more_highres:
             viewpoint_cam = self.trainCameras[self.highresolution_index[randint(0, len(self.highresolution_index) - 1)]]
+            if any(not getattr(cam, "_patched", False) for cam in self._viewpoint_stack):
+                raise RuntimeError("could not patch loadCam!")
 
         # Render
         # NOTE: random background color is not supported
@@ -342,16 +400,31 @@ class MipSplatting(Method):
 
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
+        sampling_mask = viewpoint_cam.sampling_mask.cuda() if viewpoint_cam.sampling_mask is not None else None 
+
         # sample gt_image with subpixel offset
         if self.dataset.resample_gt_image:
             gt_image = create_offset_gt(gt_image, subpixel_offset)
+            sampling_mask = create_offset_gt(sampling_mask, subpixel_offset) if sampling_mask is not None else None
 
-        Ll1 = l1_loss(image, gt_image)
-        loss = (1.0 - self.opt.lambda_dssim) * Ll1 + self.opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+        # Apply mask
+        mask_percentage = 1.0
+        if sampling_mask is not None:
+            image *= sampling_mask
+            gt_image *= sampling_mask
+            mask_percentage = sampling_mask.mean()
+
+        Ll1 = l1_loss(image, gt_image) / mask_percentage
+        ssim_value = ssim(image, gt_image)
+        if sampling_mask is not None:
+            ssim_value = normalize_ssim(ssim_value, mask_percentage)
+
+        loss = (1.0 - self.opt.lambda_dssim) * Ll1 + self.opt.lambda_dssim * (1.0 - ssim_value)
         loss.backward()
 
         with torch.no_grad():
-            metrics = {"l1_loss": Ll1.detach().cpu().item(), "loss": loss.detach().cpu().item(), "psnr": psnr(image, gt_image).mean().detach().cpu().item()}
+            psnr_value = 10 * torch.log10(1 / torch.mean((image - gt_image) ** 2) / mask_percentage)
+            metrics = {"l1_loss": Ll1.detach().cpu().item(), "loss": loss.detach().cpu().item(), "psnr": psnr_value.detach().cpu().item()}
 
             # Densification
             if iteration < self.opt.densify_until_iter:

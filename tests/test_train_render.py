@@ -129,7 +129,7 @@ def test_train_command(tmp_path, wandb_init_run, vis):
         assert _TestMethod._install_called_count == 1
         assert _TestMethod._setup_train_dataset is not None
         assert (tmp_path / "output" / "checkpoint-13").exists()
-        assert _TestMethod._render_call_step == [4, 9, 12]
+        assert _TestMethod._render_call_step == [4, 4, 9, 9, 12]
 
         wandb_init_mock: mock.Mock = wandb.init
         wandb_mock: mock.Mock = wandb.run
@@ -143,17 +143,17 @@ def test_train_command(tmp_path, wandb_init_run, vis):
             # Last log is the final evaluation
             assert wandb_mock.log.call_args[1]["step"] == 13
             last_event = wandb_mock.log.call_args[0][0]
-            assert "eval-all-images/color" in last_event
+            assert "eval-all-test/color" in last_event
 
             eval_single_calls = []
             eval_all_calls = []
             train_calls = []
-            must_have = {"train/loss", "eval-single-image/psnr", "eval-all-images/psnr"}
+            must_have = {"train/loss", "eval-few-test/psnr", "eval-all-test/psnr"}
             print(wandb_mock.log.call_args_list)
             for args, kwargs in wandb_mock.log.call_args_list:
-                if "eval-single-image/color" in args[0]:
+                if "eval-few-test/color" in args[0]:
                     eval_single_calls.append(kwargs["step"])
-                if "eval-all-images/color" in args[0]:
+                if "eval-all-test/color" in args[0]:
                     eval_all_calls.append(kwargs["step"])
                 if "train/loss" in args[0]:
                     train_calls.append(kwargs["step"])

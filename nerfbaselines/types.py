@@ -106,6 +106,13 @@ class Dataset:
         # TODO: this will only work for object-centric scenes. This code needs to be moved to the data parsers.
         return np.percentile(np.linalg.norm(self.cameras.poses[..., :3, 3] - self.cameras.poses[..., :3, 3].mean(), axis=-1), 90)
 
+    def clone(self):
+        return dataclasses.replace(
+            self, 
+            cameras=self.cameras.clone(), 
+            images=self.images.copy() if self.images is not None else None,
+            sampling_masks=self.sampling_masks.copy() if self.sampling_masks is not None else None)
+
 
 @dataclass(frozen=True)
 class CurrentProgress:

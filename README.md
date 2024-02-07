@@ -118,7 +118,7 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 | [Instant NGP](https://jkulhanek.com/nerfbaselines/m-instant-ngp)               |     32.191 |     0.959 |     0.031 | **2m 23s** | **2.6 GB** |
 | [Tetra-NeRF](https://jkulhanek.com/nerfbaselines/m-tetra-nerf)                 |     31.951 |     0.957 |     0.031 | 6h 53m 20s |    29.6 GB |
 | [Mip-NeRF 360](https://jkulhanek.com/nerfbaselines/m-mipnerf360)               |     30.345 |     0.951 |     0.038 | 3h 29m 39s |   114.8 GB |
-| [NerfStudio](https://jkulhanek.com/nerfbaselines/m-nerfacto)                   |     25.430 |     0.900 |     0.101 |     9m 48s |     3.6 GB |
+| [NerfStudio](https://jkulhanek.com/nerfbaselines/m-nerfacto)                   |     29.191 |     0.941 |     0.049 |     9m 38s |     3.6 GB |
 
 
 ### Nerfstudio

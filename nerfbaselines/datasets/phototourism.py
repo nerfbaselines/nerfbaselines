@@ -30,14 +30,14 @@ def load_phototourism_dataset(path: Path, split: str, use_nerfw_split=None, **kw
     # Load phototourism dataset
     scene = single(res for res in _phototourism_downloads if str(res) in path.name)
     images_path = Path("images")
-    test_list = None
+    split_list = None
     if use_nerfw_split:
-        if (path / "test_list.txt").exists():
-            with (path / "test_list.txt").open() as f:
+        if (path / "nerfw_split.csv").exists():
+            with (path / "nerfw_split.csv").open() as f:
                 reader = csv.reader(f, delimiter="\t")
                 next(reader)
-                test_list = [x[0] for x in reader if x[2] == split]
-                assert len(test_list) > 0, f"{split} list is empty"
+                split_list = [x[0] for x in reader if x[2] == split]
+                assert len(split_list) > 0, f"{split} list is empty"
         else:
             logging.warning(
                 f"NeRF-W test list not found for {DATASET_NAME}/{scene} Using a standard split."
@@ -55,9 +55,9 @@ def load_phototourism_dataset(path: Path, split: str, use_nerfw_split=None, **kw
 
     image_names = dataset.file_paths
 
-    if test_list is not None:
+    if split_list is not None:
         indices = np.array(
-            [i for i, x in enumerate(image_names) if x.name in test_list]
+            [i for i, x in enumerate(image_names) if x.name in split_list]
         )
         assert len(indices) > 0, f"No images found in {split} list"
         logging.info(f"Using {len(indices)}/{len(dataset)} images from the NeRF-W {split} list")
@@ -92,7 +92,7 @@ _phototourism_downloads = {
     "hagia-sophia": "https://www.cs.ubc.ca/research/kmyi_data/imw2020/TrainingData/hagia_sophia.tar.gz",
 }
 
-_test_lists = {
+_split_lists = {
     "brandenburg-gate": "https://nerf-w.github.io/data/selected_images/brandenburg.tsv",
     "trevi-fountain": "https://nerf-w.github.io/data/selected_images/trevi.tsv",
     "sacre-coeur": "https://nerf-w.github.io/data/selected_images/sacre.tsv",
@@ -110,7 +110,7 @@ def download_phototourism_dataset(path: str, output: Path):
         )
 
     if path == "phototourism":
-        for x in _test_lists:
+        for x in _split_lists:
             download_phototourism_dataset(f"phototourism/{x}", output / x)
         return
 
@@ -168,11 +168,11 @@ def download_phototourism_dataset(path: str, output: Path):
             shutil.move(output_tmp, output)
 
     # Download test list if available
-    if capture_name in _test_lists:
-        test_list_url = _test_lists[capture_name]
-        response = requests.get(test_list_url)
+    if capture_name in _split_lists:
+        split_list_url = _split_lists[capture_name]
+        response = requests.get(split_list_url)
         response.raise_for_status()
-        with open(output / "test_list.txt", "w") as f:
+        with open(output / "nerfw_split.csv", "w") as f:
             f.write(response.text)
 
     logging.info(f"Downloaded {DATASET_NAME}/{capture_name} to {output}")

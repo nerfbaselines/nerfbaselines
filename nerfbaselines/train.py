@@ -1,3 +1,4 @@
+import struct
 import io
 import sys
 import json
@@ -89,7 +90,7 @@ class Trainer:
         output: Path = Path("."),
         num_iterations: Optional[int] = None,
         save_iters: Indices = Indices.every_iters(10_000, zero=True),
-        eval_single_iters: Indices = Indices.every_iters(2_000),
+        eval_few_iters: Indices = Indices.every_iters(2_000),
         eval_all_iters: Indices = Indices([-1]),
         loggers: FrozenSet[Visualization] = {},
         color_space: Optional[ColorSpace] = None,
@@ -124,7 +125,7 @@ class Trainer:
         self.num_iterations = num_iterations
         self.save_iters = save_iters
 
-        self.eval_single_iters = eval_single_iters
+        self.eval_few_iters = eval_few_iters
         self.eval_all_iters = eval_all_iters
         self.loggers = loggers
         self.run_extra_metrics = run_extra_metrics
@@ -139,6 +140,7 @@ class Trainer:
         self._total_train_time = 0
         self._resources_utilization_info = None
         self._dataset_background_color = None
+        self._train_dataset_for_eval = None
 
         # Restore checkpoint if specified
         if self.checkpoint is not None:
@@ -196,6 +198,10 @@ class Trainer:
         self._dataset_background_color = train_dataset.metadata.get("background_color")
         if self._dataset_background_color is not None:
             assert isinstance(self._dataset_background_color, np.ndarray), "Dataset background color must be a numpy array"
+
+        # Store a slice of train dataset used for eval_few
+        train_dataset_indices = np.linspace(0, len(train_dataset) - 1, 16, dtype=int)
+        self._train_dataset_for_eval = train_dataset[train_dataset_indices]
 
         self.test_dataset.load_features(method_info.required_features.union({"color"}))
 
@@ -345,8 +351,8 @@ class Trainer:
                 # Visualize and save
                 if self.step in self.save_iters:
                     self.save()
-                if self.step in self.eval_single_iters:
-                    self.eval_single()
+                if self.step in self.eval_few_iters:
+                    self.eval_few()
                 if self.step in self.eval_all_iters:
                     self.eval_all()
 
@@ -370,16 +376,32 @@ class Trainer:
         if self._wandb_run is not None:
             self._wandb_run.log({f"{prefix}{k}": v for k, v in metrics.items()}, step=self.step)
         if self._tensorboard_writer is not None:
-            from tensorboard.compat.proto.summary_pb2 import Summary
-            from tensorboard.compat.proto.event_pb2 import Event
+            from tensorboard.compat.proto.summary_pb2 import Summary, SummaryMetadata  # noqa: F401
+            from tensorboard.compat.proto.event_pb2 import Event  # noqa: F401
+            from tensorboard.compat.proto.tensor_pb2 import TensorProto  # noqa: F401
+            from tensorboard.compat.proto.tensor_shape_pb2 import TensorShapeProto  # noqa: F401
+            from tensorboard.plugins.text.plugin_data_pb2 import TextPluginData  # noqa: F401
 
             summaries = []
             for k, val in metrics.items():
-                summaries.append(Summary.Value(tag=f"{prefix}{k}", simple_value=val))
+                if isinstance(val, (int, float)):
+                    summaries.append(Summary.Value(tag=f"{prefix}{k}", simple_value=val))
+                elif isinstance(val, str):
+                    plugin_data = SummaryMetadata.PluginData(
+                        plugin_name="text", content=TextPluginData(version=0).SerializeToString()
+                    )
+                    smd = SummaryMetadata(plugin_data=plugin_data)
+                    tensor = TensorProto(
+                        dtype="DT_STRING",
+                        string_val=[val.encode("utf8")],
+                        tensor_shape=TensorShapeProto(dim=[TensorShapeProto.Dim(size=1)]),
+                    )
+                    summaries.append(Summary.Value(tag=f"{prefix}{k}", metadata=smd, tensor=tensor))
             summary = Summary(value=summaries)
             self._tensorboard_writer.add_event(Event(summary=summary, step=self.step))
 
     def eval_all(self):
+        split = "test"
         if self.test_dataset is None:
             logging.debug("skipping eval_all, no eval dataset")
             return
@@ -441,7 +463,7 @@ class Trainer:
             metrics["fps"] = len(self.test_dataset) / elapsed
             metrics["rays-per-second"] = total_rays / elapsed
             metrics["time"] = elapsed
-            self.log_metrics(metrics, "eval-all-images/")
+            self.log_metrics(metrics, f"eval-all-{split}/")
 
             num_cols = int(math.sqrt(len(vis_images)))
 
@@ -454,10 +476,10 @@ class Trainer:
                 import wandb  # pylint: disable=import-outside-toplevel
 
                 log_image = {
-                    "eval-all-images/color": [wandb.Image(color_vis, caption="left: gt, right: prediction")],
+                    f"eval-all-{split}/color": [wandb.Image(color_vis, caption="left: gt, right: prediction")],
                 }
                 if vis_depth:
-                    log_image["eval-all-images/depth"] = [wandb.Image(make_grid(*vis_depth, ncol=num_cols), caption="depth")]
+                    log_image[f"eval-all-{split}/depth"] = [wandb.Image(make_grid(*vis_depth, ncol=num_cols), caption="depth")]
                 self._wandb_run.log(log_image, step=self.step)
             if self._tensorboard_writer is not None:
                 from tensorboard.compat.proto.summary_pb2 import Summary
@@ -466,22 +488,32 @@ class Trainer:
                 summaries = []
                 with io.BytesIO() as simg:
                     Image.fromarray(color_vis).save(simg, format="png")
-                    summaries.append(Summary.Value(tag="eval-all-images/color", image=Summary.Image(encoded_image_string=simg.getvalue(), height=color_vis.shape[0], width=color_vis.shape[1])))
+                    summaries.append(Summary.Value(tag=f"eval-all-{split}/color", image=Summary.Image(encoded_image_string=simg.getvalue(), height=color_vis.shape[0], width=color_vis.shape[1])))
                 self._tensorboard_writer.add_event(Event(summary=Summary(value=summaries), step=self.step))
 
     def close(self):
         if self.method is not None and hasattr(self.method, "close"):
             typing.cast(Any, self.method).close()
 
-    def eval_single(self):
+    def eval_few(self):
+        rand_number, = struct.unpack("L", hashlib.sha1(str(self.step).encode("utf8")).digest()[:8])
+
+        idx = rand_number % len(self._train_dataset_for_eval)
+        dataset_slice = self._train_dataset_for_eval[idx : idx + 1]
+        self._eval_few("train", dataset_slice)
+        
         if self.test_dataset is None:
-            logging.debug("skipping eval_single, no eval dataset")
+            logging.warning("skipping eval_few on test dataset - no eval dataset")
             return
-        assert self.test_dataset.images is not None, "test dataset must have images loaded"
+
+        idx = rand_number % len(self.test_dataset)
+        dataset_slice = self.test_dataset[idx : idx + 1]
+        self._eval_few("test", dataset_slice)
+
+    def _eval_few(self, split: str, dataset_slice: Dataset):
+        assert dataset_slice.images is not None, f"{split} dataset must have images loaded"
         start = time.perf_counter()
         # Pseudo-randomly select an image based on the step
-        idx = hashlib.sha1(str(self.step).encode("utf8")).digest()[0] % len(self.test_dataset)
-        dataset_slice = self.test_dataset[idx : idx + 1]
         total_rays = 0
         with tqdm(desc=f"rendering single image at step={self.step}") as pbar:
             def update_progress(stat: CurrentProgress):
@@ -507,8 +539,8 @@ class Trainer:
         if len(self.loggers) > 0:
             logging.debug("logging image to " + ",".join(self.loggers))
             metrics = {}
-            w, h = self.test_dataset.cameras.image_sizes[idx]
-            gt = self.test_dataset.images[idx][:h, :w]
+            w, h = dataset_slice.cameras.image_sizes[0]
+            gt = dataset_slice.images[0][:h, :w]
             color = predictions["color"]
 
             background_color = self.test_dataset.metadata.get("background_color", None)
@@ -519,20 +551,20 @@ class Trainer:
             if dataset_slice.file_paths_root is not None:
                 image_path = str(Path(image_path).relative_to(dataset_slice.file_paths_root))
 
-            metrics["image-id"] = idx
+            metrics["image-path"] = image_path
             metrics["fps"] = 1 / elapsed
             metrics["rays-per-second"] = total_rays / elapsed
             metrics["time"] = elapsed
 
             if "depth" in predictions:
                 depth = visualize_depth(predictions["depth"], expected_scale=self._expected_scene_scale)
-            self.log_metrics(metrics, "eval-single-image/")
+            self.log_metrics(metrics, f"eval-few-{split}/")
 
             if self._wandb_run is not None:
                 import wandb  # pylint: disable=import-outside-toplevel
 
                 log_image = {
-                    "eval-single-image/color": [
+                    f"eval-few-{split}/color": [
                         wandb.Image(
                             make_grid(
                                 gt_srgb,
@@ -543,12 +575,12 @@ class Trainer:
                     ],
                 }
                 if "depth" in predictions:
-                    log_image["eval-single-image/depth"] = [wandb.Image(depth, caption=f"{image_path}: depth")]
+                    log_image[f"eval-few-{split}/depth"] = [wandb.Image(depth, caption=f"{image_path}: depth")]
                 self._wandb_run.log(log_image, step=self.step)
             if self._tensorboard_writer is not None:
-                from tensorboard.compat.proto.summary_pb2 import Summary
-                from tensorboard.compat.proto.event_pb2 import Event
-                from tensorboard.plugins.image.metadata import create_summary_metadata
+                from tensorboard.compat.proto.summary_pb2 import Summary  # noqa: F401
+                from tensorboard.compat.proto.event_pb2 import Event  # noqa: F401
+                from tensorboard.plugins.image.metadata import create_summary_metadata  # noqa: F401
 
                 summaries = []
                 color_vis = make_grid(gt_srgb, color_srgb)
@@ -559,7 +591,7 @@ class Trainer:
                 with io.BytesIO() as simg:
                     Image.fromarray(color_vis).save(simg, format="png")
                     summaries.append(
-                        Summary.Value(tag="eval-single-images/color", metadata=metadata, image=Summary.Image(encoded_image_string=simg.getvalue(), height=color_vis.shape[0], width=color_vis.shape[1]))
+                        Summary.Value(tag=f"eval-few-{split}/color", metadata=metadata, image=Summary.Image(encoded_image_string=simg.getvalue(), height=color_vis.shape[0], width=color_vis.shape[1]))
                     )
                 if "depth" in predictions:
                     metadata = create_summary_metadata(
@@ -569,7 +601,7 @@ class Trainer:
                     with io.BytesIO() as simg:
                         Image.fromarray(depth).save(simg, format="png")
                         summaries.append(
-                            Summary.Value(tag="eval-single-images/depth", metadata=metadata, image=Summary.Image(encoded_image_string=simg.getvalue(), height=depth.shape[0], width=depth.shape[1]))
+                            Summary.Value(tag=f"eval-few-{split}/depth", metadata=metadata, image=Summary.Image(encoded_image_string=simg.getvalue(), height=depth.shape[0], width=depth.shape[1]))
                         )
                 self._tensorboard_writer.add_event(Event(summary=Summary(value=summaries), step=self.step))
 
@@ -610,7 +642,7 @@ class SetParamOptionType(click.ParamType):
 @click.option("--output", type=str, default=".")
 @click.option("--vis", type=click.Choice(["none", "wandb", "tensorboard", "wandb+tensorboard"]), default="tensorboard", help="Logger to use. Defaults to tensorboard.")
 @click.option("--verbose", "-v", is_flag=True)
-@click.option("--eval-single-iters", type=IndicesClickType(), default=Indices.every_iters(2_000), help="When to evaluate a single image")
+@click.option("--eval-few-iters", type=IndicesClickType(), default=Indices.every_iters(2_000), help="When to evaluate on few images")
 @click.option("--eval-all-iters", type=IndicesClickType(), default=Indices([-1]), help="When to evaluate all images")
 @click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @click.option("--disable-extra-metrics", help="Disable extra metrics which need additional dependencies.", is_flag=True)
@@ -626,7 +658,7 @@ def train_command(
     output,
     verbose,
     backend,
-    eval_single_iters,
+    eval_few_iters,
     eval_all_iters,
     num_iterations=None,
     disable_extra_metrics=False,
@@ -687,7 +719,7 @@ def train_command(
                 output=Path(output),
                 method=_method,
                 eval_all_iters=eval_all_iters,
-                eval_single_iters=eval_single_iters,
+                eval_few_iters=eval_few_iters,
                 loggers=frozenset(loggers),
                 num_iterations=num_iterations,
                 run_extra_metrics=not disable_extra_metrics,

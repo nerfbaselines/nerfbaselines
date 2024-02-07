@@ -26,17 +26,62 @@ from argparse import ArgumentParser
 import torch
 from random import randint
 
-from arguments import ModelParams, PipelineParams, OptimizationParams
-from gaussian_renderer import render
-from scene import GaussianModel
-from scene.cameras import Camera
-from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov, CameraInfo
-from scene.dataset_readers import storePly, fetchPly
-from utils.general_utils import safe_state
-from utils.image_utils import psnr
-from utils.loss_utils import l1_loss, ssim
-from utils.sh_utils import SH2RGB
-from scene import Scene, sceneLoadTypeCallbacks
+from utils.general_utils import PILtoTorch
+from arguments import ModelParams, PipelineParams, OptimizationParams # noqa: E402
+from gaussian_renderer import render # noqa: E402
+from scene import GaussianModel # noqa: E402
+from scene.cameras import Camera  # noqa: E402
+import scene.dataset_readers
+from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # noqa: E402
+from scene.dataset_readers import CameraInfo as _old_CameraInfo
+from scene.dataset_readers import storePly, fetchPly  # noqa: E402
+from utils.general_utils import safe_state  # noqa: E402
+from utils.image_utils import psnr  # noqa: E402
+from utils.loss_utils import l1_loss, ssim  # noqa: E402
+from utils.sh_utils import SH2RGB  # noqa: E402
+from scene import Scene, sceneLoadTypeCallbacks  # noqa: E402
+from utils import camera_utils  # noqa: E402
+
+
+#
+# Patch Gaussian Splatting to include sampling masks
+#
+# Patch loadCam to include sampling mask
+_old_loadCam = camera_utils.loadCam
+def loadCam(args, id, cam_info, resolution_scale):
+    camera = _old_loadCam(args, id, cam_info, resolution_scale)
+
+    sampling_mask = None
+    if cam_info.sampling_mask is not None:
+        sampling_mask = PILtoTorch(cam_info.sampling_mask, (camera.image_width, camera.image_height))
+    setattr(camera, "sampling_mask", sampling_mask)
+    setattr(camera, "_patched", True)
+    return camera
+camera_utils.loadCam = loadCam
+
+
+# Patch CameraInfo to add sampling mask
+class CameraInfo(_old_CameraInfo):
+    def __new__(cls, *args, sampling_mask=None, **kwargs):
+        self = super(CameraInfo, cls).__new__(cls, *args, **kwargs)
+        self.sampling_mask = sampling_mask
+        return self
+scene.dataset_readers.CameraInfo = CameraInfo
+
+
+def normalize_ssim(ssim_value, mask_percentage):
+    # SSIM is in the range [-1, 1], 1 is perfect match
+    # Move to [0, 1]
+    ssim_value = ssim_value / 2.0 + 0.5
+    # Invert, 0 is perfect match
+    ssim_value = 1.0 - ssim_value
+    # Normalize by mask percentage
+    ssim_value = ssim_value / mask_percentage
+    # Undo inversion, 1 is perfect match
+    ssim_value = 1.0 - ssim_value
+    # Move to [-1, 1]
+    ssim_value = ssim_value * 2.0 - 1.0
+    return ssim_value
 
 
 def _load_cam(pose, intrinsics, camera_id, image_name, image_size, device=None):
@@ -53,7 +98,7 @@ def _load_cam(pose, intrinsics, camera_id, image_name, image_size, device=None):
 
     width, height = image_size
     fx, fy, cx, cy = intrinsics
-    return Camera(
+    cam = Camera(
         colmap_id=int(camera_id),
         R=R,
         T=T,
@@ -65,6 +110,7 @@ def _load_cam(pose, intrinsics, camera_id, image_name, image_size, device=None):
         uid=id,
         data_device=device,
     )
+    return cam
 
 
 def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: str, white_background: bool = False):
@@ -106,8 +152,14 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
         else:
             assert not white_background, "white_background is only supported for blender scenes"
         image = Image.fromarray(im_data)
+        sampling_mask = None
+        if dataset.sampling_masks is not None:
+            sampling_mask = Image.fromarray((dataset.sampling_masks[idx] * 255).astype(np.uint8))
 
-        cam_info = CameraInfo(uid=idx, R=R, T=T, FovY=float(FovY), FovX=float(FovX), image=image, image_path=image_path, image_name=image_name, width=int(width), height=int(height))
+        cam_info = CameraInfo(
+            uid=idx, R=R, T=T, FovY=float(FovY), FovX=float(FovX), image=image, image_path=image_path, image_name=image_name, width=int(width), height=int(height),
+            sampling_mask=sampling_mask,
+        )
         cam_infos.append(cam_info)
 
     cam_infos = sorted(cam_infos.copy(), key=lambda x: x.image_name)
@@ -295,7 +347,10 @@ class GaussianSplatting(Method):
 
         # Pick a random Camera
         if not self._viewpoint_stack:
+            loadCam.was_called = False
             self._viewpoint_stack = self.scene.getTrainCameras().copy()
+            if any(not getattr(cam, "_patched", False) for cam in self._viewpoint_stack):
+                raise RuntimeError("could not patch loadCam!")
         viewpoint_cam = self._viewpoint_stack.pop(randint(0, len(self._viewpoint_stack) - 1))
 
         # Render
@@ -306,11 +361,29 @@ class GaussianSplatting(Method):
 
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
-        Ll1 = l1_loss(image, gt_image)
-        loss = (1.0 - self.opt.lambda_dssim) * Ll1 + self.opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+        sampling_mask = viewpoint_cam.sampling_mask.cuda() if viewpoint_cam.sampling_mask is not None else None
+
+        # Apply mask
+        mask_percentage = 1.0
+        if sampling_mask is not None:
+            image *= sampling_mask
+            gt_image *= sampling_mask
+            mask_percentage = sampling_mask.mean()
+
+        Ll1 = l1_loss(image, gt_image) / mask_percentage
+        ssim_value = ssim(image, gt_image)
+        if sampling_mask is not None:
+            ssim_value = normalize_ssim(ssim_value, mask_percentage)
+
+        loss = (1.0 - self.opt.lambda_dssim) * Ll1 + self.opt.lambda_dssim * (1.0 - ssim_value)
         loss.backward()
         with torch.no_grad():
-            metrics = {"l1_loss": Ll1.detach().cpu().item(), "loss": loss.detach().cpu().item(), "psnr": psnr(image, gt_image).mean().detach().cpu().item()}
+            psnr_value = 10 * torch.log10(1 / torch.mean((image - gt_image) ** 2) / mask_percentage)
+            metrics = {
+                "l1_loss": Ll1.detach().cpu().item(), 
+                "loss": loss.detach().cpu().item(), 
+                "psnr": psnr_value.detach().cpu().item(),
+            }
 
             # Densification
             if iteration < self.opt.densify_until_iter:

@@ -25,9 +25,11 @@ def mock_mip_splatting(mock_torch):
             "utils.loss_utils": mock.MagicMock(),
             "utils.sh_utils": mock.MagicMock(),
             "train": mock.MagicMock(),
+            "utils.camera_utils": mock.MagicMock(),
         },
     ):
         # from arguments import ModelParams, PipelineParams, OptimizationParams
+        sys.modules["utils"].camera_utils = sys.modules["utils.camera_utils"]
         arguments = sys.modules["arguments"]
 
         def setup_model_args(parser):
@@ -74,24 +76,26 @@ def mock_mip_splatting(mock_torch):
                 for k, v in kwargs.items():
                     setattr(self, k, v)
 
+        def loadCam(args, id, cam_info, resolution_scale):
+            dct = cam_info._asdict()
+            dct.pop("image_path")
+            dct.pop("width")
+            dct.pop("height")
+            dct["FoVx"] = dct.pop("FovX")
+            dct["FoVy"] = dct.pop("FovY")
+            dct["image"] = torch.tensor(np.array(cam_info.image) / 255.0)
+            dct["colmap_id"] = 0
+            dct["gt_alpha_mask"] = None
+            dct["data_device"] = "cuda"
+            Camera = sys.modules["scene.cameras"].Camera
+            return Camera(**dct)
+
         def Scene(opt, gaussians, load_iteration):
             scene_info = sceneLoadTypeCallbacks["Colmap"]()
             scene = mock.MagicMock()
 
-            def loadCam(cam_info):
-                dct = cam_info._asdict()
-                dct.pop("image_path")
-                dct.pop("width")
-                dct.pop("height")
-                dct["FoVx"] = dct.pop("FovX")
-                dct["FoVy"] = dct.pop("FovY")
-                dct["image"] = torch.tensor(np.array(cam_info.image) / 255.0)
-                dct["colmap_id"] = 0
-                dct["gt_alpha_mask"] = None
-                dct["data_device"] = "cuda"
-                return Camera(**dct)
-
-            scene.getTrainCameras = lambda: list(map(loadCam, scene_info.train_cameras))
+            loadCam = sys.modules["utils.camera_utils"].loadCam
+            scene.getTrainCameras = lambda: [loadCam(None, None, x, None) for x in scene_info.train_cameras]
             return scene
 
         sys.modules["scene"].Scene = Scene
@@ -103,6 +107,7 @@ def mock_mip_splatting(mock_torch):
 
         sys.modules["scene"].GaussianModel = GaussianModel
         sys.modules["scene.cameras"].Camera = Camera
+        sys.modules["utils.camera_utils"].loadCam = loadCam
         sys.modules["scene.dataset_readers"].CameraInfo = namedtuple("CameraInfo", ["uid", "R", "T", "FovY", "FovX", "image", "image_path", "image_name", "width", "height"])
         sys.modules["scene.dataset_readers"].SceneInfo = namedtuple("SceneInfo", ["point_cloud", "train_cameras", "test_cameras", "nerf_normalization", "ply_path"])
         sys.modules["utils.loss_utils"].l1_loss = lambda a, b: torch.abs(a - b).sum()

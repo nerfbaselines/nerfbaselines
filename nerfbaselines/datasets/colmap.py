@@ -204,7 +204,8 @@ def load_colmap_dataset(path: Path,
         split: Optional[str] = None, 
         test_indices: Optional[Indices] = None,
         features: Optional[FrozenSet[DatasetFeature]] = None,
-        colmap_path: Optional[Path] = None):
+        colmap_path: Optional[Path] = None,
+        sampling_masks_path: Optional[Path] = None):
     if features is None:
         features = typing.cast(FrozenSet[DatasetFeature], {})
     load_points = "points3D_xyz" in features or "points3D_rgb" in features
@@ -217,6 +218,9 @@ def load_colmap_dataset(path: Path,
     if images_path is None:
         images_path = Path("images")
     images_path = path / images_path
+    if sampling_masks_path is None:
+        sampling_masks_path = Path("sampling_masks")
+    sampling_masks_path = path / sampling_masks_path
     if not colmap_path.exists():
         raise DatasetNotFoundError("Missing 'sparse/0' folder in COLMAP dataset")
     if not (colmap_path / "cameras.bin").exists() and not (colmap_path / "cameras.txt").exists():
@@ -256,7 +260,8 @@ def load_colmap_dataset(path: Path,
     camera_poses = []
     camera_types = []
     camera_distortion_params = []
-    image_names = []
+    image_paths = []
+    sampling_mask_paths = None if not sampling_masks_path.exists() else []
     camera_sizes = []
 
     image: Image
@@ -269,7 +274,9 @@ def load_colmap_dataset(path: Path,
         camera_intrinsics.append(intrinsics)
         camera_types.append(camera_type)
         camera_distortion_params.append(distortion_params)
-        image_names.append(images_path / image.name)
+        image_paths.append(images_path / image.name)
+        if sampling_mask_paths is not None:
+            sampling_mask_paths.append(sampling_masks_path / Path(image.name).with_suffix(".png"))
 
         rotation = qvec2rotmat(image.qvec).astype(np.float32)
 
@@ -310,10 +317,10 @@ def load_colmap_dataset(path: Path,
     )
     dataset = Dataset(
         cameras=cameras,
-        file_paths=[images_path / x for x in image_names],
+        file_paths=image_paths,
         points3D_xyz=points3D_xyz,
         points3D_rgb=points3D_rgb,
-        sampling_mask_paths=None,
+        sampling_mask_paths=sampling_mask_paths,
         file_paths_root=images_path,
     )
 

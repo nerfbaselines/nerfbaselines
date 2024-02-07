@@ -146,9 +146,14 @@ jobs:
           export TORCH_CUDA_ARCH_LIST="8.0"
           export CUDAARCHS="80"
           method_name="$(python -c 'import re;print(re.escape("${{ matrix.method }}"))').*"
-          pytest -s --run-apptainer --method-regex "$method_name" -rA
-          # Second run will use the cached env
-          pytest -s --run-apptainer --method-regex "$method_name" -rA
+          if [[ "${{matrix.method}}" = tetra-nerf* ]]; then
+            # Tetra-NeRF currently uses too much disk space, so we skip it
+            :
+          else
+            pytest -s --run-apptainer --method-regex "$method_name" -rA
+            # Second run will use the cached env
+            pytest -s --run-apptainer --method-regex "$method_name" -rA
+          fi
 
   dataset-tests:
     runs-on: ubuntu-latest

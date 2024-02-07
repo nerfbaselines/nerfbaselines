@@ -125,6 +125,15 @@ def dataset_load_features(
         images.append(image)
         image_sizes.append([image.shape[1], image.shape[0]])
         all_metadata.append(metadata)
+    logging.debug(f"Loaded {len(images)} images")
+
+    if dataset.sampling_mask_paths is not None:
+        sampling_masks = []
+        for p in tqdm(dataset.sampling_mask_paths, desc="loading sampling masks"):
+            sampling_mask = PIL.Image.open(p).convert("L")
+            sampling_masks.append(np.array(sampling_mask, dtype=np.uint8).astype(bool))
+        dataset.sampling_masks = sampling_masks  # padded_stack(sampling_masks)
+        logging.debug(f"Loaded {len(sampling_masks)} sampling masks")
 
     dataset.images = images  # padded_stack(images)
     dataset.cameras = dataset.cameras.with_image_sizes(
