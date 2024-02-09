@@ -4,6 +4,7 @@ import os
 import struct
 import numpy as np
 import PIL.Image
+import PIL.ExifTags
 from tqdm import tqdm
 from ..types import Dataset
 from .. import cameras
@@ -22,6 +23,7 @@ def single(xs):
 
 
 def _dataset_undistort_unsupported(dataset: Dataset, supported_camera_models):
+    assert dataset.images is not None, "Images must be loaded"
     supported_models_int = set(x.value for x in supported_camera_models)
     undistort_tasks = []
     for i, camera in enumerate(dataset.cameras):
@@ -78,7 +80,10 @@ METADATA_COLUMNS = ["exposure"]
 def get_image_metadata(image: PIL.Image.Image):
     # Metadata format: [ exposure, ]
     values = {}
-    exif_pil = image._getexif()  # pylint: disable=protected-access
+    try:
+        exif_pil = image.getexif()
+    except AttributeError:
+        exif_pil = image._getexif()  # type: ignore
     if exif_pil is not None:
         exif = {
             PIL.ExifTags.TAGS[k]: v

@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import pickle
 import base64
-from typing import Optional, Tuple, Type, List, Dict
+from typing import Optional, Tuple, Type, List, Dict, Any
 import os
 import shutil
 import hashlib
@@ -147,6 +147,7 @@ def start_backend(method: Method, params: ConnectionParams, address: str = "loca
                     break
                 output_queue.put({"message": "error", "id": mid, "error": _remap_error(e)})
         elif message == "call":
+            method_or_fn = ""
             try:
                 method_or_fn = msg.get("function", msg.get("method"))
                 if "function" in msg:
@@ -162,7 +163,7 @@ def start_backend(method: Method, params: ConnectionParams, address: str = "loca
                 if msg["cancellable"]:
                     fn = cancellable(fn)
                     kwargs["cancellation_token"] = cancellation_tokens[mid]
-                result = fn(*args, **kwargs)
+                result: Any = fn(*args, **kwargs)
                 if inspect.isgeneratorfunction(fn):
                     for r in result:
                         if cancellation_token.cancelled:
@@ -209,9 +210,8 @@ def replace_callables(obj, callables, depth=0):
     return obj
 
 
-def inject_callables(obj, output_queue, my_id):
+def inject_callables(obj: Any, output_queue, my_id) -> Any:
     if isinstance(obj, RemoteCallable):
-
         def callback(*args, **kwargs):
             output_queue.put({"message": "callback", "id": my_id, "callback": obj.id, "args": args, "kwargs": kwargs})
 
@@ -219,9 +219,9 @@ def inject_callables(obj, output_queue, my_id):
     if isinstance(obj, dict):
         return {k: inject_callables(v, output_queue, my_id) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
-        return obj.__class__((inject_callables(v, output_queue, my_id) for v in obj))
+        return type(obj)((inject_callables(v, output_queue, my_id) for v in obj))
     if is_dataclass(obj):
-        return obj.__class__(**{k: inject_callables(v, output_queue, my_id) for k, v in obj.__dict__.items()})
+        return type(obj)(**{k: inject_callables(v, output_queue, my_id) for k, v in obj.__dict__.items()})
     return obj
 
 
@@ -385,6 +385,7 @@ class RemoteMethod(Method):
 
     def close(self):
         if self._client is not None:
+            assert self._recv is not None, "_recv not set"
             mid = self._message_counter + 1
             # Try recv
             try:

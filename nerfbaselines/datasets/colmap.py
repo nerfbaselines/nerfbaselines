@@ -261,6 +261,7 @@ def load_colmap_dataset(path: Path,
     camera_types = []
     camera_distortion_params = []
     image_paths = []
+    image_names = []
     sampling_mask_paths = None if not sampling_masks_path.exists() else []
     camera_sizes = []
 
@@ -274,6 +275,7 @@ def load_colmap_dataset(path: Path,
         camera_intrinsics.append(intrinsics)
         camera_types.append(camera_type)
         camera_distortion_params.append(distortion_params)
+        image_names.append(image.name)
         image_paths.append(images_path / image.name)
         if sampling_mask_paths is not None:
             sampling_mask_paths.append(sampling_masks_path / Path(image.name).with_suffix(".png"))

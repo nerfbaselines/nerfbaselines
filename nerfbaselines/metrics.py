@@ -1,8 +1,9 @@
 from functools import wraps
 import numpy
-from typing import Optional, Callable, Union, Sequence, Tuple
+from typing import Optional, Callable, Union, Sequence, Tuple, cast
 import numpy as np
 import warnings
+
 
 warnings.filterwarnings("ignore", category=UserWarning, message=".*?The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future*?", module="torchvision")
 warnings.filterwarnings("ignore", category=UserWarning, message=".*?Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13*?", module="torchvision")
@@ -267,8 +268,7 @@ def torchmetrics_ssim(
     b = np.pad(b, ((0, 0), (0, 0), (pad_w, pad_w), (pad_h, pad_h)), mode="reflect")
     if gaussian_kernel:
         kernel = _gaussian_kernel_2d(gauss_kernel_size, sigma, dtype)
-
-    if not gaussian_kernel:
+    else:
         kernel = np.ones(kernel_size, dtype=dtype) / np.prod(np.array(kernel_size, dtype=dtype))
 
     input_list = np.concatenate((a, b, a * a, b * b, a * b))  # (5 * B, C, H, W)
@@ -360,7 +360,7 @@ def psnr(a: Union[np.ndarray, np.float32, np.float64], b: Optional[np.ndarray] =
     Returns:
         Tensor of PSNR values for each image [B].
     """
-    mse_value = a if b is None else mse(a, b)
+    mse_value = a if b is None else mse(cast(np.ndarray, a), b)
     return -10 * np.log10(mse_value)
 
 
@@ -402,7 +402,7 @@ def _lpips(a, b, net, version="0.1"):
     with torch.no_grad():
         a = torch.from_numpy(a).float().view(-1, *img_shape).permute(0, 3, 1, 2).mul_(2).sub_(1).to(device)
         b = torch.from_numpy(b).float().view(-1, *img_shape).permute(0, 3, 1, 2).mul_(2).sub_(1).to(device)
-        out = lp_net.to(device).forward(a, b)
+        out = cast(torch.Tensor, lp_net.to(device).forward(a, b))
         out = out.detach().cpu().numpy().reshape(batch_shape)
         return out
 

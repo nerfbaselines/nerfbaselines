@@ -64,7 +64,6 @@ def test_cancellable_generator():
     with pytest.raises(CancelledException):
         for i in fn(cancellation_token=token):
             out.append(i)
-    print(i)
     assert len(out) > 1, "Function was not called"
     assert was_called, "Function was not called"
 

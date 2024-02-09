@@ -7,21 +7,24 @@ import io
 import os
 import logging
 import tarfile
-from typing import Optional, Union
+from typing import Optional, Union, TypeVar
 from pathlib import Path
 import json
 import click
 from tqdm import tqdm
 import numpy as np
 import typing
-from typing import Any, Iterable
+from typing import Any, Iterable, cast
 from .datasets import load_dataset, Dataset
-from .utils import setup_logging, image_to_srgb, save_image, save_depth, visualize_depth, handle_cli_error, convert_image_dtype
+from .utils import setup_logging, image_to_srgb, save_image, save_depth, visualize_depth, handle_cli_error, convert_image_dtype, assert_not_none
 from .types import Method, CurrentProgress, RenderOutput
 from .io import open_any_directory
 from . import cameras as _cameras
 from . import registry
 from . import __version__
+
+
+TRender = TypeVar("TRender", bound=typing.Callable[..., Iterable[RenderOutput]])
 
 
 def build_update_progress(pbar: tqdm):
@@ -63,8 +66,8 @@ def get_checkpoint_sha(path: Path) -> str:
         if f.name == "nb-info.json":
             continue
 
-        with open(f, "rb", buffering=0) as f:
-            for n in iter(lambda: f.readinto(mv), 0):
+        with open(f, "rb", buffering=0) as fio:
+            for n in iter(lambda: fio.readinto(mv), 0):
                 sha.update(mv[:n])
     return sha.hexdigest()
 
@@ -72,7 +75,7 @@ def get_checkpoint_sha(path: Path) -> str:
 def with_supported_camera_models(supported_camera_models):
     supported_cam_models = set(x.value for x in supported_camera_models)
 
-    def decorator(render):
+    def decorator(render: TRender) -> TRender:
         @wraps(render)
         def _render(cameras: _cameras.Cameras, *args, **kwargs):
             original_cameras = cameras
@@ -87,12 +90,11 @@ def with_supported_camera_models(supported_camera_models):
                     undistorted_cameras_list.append(cam[None])
             undistorted_cameras = _cameras.Cameras.cat(undistorted_cameras_list)
             for x, distort, cam, ucam in zip(render(undistorted_cameras, *args, **kwargs), needs_distort, original_cameras, undistorted_cameras):
-                if not distort:
-                    yield x
-                else:
-                    yield {k: _cameras.warp_image_between_cameras(ucam, cam, v) for k, v in x.items()}
-
-        return _render
+                if distort:
+                    x = cast(RenderOutput, 
+                             {k: _cameras.warp_image_between_cameras(ucam, cam, cast(np.ndarray, v)) for k, v in x.items()})
+                yield x
+        return cast(TRender, _render)
 
     return decorator
 
@@ -128,12 +130,12 @@ def render_all_images(
         method.save(Path(tmpdir))
         checkpoint_sha = get_checkpoint_sha(Path(tmpdir))
 
-    def _predict_all(open_fn):
+    def _predict_all(open_fn) -> Iterable[RenderOutput]:
         assert dataset.images is not None, "dataset must have images loaded"
         with tqdm(desc=description) as pbar:
 
             predictions = render(dataset.cameras, progress_callback=build_update_progress(pbar))
-            for i, (pred, (w, h)) in enumerate(zip(predictions, dataset.cameras.image_sizes)):
+            for i, (pred, (w, h)) in enumerate(zip(predictions, assert_not_none(dataset.cameras.image_sizes))):
                 gt_image = image_to_srgb(dataset.images[i][:h, :w], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
                 pred_image = image_to_srgb(pred["color"], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
                 assert gt_image.shape[:-1] == pred_image.shape[:-1], f"gt size {gt_image.shape[:-1]} != pred size {pred_image.shape[:-1]}"
@@ -186,7 +188,7 @@ def render_all_images(
         with tarfile.open(output, "w:gz") as tar:
 
             @contextlib.contextmanager
-            def open_fn(path):
+            def open_fn_tar(path):
                 rel_path = path
                 path = output / path
                 tarinfo = tarfile.TarInfo(name=rel_path)
@@ -198,17 +200,17 @@ def render_all_images(
                     f.seek(0)
                     tar.addfile(tarinfo=tarinfo, fileobj=f)
 
-            write_metadata(open_fn)
-            yield from _predict_all(open_fn)
+            write_metadata(open_fn_tar)
+            yield from _predict_all(open_fn_tar)
     else:
 
-        def open_fn(path):
+        def open_fn_fs(path):
             path = output / path
             Path(path).parent.mkdir(parents=True, exist_ok=True)
             return open(path, "wb")
 
-        write_metadata(open_fn)
-        yield from _predict_all(open_fn)
+        write_metadata(open_fn_fs)
+        yield from _predict_all(open_fn_fs)
 
 
 @click.command("render")

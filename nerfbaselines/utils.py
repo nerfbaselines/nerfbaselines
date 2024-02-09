@@ -6,7 +6,7 @@ import struct
 from pathlib import Path
 import types
 from functools import wraps
-from typing import Any, Optional, Dict, TYPE_CHECKING, Union, List
+from typing import Any, Optional, Dict, TYPE_CHECKING, Union, List, TypeVar
 from typing import BinaryIO
 import numpy as np
 import logging
@@ -39,6 +39,12 @@ else:
 
             return property(fn_cached)
 
+T = TypeVar("T")
+
+
+def assert_not_none(value: Optional[T]) -> T:
+    assert value is not None
+    return value
 
 class NoGPUError(RuntimeError):
     def __init__(self, message="No GPUs available"):
@@ -104,8 +110,9 @@ class CancellationToken:
             sys.settrace(None)
 
 
-def cancellable(fn=None, mark_only=False):
-    def wrap(fn):
+# TODO: fix signature of wrapped function
+def cancellable(fn=None, mark_only=False) -> Any:
+    def wrap(fn) -> Any:
         if getattr(fn, "__cancellable__", False):
             return fn
         if mark_only:
@@ -113,25 +120,24 @@ def cancellable(fn=None, mark_only=False):
             return fn
 
         if inspect.isgeneratorfunction(fn):
-
             @wraps(fn)
-            def wrapped(*args, cancellation_token: Optional[CancellationToken] = None, **kwargs):
+            def wrapped_generator(*args, cancellation_token: Optional[CancellationToken] = None, **kwargs):
                 if cancellation_token is not None:
                     yield from cancellation_token.invoke(fn, *args, **kwargs)
                 else:
                     yield from fn(*args, **kwargs)
 
+            wrapped_generator.__cancellable__ = True  # type: ignore
+            return wrapped_generator
         else:
-
             @wraps(fn)
-            def wrapped(*args, cancellation_token: Optional[CancellationToken] = None, **kwargs):
+            def wrapped_function(*args, cancellation_token: Optional[CancellationToken] = None, **kwargs):
                 if cancellation_token is not None:
                     return cancellation_token.invoke(fn, *args, **kwargs)
                 else:
                     return fn(*args, **kwargs)
-
-        wrapped.__cancellable__ = True
-        return wrapped
+            wrapped_function.__cancellable__ = True  # type: ignore
+            return wrapped_function
 
     return wrap if fn is None else wrap(fn)
 
@@ -171,8 +177,9 @@ def handle_cli_error(fn):
         try:
             return fn(*args, **kwargs)
         except Exception as e:
-            if hasattr(e, "write_to_logger"):
-                e.write_to_logger()
+            write_to_logger = getattr(e, "write_to_logger", None)
+            if write_to_logger is not None:
+                write_to_logger()
                 sys.exit(1)
             else:
                 raise e
@@ -251,7 +258,9 @@ def batched(array, batch_size):
         yield array[i : i + batch_size]
 
 
-def padded_stack(tensors: List[np.ndarray]) -> np.ndarray:
+def padded_stack(tensors: Union[np.ndarray, List[np.ndarray]]) -> np.ndarray:
+    if isinstance(tensors, np.ndarray):
+        return tensors
     max_shape = tuple(max(s) for s in zip(*[x.shape for x in tensors]))
     out_tensors = []
     for x in tensors:
@@ -291,8 +300,10 @@ def linear_to_srgb(img):
     return np.where(img > limit, 1.055 * (img ** (1.0 / 2.4)) - 0.055, 12.92 * img)
 
 
-def image_to_srgb(tensor, dtype, color_space="srgb", allow_alpha: bool = False, background_color: Optional[np.ndarray] = None):
+def image_to_srgb(tensor, dtype, color_space: Optional[str] = None, allow_alpha: bool = False, background_color: Optional[np.ndarray] = None):
     # Remove alpha channel in uint8
+    if color_space is None:
+        color_space = "srgb"
     if tensor.shape[-1] == 4 and not allow_alpha:
         # NOTE: here we blend with black background
         if tensor.dtype == np.uint8:
@@ -371,6 +382,7 @@ def _zipnerf_power_transformation(x, lam: float):
 def visualize_depth(depth: np.ndarray, expected_scale: Optional[float] = None, near_far: Optional[np.ndarray] = None, pallete: str = "viridis", xnp=np) -> np.ndarray:
     # TODO: remove matplotlib dependency
     import matplotlib
+    import matplotlib.colors
 
     # We will squash the depth to range [0, 1] using Barron's power transformation
     eps = xnp.finfo(xnp.float32).eps
@@ -387,7 +399,9 @@ def visualize_depth(depth: np.ndarray, expected_scale: Optional[float] = None, n
 
     # Map to a color scale
     depth_long = (depth_squashed * 255).astype(xnp.int32).clip(0, 255)
-    out = xnp.array(matplotlib.colormaps[pallete].colors, dtype=xnp.float32)[255 - depth_long]
+    colormap = matplotlib.colormaps[pallete]
+    assert isinstance(colormap, matplotlib.colors.ListedColormap)
+    out = xnp.array(colormap.colors, dtype=xnp.float32)[255 - depth_long]
     return (out * 255).astype(xnp.uint8)
 
 

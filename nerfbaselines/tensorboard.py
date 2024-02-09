@@ -1,17 +1,17 @@
-# Disable import not in top level
-# pylint: disable=wrong-import-position
+# Disable tensorboard.proto errors in pyright
+# pyright: reportAttributeAccessIssue=false, reportCallIssue=false
 import io
 from pathlib import Path
 from typing import Union
 
 from PIL import Image
 import numpy as np
-from tensorboard.compat.proto.summary_pb2 import Summary, SummaryMetadata  # noqa: F401
-from tensorboard.compat.proto.event_pb2 import Event  # noqa: F401
-from tensorboard.compat.proto.tensor_pb2 import TensorProto  # noqa: F401
-from tensorboard.compat.proto.tensor_shape_pb2 import TensorShapeProto  # noqa: F401
-from tensorboard.plugins.text.plugin_data_pb2 import TextPluginData  # noqa: F401
-from tensorboard.plugins.image.metadata import create_summary_metadata  # noqa: F401
+from tensorboard.compat.proto.summary_pb2 import Summary, SummaryMetadata
+from tensorboard.compat.proto.event_pb2 import Event
+from tensorboard.compat.proto.tensor_pb2 import TensorProto
+from tensorboard.compat.proto.tensor_shape_pb2 import TensorShapeProto
+from tensorboard.plugins.text.plugin_data_pb2 import TextPluginData
+from tensorboard.plugins.image.metadata import create_summary_metadata
 from tensorboard.summary.writer.event_file_writer import EventFileWriter
 
 

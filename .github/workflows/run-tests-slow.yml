@@ -43,9 +43,10 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -e .
-          pip install pytest typeguard
-      - name: Run tests
-        run: pytest -rA
+          pip install pytest typeguard pyright
+      - name: Run pyright, pytests
+        run: |
+          pytest -rA
       - name: Test if README results are up to date
         run: |
           for dataset in blender mipnerf360 nerfstudio; do
@@ -59,11 +60,14 @@ jobs:
           pip install 'jax[cpu]'
           pip install -e ".[extras]"
       - name: Run dev-extras tests
-        run: pytest --run-extras
+        run: |
+          pyright
+          pytest --run-extras
         if: ${{ steps.dev-extras.outcome == 'success' }}
 
   setup:
     runs-on: ubuntu-latest
+    needs: common-tests
     outputs:
       methods: ${{ steps.data-step.outputs.methods }}
     steps:

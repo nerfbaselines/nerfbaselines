@@ -1,4 +1,4 @@
-from typing import Optional, Sequence, Tuple
+from typing import Optional, Sequence, Tuple, cast
 from enum import Enum
 from dataclasses import dataclass
 import dataclasses
@@ -340,6 +340,8 @@ def _distort(camera_types, distortion_params, uv, xnp=np):
                 if out is None:
                     out = xnp.copy(uv)
                 out[mask] = uv[mask] + distortion(distortion_params[mask], uv[mask], xnp=xnp)
+    if out is None:
+        out = uv
     return out
 
 
@@ -357,6 +359,9 @@ def _undistort(camera_types: np.ndarray, distortion_params: np.ndarray, uv: np.n
                 if out is None:
                     out = xnp.copy(uv)
                 out[mask] = _iterative_undistortion(distortion, uv[mask], distortion_params[mask], xnp=xnp, **kwargs)
+    if out is None:
+        out = uv
+    return out
 
 
 @dataclass(frozen=True)
@@ -430,6 +435,10 @@ class Cameras:
         assert xy.shape[-1] == 2
         assert is_broadcastable(xy.shape[:-1], self.poses.shape[:-2]), "xy must be broadcastable with poses, shapes: {}, {}".format(xy.shape[:-1], self.poses.shape[:-2])
         assert xy.dtype.kind == "f"
+        fx: np.ndarray
+        fy: np.ndarray
+        cx: np.ndarray
+        cy: np.ndarray
         fx, fy, cx, cy = xnp.moveaxis(self.intrinsics, -1, 0)
         x = xy[..., 0]
         y = xy[..., 1]
@@ -477,14 +486,26 @@ class Cameras:
 
     @classmethod
     def cat(cls, values: Sequence["Cameras"]) -> "Cameras":
+        image_sizes = None
+        nears_fars = None
+        metadata = None
+        if any(v.image_sizes is not None for v in values):
+            assert all(v.image_sizes is not None for v in values), "Either all or none of the cameras must have image sizes"
+            image_sizes = np.concatenate([cast(np.ndarray, v.image_sizes) for v in values])
+        if any(v.nears_fars is not None for v in values):
+            assert all(v.nears_fars is not None for v in values), "Either all or none of the cameras must have nears and fars"
+            nears_fars = np.concatenate([cast(np.ndarray, v.nears_fars) for v in values])
+        if any(v.metadata is not None for v in values):
+            assert all(v.metadata is not None for v in values), "Either all or none of the cameras must have metadata"
+            metadata = np.concatenate([cast(np.ndarray, v.metadata) for v in values])
         return cls(
             poses=np.concatenate([v.poses for v in values]),
             normalized_intrinsics=np.concatenate([v.normalized_intrinsics for v in values]),
             camera_types=np.concatenate([v.camera_types for v in values]),
             distortion_parameters=np.concatenate([v.distortion_parameters for v in values]),
-            image_sizes=np.concatenate([v.image_sizes for v in values]) if any(v.image_sizes is not None for v in values) else None,
-            nears_fars=np.concatenate([v.nears_fars for v in values]) if any(v.nears_fars is not None for v in values) else None,
-            metadata=np.concatenate([v.metadata for v in values]) if any(v.metadata is not None for v in values) else None,
+            image_sizes=image_sizes,
+            nears_fars=nears_fars,
+            metadata=metadata,
         )
 
     def with_image_sizes(self, image_sizes: np.ndarray) -> "Cameras":
@@ -578,6 +599,8 @@ def interpolate_bilinear(image: np.ndarray, xy: np.ndarray, xnp=np) -> np.ndarra
 
 def warp_image_between_cameras(cameras1: Cameras, cameras2: Cameras, images: np.ndarray):
     xnp = np
+    assert cameras1.image_sizes is not None, "cameras1 must have image sizes"
+    assert cameras2.image_sizes is not None, "cameras2 must have image sizes"
     assert cameras1.image_sizes.shape == cameras2.image_sizes.shape, "Camera shapes must be the same"
 
     if len(cameras1.normalized_intrinsics.shape) == 2:
@@ -588,6 +611,11 @@ def warp_image_between_cameras(cameras1: Cameras, cameras2: Cameras, images: np.
 
     cam1 = cameras1
     cam2 = cameras2
+
+    # NOTE: pyright workaround
+    assert cam1.image_sizes is not None
+    assert cam2.image_sizes is not None
+
     image = images
 
     # TODO: Fix aliasing issue
@@ -618,6 +646,7 @@ def warp_image_between_cameras(cameras1: Cameras, cameras2: Cameras, images: np.
 
 
 def undistort_camera(camera: Cameras, xnp=np):
+    assert camera.image_sizes is not None, "Camera must have image sizes"
     original_camera = camera
 
     mask = camera.camera_types != CameraModel.PINHOLE.value
@@ -625,6 +654,10 @@ def undistort_camera(camera: Cameras, xnp=np):
         return camera
 
     camera = camera[mask]
+    # NOTE: the following is a pyright workaround for the the 
+    # fact that we cannot propagate not-null checks through the index operations
+    assert camera.image_sizes is not None, "camera must have image sizes"
+    assert original_camera.image_sizes is not None, "camera must have image sizes"
 
     # Scale the image such the the boundary of the undistorted image.
     empty_poses = np.eye(4, dtype=camera.poses.dtype)[None].repeat(len(camera), axis=0)[..., :3, :4]

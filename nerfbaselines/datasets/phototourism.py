@@ -53,11 +53,9 @@ def load_phototourism_dataset(path: Path, split: str, use_nerfw_split=None, **kw
     dataset.metadata["name"] = DATASET_NAME
     dataset.metadata["scene"] = scene
 
-    image_names = dataset.file_paths
-
     if split_list is not None:
         indices = np.array(
-            [i for i, x in enumerate(image_names) if x.name in split_list]
+            [i for i, x in enumerate(dataset.file_paths) if Path(x).name in split_list]
         )
         assert len(indices) > 0, f"No images found in {split} list"
         logging.info(f"Using {len(indices)}/{len(dataset)} images from the NeRF-W {split} list")
@@ -165,7 +163,7 @@ def download_phototourism_dataset(path: str, output: Path):
             shutil.rmtree(output, ignore_errors=True)
             if not has_any:
                 raise RuntimeError(f"Capture '{capture_name}' not found in {url}.")
-            shutil.move(output_tmp, output)
+            shutil.move(str(output_tmp), str(output))
 
     # Download test list if available
     if capture_name in _split_lists:

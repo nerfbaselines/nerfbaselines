@@ -1,3 +1,4 @@
+from typing import cast, Any
 import pytest
 from collections import namedtuple
 import numpy as np
@@ -28,8 +29,8 @@ def mock_gaussian_splatting(mock_torch):
         },
     ):
         # from arguments import ModelParams, PipelineParams, OptimizationParams
-        sys.modules["utils"].camera_utils = sys.modules["utils.camera_utils"]
-        arguments = sys.modules["arguments"]
+        cast(mock.MagicMock, sys.modules["utils"]).camera_utils = sys.modules["utils.camera_utils"]
+        arguments = cast(mock.MagicMock, sys.modules["arguments"])
 
         def setup_model_args(parser):
             parser.add_argument("--source_path")
@@ -60,7 +61,7 @@ def mock_gaussian_splatting(mock_torch):
         def raise_error():
             raise NotImplementedError()
 
-        sys.modules["scene"].sceneLoadTypeCallbacks = sceneLoadTypeCallbacks = {
+        cast(mock.MagicMock, sys.modules["scene"]).sceneLoadTypeCallbacks = sceneLoadTypeCallbacks = {
             "Colmap": raise_error,
         }
 
@@ -87,27 +88,27 @@ def mock_gaussian_splatting(mock_torch):
             return Camera(**dct)
 
         def Scene(opt, gaussians, load_iteration):
-            scene_info = sceneLoadTypeCallbacks["Colmap"]()
+            scene_info = cast(Any, sceneLoadTypeCallbacks["Colmap"]())
             scene = mock.MagicMock()
         
             loadCam = sys.modules["utils.camera_utils"].loadCam
             scene.getTrainCameras = lambda: [loadCam(None, None, x, None) for x in scene_info.train_cameras]
             return scene
 
-        sys.modules["scene"].Scene = Scene
+        cast(mock.MagicMock, sys.modules["scene"]).Scene = Scene
 
         def GaussianModel(*args, **kwargs):
             out = mock.MagicMock()
             out.capture.return_value = None
             return out
 
-        sys.modules["scene"].GaussianModel = GaussianModel
-        sys.modules["scene.cameras"].Camera = Camera
-        sys.modules["utils.camera_utils"].loadCam = loadCam
-        sys.modules["scene.dataset_readers"].CameraInfo = namedtuple("CameraInfo", ["uid", "R", "T", "FovY", "FovX", "image", "image_path", "image_name", "width", "height"])
-        sys.modules["scene.dataset_readers"].SceneInfo = namedtuple("SceneInfo", ["point_cloud", "train_cameras", "test_cameras", "nerf_normalization", "ply_path"])
-        sys.modules["utils.loss_utils"].l1_loss = lambda a, b: torch.abs(a - b).sum()
-        sys.modules["utils.loss_utils"].ssim = lambda a, b: torch.abs(a - b).sum()
+        cast(mock.MagicMock, sys.modules["scene"]).GaussianModel = GaussianModel
+        cast(mock.MagicMock, sys.modules["scene.cameras"]).Camera = Camera
+        cast(mock.MagicMock, sys.modules["utils.camera_utils"]).loadCam = loadCam
+        cast(mock.MagicMock, sys.modules["scene.dataset_readers"]).CameraInfo = namedtuple("CameraInfo", ["uid", "R", "T", "FovY", "FovX", "image", "image_path", "image_name", "width", "height"])
+        cast(mock.MagicMock, sys.modules["scene.dataset_readers"]).SceneInfo = namedtuple("SceneInfo", ["point_cloud", "train_cameras", "test_cameras", "nerf_normalization", "ply_path"])
+        cast(mock.MagicMock, sys.modules["utils.loss_utils"]).l1_loss = lambda a, b: torch.abs(a - b).sum()
+        cast(mock.MagicMock, sys.modules["utils.loss_utils"]).ssim = lambda a, b: torch.abs(a - b).sum()
 
         def render(viewpoint, gaussians, pipe, background):
             shape = viewpoint.image.shape
@@ -118,7 +119,7 @@ def mock_gaussian_splatting(mock_torch):
                 radii=torch.zeros((124, 2), dtype=torch.float32),
             )
 
-        sys.modules["gaussian_renderer"].render = render
+        cast(mock.MagicMock, sys.modules["gaussian_renderer"]).render = render
         yield None
 
 

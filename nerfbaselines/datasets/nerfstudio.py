@@ -128,7 +128,7 @@ def get_train_eval_split_all(image_filenames: List) -> Tuple[np.ndarray, np.ndar
 def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[int] = None, features: Optional[FrozenSet[DatasetFeature]] = None, **kwargs):
     path = Path(path)
     downscale_factor_original = downscale_factor
-    downscale_factor: Optional[int] = None
+    downscale_factor = None
 
     train_split_fraction: float = 0.9
     """The percentage of the dataset to use for training. Only used when eval_mode is train-split-fraction."""
@@ -174,6 +174,9 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
                 logging.info(f"Auto image downscale factor of {downscale_factor}")
             else:
                 downscale_factor = downscale_factor_original
+
+        # pyright workaround
+        assert downscale_factor is not None
 
         if downscale_factor > 1:
             return data_dir / f"{downsample_folder_prefix}{downscale_factor}" / filepath.name
@@ -222,6 +225,7 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
         fnames.append(fname)
     inds = np.argsort(fnames)
     frames = [meta["frames"][ind] for ind in inds]
+    assert downscale_factor is not None, "downscale_factor should be set by now"
 
     for frame in frames:
         filepath = Path(frame["file_path"])
@@ -368,7 +372,7 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
         if distort_fixed:
             has_distortion = any(meta[x] != 0.0 for x in ["k1", "k2", "p1", "p2", "k3", "k4"])
         else:
-            has_distortion = any(distort != 0.0)
+            has_distortion = any(np.any(x != 0.0) for x in distort)
         camera_type = CameraModel.OPENCV if has_distortion else CameraModel.PINHOLE
 
     fx = np.full((len(indices),), meta["fl_x"], dtype=np.float32) if fx_fixed else np.array(fx, dtype=np.float32)[idx_tensor]
@@ -425,7 +429,7 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
 
     points3D_rgb = None
     points3D_xyz = None
-    if "points3D_xyz" in features:
+    if "points3D_xyz" in (features or {}):
         colmap_path = data_dir / "colmap" / "sparse" / "0"
         if not colmap_path.exists():
             colmap_path = data_dir / "sparse" / "0"

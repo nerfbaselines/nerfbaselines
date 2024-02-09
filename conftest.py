@@ -55,7 +55,7 @@ def pytest_collection_modifyitems(config, items: List[pytest.Item]):
     if methods:
         method_regex = "(" + "|".join(re.escape(x) for x in methods) + ")"
     if method_regex:
-        method_re = re.compile("^" + method_regex + "$") if method_regex else None
+        method_re = re.compile("^" + method_regex + "$")
         for i, item in reversed(list(enumerate(items))):
             if "method" in item.keywords:
                 method_name = item.keywords["method"].args[0]

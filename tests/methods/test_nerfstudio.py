@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 import enum
 import pytest
 import sys
@@ -27,7 +27,7 @@ def mock_nerfstudio(mock_torch):
             self.config = config
 
         def get_dataparser_outputs(self, split="train", **kwargs):
-            return self._generate_dataparser_outputs(split, **kwargs)
+            return self._generate_dataparser_outputs(split, **kwargs)  # type: ignore
 
     class InputDataset:
         def __init__(self, dataparser_outputs):
@@ -101,6 +101,7 @@ def mock_nerfstudio(mock_torch):
     trainer.pipeline.model.config = oconfig
 
     def setup():
+        assert config is not None
         dataparser_config = config.pipeline.datamanager.dataparser
         dataparser = dataparser_config._target(dataparser_config)
         train_dataparser_outputs = dataparser.get_dataparser_outputs(split="train")
@@ -139,19 +140,19 @@ def mock_nerfstudio(mock_torch):
         },
     ):
         default_methods = ["nerfacto", "nerfacto-big", "nerfacto-huge", "tetra-nerf", "tetra-nerf-original"]
-        method_configs = sys.modules["nerfstudio.configs.method_configs"]
+        method_configs = cast(mock.MagicMock, sys.modules["nerfstudio.configs.method_configs"])
         method_configs.all_methods = {k: oconfig for k in default_methods}
-        sys.modules["nerfstudio.data.datamanagers.base_datamanager"].DataManager = DataManager
-        sys.modules["nerfstudio.data.datamanagers.base_datamanager"].InputDataset = InputDataset
-        sys.modules["nerfstudio.data.dataparsers.base_dataparser"].DataParser = DataParser
-        sys.modules["nerfstudio.data.dataparsers.base_dataparser"].DataparserOutputs = DataparserOutputs
-        sys.modules["nerfstudio.cameras.cameras"].CameraType = CameraType
-        sys.modules["nerfstudio.cameras.cameras"].Cameras = NSCameras
-        sys.modules["nerfstudio.cameras"].camera_utils = camera_utils = mock.MagicMock()
-        sys.modules["nerfstudio.models.base_model"].Model = Model
-        sys.modules["nerfstudio.engine.trainer"].Trainer = type(trainer)
-        sys.modules["yaml"].dump.return_value = "test"
-        sys.modules["yaml"].load.return_value = oconfig
+        cast(Any, sys.modules["nerfstudio.data.datamanagers.base_datamanager"]).DataManager = DataManager
+        cast(Any, sys.modules["nerfstudio.data.datamanagers.base_datamanager"]).InputDataset = InputDataset
+        cast(Any, sys.modules["nerfstudio.data.dataparsers.base_dataparser"]).DataParser = DataParser
+        cast(Any, sys.modules["nerfstudio.data.dataparsers.base_dataparser"]).DataparserOutputs = DataparserOutputs
+        cast(Any, sys.modules["nerfstudio.cameras.cameras"]).CameraType = CameraType
+        cast(Any, sys.modules["nerfstudio.cameras.cameras"]).Cameras = NSCameras
+        cast(Any, sys.modules["nerfstudio.cameras"]).camera_utils = camera_utils = mock.MagicMock()
+        cast(Any, sys.modules["nerfstudio.models.base_model"]).Model = Model
+        cast(Any, sys.modules["nerfstudio.engine.trainer"]).Trainer = type(trainer)
+        cast(Any, sys.modules["yaml"]).dump.return_value = "test"
+        cast(Any, sys.modules["yaml"]).load.return_value = oconfig
         camera_utils.auto_orient_and_center_poses = lambda poses, *args, **kwargs: (poses, torch.eye(4)[:3])
 
         from nerfbaselines.methods._impl.nerfstudio import NerfStudio

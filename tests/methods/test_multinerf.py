@@ -1,3 +1,5 @@
+import functools
+from typing import cast
 import os
 import gc
 import contextlib
@@ -9,7 +11,7 @@ import nerfbaselines.registry
 
 
 def _enable_gc(fn):
-    @contextlib.wraps(fn)
+    @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         out = fn(*args, **kwargs)
         gc.enable()
@@ -20,11 +22,11 @@ def _enable_gc(fn):
 
 class _MNDataset:
     def __init__(self, split, none, config):
-        self.size = len(self.dataset)
+        self.size: int = len(self.dataset)  # type: ignore
         self._n_examples = self.size
         self.split = split
-        self._load_renderings(config)
-        self.cameras = np.random.rand(len(self.dataset), 3, 4).astype(np.float32)
+        self._load_renderings(config)  # type: ignore
+        self.cameras = np.random.rand(self.size, 3, 4).astype(np.float32)  # type: ignore
 
     def generate_ray_batch(self, i):
         mm = mock.MagicMock()
@@ -58,19 +60,19 @@ def mock_multinerf():
         },
     ):
         image_sizes = None
-        sys.modules["gin"].operative_config_str.return_value = ""
-        sys.modules["train"].__file__ = "train.py"
-        sys.modules["jax"].host_id.return_value = 0
-        sys.modules["jax"].process_index.return_value = 0
-        sys.modules["jax"].device_count.return_value = 4
-        sys.modules["jax"].numpy = np
-        sys.modules["jax"].random = random = mock.MagicMock()
-        sys.modules["flax"].jax_utils = flax_jax_utils = mock.MagicMock()
+        cast(mock.MagicMock, sys.modules["gin"]).operative_config_str.return_value = ""
+        cast(mock.MagicMock, sys.modules["train"]).__file__ = "train.py"
+        cast(mock.MagicMock, sys.modules["jax"]).host_id.return_value = 0
+        cast(mock.MagicMock, sys.modules["jax"]).process_index.return_value = 0
+        cast(mock.MagicMock, sys.modules["jax"]).device_count.return_value = 4
+        cast(mock.MagicMock, sys.modules["jax"]).numpy = np
+        cast(mock.MagicMock, sys.modules["jax"]).random = random = mock.MagicMock()
+        cast(mock.MagicMock, sys.modules["flax"]).jax_utils = flax_jax_utils = mock.MagicMock()
         flax_jax_utils.prefetch_to_device = lambda x, y: x
         random.split.return_value = 0, 0
-        internal_datasets = sys.modules["internal.datasets"]
+        internal_datasets = cast(mock.MagicMock, sys.modules["internal.datasets"])
         internal_datasets.Dataset = _MNDataset
-        internal = sys.modules["internal"]
+        internal = cast(mock.MagicMock, sys.modules["internal"])
         internal.configs = mock.MagicMock()
         internal.configs.Config.return_value = config = mock.MagicMock()
         internal.camera_utils = camera_utils = mock.MagicMock()
@@ -103,6 +105,7 @@ def mock_multinerf():
         train_utils.create_optimizer.return_value = (mock.MagicMock(), mock.MagicMock())
 
         def render_image(_, val, *args, **kwargs):
+            assert image_sizes is not None
             np.random.seed(42 + val._i)
             w, h = image_sizes[val._i]
             return {

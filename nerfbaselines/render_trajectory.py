@@ -40,7 +40,8 @@ def render_frames(
     description: str = "rendering frames",
     output_type: OutputType = "color",
     ns_info: Optional[dict] = None,
-) -> Iterable[RenderOutput]:
+) -> None:
+    assert cameras.image_sizes is not None, "cameras.image_sizes must be set"
     info = method.get_info()
     render = with_supported_camera_models(info.supported_camera_models)(method.render)
     color_space = "srgb"
@@ -181,7 +182,7 @@ class Trajectory:
     fps: float
 
     @classmethod
-    def from_json(cls, data: Union[Dict[str, Any], IO]) -> "Trajectory":
+    def from_json(cls, data: Union[Dict[str, Any], IO, str, Path]) -> "Trajectory":
         if not isinstance(data, dict):
             # Load the data from IO
             if isinstance(data, (str, Path)):

@@ -66,7 +66,7 @@ def load_blender_dataset(path: Path, split: str, **kwargs):
     )
 
 
-def download_blender_dataset(path: Path, output: Path):
+def download_blender_dataset(path: str, output: Path):
     if path == "blender":
         extract_prefix = "nerf_synthetic/"
     elif path.startswith("blender/") and len(path) > len("blender/"):

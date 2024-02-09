@@ -1,5 +1,5 @@
 import math
-from typing import List, Dict, TYPE_CHECKING
+from typing import List, Dict, TYPE_CHECKING, Any, cast
 import base64
 import os
 import struct
@@ -96,13 +96,13 @@ def load_metrics_from_results(results: Dict) -> Dict[str, List[float]]:
     return out
 
 
-def compile_dataset_results(results_path: Path, dataset: str) -> Dict:
+def compile_dataset_results(results_path: Path, dataset: str) -> Dict[str, Any]:
     """
     Compile the results.json file from the results repository.
     """
     from . import registry
 
-    dataset_info = get_dataset_info(dataset)
+    dataset_info = cast(Dict[str, Any], get_dataset_info(dataset))
     dataset_info["methods"] = []
     for method_id in os.listdir(results_path):
         method_spec = registry.get(method_id)
@@ -178,7 +178,7 @@ def render_markdown_dataset_results_table(results, method_links: MethodLink = "n
     columns = ["name"]
     table = [["Method"]]
     align = "l"
-    column_orders = [None]
+    column_orders: List[Optional[bool]] = [None]
 
     default_metric = results["default_metric"]
     for metric in results["metrics"]:

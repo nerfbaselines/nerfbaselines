@@ -210,24 +210,25 @@ class DockerMethod(RemoteProcessMethod):
             self.image,
         ] + python_args
 
-    @classmethod
-    def get_dockerfile(cls):
-        sub_args = super(DockerMethod, cls)._get_install_args()  # pylint: disable=assignment-from-none
-        script = f"FROM {cls.image}\n"
-        if sub_args:
-            args_safe = []
-            for arg in sub_args:  # pylint: disable=not-an-iterable
-                if "\n" in arg:
-                    arg = shlex.quote(arg)
-                    arg = arg.replace("\n", " \\n\\\n")
-                    args_safe.append(f'"$(echo {arg})"')
-                else:
-                    args_safe.append(shlex.quote(arg))
-            script += "RUN " + " ".join(args_safe) + "\n"
-        if cls.python_path != "python":
-            script += f'RUN ln -s "$(which {cls.python_path})" "/usr/bin/python"' + "\n"
-        env = cls._get_isolated_env()
-        env["_NB_IS_DOCKERFILE"] = "1"
-        entrypoint = super()._get_server_process_args(env)
-        script += "ENTRYPOINT [" + ", ".join("'" + x.rstrip("\n") + "'" for x in entrypoint) + "]\n"
-        return script
+    # TODO: @jkulhanek
+    # @classmethod
+    # def get_dockerfile(cls):
+    #     sub_args = super(DockerMethod, cls)._get_install_args()  # pylint: disable=assignment-from-none
+    #     script = f"FROM {cls.image}\n"
+    #     if sub_args:
+    #         args_safe = []
+    #         for arg in sub_args:  # pylint: disable=not-an-iterable
+    #             if "\n" in arg:
+    #                 arg = shlex.quote(arg)
+    #                 arg = arg.replace("\n", " \\n\\\n")
+    #                 args_safe.append(f'"$(echo {arg})"')
+    #             else:
+    #                 args_safe.append(shlex.quote(arg))
+    #         script += "RUN " + " ".join(args_safe) + "\n"
+    #     if cls.python_path != "python":
+    #         script += f'RUN ln -s "$(which {cls.python_path})" "/usr/bin/python"' + "\n"
+    #     env = cls._get_isolated_env()
+    #     env["_NB_IS_DOCKERFILE"] = "1"
+    #     entrypoint = super()._get_server_process_args(env)
+    #     script += "ENTRYPOINT [" + ", ".join("'" + x.rstrip("\n") + "'" for x in entrypoint) + "]\n"
+    #     return script

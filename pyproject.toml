@@ -77,6 +77,8 @@ ignore = [
 ]
 exclude = ["**/node_modules",
     "**/__pycache__",
+    "**/build",
+    "nerfbaselines/viewer/nerfstudio.py",
 ]
 defineConstant = { DEBUG = true }
 

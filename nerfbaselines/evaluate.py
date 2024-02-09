@@ -14,7 +14,7 @@ import tempfile
 from tqdm import tqdm
 
 from .utils import read_image, convert_image_dtype
-from .types import Optional
+from .types import Optional, Literal
 from .render import image_to_srgb
 from .io import open_any_directory
 from . import metrics
@@ -31,12 +31,12 @@ def test_extra_metrics():
 
 
 @typing.overload
-def compute_image_metrics(pred: np.ndarray, gt: np.ndarray, *, run_extras: bool = ..., reduce: bool = True) -> Dict[str, float]:
+def compute_metrics(pred: np.ndarray, gt: np.ndarray, *, run_extras: bool = ..., reduce: Literal[True] = True) -> Dict[str, float]:
     ...
 
 
 @typing.overload
-def compute_image_metrics(pred: np.ndarray, gt: np.ndarray, *, run_extras: bool = ..., reduce: bool = False) -> Dict[str, np.ndarray]:
+def compute_metrics(pred: np.ndarray, gt: np.ndarray, *, run_extras: bool = ..., reduce: Literal[False]) -> Dict[str, np.ndarray]:
     ...
 
 

@@ -1,22 +1,23 @@
 import contextlib
 import pytest
+from typing import Iterable
 import numpy as np
 from time import sleep
 import threading
-from nerfbaselines import Method, MethodInfo, Cameras
+from nerfbaselines import Method, MethodInfo, Cameras, RenderOutput
 from nerfbaselines.utils import CancellationToken, CancelledException
 
 
 def test_render(use_remote_method):
     class TestMethodRenderCancellable(Method):
-        def get_info():
+        def get_info(self):
             return MethodInfo()
 
-        def render(self, cameras, progress_callback=None):
-            yield "test"
-            yield "test2"
+        def render(self, cameras, progress_callback=None) -> Iterable[RenderOutput]:
+            yield {"color": np.full(tuple(), 23)}
+            yield {"color": np.full(tuple(), 26)}
 
-        def setup_train(self, train_dataset, *, num_iterations: int):
+        def setup_train(self, train_dataset, **kwargs):
             pass
 
         def train_iteration(self, step: int):
@@ -34,8 +35,8 @@ def test_render(use_remote_method):
             image_sizes=np.array((64, 48), dtype=np.int32),
             nears_fars=None,
         )
-        vals = list(remote_method.render(cameras))
-        assert vals == ["test", "test2"]
+        vals = [int(x["color"]) for x in remote_method.render(cameras)]
+        assert vals == [23, 26]
 
 
 @pytest.fixture
@@ -47,15 +48,15 @@ def use_remote_method():
         if method is None:
 
             class TestMethod(Method):
-                def get_info():
+                def get_info(self):
                     return MethodInfo()
 
-                def render(self, cameras, progress_callback=None):
+                def render(self, cameras, progress_callback=None) -> Iterable[RenderOutput]:
                     for i in range(100):
                         sleep(0.001)
-                        yield i
+                        yield {"color": np.full(tuple(), i)}
 
-                def setup_train(self, train_dataset, *, num_iterations: int):
+                def setup_train(self, train_dataset, **kwargs):
                     pass
 
                 def train_iteration(self, step: int):
@@ -94,15 +95,15 @@ def test_render_cancellable(use_remote_method):
     from nerfbaselines.utils import cancellable
 
     class TestMethodRenderCancellable(Method):
-        def get_info():
+        def get_info(self):
             return MethodInfo()
 
-        def render(self, cameras, progress_callback=None):
+        def render(self, cameras, progress_callback=None) -> Iterable[RenderOutput]:
             for i in range(400):
                 sleep(0.001)
-                yield i
+                yield {"color": np.full(tuple(), i)}
 
-        def setup_train(self, train_dataset, *, num_iterations: int):
+        def setup_train(self, train_dataset, **kwargs):
             pass
 
         def train_iteration(self, step: int):
@@ -124,7 +125,8 @@ def test_render_cancellable(use_remote_method):
         cancelation_token = CancellationToken()
         vals = []
         with pytest.raises(CancelledException):
-            for v in remote_method.render(cameras, cancellation_token=cancelation_token):
+            for vw in remote_method.render(cameras, cancellation_token=cancelation_token):
+                v = int(vw["color"])
                 vals.append(v)
                 if v > 3:
                     cancelation_token.cancel()
@@ -132,7 +134,8 @@ def test_render_cancellable(use_remote_method):
 
         vals = []
         with pytest.raises(CancelledException):
-            for v in cancellable(remote_method.render)(cameras, cancellation_token=cancelation_token):
+            for vw in cancellable(remote_method.render)(cameras, cancellation_token=cancelation_token):
+                v = int(vw["color"])
                 vals.append(v)
                 if v > 3:
                     cancelation_token.cancel()

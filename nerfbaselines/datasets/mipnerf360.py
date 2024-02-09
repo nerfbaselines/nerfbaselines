@@ -1,3 +1,4 @@
+from typing import List, Tuple
 import logging
 from itertools import groupby
 import shutil
@@ -62,21 +63,21 @@ def download_mipnerf360_dataset(path: str, output: Path):
     if not path.startswith("mipnerf360/") and path != "mipnerf360":
         raise DatasetNotFoundError("Dataset path must be equal to 'mipnerf360' or must start with 'mipnerf360/'.")
 
-    captures = []
+    captures: List[Tuple[str, Path]] = []
     if path == "mipnerf360":
         # We will download all faster here
         for x in _scenes360_res:
             captures.append((x, output / x))
     else:
         captures = [(path[len("nerfstudio/") :], output)]
-    captures_to_download = []
+    captures_to_download: List[Tuple[str, str, Path]] = []
     for capture_name, output in captures:
         if capture_name not in _scenes360_res:
             raise DatasetNotFoundError(f"Capture '{capture_name}' not a valid mipnerf360 scene.")
         url = url_extra if capture_name in {"flowers", "treehill"} else url_base
         captures_to_download.append((url, capture_name, output))
     captures_to_download.sort(key=lambda x: x[0])
-    for url, captures in groupby(captures_to_download, key=lambda x: x[0]):
+    for url, _captures in groupby(captures_to_download, key=lambda x: x[0]):
         response = requests.get(url, stream=True)
         response.raise_for_status()
         total_size_in_bytes = int(response.headers.get("content-length", 0))
@@ -94,7 +95,7 @@ def download_mipnerf360_dataset(path: str, output: Path):
 
             has_any = False
             with zipfile.ZipFile(file) as z:
-                for _, capture_name, output in captures:
+                for _, capture_name, output in _captures:
                     output_tmp = output.with_suffix(".tmp")
                     output_tmp.mkdir(exist_ok=True, parents=True)
                     for info in z.infolist():
@@ -114,5 +115,5 @@ def download_mipnerf360_dataset(path: str, output: Path):
                     shutil.rmtree(output, ignore_errors=True)
                     if not has_any:
                         raise RuntimeError(f"Capture '{capture_name}' not found in {url}.")
-                    shutil.move(output_tmp, output)
+                    shutil.move(str(output_tmp), str(output))
                     logging.info(f"Downloaded mipnerf360/{capture_name} to {output}")

@@ -1,6 +1,6 @@
 import shutil
 import json
-from typing import Iterable
+from typing import Iterable, cast
 from pathlib import Path
 import os
 import numpy as np
@@ -73,6 +73,7 @@ class _TestMethod(Method):
         _TestMethod._render_call_step.append(_TestMethod._last_step)
         for i in range(len(cameras)):
             cam = cameras[i]
+            assert cam.image_sizes is not None
             yield {
                 "color": np.zeros([cam.image_sizes[1], cam.image_sizes[0], 3], dtype=np.float32),
             }
@@ -86,7 +87,7 @@ class _TestMethod(Method):
                     )
                 )
 
-    def setup_train(self, train_dataset, *, num_iterations: int):
+    def setup_train(self, train_dataset, **kwargs):
         self._setup_train_dataset.append(train_dataset)
 
     def train_iteration(self, step: int):
@@ -120,6 +121,7 @@ def test_train_command(tmp_path, wandb_init_run, vis):
         # train_command.callback(method, checkpoint, data, output, verbose, backend, eval_single_iters, eval_all_iters, vis="none")
         make_dataset(tmp_path / "data")
         (tmp_path / "output").mkdir()
+        assert train_command.callback is not None
         train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(5), Indices([-1]), vis=vis)
 
         # Test if model was saved at the end
@@ -131,8 +133,8 @@ def test_train_command(tmp_path, wandb_init_run, vis):
         assert (tmp_path / "output" / "checkpoint-13").exists()
         assert _TestMethod._render_call_step == [4, 4, 9, 9, 12]
 
-        wandb_init_mock: mock.Mock = wandb.init
-        wandb_mock: mock.Mock = wandb.run
+        wandb_init_mock: mock.Mock = cast(mock.Mock, wandb.init)
+        wandb_mock: mock.Mock = cast(mock.Mock, wandb.run)
         if "wandb" not in vis:
             wandb_init_mock.assert_not_called()
             wandb_mock.log.assert_not_called()
@@ -186,6 +188,8 @@ def test_train_command(tmp_path, wandb_init_run, vis):
 def test_train_command_extras(tmp_path):
     from nerfbaselines.train import train_command
     from nerfbaselines.registry import registry, MethodSpec
+
+    assert train_command.callback is not None
 
     try:
         registry["_test"] = MethodSpec(method=_TestMethod, conda=CondaMethod.wrap(_TestMethod, conda_name="_test", python_version="3.10", install_script=""))
@@ -265,6 +269,7 @@ def test_train_command_no_extras(tmp_path):
         # train_command.callback(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters)
         make_dataset(tmp_path / "data")
         (tmp_path / "output").mkdir()
+        assert train_command.callback is not None
         train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(5), Indices([-1]), vis="none")
 
         # By default, the model should render all images at the end
@@ -288,6 +293,7 @@ def test_train_command_undistort(tmp_path, wandb_init_run):
     from nerfbaselines.train import train_command
     from nerfbaselines.registry import registry, MethodSpec
 
+    assert train_command.callback is not None
     render_was_called = False
     setup_data_was_called = False
 
@@ -342,6 +348,7 @@ def test_render_command(tmp_path, output_type):
         make_dataset(tmp_path / "data")
         (tmp_path / "output").mkdir()
         # Generate checkpoint
+        assert train_command.callback is not None
         train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices([]), Indices([]), vis="none")
 
         # render_command(checkpoint, data, output, split, verbose, backend)
@@ -350,6 +357,7 @@ def test_render_command(tmp_path, output_type):
             (tmp_path / "output2").mkdir()
         else:
             output = tmp_path / "output2.tar.gz"
+        assert render_command.callback is not None
         render_command.callback(str(tmp_path / "output" / "checkpoint-13"), str(tmp_path / "data"), output, "train", True, "python")
 
         assert output.exists()

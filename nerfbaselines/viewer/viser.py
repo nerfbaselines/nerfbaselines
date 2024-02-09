@@ -5,10 +5,10 @@ from time import perf_counter
 import numpy as np
 import viser
 
-from ..types import Method, Dataset
+from ..types import Method, Dataset, FrozenSet, DatasetFeature
 from ..cameras import Cameras
 from ..datasets._colmap_utils import qvec2rotmat, rotmat2qvec
-from ..utils import CancellationToken, CancelledException, cancellable
+from ..utils import CancellationToken, CancelledException, cancellable, assert_not_none
 from ..datasets import load_dataset
 
 
@@ -70,18 +70,22 @@ class ViserViewer:
             self._update()
 
     def add_dataset_views(self, dataset: Dataset, split: str):
-        def _set_view_to_camera(handle: viser.SceneNodePointerEvent[viser.ImageHandle]):
+        def _set_view_to_camera(handle: viser.SceneNodePointerEvent[viser.CameraFrustumHandle]):
             with handle.client.atomic():
                 handle.client.camera.position = handle.target.position
                 handle.client.camera.wxyz = handle.target.wxyz
             self._reset_render()
 
         downsample_factor = 2
-        for i, (cam, image, path) in enumerate(zip(dataset.cameras, dataset.images, dataset.file_paths)):
+        for i, (cam, path) in enumerate(zip(dataset.cameras, dataset.file_paths)):
+            assert cam.image_sizes is not None, "dataset.image_sizes must be set"
+            image = None
+            if dataset.images is not None:
+                image = dataset.images[i]
             if str(path).startswith("/undistorted/"):
                 path = str(path)[len("/undistorted/") :]
             else:
-                path = str(Path(path).relative_to(Path(dataset.file_paths_root)))
+                path = str(Path(path).relative_to(Path(dataset.file_paths_root or "")))
             c2w = cam.poses
             assert len(c2w.shape) == 2
             if c2w.shape[0] == 3:
@@ -98,7 +102,7 @@ class ViserViewer:
                 scale=0.15,
                 position=pos,
                 wxyz=quat,
-                image=image[::downsample_factor, ::downsample_factor],
+                image=image[::downsample_factor, ::downsample_factor] if image is not None else None,
             )
             handle.on_click(_set_view_to_camera)
 
@@ -159,7 +163,7 @@ class ViserViewer:
                 client.set_background_image(image, format="jpeg")
                 self._render_state[client.client_id] = min(self._render_state.get(client.client_id, 0), render_state + 1)
 
-                if render_state == 1 or len(self._render_times) < self._render_times.maxlen:
+                if render_state == 1 or len(self._render_times) < assert_not_none(self._render_times.maxlen):
                     self._render_times.append(interval / num_rays * num_rays_total)
                 self.fps.value = f"{1.0 / np.mean(self._render_times):.3g}"
 
@@ -208,7 +212,7 @@ def get_orientation_transform(poses):
 
 def run_viser_viewer(method: Method, data, port=6006):
     if data is not None:
-        features = frozenset({"color"})
+        features: FrozenSet[DatasetFeature] = frozenset({"color"})
         train_dataset = load_dataset(data, split="test", features=features)
         test_dataset = load_dataset(data, split="train", features=features)
         server = ViserViewer(method, port=port, transform=get_orientation_transform(train_dataset.cameras.poses))

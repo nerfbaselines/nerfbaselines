@@ -1,4 +1,5 @@
 import subprocess
+import itertools
 import tempfile
 import importlib
 import shlex
@@ -16,36 +17,34 @@ from .communication import RemoteProcessMethod, NB_PREFIX
 from .datasets import download_dataset
 from .evaluate import evaluate
 from .results import MethodLink
+from .types import get_args
 
 
 class LazyGroup(click.Group):
     def __init__(self, name=None, **kwargs):
         super().__init__(name=name, **kwargs)
-        self._commands = dict()
+        self._lazy_commands = dict()
 
     def get_command(self, ctx, cmd_name):
-        package = self._commands.get(cmd_name, None)
+        package = self._lazy_commands.get(cmd_name, None)
         if package is not None:
             if isinstance(package, str):
                 package = importlib.import_module(package, __name__).main
             return package
-        return None
+        return super().get_command(ctx, cmd_name)
 
     def list_commands(self, ctx):
-        return list(self._commands.keys())
+        return list(sorted(itertools.chain(self._lazy_commands.keys(), self.commands.keys())))
 
-    def add_command(self, package_name, command_name=None):
-        if command_name is not None:
-            self._commands[command_name] = package_name
-        else:
-            self._commands[package_name.name] = package_name
+    def add_lazy_command(self, package_name: str, command_name: str):
+        self._lazy_commands[command_name] = package_name
 
     def format_commands(self, ctx, formatter) -> None:
         """Extra format methods for multi methods that adds all the commands
         after the options.
         """
         # allow for 3 times the default spacing
-        commands = sorted(self._commands.keys())
+        commands = list(sorted(itertools.chain(self._lazy_commands.keys(), self.commands.keys())))
         if len(commands):
             # limit = formatter.width - 6 - max(len(cmd[0]) for cmd in commands)
             rows = []
@@ -111,9 +110,9 @@ def evaluate_command(predictions, output, disable_extra_metrics):
 @click.option("--results", type=click.Path(file_okay=True, exists=True, dir_okay=True, path_type=Path), required=False)
 @click.option("--dataset", type=str, required=False)
 @click.option("--output-type", type=click.Choice(["markdown", "json"]), default="markdown")
-@click.option("--method-links", type=click.Choice(MethodLink.__args__), default="none")
+@click.option("--method-links", type=click.Choice(get_args(MethodLink)), default="none")
 @click.option("--output", type=click.Path(file_okay=True, exists=False, dir_okay=False, path_type=Path), default=None)
-def render_dataset_results_command(results: Path, dataset, output_type, output, method_links="none"):
+def render_dataset_results_command(results: Path, dataset, output_type, output, method_links: MethodLink = "none"):
     from .results import compile_dataset_results, render_markdown_dataset_results_table
     from .utils import setup_logging
 
@@ -150,5 +149,5 @@ def render_dataset_results_command(results: Path, dataset, output_type, output, 
         render_output(dataset_info)
 
 
-main.add_command("nerfbaselines.viewer", "viewer")
-main.add_command("nerfbaselines.render_trajectory", "render-trajectory")
+main.add_lazy_command("nerfbaselines.viewer", "viewer")
+main.add_lazy_command("nerfbaselines.render_trajectory", "render-trajectory")

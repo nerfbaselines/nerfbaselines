@@ -79,5 +79,5 @@ def download_tanksandtemples_dataset(path: str, output: Path) -> None:
                         shutil.copyfileobj(source, target)
 
             shutil.rmtree(output, ignore_errors=True)
-            shutil.move(output_tmp, output)
+            shutil.move(str(output_tmp), str(output))
             logging.info(f"Downloaded {DATASET_NAME}/{scene} to {output}")

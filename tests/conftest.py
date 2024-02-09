@@ -172,14 +172,15 @@ def run_test_train_fixture(tmp_path_factory, request: pytest.FixtureRequest):
         backend = "docker"
 
     default_method_name = None
-    if request.node.get_closest_marker("method") is not None:
-        default_method_name = request.node.get_closest_marker("method").args[0]
+    method_marker = request.node.get_closest_marker("method")
+    if method_marker is not None:
+        default_method_name = method_marker.args[0]
 
     def run(method_name=default_method_name, backend=backend):
         with tmp_path_factory.mktemp("output") as tmp_path:
             run_test_train(tmp_path, dataset_path, method_name, backend=backend)
 
-    run.dataset_name = dataset_name
+    run.dataset_name = dataset_name  # type: ignore
     return run
 
 

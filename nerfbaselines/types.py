@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Optional, Callable, Iterable, List, Dict, TYPE_CHECKING, Any
+from typing import Optional, Callable, Iterable, List, Dict, TYPE_CHECKING, Any, cast, Union
 from dataclasses import dataclass, field
 import dataclasses
 import os
@@ -22,6 +22,10 @@ try:
     from typing import TypedDict
 except ImportError:
     from typing_extensions import TypedDict  # type: ignore
+try:
+    from typing import get_args, get_origin
+except ImportError:
+    from typing_extensions import get_args, get_origin  # noqa: F401
 if TYPE_CHECKING:
     try:
         from typing import NotRequired  # type: ignore
@@ -47,8 +51,8 @@ class Dataset:
     sampling_mask_paths: Optional[List[str]] = None
     file_paths_root: Optional[Path] = None
 
-    images: Optional[np.ndarray] = None  # [N, H, W, 3]
-    sampling_masks: Optional[np.ndarray] = None  # [N, H, W]
+    images: Optional[Union[np.ndarray, List[np.ndarray]]] = None  # [N][H, W, 3]
+    sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = None  # [N][H, W]
     points3D_xyz: Optional[np.ndarray] = None  # [M, 3]
     points3D_rgb: Optional[np.ndarray] = None  # [M, 3]
 
@@ -104,7 +108,7 @@ class Dataset:
             return float(self.cameras.nears_fars.mean())
 
         # TODO: this will only work for object-centric scenes. This code needs to be moved to the data parsers.
-        return np.percentile(np.linalg.norm(self.cameras.poses[..., :3, 3] - self.cameras.poses[..., :3, 3].mean(), axis=-1), 90)
+        return float(np.percentile(np.linalg.norm(self.cameras.poses[..., :3, 3] - self.cameras.poses[..., :3, 3].mean(), axis=-1), 90))
 
     def clone(self):
         return dataclasses.replace(
@@ -217,12 +221,14 @@ class Method(Protocol):
 
 
 class RayMethod(Method):
-    def __init__(self, batch_size, seed: int = 42, xnp=np):
+    def __init__(self, batch_size, seed: int = 42, config_overrides: Optional[Dict[str, Any]] = None, xnp=np):
         self.batch_size = batch_size
         self.train_dataset: Optional[Dataset] = None
         self.train_images = None
         self.num_iterations: Optional[int] = None
         self.xnp = xnp
+        self.config_overrides = {}
+        self.config_overrides.update(config_overrides or {})
         self._rng: np.random.Generator = xnp.random.default_rng(seed)
 
     @abstractmethod
@@ -251,15 +257,18 @@ class RayMethod(Method):
         """
         raise NotImplementedError()
 
-    def setup_train(self, train_dataset: Dataset, *, num_iterations: int):
+    def setup_train(self, train_dataset: Dataset, *, num_iterations: Optional[int] = None, config_overrides: Optional[Dict[str, Any]] = None):
         self.train_dataset = train_dataset
         train_images, self.train_dataset.images = train_dataset.images, None
+        assert train_images is not None, "train_dataset must have images loaded. Use `load_features` to load them."
         self.train_images = padded_stack(train_images)
+        train_dataset.images = None  # Free memory
         self.num_iterations = num_iterations
+        self.config_overrides.update(config_overrides or {})
 
     def train_iteration(self, step: int):
         assert self.train_dataset is not None, "setup_train must be called before train_iteration"
-        assert self.train_dataset.images is not None, "train_dataset must have images"
+        assert self.train_images is not None, "train_dataset must have images"
         assert self.train_dataset.cameras.image_sizes is not None, "train_dataset must have image_sizes"
         xnp = self.xnp
         camera_indices = self._rng.integers(0, len(self.train_dataset.cameras), (self.batch_size,), dtype=xnp.int32)
@@ -268,7 +277,7 @@ class RayMethod(Method):
         y = xnp.random.randint(0, wh[..., 1])
         xy = xnp.stack([x, y], -1)
         cameras = self.train_dataset.cameras[camera_indices]
-        origins, directions = cameras.get_rays(xy, xnp=xnp)
+        origins, directions = cameras.get_rays(xy, xnp=cast(Any, xnp))
         colors = self.train_images[camera_indices, xy[..., 1], xy[..., 0]]
         return self.train_iteration_rays(step=step, origins=origins, directions=directions, nears_fars=cameras.nears_fars, colors=colors)
 
@@ -287,7 +296,7 @@ class RayMethod(Method):
             outputs: List[RenderOutput] = []
             local_cameras = cameras[i : i + 1, None]
             for xy in batched(xy, batch_size):
-                origins, directions = local_cameras.get_rays(xy[None], xnp=xnp)
+                origins, directions = local_cameras.get_rays(xy[None], xnp=cast(Any, xnp))
                 _outputs = self.render_rays(origins=origins[0], directions=directions[0], nears_fars=local_cameras[0].nears_fars)
                 outputs.append(_outputs)
                 global_i += 1

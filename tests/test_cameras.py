@@ -194,4 +194,5 @@ def test_full_opencv():
 def test_camera_undistort_opencv():
     cam = _build_camera(CameraModel.OPENCV, np.array([536.07343019, 536.01634475, 342.37038789, 235.53685636]), np.array([-0.27864655, 0.06717323, 0.00182394, -0.00034344]))
     ucam = cameras.undistort_camera(cam[None])[0]
+    assert ucam.image_sizes is not None
     assert np.all(ucam.image_sizes > 500), "undistorted camera is wrong"

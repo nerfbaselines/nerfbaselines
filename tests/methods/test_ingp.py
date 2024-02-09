@@ -34,6 +34,7 @@ def mock_instant_ngp():
 
     def _set_camera_to_training_view(x):
         nonlocal test_view
+        assert image_sizes is not None
         test_view = x
         w, h = image_sizes[test_view]
         np.random.seed(42 + x + 13)

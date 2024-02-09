@@ -9,7 +9,7 @@ import math
 import logging
 from pathlib import Path
 import typing
-from typing import Callable, Optional, Union, Type, List, Any, Dict, Tuple
+from typing import Callable, Optional, Union, Type, List, Any, Dict, Tuple, cast
 from typing import TYPE_CHECKING
 from tqdm import tqdm
 import numpy as np
@@ -18,7 +18,7 @@ import click
 from .io import open_any_directory
 from .datasets import load_dataset, Dataset
 from .utils import Indices, setup_logging, partialclass, image_to_srgb, visualize_depth, handle_cli_error
-from .utils import remap_error, convert_image_dtype, get_resources_utilization_info
+from .utils import remap_error, convert_image_dtype, get_resources_utilization_info, assert_not_none
 from .types import Method, CurrentProgress, ColorSpace, Literal, FrozenSet
 from .render import render_all_images, with_supported_camera_models
 from .upload_results import prepare_results_for_upload
@@ -92,7 +92,7 @@ class Trainer:
         save_iters: Indices = Indices.every_iters(10_000, zero=True),
         eval_few_iters: Indices = Indices.every_iters(2_000),
         eval_all_iters: Indices = Indices([-1]),
-        loggers: FrozenSet[Visualization] = {},
+        loggers: FrozenSet[Visualization] = frozenset(),
         color_space: Optional[ColorSpace] = None,
         run_extra_metrics: bool = False,
         method_name: Optional[str] = None,
@@ -152,6 +152,8 @@ class Trainer:
     def _setup_num_iterations(self):
         if self.num_iterations is None:
             self.num_iterations = self._method_info.num_iterations
+        if self.num_iterations is None:
+            raise RuntimeError(f"Method {self.method_name} must specify the default number of iterations")
         for v in vars(self).values():
             if isinstance(v, Indices):
                 v.total = self.num_iterations + 1
@@ -214,7 +216,16 @@ class Trainer:
         if self.test_dataset.color_space != self._color_space:
             raise RuntimeError(f"train dataset color space {self._color_space} != test dataset color space {self.test_dataset.color_space}")
         test_background_color = self.test_dataset.metadata.get("background_color")
-        if not ((test_background_color is None and self._dataset_background_color is None) or np.array_equal(test_background_color, self._dataset_background_color)):
+        if test_background_color is not None:
+            assert isinstance(test_background_color, np.ndarray), "Dataset's background_color must be a numpy array"
+        if not (
+            (test_background_color is None and self._dataset_background_color is None) or 
+            (
+                test_background_color is not None and 
+                self._dataset_background_color is not None and
+                np.array_equal(test_background_color, self._dataset_background_color)
+            )
+        ):
             raise RuntimeError(f"train dataset color space {self._dataset_background_color} != test dataset color space {self.test_dataset.metadata.get('background_color')}")
         if self._dataset_background_color is not None:
             self._dataset_background_color = convert_image_dtype(self._dataset_background_color, np.uint8)
@@ -229,7 +240,7 @@ class Trainer:
             "nb_version": __version__,
             "color_space": self._color_space,
             "num_iterations": self._method_info.num_iterations,
-            "expected_scene_scale": round(self._expected_scene_scale, 5),
+            "expected_scene_scale": round(self._expected_scene_scale, 5) if self._expected_scene_scale is not None else None,
             "dataset_background_color": self._dataset_background_color.tolist() if self._dataset_background_color is not None else None,
             "total_train_time": round(self._total_train_time, 5),
             "resources_utilization": self._resources_utilization_info,
@@ -239,7 +250,7 @@ class Trainer:
         }
 
     def save(self):
-        path = os.path.join(str(self.output), f"checkpoint-{self.step}")
+        path = os.path.join(str(self.output), f"checkpoint-{self.step}")  # pyright: ignore[reportCallIssue]
         os.makedirs(os.path.join(str(self.output), f"checkpoint-{self.step}"), exist_ok=True)
         self.method.save(Path(path))
         with open(os.path.join(path, "nb-info.json"), mode="w+", encoding="utf8") as f:
@@ -278,7 +289,7 @@ class Trainer:
         if "tensorboard" in self.loggers and self._tensorboard_writer is None:
             from .tensorboard import TensorboardWriter  # pylint: disable=import-outside-toplevel
 
-            self._tensorboard_writer = TensorboardWriter(self.output)
+            self._tensorboard_writer = TensorboardWriter(str(self.output / "tensorboard"))
             loggers_init = True
         if loggers_init:
             logging.info("initialized loggers: " + ",".join(self.loggers))
@@ -312,6 +323,7 @@ class Trainer:
 
     @remap_error
     def train(self):
+        assert self.num_iterations is not None, "num_iterations must be set"
         if self._average_image_size is None:
             self.setup_data()
         if self.step == 0 and self.step in self.save_iters:
@@ -423,7 +435,7 @@ class Trainer:
                 description=f"rendering all images at step={self.step}",
                 ns_info=self._get_ns_info(),
             ),
-            self.test_dataset.cameras.image_sizes,
+            assert_not_none(self.test_dataset.cameras.image_sizes),
         ):
             name = str(Path(name).relative_to(prefix).with_suffix(""))
             color = pred["color"]
@@ -477,6 +489,7 @@ class Trainer:
             typing.cast(Any, self.method).close()
 
     def eval_few(self):
+        assert self._train_dataset_for_eval is not None, "train_dataset_for_eval must be set"
         rand_number, = struct.unpack("L", hashlib.sha1(str(self.step).encode("utf8")).digest()[:8])
 
         idx = rand_number % len(self._train_dataset_for_eval)
@@ -493,6 +506,8 @@ class Trainer:
 
     def _eval_few(self, split: str, dataset_slice: Dataset):
         assert dataset_slice.images is not None, f"{split} dataset must have images loaded"
+        assert dataset_slice.cameras.image_sizes is not None, f"{split} dataset must have image_sizes specified"
+
         start = time.perf_counter()
         # Pseudo-randomly select an image based on the step
         total_rays = 0
@@ -524,10 +539,10 @@ class Trainer:
             gt = dataset_slice.images[0][:h, :w]
             color = predictions["color"]
 
-            background_color = self.test_dataset.metadata.get("background_color", None)
+            background_color = dataset_slice.metadata.get("background_color", None)
             color_srgb = image_to_srgb(color, np.uint8, color_space=self._color_space, background_color=background_color)
             gt_srgb = image_to_srgb(gt, np.uint8, color_space=self._color_space, background_color=background_color)
-            metrics = evaluate.compute_metrics(color_srgb, gt_srgb, run_extras=self.run_extra_metrics)
+            metrics = cast(Dict[str, Any], evaluate.compute_metrics(color_srgb, gt_srgb, run_extras=self.run_extra_metrics))
             image_path = dataset_slice.file_paths[0]
             if dataset_slice.file_paths_root is not None:
                 image_path = str(Path(image_path).relative_to(dataset_slice.file_paths_root))
@@ -537,6 +552,7 @@ class Trainer:
             metrics["rays-per-second"] = total_rays / elapsed
             metrics["time"] = elapsed
 
+            depth = None
             if "depth" in predictions:
                 depth = visualize_depth(predictions["depth"], expected_scale=self._expected_scene_scale)
             self.log_metrics(metrics, f"eval-few-{split}/")
@@ -555,7 +571,7 @@ class Trainer:
                         )
                     ],
                 }
-                if "depth" in predictions:
+                if depth is not None:
                     log_image[f"eval-few-{split}/depth"] = [wandb.Image(depth, caption=f"{image_path}: depth")]
                 self._wandb_run.log(log_image, step=self.step)
             if self._tensorboard_writer is not None:
@@ -567,7 +583,7 @@ class Trainer:
                         display_name=image_path,
                         description="left: gt, right: prediction",
                     )
-                    if "depth" in predictions:
+                    if depth is not None:
                         event.add_image(
                             f"eval-few-{split}/depth",
                             depth,
@@ -672,15 +688,15 @@ def train_command(
             if hasattr(_method, "install"):
                 _method.install()
 
-            loggers = set()
+            loggers: FrozenSet[Visualization]
             if vis == "wandb":
-                loggers.add("wandb")
+                loggers = frozenset(("wandb",))
             elif vis == "tensorboard":
-                loggers.add("tensorboard")
+                loggers = frozenset(("tensorboard",))
             elif vis in {"wandb+tensorboard", "tensorboard+wandb"}:
-                loggers = frozenset({"wandb", "tensorboard"})
+                loggers = frozenset(("wandb", "tensorboard"))
             elif vis == "none":
-                pass
+                loggers = frozenset()
             else:
                 raise ValueError(f"unknown visualization tool {vis}")
 

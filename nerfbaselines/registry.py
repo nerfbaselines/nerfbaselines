@@ -7,7 +7,7 @@ import os
 import importlib
 import dataclasses
 import subprocess
-from typing import Optional, Type, Any, Tuple, Dict, Set, Union, TYPE_CHECKING
+from typing import Optional, Type, Any, Tuple, Dict, Set, Union, TYPE_CHECKING, cast
 from dataclasses import field, dataclass
 
 try:
@@ -16,7 +16,7 @@ except ImportError:
     from typing_extensions import Literal  # type: ignore
 if TYPE_CHECKING:
     try:
-        from typing import Required
+        from typing import Required  # type: ignore
     except ImportError:
         from typing_extensions import Required  # type: ignore
     try:
@@ -38,6 +38,7 @@ else:
 from .types import Method
 from .backends import DockerMethod, CondaMethod, ApptainerMethod, CondaMethodSpecDict, DockerMethodSpecDict, ApptainerMethodSpecDict
 from .utils import partialclass
+from .utils import assert_not_none
 
 
 DEFAULT_DOCKER_IMAGE = "kulhanek/nerfbaselines:v1"
@@ -127,7 +128,7 @@ def _make_entrypoint_absolute(entrypoint: str) -> str:
         index = 1
         while module_base == current_module:
             frame = inspect.stack()[index]
-            module_base = inspect.getmodule(frame[0]).__name__
+            module_base = assert_not_none(inspect.getmodule(frame[0])).__name__
             index += 1
         if module == ".":
             module = module_base
@@ -167,8 +168,13 @@ class _LazyMethodMeta(type):
         return typing.cast(Type[Method], ncls)
 
 
-class LazyMethod(object, metaclass=_LazyMethodMeta):
-    def __class_getitem__(cls, __name: Tuple[str, str]) -> Type[Method]:
+if TYPE_CHECKING:
+    _lazy_class_parent = Method
+else:
+    _lazy_class_parent = object
+
+class LazyMethod(_lazy_class_parent, metaclass=_LazyMethodMeta):
+    def __class_getitem__(cls, __name: str) -> Type[Method]:
         return _LazyMethodMeta.__getitem__(cls, __name)
 
 
@@ -275,7 +281,7 @@ class MethodSpec:
 
 
 def convert_spec_dict_to_spec(spec: MethodSpecDict) -> MethodSpec:
-    kwargs = spec.copy()
+    kwargs = cast(Dict[str, Any], spec.copy())
 
     kwargs["method"] = method = LazyMethod[spec["method"]]
     if "conda" in kwargs:

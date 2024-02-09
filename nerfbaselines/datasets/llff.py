@@ -63,7 +63,7 @@ def load_llff_dataset(path: Path, split: str, downscale_factor: int = 4, **kwarg
             nears_fars=near_fars[indices],
         ),
         file_paths_root=path,
-        file_paths=[x for i, x in enumerate(image_paths) if i in indices],
+        file_paths=[str(x) for i, x in enumerate(image_paths) if i in indices],
         sampling_mask_paths=None,
         color_space="srgb",
         metadata={
@@ -74,7 +74,7 @@ def load_llff_dataset(path: Path, split: str, downscale_factor: int = 4, **kwarg
     )
 
 
-def download_llff_dataset(path: Path, output: Path):
+def download_llff_dataset(path: str, output: Path):
     if path == "llff":
         extract_prefix = "nerf_llff_data/"
     elif path.startswith("llff/") and len(path) > len("llff/"):

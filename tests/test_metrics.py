@@ -1,3 +1,4 @@
+from typing import cast
 import numpy as np
 import pytest
 from nerfbaselines.metrics import torchmetrics_ssim, dmpix_ssim
@@ -25,7 +26,9 @@ def test_torchmetrics_ssim(kernel_size, sigma):
 
     a_torch = torch.from_numpy(a).permute(0, 3, 1, 2)
     b_torch = torch.from_numpy(b).permute(0, 3, 1, 2)
-    reference_ssim = torchmetrics.functional.structural_similarity_index_measure(a_torch, b_torch, reduction="none", data_range=(0.0, 1.0), **kwargs).numpy()
+    reference_ssim = cast(
+        torch.Tensor, torchmetrics.functional.structural_similarity_index_measure(a_torch, b_torch, reduction="none", data_range=(0.0, 1.0), **kwargs)
+    ).numpy()
     ssim = torchmetrics_ssim(a, b, data_range=(0.0, 1.0), **kwargs)
 
     assert isinstance(ssim, np.ndarray)

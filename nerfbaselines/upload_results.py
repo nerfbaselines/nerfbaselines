@@ -54,6 +54,8 @@ def _upload_fileio(path: Path):
             with open(Path(td) / (f"part_{i}" + path.suffix), "wb") as fp:
                 current_size = 0
                 for n in iter(lambda: f.readinto(mv), 0):
+                    if n is None:
+                        break
                     current_size += n
                     fp.write(mv[:n])
                     if current_size >= limit:
@@ -166,6 +168,8 @@ def prepare_results_for_upload(model_path: Path, predictions_path: Path, metrics
         sha = hashlib.sha256()
         with open(artifact_path, "rb", buffering=0) as f:
             for n in iter(lambda: f.readinto(mv), 0):
+                if n is None:
+                    break
                 sha.update(mv[:n])
-        shutil.move(artifact_path, output_path)
+        shutil.move(str(artifact_path), str(output_path))
         logging.info(f"artifact {output_path} generated, sha: " + sha.hexdigest())

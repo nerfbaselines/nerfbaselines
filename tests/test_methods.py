@@ -22,7 +22,7 @@ def test_method(method_name, backend):
     spec = registry.get(method_name)
     method_cls, backend_real = spec.build(backend=backend)
     assert backend_real == backend
-    assert issubclass(method_cls, Method)
+    assert issubclass(method_cls, Method)  # type: ignore
 
 
 @pytest.mark.docker
@@ -34,7 +34,7 @@ def test_method_docker(method_name):
     assert backend_real == "docker"
     method = method_cls()
     method.get_info()
-    assert isinstance(method, Method)
+    assert isinstance(method, Method)  # type: ignore
 
 
 @pytest.mark.apptainer
@@ -46,4 +46,4 @@ def test_method_apptainer(method_name):
     assert backend_real == "apptainer"
     method = method_cls()
     method.get_info()
-    assert isinstance(method, Method)
+    assert isinstance(method, Method)  # type: ignore
