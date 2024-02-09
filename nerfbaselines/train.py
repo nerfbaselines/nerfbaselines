@@ -1,5 +1,4 @@
 import struct
-import io
 import sys
 import json
 import hashlib
@@ -29,6 +28,7 @@ from . import evaluate
 
 if TYPE_CHECKING:
     import wandb.sdk.wandb_run
+    from .tensorboard import TensorboardWriter
 
     _wandb_type = type(wandb)
 
@@ -132,7 +132,7 @@ class Trainer:
         self.generate_output_artifact = generate_output_artifact
         self.config_overrides = config_overrides
         self._wandb_run: Union["wandb.sdk.wandb_run.Run", None] = None
-        self._tensorboard_writer = None
+        self._tensorboard_writer: Optional['TensorboardWriter'] = None
         self._average_image_size = None
         self._color_space = color_space
         self._expected_scene_scale = None
@@ -276,9 +276,9 @@ class Trainer:
             loggers_init = True
 
         if "tensorboard" in self.loggers and self._tensorboard_writer is None:
-            from tensorboard.summary.writer.event_file_writer import EventFileWriter
+            from .tensorboard import TensorboardWriter  # pylint: disable=import-outside-toplevel
 
-            self._tensorboard_writer = EventFileWriter(str(self.output / "tensorboard"))
+            self._tensorboard_writer = TensorboardWriter(self.output)
             loggers_init = True
         if loggers_init:
             logging.info("initialized loggers: " + ",".join(self.loggers))
@@ -376,29 +376,13 @@ class Trainer:
         if self._wandb_run is not None:
             self._wandb_run.log({f"{prefix}{k}": v for k, v in metrics.items()}, step=self.step)
         if self._tensorboard_writer is not None:
-            from tensorboard.compat.proto.summary_pb2 import Summary, SummaryMetadata  # noqa: F401
-            from tensorboard.compat.proto.event_pb2 import Event  # noqa: F401
-            from tensorboard.compat.proto.tensor_pb2 import TensorProto  # noqa: F401
-            from tensorboard.compat.proto.tensor_shape_pb2 import TensorShapeProto  # noqa: F401
-            from tensorboard.plugins.text.plugin_data_pb2 import TextPluginData  # noqa: F401
-
-            summaries = []
-            for k, val in metrics.items():
-                if isinstance(val, (int, float)):
-                    summaries.append(Summary.Value(tag=f"{prefix}{k}", simple_value=val))
-                elif isinstance(val, str):
-                    plugin_data = SummaryMetadata.PluginData(
-                        plugin_name="text", content=TextPluginData(version=0).SerializeToString()
-                    )
-                    smd = SummaryMetadata(plugin_data=plugin_data)
-                    tensor = TensorProto(
-                        dtype="DT_STRING",
-                        string_val=[val.encode("utf8")],
-                        tensor_shape=TensorShapeProto(dim=[TensorShapeProto.Dim(size=1)]),
-                    )
-                    summaries.append(Summary.Value(tag=f"{prefix}{k}", metadata=smd, tensor=tensor))
-            summary = Summary(value=summaries)
-            self._tensorboard_writer.add_event(Event(summary=summary, step=self.step))
+            with self._tensorboard_writer.add_event(self.step) as event:
+                for k, val in metrics.items():
+                    tag = f"{prefix}{k}"
+                    if isinstance(val, (int, float)):
+                        event.add_scalar(tag, val)
+                    elif isinstance(val, str):
+                        event.add_text(tag, val)
 
     def eval_all(self):
         split = "test"
@@ -482,14 +466,11 @@ class Trainer:
                     log_image[f"eval-all-{split}/depth"] = [wandb.Image(make_grid(*vis_depth, ncol=num_cols), caption="depth")]
                 self._wandb_run.log(log_image, step=self.step)
             if self._tensorboard_writer is not None:
-                from tensorboard.compat.proto.summary_pb2 import Summary
-                from tensorboard.compat.proto.event_pb2 import Event
-
-                summaries = []
-                with io.BytesIO() as simg:
-                    Image.fromarray(color_vis).save(simg, format="png")
-                    summaries.append(Summary.Value(tag=f"eval-all-{split}/color", image=Summary.Image(encoded_image_string=simg.getvalue(), height=color_vis.shape[0], width=color_vis.shape[1])))
-                self._tensorboard_writer.add_event(Event(summary=Summary(value=summaries), step=self.step))
+                self._tensorboard_writer.add_image(f"eval-all-{split}/color", 
+                                                   color_vis, 
+                                                   display_name="color", 
+                                                   description="left: gt, right: prediction", 
+                                                   step=self.step)
 
     def close(self):
         if self.method is not None and hasattr(self.method, "close"):
@@ -578,32 +559,21 @@ class Trainer:
                     log_image[f"eval-few-{split}/depth"] = [wandb.Image(depth, caption=f"{image_path}: depth")]
                 self._wandb_run.log(log_image, step=self.step)
             if self._tensorboard_writer is not None:
-                from tensorboard.compat.proto.summary_pb2 import Summary  # noqa: F401
-                from tensorboard.compat.proto.event_pb2 import Event  # noqa: F401
-                from tensorboard.plugins.image.metadata import create_summary_metadata  # noqa: F401
-
-                summaries = []
                 color_vis = make_grid(gt_srgb, color_srgb)
-                metadata = create_summary_metadata(
-                    display_name=image_path,
-                    description="left: gt, right: prediction",
-                )
-                with io.BytesIO() as simg:
-                    Image.fromarray(color_vis).save(simg, format="png")
-                    summaries.append(
-                        Summary.Value(tag=f"eval-few-{split}/color", metadata=metadata, image=Summary.Image(encoded_image_string=simg.getvalue(), height=color_vis.shape[0], width=color_vis.shape[1]))
-                    )
-                if "depth" in predictions:
-                    metadata = create_summary_metadata(
+                with self._tensorboard_writer.add_event(self.step) as event:
+                    event.add_image(
+                        f"eval-few-{split}/color",
+                        color_vis,
                         display_name=image_path,
-                        description="depth",
+                        description="left: gt, right: prediction",
                     )
-                    with io.BytesIO() as simg:
-                        Image.fromarray(depth).save(simg, format="png")
-                        summaries.append(
-                            Summary.Value(tag=f"eval-few-{split}/depth", metadata=metadata, image=Summary.Image(encoded_image_string=simg.getvalue(), height=depth.shape[0], width=depth.shape[1]))
+                    if "depth" in predictions:
+                        event.add_image(
+                            f"eval-few-{split}/depth",
+                            depth,
+                            display_name=image_path,
+                            description="depth",
                         )
-                self._tensorboard_writer.add_event(Event(summary=Summary(value=summaries), step=self.step))
 
 
 class IndicesClickType(click.ParamType):
