@@ -40,6 +40,8 @@ export interface Dataset {
 const datasetOrder = ["mipnerf360", "blender"];
 
 export function getDemoLink(dataset: string, method: string, scene: string) : string | null {
+  return null;
+  // TODO:
   if (method == "gaussian-splatting") {
     const splatLink = `https://jkulhanek.com/nerfbaselines/demos/${dataset.replace(":", "--")}--${scene.replace(":", "--")}.splat`
     return `https://antimatter15.com/splat/?url=${encodeURIComponent(splatLink)}`;
@@ -61,7 +63,7 @@ export async function getDatasetData(dataset: string) : Promise<DatasetResults> 
       ...s,
       ...m.scenes[s.id],
       demo_link: getDemoLink(dataset, m.id, s.id),
-      data_link: `https://data.ciirc.cvut.cz/public/projects/2023NerfBaselines/data/${m.id}/${dataset}/${s.id}.zip`
+      data_link: `https://huggingface.co/jkulhanek/nerfbaselines/resolve/main/${m.id}/${dataset}/${s.id}.zip?download=true`
     })),
   }));
   return data;
