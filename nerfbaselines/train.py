@@ -33,36 +33,45 @@ if TYPE_CHECKING:
     _wandb_type = type(wandb)
 
 
+
 def make_grid(*images: np.ndarray, ncol=None, padding=2, max_width=1920, background=1.0):
     if ncol is None:
         ncol = len(images)
+    dtype = images[0].dtype
+    background = convert_image_dtype(
+        np.array(background, dtype=np.float32 if isinstance(background, float) else np.uint8),
+        dtype).item()
     nrow = int(math.ceil(len(images) / ncol))
     scale_factor = 1
     height, width = tuple(map(int, np.max([x.shape[:2] for x in images], axis=0).tolist()))
-    dtype = images[0].dtype
     if max_width is not None:
-        scale_factor = int(min(1, (max_width + ncol * images[0].shape[-2] - 1) // (ncol * images[0].shape[-2])))
-    if scale_factor != 1:
+        scale_factor = min(1, (max_width - padding * (ncol - 1)) / (ncol * width))
+        height = int(height * scale_factor)
+        width = int(width * scale_factor)
 
-        def interpolate(image) -> np.ndarray:
-            img = Image.fromarray(image)
-            img = img.resize((int(image.shape[1] * scale_factor), int(image.shape[0] * scale_factor)), Image.Resampling.NEAREST)
-            return np.array(img)
+    def interpolate(image) -> np.ndarray:
+        img = Image.fromarray(image)
+        img_width, img_height = img.size
+        aspect = img_width / img_height
+        img_width = int(min(width, aspect * height))
+        img_height = int(img_width / aspect)
+        img = img.resize((img_width, img_height))
+        return np.array(img)
 
-        images = tuple(map(interpolate, images))
-        height = (height + scale_factor - 1) // scale_factor
-        width = (width + scale_factor - 1) // scale_factor
+    images = tuple(map(interpolate, images))
     grid: np.ndarray = np.ndarray(
-        (height * nrow + padding * (nrow - 1), width * ncol + padding * (ncol - 1), images[0].shape[2]),
+        (height * nrow + padding * (nrow - 1), width * ncol + padding * (ncol - 1), images[0].shape[-1]),
         dtype=dtype,
     )
-    background = convert_image_dtype(np.array(background, dtype=np.float32 if isinstance(background, float) else np.uint8), dtype).item()
     grid.fill(background)
     for i, image in enumerate(images):
         x = i % ncol
         y = i // ncol
         h, w = image.shape[:2]
-        grid[y * (height + padding) : y * (height + padding) + h, x * (width + padding) : x * (width + padding) + w] = image
+        offx = x * (width + padding) + (width - w) // 2
+        offy = y * (height + padding) + (height - h) // 2
+        grid[offy : offy + h, 
+             offx : offx + w] = image
     return grid
 
 
