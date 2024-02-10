@@ -101,7 +101,8 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 |:-------------------------------------------------------------------------------|-----------:|----------:|----------:|------------:|-----------:|
 | [Zip-NeRF](https://jkulhanek.com/nerfbaselines/m-zipnerf)                      | **28.516** | **0.828** | **0.138** |  5h 30m 49s |    26.2 GB |
 | [Mip-NeRF 360](https://jkulhanek.com/nerfbaselines/m-mipnerf360)               |   *27.670* |     0.792 |     0.196 |  7h 29m 42s |   127.0 GB |
-| [Gaussian Splatting](https://jkulhanek.com/nerfbaselines/m-gaussian-splatting) |     27.439 |   *0.814* |   *0.180* |     22m 45s |    11.1 GB |
+| [Mip-Splatting](https://jkulhanek.com/nerfbaselines/m-mip-splatting)           |     27.498 |   *0.815* |     0.183 |      25m 1s |    11.0 GB |
+| [Gaussian Splatting](https://jkulhanek.com/nerfbaselines/m-gaussian-splatting) |     27.439 |     0.814 |   *0.180* |     22m 45s |    11.1 GB |
 | [NerfStudio](https://jkulhanek.com/nerfbaselines/m-nerfacto)                   |     26.348 |     0.730 |     0.257 |   *19m 50s* | **3.8 GB** |
 | [Tetra-NeRF](https://jkulhanek.com/nerfbaselines/m-tetra-nerf)                 |     25.468 |     0.670 |     0.352 | 17h 32m 35s |    13.4 GB |
 | [Instant NGP](https://jkulhanek.com/nerfbaselines/m-instant-ngp)               |     24.899 |     0.673 |     0.355 |  **4m 16s** |   *5.6 GB* |
@@ -114,7 +115,8 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 | Method                                                                         |       PSNR |      SSIM |     LPIPS |       Time |   GPU mem. |
 |:-------------------------------------------------------------------------------|-----------:|----------:|----------:|-----------:|-----------:|
 | [Zip-NeRF](https://jkulhanek.com/nerfbaselines/m-zipnerf)                      | **33.670** | **0.973** | **0.020** | 5h 21m 57s |    26.2 GB |
-| [Gaussian Splatting](https://jkulhanek.com/nerfbaselines/m-gaussian-splatting) |   *33.308* |   *0.969* |   *0.023* |    *6m 6s* |   *3.1 GB* |
+| [Mip-Splatting](https://jkulhanek.com/nerfbaselines/m-mip-splatting)           |   *33.330* |     0.969 |     0.025 |     6m 49s |   *2.7 GB* |
+| [Gaussian Splatting](https://jkulhanek.com/nerfbaselines/m-gaussian-splatting) |     33.308 |   *0.969* |   *0.023* |    *6m 6s* |     3.1 GB |
 | [Instant NGP](https://jkulhanek.com/nerfbaselines/m-instant-ngp)               |     32.191 |     0.959 |     0.031 | **2m 23s** | **2.6 GB** |
 | [Tetra-NeRF](https://jkulhanek.com/nerfbaselines/m-tetra-nerf)                 |     31.951 |     0.957 |     0.031 | 6h 53m 20s |    29.6 GB |
 | [Mip-NeRF 360](https://jkulhanek.com/nerfbaselines/m-mipnerf360)               |     30.345 |     0.951 |     0.038 | 3h 29m 39s |   114.8 GB |
@@ -131,6 +133,7 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 | [Instant NGP](https://jkulhanek.com/nerfbaselines/m-instant-ngp)               |   *20.653* |     0.601 |     0.452 | **4m 33s** | **4.2 GB** |
 | [NerfStudio](https://jkulhanek.com/nerfbaselines/m-nerfacto)                   |     20.064 |   *0.617* |   *0.353* |  *13m 30s* |   *4.8 GB* |
 | [Gaussian Splatting](https://jkulhanek.com/nerfbaselines/m-gaussian-splatting) |          - |         - |         - |          - |          - |
+| [Mip-Splatting](https://jkulhanek.com/nerfbaselines/m-mip-splatting)           |          - |         - |         - |          - |          - |
 
 
 ## Implementation status

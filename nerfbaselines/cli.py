@@ -133,10 +133,10 @@ def render_dataset_results_command(results: Path, dataset, output_type, output, 
     setup_logging(False)
     if results is None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            subprocess.check_call("git clone https://github.com/jkulhanek/nerfbaselines.git --branch results --single-branch".split() + [tmpdir])
+            subprocess.check_call("git clone https://huggingface.co/jkulhanek/nerfbaselines".split() + [tmpdir], env={"GIT_LFS_SKIP_SMUDGE": "1"})
             if dataset is None:
                 logging.fatal("--dataset must be provided")
-            dataset_info = compile_dataset_results(Path(tmpdir) / "results", dataset)
+            dataset_info = compile_dataset_results(Path(tmpdir), dataset)
             render_output(dataset_info)
     elif results.is_dir():
         if dataset is None:

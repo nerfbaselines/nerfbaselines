@@ -105,14 +105,14 @@ def compile_dataset_results(results_path: Path, dataset: str) -> Dict[str, Any]:
     dataset_info = cast(Dict[str, Any], get_dataset_info(dataset))
     dataset_info["methods"] = []
     for method_id in os.listdir(results_path):
+        # Skip methods not evaluated on the dataset
+        if not any(results_path.joinpath(method_id, dataset).glob("*.json")):
+            continue
+
         method_spec = registry.get(method_id)
         method_data = method_spec.metadata.copy()
         method_data["id"] = method_id
         method_data["scenes"] = {}
-
-        # Skip methods not evaluated on the dataset
-        if not any(results_path.joinpath(method_id, dataset).glob("*.json")):
-            continue
 
         # Load the results
         agg_metrics = {}
@@ -204,8 +204,10 @@ def render_markdown_dataset_results_table(results, method_links: MethodLink = "n
 
     # Add method's data
     ord_values = [[] for _ in column_orders]
+    method_names = []
     default_metric_id = None
     for method in results["methods"]:
+        method_names.append(method["name"])
         table.append([])
         for i, (column, asc) in enumerate(zip(columns, column_orders)):
             value = sort_value = get(method, column)
@@ -273,7 +275,7 @@ def render_markdown_dataset_results_table(results, method_links: MethodLink = "n
     # Sort by the default metric
     all_metrics = ",".join(x["id"] for x in results["metrics"])
     assert default_metric_id is not None, f"Default metric {default_metric} was not found in the set of metrics {all_metrics}."
-    order = [x[1] for x in sorted([(v, i) for i, v in enumerate(ord_values[default_metric_id])])]
+    order = [x[-1] for x in sorted([(v, method_names[i], i) for i, v in enumerate(ord_values[default_metric_id])])]
     table = table[:1] + [table[i + 1] for i in order]
 
     cell_lens = [max(len(x[i]) for x in table) for i in range(len(table[0]))]
