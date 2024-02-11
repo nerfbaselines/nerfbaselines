@@ -39,12 +39,13 @@ export interface Dataset {
 
 const datasetOrder = ["mipnerf360", "blender"];
 
-export function getDemoLink(dataset: string, method: string, scene: string) : string | null {
-  return null;
-  // TODO:
+export function getDemoLink(dataset: string, method: string, scene: string, pose?: number[]) : string | null {
   if (method == "gaussian-splatting") {
-    const splatLink = `https://jkulhanek.com/nerfbaselines/demos/${dataset.replace(":", "--")}--${scene.replace(":", "--")}.splat`
-    return `https://antimatter15.com/splat/?url=${encodeURIComponent(splatLink)}`;
+    let poseStr = "";
+    if (pose) {
+      poseStr = "&pose=" + pose.map((p: number) => p.toFixed(3)).join(",");
+    }
+    return `https://jkulhanek.com/nerfbaselines/demo-gs.html?ms=${method}/${dataset}/${scene}${poseStr}`;
   }
   return null;
 }
@@ -62,8 +63,8 @@ export async function getDatasetData(dataset: string) : Promise<DatasetResults> 
     scenes: data.scenes.filter(x => m.scenes[x.id] !== undefined).map((s: any) => ({
       ...s,
       ...m.scenes[s.id],
-      demo_link: getDemoLink(dataset, m.id, s.id),
-      data_link: `https://huggingface.co/jkulhanek/nerfbaselines/resolve/main/${m.id}/${dataset}/${s.id}.zip?download=true`
+      demo_link: getDemoLink(dataset, m.id, s.id, s.demo_pose),
+      data_link: `https://huggingface.co/jkulhanek/nerfbaselines/resolve/main/${m.id}/${dataset}/${s.id}.zip?download=true`,
     })),
   }));
   return data;
