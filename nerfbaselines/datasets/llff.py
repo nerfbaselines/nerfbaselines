@@ -65,10 +65,11 @@ def load_llff_dataset(path: Path, split: str, downscale_factor: int = 4, **kwarg
         file_paths_root=path,
         file_paths=[str(x) for i, x in enumerate(image_paths) if i in indices],
         sampling_mask_paths=None,
-        color_space="srgb",
         metadata={
             "name": "llff",
             "scene": scene,
+            "color_space": "srgb",
+            "expected_scene_scale": 0.5,
             "type": "forward-facing",
         },
     )

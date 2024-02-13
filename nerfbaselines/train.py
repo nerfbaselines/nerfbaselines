@@ -1,3 +1,4 @@
+import shutil
 import struct
 import sys
 import json
@@ -9,70 +10,24 @@ import math
 import logging
 from pathlib import Path
 import typing
-from typing import Callable, Optional, Union, Type, List, Any, Dict, Tuple, cast
-from typing import TYPE_CHECKING
+from typing import Callable, Optional, Union, Type, List, Any, Dict, Tuple
 from tqdm import tqdm
 import numpy as np
-from PIL import Image
 import click
 from .io import open_any_directory
 from .datasets import load_dataset, Dataset
 from .utils import Indices, setup_logging, partialclass, image_to_srgb, visualize_depth, handle_cli_error
-from .utils import remap_error, convert_image_dtype, get_resources_utilization_info, assert_not_none
-from .types import Method, CurrentProgress, ColorSpace, Literal, FrozenSet
-from .render import render_all_images, with_supported_camera_models
+from .utils import remap_error, get_resources_utilization_info, assert_not_none
+from .utils import IndicesClickType, SetParamOptionType
+from .utils import make_image_grid
+from .types import Method, Literal, FrozenSet
+from .render import render_all_images, build_update_progress
+from .evaluate import EvaluationProtocol, get_extra_metrics_available
 from .upload_results import prepare_results_for_upload
+from .logging import TensorboardLogger, WandbLogger, ConcatLogger, Logger
 from . import __version__
 from . import registry
 from . import evaluate
-
-if TYPE_CHECKING:
-    import wandb.sdk.wandb_run
-    from .tensorboard import TensorboardWriter
-
-    _wandb_type = type(wandb)
-
-
-
-def make_grid(*images: np.ndarray, ncol=None, padding=2, max_width=1920, background=1.0):
-    if ncol is None:
-        ncol = len(images)
-    dtype = images[0].dtype
-    background = convert_image_dtype(
-        np.array(background, dtype=np.float32 if isinstance(background, float) else np.uint8),
-        dtype).item()
-    nrow = int(math.ceil(len(images) / ncol))
-    scale_factor = 1
-    height, width = tuple(map(int, np.max([x.shape[:2] for x in images], axis=0).tolist()))
-    if max_width is not None:
-        scale_factor = min(1, (max_width - padding * (ncol - 1)) / (ncol * width))
-        height = int(height * scale_factor)
-        width = int(width * scale_factor)
-
-    def interpolate(image) -> np.ndarray:
-        img = Image.fromarray(image)
-        img_width, img_height = img.size
-        aspect = img_width / img_height
-        img_width = int(min(width, aspect * height))
-        img_height = int(img_width / aspect)
-        img = img.resize((img_width, img_height))
-        return np.array(img)
-
-    images = tuple(map(interpolate, images))
-    grid: np.ndarray = np.ndarray(
-        (height * nrow + padding * (nrow - 1), width * ncol + padding * (ncol - 1), images[0].shape[-1]),
-        dtype=dtype,
-    )
-    grid.fill(background)
-    for i, image in enumerate(images):
-        x = i % ncol
-        y = i // ncol
-        h, w = image.shape[:2]
-        offx = x * (width + padding) + (width - w) // 2
-        offy = y * (height + padding) + (height - h) // 2
-        grid[offy : offy + h, 
-             offx : offx + w] = image
-    return grid
 
 
 def compute_exponential_gamma(num_iters: int, initial_lr: float, final_lr: float) -> float:
@@ -84,6 +39,205 @@ def method_get_resources_utilization_info(method):
     if hasattr(method, "call"):
         return method.call(f"{get_resources_utilization_info.__module__}.{get_resources_utilization_info.__name__}")
     return get_resources_utilization_info()
+
+
+def log_metrics(logger: Logger, metrics, *, prefix: str = "", step: int):
+    with logger.add_event(step) as event:
+        for k, val in metrics.items():
+            tag = f"{prefix}{k}"
+            if isinstance(val, (int, float)):
+                event.add_scalar(tag, val)
+            elif isinstance(val, str):
+                event.add_text(tag, val)
+
+
+def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, step, evaluation_protocol: EvaluationProtocol):
+    rand_number, = struct.unpack("L", hashlib.sha1(str(step).encode("utf8")).digest()[:8])
+
+    idx = rand_number % len(dataset)
+    dataset_slice = dataset[idx : idx + 1]
+
+    expected_scene_scale: Optional[float] = dataset_slice.metadata["expected_scene_scale"]
+
+    assert dataset_slice.images is not None, f"{split} dataset must have images loaded"
+    assert dataset_slice.cameras.image_sizes is not None, f"{split} dataset must have image_sizes specified"
+
+    start = time.perf_counter()
+    # Pseudo-randomly select an image based on the step
+    total_rays = 0
+    with tqdm(desc=f"rendering single image at step={step}") as pbar:
+        predictions = next(
+            iter(
+                evaluation_protocol.render(method, dataset_slice, progress_callback=build_update_progress(pbar, simple=True))
+            )
+        )
+    elapsed = time.perf_counter() - start
+
+    # Log to wandb
+    if logger:
+        logging.debug(f"logging image to {logger}")
+
+        # Log to wandb
+        metrics = next(iter(evaluation_protocol.evaluate([predictions], dataset_slice)))
+
+        w, h = dataset_slice.cameras.image_sizes[0]
+        gt = dataset_slice.images[0][:h, :w]
+        color = predictions["color"]
+
+        background_color = dataset_slice.metadata.get("background_color", None)
+        color_srgb = image_to_srgb(color, np.uint8, color_space=dataset_slice.color_space, background_color=background_color)
+        gt_srgb = image_to_srgb(gt, np.uint8, color_space=dataset_slice.color_space, background_color=background_color)
+
+        image_path = dataset_slice.file_paths[0]
+        if dataset_slice.file_paths_root is not None:
+            image_path = str(Path(image_path).relative_to(dataset_slice.file_paths_root))
+
+        metrics["image-path"] = image_path
+        metrics["fps"] = 1 / elapsed
+        metrics["rays-per-second"] = total_rays / elapsed
+        metrics["time"] = elapsed
+
+        depth = None
+        if "depth" in predictions:
+            near_far = dataset_slice.cameras.nears_fars[0] if dataset_slice.cameras.nears_fars is not None else None
+            depth = visualize_depth(predictions["depth"], expected_scale=expected_scene_scale, near_far=near_far)
+        log_metrics(logger, metrics, prefix=f"eval-few-{split}/", step=step)
+
+        color_vis = make_image_grid(gt_srgb, color_srgb)
+        with logger.add_event(step) as event:
+            event.add_image(
+                f"eval-few-{split}/color",
+                color_vis,
+                display_name=image_path,
+                description="left: gt, right: prediction",
+            )
+            if depth is not None:
+                event.add_image(
+                    f"eval-few-{split}/depth",
+                    depth,
+                    display_name=image_path,
+                    description="depth",
+                )
+
+
+def eval_all(method: Method, logger: Logger, dataset: Dataset, *, output: Union[str, Path], step: int, evaluation_protocol: EvaluationProtocol, split: str, ns_info):
+    assert dataset.images is not None, "test dataset must have images loaded"
+    total_rays = 0
+    metrics: Optional[Dict[str, float]] = {} if logger else None
+    expected_scene_scale = dataset.metadata["expected_scene_scale"]
+
+    # Store predictions, compute metrics, etc.
+    prefix = dataset.file_paths_root
+    if prefix is None:
+        prefix = Path(os.path.commonpath(dataset.file_paths))
+
+    if split != "test":
+        output_metrics = output / f"results-{step}-{split}.json"
+        output = output / f"predictions-{step}-{split}.tar.gz"
+    else:
+        output_metrics = output / f"results-{step}.json"
+        output = output / f"predictions-{step}.tar.gz"
+
+    if output.exists():
+        shutil.rmtree(str(output))
+        logging.warning(f"removed existing predictions at {output}")
+
+    if output_metrics.exists():
+        shutil.rmtree(str(output))
+        logging.warning(f"removed existing results at {output_metrics}")
+
+    start = time.perf_counter()
+    num_vis_images = 16
+    vis_images: List[Tuple[np.ndarray, np.ndarray]] = []
+    vis_depth: List[np.ndarray] = []
+    for (i, gt), pred, (w, h) in zip(
+        enumerate(dataset.images),
+        render_all_images(
+            method,
+            dataset,
+            output=output,
+            description=f"rendering all images at step={step}",
+            ns_info=ns_info,
+            evaluation_protocol=evaluation_protocol,
+        ),
+        assert_not_none(dataset.cameras.image_sizes),
+    ):
+        if len(vis_images) < num_vis_images:
+            color = pred["color"]
+            background_color = dataset.metadata.get("background_color", None)
+            color_srgb = image_to_srgb(color, np.uint8, color_space=dataset.color_space, background_color=background_color)
+            gt_srgb = image_to_srgb(gt[:h, :w], np.uint8, color_space=dataset.color_space, background_color=background_color)
+            vis_images.append((gt_srgb, color_srgb))
+            if "depth" in pred:
+                near_far = dataset.cameras.nears_fars[i] if dataset.cameras.nears_fars is not None else None
+                vis_depth.append(visualize_depth(pred["depth"], expected_scale=expected_scene_scale, near_far=near_far))
+    elapsed = time.perf_counter() - start
+
+    # Compute metrics
+    info = evaluate.evaluate(output, output_metrics, description=f"evaluating all images at step={step}")
+    metrics = info["metrics"]
+
+    if logger:
+        assert metrics is not None, "metrics must be computed"
+        logging.debug(f"logging metrics to {logger}")
+        metrics["fps"] = len(dataset) / elapsed
+        metrics["rays-per-second"] = total_rays / elapsed
+        metrics["time"] = elapsed
+        log_metrics(logger, metrics, prefix=f"eval-all-{split}/", step=step)
+
+        num_cols = int(math.sqrt(len(vis_images)))
+
+        color_vis = make_image_grid(
+            make_image_grid(*[x[0] for x in vis_images], ncol=num_cols),
+            make_image_grid(*[x[1] for x in vis_images], ncol=num_cols),
+        )
+
+        logger.add_image(f"eval-all-{split}/color", 
+                         color_vis, 
+                         display_name="color", 
+                         description="left: gt, right: prediction", 
+                         step=step)
+
+
+
+MetricAccumulationMode = Literal["average", "last", "sum"]
+
+
+class MetricsAccumulator:
+    def __init__(
+        self,
+        options: Optional[Dict[str, MetricAccumulationMode]] = None,
+    ):
+        self.options = options or {}
+        self._state = None
+
+    def update(self, metrics: Dict[str, Union[int, float]]) -> None:
+        if self._state is None:
+            self._state = {}
+        n_iters_since_update = self._state.pop("n_iters_since_update", 0) + 1
+        state = self._state
+        for k, v in metrics.items():
+            accumulation_mode = self.options.get(k, "average")
+            if k not in state:
+                state[k] = 0
+            if accumulation_mode == "last":
+                state[k] = v
+            elif accumulation_mode == "average":
+                state[k] = state[k] * ((n_iters_since_update - 1) / n_iters_since_update) + v / n_iters_since_update
+            elif accumulation_mode == "sum":
+                state[k] += v
+            else:
+                raise ValueError(f"Unknown accumulation mode {accumulation_mode}")
+        state["n_iters_since_update"] = n_iters_since_update
+        self._state = state
+
+    def pop(self) -> Dict[str, Union[int, float]]:
+        if self._state is None:
+            return {}
+        state = self._state
+        self._state = None
+        state.pop("n_iters_since_update", 0)
+        return state
 
 
 Visualization = Literal["none", "wandb", "tensorboard"]
@@ -102,7 +256,6 @@ class Trainer:
         eval_few_iters: Indices = Indices.every_iters(2_000),
         eval_all_iters: Indices = Indices([-1]),
         loggers: FrozenSet[Visualization] = frozenset(),
-        color_space: Optional[ColorSpace] = None,
         run_extra_metrics: bool = False,
         method_name: Optional[str] = None,
         generate_output_artifact: Optional[bool] = None,
@@ -140,16 +293,18 @@ class Trainer:
         self.run_extra_metrics = run_extra_metrics
         self.generate_output_artifact = generate_output_artifact
         self.config_overrides = config_overrides
-        self._wandb_run: Union["wandb.sdk.wandb_run.Run", None] = None
-        self._tensorboard_writer: Optional['TensorboardWriter'] = None
+
+        self._logger: Optional[Logger] = None
         self._average_image_size = None
-        self._color_space = color_space
-        self._expected_scene_scale = None
+        self._dataset_metadata = None
         self._method_info = method_info
         self._total_train_time = 0
         self._resources_utilization_info = None
-        self._dataset_background_color = None
         self._train_dataset_for_eval = None
+        self._acc_metrics = MetricsAccumulator({
+            "total-train-time": "last",
+            "learning-rate": "last",
+        })
 
         # Restore checkpoint if specified
         if self.checkpoint is not None:
@@ -199,63 +354,70 @@ class Trainer:
         logging.info("loading train dataset")
         train_dataset: Dataset = self._train_dataset_fn()
         logging.info("loading eval dataset")
-        self.test_dataset = self._test_dataset_fn()
         method_info = self.method.get_info()
 
         train_dataset.load_features(method_info.required_features, method_info.supported_camera_models)
         assert train_dataset.cameras.image_sizes is not None, "image sizes must be specified"
         self._average_image_size = train_dataset.cameras.image_sizes.prod(-1).astype(np.float32).mean()
-        self._expected_scene_scale = train_dataset.expected_scene_scale
-        self._dataset_background_color = train_dataset.metadata.get("background_color")
-        if self._dataset_background_color is not None:
-            assert isinstance(self._dataset_background_color, np.ndarray), "Dataset background color must be a numpy array"
+        dataset_background_color = train_dataset.metadata.get("background_color")
+        if dataset_background_color is not None:
+            assert isinstance(dataset_background_color, np.ndarray), "Dataset background color must be a numpy array"
+            assert dataset_background_color.dtype == np.uint8, "Dataset background color must be an uint8 array"
 
         # Store a slice of train dataset used for eval_few
         train_dataset_indices = np.linspace(0, len(train_dataset) - 1, 16, dtype=int)
         self._train_dataset_for_eval = train_dataset[train_dataset_indices]
 
-        self.test_dataset.load_features(method_info.required_features.union({"color"}))
-
         self.method.setup_train(train_dataset, num_iterations=self.num_iterations, **({"config_overrides": self.config_overrides} if self.config_overrides is not None else {}))
 
         assert train_dataset.color_space is not None
-        if self._color_space is not None and self._color_space != train_dataset.color_space:
-            raise RuntimeError(f"train dataset color space {train_dataset.color_space} != {self._color_space}")
-        self._color_space = train_dataset.color_space
-        if self.test_dataset.color_space != self._color_space:
-            raise RuntimeError(f"train dataset color space {self._color_space} != test dataset color space {self.test_dataset.color_space}")
+        color_space = train_dataset.color_space
+        self._dataset_metadata = train_dataset.metadata.copy()
+
+        self.test_dataset = self._test_dataset_fn()
+        self.test_dataset.metadata["expected_scene_scale"] = self._dataset_metadata["expected_scene_scale"]
+        self.test_dataset.load_features(method_info.required_features.union({"color"}))
+        if self.test_dataset.color_space != color_space:
+            raise RuntimeError(f"train dataset color space {color_space} != test dataset color space {self.test_dataset.color_space}")
         test_background_color = self.test_dataset.metadata.get("background_color")
         if test_background_color is not None:
             assert isinstance(test_background_color, np.ndarray), "Dataset's background_color must be a numpy array"
         if not (
-            (test_background_color is None and self._dataset_background_color is None) or 
+            (test_background_color is None and dataset_background_color is None) or 
             (
                 test_background_color is not None and 
-                self._dataset_background_color is not None and
-                np.array_equal(test_background_color, self._dataset_background_color)
+                dataset_background_color is not None and
+                np.array_equal(test_background_color, dataset_background_color)
             )
         ):
-            raise RuntimeError(f"train dataset color space {self._dataset_background_color} != test dataset color space {self.test_dataset.metadata.get('background_color')}")
-        if self._dataset_background_color is not None:
-            self._dataset_background_color = convert_image_dtype(self._dataset_background_color, np.uint8)
+            raise RuntimeError(f"train dataset color space {dataset_background_color} != test dataset color space {self.test_dataset.metadata.get('background_color')}")
 
         self._method_info = self.method.get_info()
         self._setup_num_iterations()
         self._validate_output_artifact()
+        test_dataset_name = self.test_dataset.metadata.get("name") if self.test_dataset.metadata is not None else train_dataset.metadata.get("name")
+        self._evaluation_protocol = evaluate.get_evaluation_protocol(test_dataset_name, run_extra_metrics=self.run_extra_metrics)
 
     def _get_ns_info(self):
+        dataset_metadata = self._dataset_metadata.copy()
+        expected_scene_scale = self._dataset_metadata.get("expected_scene_scale", None)
+        dataset_metadata["expected_scene_scale"] = round(expected_scene_scale, 5) if expected_scene_scale is not None else None
+        dataset_metadata["background_color"] = dataset_metadata["background_color"].tolist() if dataset_metadata.get("background_color") is not None else None
         return {
             "method": self.method_name,
             "nb_version": __version__,
-            "color_space": self._color_space,
             "num_iterations": self._method_info.num_iterations,
-            "expected_scene_scale": round(self._expected_scene_scale, 5) if self._expected_scene_scale is not None else None,
-            "dataset_background_color": self._dataset_background_color.tolist() if self._dataset_background_color is not None else None,
             "total_train_time": round(self._total_train_time, 5),
             "resources_utilization": self._resources_utilization_info,
             # Date time in ISO format
             "datetime": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
             "config_overrides": self.config_overrides,
+            "dataset_metadata": self._dataset_metadata,
+            "evaluation_protocol": self._evaluation_protocol.get_name(),
+
+            "color_space": self._dataset_metadata.get("color_space"),  # TODO: remove
+            "expected_scene_scale": expected_scene_scale,  # TODO: remove
+            "dataset_background_color": dataset_metadata["background_color"],  # TODO: remove
         }
 
     def save(self):
@@ -284,34 +446,16 @@ class Trainer:
                 metrics["fps"] = batch_size / elapsed / self._average_image_size
         return metrics
 
-    def ensure_loggers_initialized(self):
-        loggers_init = False
-        if "wandb" in self.loggers and self._wandb_run is None:
-            import wandb  # pylint: disable=import-outside-toplevel
-
-            if not TYPE_CHECKING:
-                wandb_run: "wandb.sdk.wandb_run.Run" = wandb.init(dir=self.output)
-                self._wandb_run = wandb_run
-
-            loggers_init = True
-
-        if "tensorboard" in self.loggers and self._tensorboard_writer is None:
-            from .tensorboard import TensorboardWriter  # pylint: disable=import-outside-toplevel
-
-            self._tensorboard_writer = TensorboardWriter(str(self.output / "tensorboard"))
-            loggers_init = True
-        if loggers_init:
+    def get_logger(self) -> Logger:
+        if self._logger is None:
+            loggers = []
+            if "tensorboard" in self.loggers:
+                loggers.append(TensorboardLogger(str(self.output / "tensorboard")))
+            if "wandb" in self.loggers:
+                loggers.append(WandbLogger(str(self.output)))
+            self._logger = ConcatLogger(loggers)
             logging.info("initialized loggers: " + ",".join(self.loggers))
-
-    def _update_accumulated_metrics(self, acc_metrics, metrics, n_iters_since_update):
-        for k, v in metrics.items():
-            assert "_" not in k, "metrics must not contain underscores"
-            if k not in acc_metrics:
-                acc_metrics[k] = 0
-            if k in {"total-train-time", "learning-rate"}:
-                acc_metrics[k] = v
-            else:
-                acc_metrics[k] = (acc_metrics[k] * (n_iters_since_update - 1) + v) / n_iters_since_update
+        return self._logger
 
     def _update_resource_utilization_info(self):
         update = False
@@ -339,12 +483,11 @@ class Trainer:
             self.save()
 
         # Initialize loggers before training loop for better tqdm output
-        self.ensure_loggers_initialized()
+        logger = self.get_logger()
 
-        update_frequency = 10
+        update_frequency = 100
         with tqdm(total=self.num_iterations, initial=self.step, desc="training") as pbar:
             last_update_i = self.step
-            acc_metrics = {}
             for i in range(self.step, self.num_iterations):
                 self.step = i
                 metrics = self.train_iteration()
@@ -353,13 +496,14 @@ class Trainer:
                 self.step = i + 1
 
                 # Update accumulated metrics
-                self._update_accumulated_metrics(acc_metrics, metrics, self.step - last_update_i)
+                self._acc_metrics.update(metrics)
 
                 # Update resource utilization info
                 self._update_resource_utilization_info()
 
                 # Log metrics and update progress bar
                 if self.step % update_frequency == 0 or self.step == self.num_iterations:
+                    acc_metrics = self._acc_metrics.pop()
                     pbar.set_postfix(
                         {
                             "train/loss": f'{acc_metrics["loss"]:.4f}',
@@ -367,7 +511,7 @@ class Trainer:
                     )
                     pbar.update(self.step - last_update_i)
                     last_update_i = self.step
-                    self.log_metrics(acc_metrics, "train/")
+                    log_metrics(logger, acc_metrics, prefix="train/", step=self.step)
 
                 # Visualize and save
                 if self.step in self.save_iters:
@@ -392,106 +536,12 @@ class Trainer:
                 validate=False,
             )
 
-    def log_metrics(self, metrics, prefix: str = ""):
-        self.ensure_loggers_initialized()
-        if self._wandb_run is not None:
-            self._wandb_run.log({f"{prefix}{k}": v for k, v in metrics.items()}, step=self.step)
-        if self._tensorboard_writer is not None:
-            with self._tensorboard_writer.add_event(self.step) as event:
-                for k, val in metrics.items():
-                    tag = f"{prefix}{k}"
-                    if isinstance(val, (int, float)):
-                        event.add_scalar(tag, val)
-                    elif isinstance(val, str):
-                        event.add_text(tag, val)
-
     def eval_all(self):
-        split = "test"
-        if self.test_dataset is None:
-            logging.debug("skipping eval_all, no eval dataset")
-            return
-        assert self.test_dataset.images is not None, "test dataset must have images loaded"
-        total_rays = 0
-
-        self.ensure_loggers_initialized()
-        metrics: Optional[Dict[str, float]] = {} if self._wandb_run is not None else None
-
-        # Store predictions, compute metrics, etc.
-        prefix = self.test_dataset.file_paths_root
-        if prefix is None:
-            prefix = Path(os.path.commonpath(self.test_dataset.file_paths))
-
-        output = self.output / f"predictions-{self.step}.tar.gz"
-        if output.exists():
-            output.unlink()
-            logging.warning(f"removed existing predictions at {output}")
-        output_metrics = self.output / f"results-{self.step}.json"
-        if output_metrics.exists():
-            output_metrics.unlink()
-            logging.warning(f"removed existing results at {output_metrics}")
-
-        start = time.perf_counter()
-        num_vis_images = 16
-        vis_images: List[Tuple[np.ndarray, np.ndarray]] = []
-        vis_depth: List[np.ndarray] = []
-        for (i, gt), name, pred, (w, h) in zip(
-            enumerate(self.test_dataset.images),
-            self.test_dataset.file_paths,
-            render_all_images(
-                self.method,
-                self.test_dataset,
-                output=output,
-                description=f"rendering all images at step={self.step}",
-                ns_info=self._get_ns_info(),
-            ),
-            assert_not_none(self.test_dataset.cameras.image_sizes),
-        ):
-            name = str(Path(name).relative_to(prefix).with_suffix(""))
-            color = pred["color"]
-            background_color = self.test_dataset.metadata.get("background_color", None)
-            color_srgb = image_to_srgb(color, np.uint8, color_space=self._color_space, background_color=background_color)
-            gt_srgb = image_to_srgb(gt[:h, :w], np.uint8, color_space=self._color_space, background_color=background_color)
-            if len(vis_images) < num_vis_images:
-                vis_images.append((gt_srgb, color_srgb))
-                if "depth" in pred:
-                    near_far = self.test_dataset.cameras.nears_fars[i] if self.test_dataset.cameras.nears_fars is not None else None
-                    vis_depth.append(visualize_depth(pred["depth"], expected_scale=self._expected_scene_scale, near_far=near_far))
-        elapsed = time.perf_counter() - start
-
-        # Compute metrics
-        info = evaluate.evaluate(output, output_metrics, disable_extra_metrics=not self.run_extra_metrics, description=f"evaluating all images at step={self.step}")
-        metrics = info["metrics"]
-
-        if len(self.loggers) > 0:
-            assert metrics is not None, "metrics must be computed"
-            logging.debug("logging metrics to " + ",".join(self.loggers))
-            metrics["fps"] = len(self.test_dataset) / elapsed
-            metrics["rays-per-second"] = total_rays / elapsed
-            metrics["time"] = elapsed
-            self.log_metrics(metrics, f"eval-all-{split}/")
-
-            num_cols = int(math.sqrt(len(vis_images)))
-
-            color_vis = make_grid(
-                make_grid(*[x[0] for x in vis_images], ncol=num_cols),
-                make_grid(*[x[1] for x in vis_images], ncol=num_cols),
-            )
-
-            if self._wandb_run is not None:
-                import wandb  # pylint: disable=import-outside-toplevel
-
-                log_image = {
-                    f"eval-all-{split}/color": [wandb.Image(color_vis, caption="left: gt, right: prediction")],
-                }
-                if vis_depth:
-                    log_image[f"eval-all-{split}/depth"] = [wandb.Image(make_grid(*vis_depth, ncol=num_cols), caption="depth")]
-                self._wandb_run.log(log_image, step=self.step)
-            if self._tensorboard_writer is not None:
-                self._tensorboard_writer.add_image(f"eval-all-{split}/color", 
-                                                   color_vis, 
-                                                   display_name="color", 
-                                                   description="left: gt, right: prediction", 
-                                                   step=self.step)
+        logger = self.get_logger()
+        ns_info = self._get_ns_info()
+        eval_all(self.method, logger, self.test_dataset, 
+                 step=self.step, evaluation_protocol=self._evaluation_protocol,
+                 split="test", ns_info=ns_info, output=self.output)
 
     def close(self):
         if self.method is not None and hasattr(self.method, "close"):
@@ -503,7 +553,8 @@ class Trainer:
 
         idx = rand_number % len(self._train_dataset_for_eval)
         dataset_slice = self._train_dataset_for_eval[idx : idx + 1]
-        self._eval_few("train", dataset_slice)
+
+        eval_few(self.method, self.logger, dataset_slice, split="train", step=self.step, evaluation_protocol=self._evaluation_protocol)
         
         if self.test_dataset is None:
             logging.warning("skipping eval_few on test dataset - no eval dataset")
@@ -511,123 +562,7 @@ class Trainer:
 
         idx = rand_number % len(self.test_dataset)
         dataset_slice = self.test_dataset[idx : idx + 1]
-        self._eval_few("test", dataset_slice)
-
-    def _eval_few(self, split: str, dataset_slice: Dataset):
-        assert dataset_slice.images is not None, f"{split} dataset must have images loaded"
-        assert dataset_slice.cameras.image_sizes is not None, f"{split} dataset must have image_sizes specified"
-
-        start = time.perf_counter()
-        # Pseudo-randomly select an image based on the step
-        total_rays = 0
-        with tqdm(desc=f"rendering single image at step={self.step}") as pbar:
-            def update_progress(stat: CurrentProgress):
-                nonlocal total_rays
-                total_rays = stat.total
-                if pbar.total != stat.total:
-                    pbar.reset(total=stat.total)
-                if stat.i % 10 == 0 or stat.i == stat.total:
-                    pbar.update(stat.i - pbar.n)
-
-            predictions = next(
-                iter(
-                    with_supported_camera_models(self._method_info.supported_camera_models)(self.method.render)(
-                        cameras=dataset_slice.cameras,
-                        progress_callback=update_progress,
-                    )
-                )
-            )
-        elapsed = time.perf_counter() - start
-
-        # Log to wandb
-        self.ensure_loggers_initialized()
-        if len(self.loggers) > 0:
-            logging.debug("logging image to " + ",".join(self.loggers))
-            metrics = {}
-            w, h = dataset_slice.cameras.image_sizes[0]
-            gt = dataset_slice.images[0][:h, :w]
-            color = predictions["color"]
-
-            background_color = dataset_slice.metadata.get("background_color", None)
-            color_srgb = image_to_srgb(color, np.uint8, color_space=self._color_space, background_color=background_color)
-            gt_srgb = image_to_srgb(gt, np.uint8, color_space=self._color_space, background_color=background_color)
-            metrics = cast(Dict[str, Any], evaluate.compute_metrics(color_srgb, gt_srgb, run_extras=self.run_extra_metrics))
-            image_path = dataset_slice.file_paths[0]
-            if dataset_slice.file_paths_root is not None:
-                image_path = str(Path(image_path).relative_to(dataset_slice.file_paths_root))
-
-            metrics["image-path"] = image_path
-            metrics["fps"] = 1 / elapsed
-            metrics["rays-per-second"] = total_rays / elapsed
-            metrics["time"] = elapsed
-
-            depth = None
-            if "depth" in predictions:
-                depth = visualize_depth(predictions["depth"], expected_scale=self._expected_scene_scale)
-            self.log_metrics(metrics, f"eval-few-{split}/")
-
-            if self._wandb_run is not None:
-                import wandb  # pylint: disable=import-outside-toplevel
-
-                log_image = {
-                    f"eval-few-{split}/color": [
-                        wandb.Image(
-                            make_grid(
-                                gt_srgb,
-                                color_srgb,
-                            ),
-                            caption=f"{image_path}: left: gt, right: prediction",
-                        )
-                    ],
-                }
-                if depth is not None:
-                    log_image[f"eval-few-{split}/depth"] = [wandb.Image(depth, caption=f"{image_path}: depth")]
-                self._wandb_run.log(log_image, step=self.step)
-            if self._tensorboard_writer is not None:
-                color_vis = make_grid(gt_srgb, color_srgb)
-                with self._tensorboard_writer.add_event(self.step) as event:
-                    event.add_image(
-                        f"eval-few-{split}/color",
-                        color_vis,
-                        display_name=image_path,
-                        description="left: gt, right: prediction",
-                    )
-                    if depth is not None:
-                        event.add_image(
-                            f"eval-few-{split}/depth",
-                            depth,
-                            display_name=image_path,
-                            description="depth",
-                        )
-
-
-class IndicesClickType(click.ParamType):
-    name = "indices"
-
-    def convert(self, value, param, ctx):
-        if value is None:
-            return None
-        if isinstance(value, Indices):
-            return value
-        if ":" in value:
-            parts = [int(x) if x else None for x in value.split(":")]
-            assert len(parts) <= 3, "too many parts in slice"
-            return Indices(slice(*parts))
-        return Indices([int(x) for x in value.split(",")])
-
-
-class SetParamOptionType(click.ParamType):
-    name = "key-value"
-
-    def convert(self, value, param, ctx):
-        if value is None:
-            return None
-        if isinstance(value, tuple):
-            return value
-        if "=" not in value:
-            self.fail(f"expected key=value pair, got {value}", param, ctx)
-        k, v = value.split("=", 1)
-        return k, v
+        eval_few(self.method, self.logger, dataset_slice, split="test", step=self.step, evaluation_protocol=self._evaluation_protocol)
 
 
 @click.command("train")
@@ -656,7 +591,7 @@ def train_command(
     eval_few_iters,
     eval_all_iters,
     num_iterations=None,
-    disable_extra_metrics=False,
+    disable_extra_metrics=None,
     generate_output_artifact=None,
     vis="none",
     config_overrides=None,
@@ -667,13 +602,8 @@ def train_command(
     if config_overrides is not None and isinstance(config_overrides, (list, tuple)):
         config_overrides = dict(config_overrides)
 
-    if not disable_extra_metrics:
-        try:
-            evaluate.test_extra_metrics()
-        except ImportError as exc:
-            logging.error(exc)
-            logging.error("Extra metrics are not available and will be disabled. Please install the required dependencies by running `pip install nerfbaselines[extras]`.")
-            disable_extra_metrics = True
+    if disable_extra_metrics is None:
+        disable_extra_metrics = not get_extra_metrics_available()
 
     if method is None and checkpoint is None:
         logging.error("Either --method or --checkpoint must be specified")

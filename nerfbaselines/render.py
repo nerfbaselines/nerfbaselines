@@ -17,8 +17,8 @@ import typing
 from typing import Any, Iterable, cast
 from .datasets import load_dataset, Dataset
 from .utils import setup_logging, image_to_srgb, save_image, save_depth, visualize_depth, handle_cli_error, convert_image_dtype, assert_not_none
-from .types import Method, CurrentProgress, RenderOutput
-from .io import open_any_directory
+from .types import Method, CurrentProgress, RenderOutput, EvaluationProtocol
+from .io import open_any_directory, serialize_ns_info
 from . import cameras as _cameras
 from . import registry
 from . import __version__
@@ -27,7 +27,7 @@ from . import __version__
 TRender = TypeVar("TRender", bound=typing.Callable[..., Iterable[RenderOutput]])
 
 
-def build_update_progress(pbar: tqdm):
+def build_update_progress(pbar: tqdm, simple=False):
     old_image_i = -1
 
     def update_progress(progress: CurrentProgress):
@@ -44,7 +44,8 @@ def build_update_progress(pbar: tqdm):
             report_update = True
 
         if report_update:
-            pbar.set_postfix({"image": f"{min(progress.image_i+1, progress.image_total)}/{progress.image_total}"})
+            if not simple:
+                pbar.set_postfix({"image": f"{min(progress.image_i+1, progress.image_total)}/{progress.image_total}"})
             pbar.update(progress.i - pbar.n)
     return update_progress
 
@@ -70,6 +71,12 @@ def get_checkpoint_sha(path: Path) -> str:
             for n in iter(lambda: fio.readinto(mv), 0):
                 sha.update(mv[:n])
     return sha.hexdigest()
+
+
+def get_method_sha(method: Method) -> str:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        method.save(Path(tmpdir))
+        return get_checkpoint_sha(Path(tmpdir))
 
 
 def with_supported_camera_models(supported_camera_models):
@@ -99,69 +106,42 @@ def with_supported_camera_models(supported_camera_models):
     return decorator
 
 
-def render_all_images(
-    method: Method,
-    dataset: Dataset,
-    output: Path,
-    description: str = "rendering all images",
-    ns_info: Optional[dict] = None,
-) -> Iterable[RenderOutput]:
-    info = method.get_info()
-    render = with_supported_camera_models(info.supported_camera_models)(method.render)
-    allow_transparency = True
+def store_predictions(output: Path, predictions: Iterable[RenderOutput], dataset: Dataset, *, ns_info=None) -> Iterable[RenderOutput]:
     background_color =  dataset.metadata.get("background_color", None)
-    if background_color is not None:
-        background_color = convert_image_dtype(background_color, np.uint8)
-    if ns_info is None:
-        ns_info = {}
-    else:
-        assert dataset.color_space == ns_info.get("color_space", "srgb"), \
-            f"Dataset color space {dataset.color_space} != method color space {ns_info['color_space']}"
-        if "dataset_background_color" in ns_info:
-            info_background_color = ns_info.get("dataset_background_color")
-            if info_background_color is not None:
-                info_background_color = np.array(info_background_color, np.uint8)
-            assert info_background_color is None or (background_color is not None and np.array_equal(info_background_color, background_color)), \
-                f"Dataset background color {background_color} != method background color {info_background_color}"
+    assert background_color is None or background_color.dtype == np.uint8, "background_color must be None or uint8"
     color_space = dataset.color_space
-    expected_scene_scale = ns_info.get("expected_scene_scale", dataset.expected_scene_scale)
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        method.save(Path(tmpdir))
-        checkpoint_sha = get_checkpoint_sha(Path(tmpdir))
+    expected_scene_scale = dataset.expected_scene_scale
+    allow_transparency = True
 
     def _predict_all(open_fn) -> Iterable[RenderOutput]:
         assert dataset.images is not None, "dataset must have images loaded"
-        with tqdm(desc=description) as pbar:
-
-            predictions = render(dataset.cameras, progress_callback=build_update_progress(pbar))
-            for i, (pred, (w, h)) in enumerate(zip(predictions, assert_not_none(dataset.cameras.image_sizes))):
-                gt_image = image_to_srgb(dataset.images[i][:h, :w], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
-                pred_image = image_to_srgb(pred["color"], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
-                assert gt_image.shape[:-1] == pred_image.shape[:-1], f"gt size {gt_image.shape[:-1]} != pred size {pred_image.shape[:-1]}"
-                relative_name = Path(dataset.file_paths[i])
-                if dataset.file_paths_root is not None:
-                    if str(relative_name).startswith("/undistorted/"):
-                        relative_name = Path(str(relative_name)[len("/undistorted/") :])
-                    else:
-                        relative_name = relative_name.relative_to(Path(dataset.file_paths_root))
-                with open_fn(f"gt-color/{relative_name.with_suffix('.png')}") as f:
-                    save_image(f, gt_image)
-                with open_fn(f"color/{relative_name.with_suffix('.png')}") as f:
-                    save_image(f, pred_image)
-                if "depth" in pred:
-                    with open_fn(f"depth/{relative_name.with_suffix('.bin')}") as f:
-                        save_depth(f, pred["depth"])
-                    depth_rgb = visualize_depth(pred["depth"], near_far=dataset.cameras.nears_fars[i] if dataset.cameras.nears_fars is not None else None, expected_scale=expected_scene_scale)
-                    with open_fn(f"depth-rgb/{relative_name.with_suffix('.png')}") as f:
-                        save_image(f, depth_rgb)
-                if color_space == "linear":
-                    # Store the raw linear image as well
-                    with open_fn(f"gt-color-linear/{relative_name.with_suffix('.bin')}") as f:
-                        save_image(f, dataset.images[i][:h, :w])
-                    with open_fn(f"color-linear/{relative_name.with_suffix('.bin')}") as f:
-                        save_image(f, pred["color"])
-                yield pred
+        for i, (pred, (w, h)) in enumerate(zip(predictions, assert_not_none(dataset.cameras.image_sizes))):
+            gt_image = image_to_srgb(dataset.images[i][:h, :w], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
+            pred_image = image_to_srgb(pred["color"], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
+            assert gt_image.shape[:-1] == pred_image.shape[:-1], f"gt size {gt_image.shape[:-1]} != pred size {pred_image.shape[:-1]}"
+            relative_name = Path(dataset.file_paths[i])
+            if dataset.file_paths_root is not None:
+                if str(relative_name).startswith("/undistorted/"):
+                    relative_name = Path(str(relative_name)[len("/undistorted/") :])
+                else:
+                    relative_name = relative_name.relative_to(Path(dataset.file_paths_root))
+            with open_fn(f"gt-color/{relative_name.with_suffix('.png')}") as f:
+                save_image(f, gt_image)
+            with open_fn(f"color/{relative_name.with_suffix('.png')}") as f:
+                save_image(f, pred_image)
+            if "depth" in pred:
+                with open_fn(f"depth/{relative_name.with_suffix('.bin')}") as f:
+                    save_depth(f, pred["depth"])
+                depth_rgb = visualize_depth(pred["depth"], near_far=dataset.cameras.nears_fars[i] if dataset.cameras.nears_fars is not None else None, expected_scale=expected_scene_scale)
+                with open_fn(f"depth-rgb/{relative_name.with_suffix('.png')}") as f:
+                    save_image(f, depth_rgb)
+            if color_space == "linear":
+                # Store the raw linear image as well
+                with open_fn(f"gt-color-linear/{relative_name.with_suffix('.bin')}") as f:
+                    save_image(f, dataset.images[i][:h, :w])
+                with open_fn(f"color-linear/{relative_name.with_suffix('.bin')}") as f:
+                    save_image(f, pred["color"])
+            yield pred
 
     def write_metadata(open_fn):
         with open_fn("info.json") as fp:
@@ -170,16 +150,12 @@ def render_all_images(
                 background_color = background_color.tolist()
             fp.write(
                 json.dumps(
-                    {
-                        **ns_info,
-                        "nb_version": __version__,
-                        "checkpoint_sha256": checkpoint_sha,
-                        "dataset_name": dataset.metadata.get("name", None),
-                        "dataset_scene": dataset.metadata.get("scene", None),
-                        "dataset_background_color": background_color,
-                        "expected_scene_scale": round(expected_scene_scale, 5),
-                        "color_space": color_space,
-                    },
+                    serialize_ns_info(
+                        {
+                            **(ns_info or {}),
+                            "nb_version": __version__,
+                            "dataset_metadata": dataset.metadata,
+                        }),
                     indent=4,
                 ).encode("utf-8")
             )
@@ -211,6 +187,44 @@ def render_all_images(
 
         write_metadata(open_fn_fs)
         yield from _predict_all(open_fn_fs)
+
+
+def render_all_images(
+    method: Method,
+    dataset: Dataset,
+    output: Path,
+    description: str = "rendering all images",
+    ns_info: Optional[dict] = None,
+    evaluation_protocol: Optional[EvaluationProtocol] = None,
+) -> Iterable[RenderOutput]:
+    if evaluation_protocol is None:
+        from .evaluate import get_evaluation_protocol
+
+        evaluation_protocol = get_evaluation_protocol(dataset_name=dataset.metadata.get("name"))
+    background_color =  dataset.metadata.get("background_color", None)
+    if background_color is not None:
+        background_color = convert_image_dtype(background_color, np.uint8)
+    if ns_info is None:
+        ns_info = {}
+    else:
+        ns_info = ns_info.copy()
+        assert dataset.color_space == ns_info.get("color_space", "srgb"), \
+            f"Dataset color space {dataset.color_space} != method color space {ns_info['color_space']}"
+        if "dataset_background_color" in ns_info:
+            info_background_color = ns_info.get("dataset_background_color")
+            if info_background_color is not None:
+                info_background_color = np.array(info_background_color, np.uint8)
+            assert info_background_color is None or (background_color is not None and np.array_equal(info_background_color, background_color)), \
+                f"Dataset background color {background_color} != method background color {info_background_color}"
+    ns_info["checkpoint_sha256"] = get_method_sha(method)
+    ns_info["evaluation_protocol"] = evaluation_protocol.get_name()
+
+    with tqdm(desc=description) as pbar:
+        yield from store_predictions(
+            output,
+            evaluation_protocol.render(method, dataset, progress_callback=build_update_progress(pbar)),
+            dataset=dataset,
+            ns_info=ns_info)
 
 
 @click.command("render")

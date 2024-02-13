@@ -1,15 +1,19 @@
+import time
+import click
 import sys
+import math
 import os
 import subprocess
 import inspect
 import struct
 from pathlib import Path
-import types
 from functools import wraps
-from typing import Any, Optional, Dict, TYPE_CHECKING, Union, List, TypeVar
+from typing import Any, Optional, Dict, TYPE_CHECKING, Union, List, TypeVar, Iterable
 from typing import BinaryIO
-import numpy as np
 import logging
+import types
+import numpy as np
+from PIL import Image
 try:
     from typing import get_args, get_origin
 except ImportError:
@@ -68,6 +72,25 @@ def remap_error(fn):
             raise
 
     return wrapped
+
+
+def build_measure_iter_time():
+    total_time = 0
+
+    def measure_iter_time(iterable: Iterable) -> Iterable:
+        nonlocal total_time
+        
+        total_time = 0
+        start = time.perf_counter()
+        for x in iterable:
+            total_time += time.perf_counter() - start
+            yield x
+            start = time.perf_counter()
+
+    def get_total_time():
+        return total_time
+
+    return measure_iter_time, get_total_time
 
 
 class CancelledException(Exception):
@@ -491,3 +514,73 @@ def cast_value(tp, value):
     if isinstance(value, tp):
         return value
     raise TypeError(f"Cannot cast value {value} to type {tp}")
+
+
+def make_image_grid(*images: np.ndarray, ncol=None, padding=2, max_width=1920, background=1.0):
+    if ncol is None:
+        ncol = len(images)
+    dtype = images[0].dtype
+    background = convert_image_dtype(
+        np.array(background, dtype=np.float32 if isinstance(background, float) else np.uint8),
+        dtype).item()
+    nrow = int(math.ceil(len(images) / ncol))
+    scale_factor = 1
+    height, width = tuple(map(int, np.max([x.shape[:2] for x in images], axis=0).tolist()))
+    if max_width is not None:
+        scale_factor = min(1, (max_width - padding * (ncol - 1)) / (ncol * width))
+        height = int(height * scale_factor)
+        width = int(width * scale_factor)
+
+    def interpolate(image) -> np.ndarray:
+        img = Image.fromarray(image)
+        img_width, img_height = img.size
+        aspect = img_width / img_height
+        img_width = int(min(width, aspect * height))
+        img_height = int(img_width / aspect)
+        img = img.resize((img_width, img_height))
+        return np.array(img)
+
+    images = tuple(map(interpolate, images))
+    grid: np.ndarray = np.ndarray(
+        (height * nrow + padding * (nrow - 1), width * ncol + padding * (ncol - 1), images[0].shape[-1]),
+        dtype=dtype,
+    )
+    grid.fill(background)
+    for i, image in enumerate(images):
+        x = i % ncol
+        y = i // ncol
+        h, w = image.shape[:2]
+        offx = x * (width + padding) + (width - w) // 2
+        offy = y * (height + padding) + (height - h) // 2
+        grid[offy : offy + h, 
+             offx : offx + w] = image
+    return grid
+
+
+class IndicesClickType(click.ParamType):
+    name = "indices"
+
+    def convert(self, value, param, ctx):
+        if value is None:
+            return None
+        if isinstance(value, Indices):
+            return value
+        if ":" in value:
+            parts = [int(x) if x else None for x in value.split(":")]
+            assert len(parts) <= 3, "too many parts in slice"
+            return Indices(slice(*parts))
+        return Indices([int(x) for x in value.split(",")])
+
+
+class SetParamOptionType(click.ParamType):
+    name = "key-value"
+
+    def convert(self, value, param, ctx):
+        if value is None:
+            return None
+        if isinstance(value, tuple):
+            return value
+        if "=" not in value:
+            self.fail(f"expected key=value pair, got {value}", param, ctx)
+        k, v = value.split("=", 1)
+        return k, v

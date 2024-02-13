@@ -57,10 +57,12 @@ def load_blender_dataset(path: Path, split: str, **kwargs):
         file_paths_root=path,
         file_paths=image_paths,
         sampling_mask_paths=None,
-        color_space="srgb",
         metadata={
             "name": "blender",
             "scene": scene,
+            "color_space": "srgb",
+            "type": "object-centric",
+            "expected_scene_scale": 4,
             "background_color": np.array([255, 255, 255], dtype=np.uint8),
         },
     )

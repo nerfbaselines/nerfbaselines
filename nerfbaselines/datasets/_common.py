@@ -6,7 +6,7 @@ import numpy as np
 import PIL.Image
 import PIL.ExifTags
 from tqdm import tqdm
-from ..types import Dataset
+from ..types import Dataset, Literal
 from .. import cameras
 from ..utils import padded_stack
 
@@ -75,6 +75,19 @@ def _dataset_undistort_unsupported(dataset: Dataset, supported_camera_models):
 
 
 METADATA_COLUMNS = ["exposure"]
+DatasetType = Literal["object-centric", "forward-facing"]
+
+
+def get_scene_scale(cameras: cameras.Cameras, dataset_type: DatasetType):
+    if dataset_type == "object-centric":
+        return float(np.percentile(np.linalg.norm(cameras.poses[..., :3, 3] - cameras.poses[..., :3, 3].mean(), axis=-1), 90))
+
+    elif dataset_type == "forward-facing":
+        assert cameras.nears_fars is not None, "Forward-facing dataset must set z-near and z-far"
+        return float(cameras.nears_fars.mean())
+    
+    else:
+        raise ValueError(f"Dataset type {dataset_type} is not supported")
 
 
 def get_image_metadata(image: PIL.Image.Image):
@@ -106,7 +119,7 @@ def dataset_load_features(
     all_metadata = []
     for p in tqdm(dataset.file_paths, desc="loading images"):
         if str(p).endswith(".bin"):
-            assert dataset.color_space is None or dataset.color_space == "linear"
+            assert dataset.color_space == "linear"
             with open(p, "rb") as f:
                 data_bytes = f.read()
                 h, w = struct.unpack("ii", data_bytes[:8])
@@ -117,16 +130,14 @@ def dataset_load_features(
                     .astype(np.float32)
                     .reshape([h, w, 4])
                 )
-            dataset.color_space = "linear"
             metadata = np.array(
                 [np.nan for _ in range(len(METADATA_COLUMNS))], dtype=np.float32
             )
         else:
-            assert dataset.color_space is None or dataset.color_space == "srgb"
+            assert dataset.color_space == "srgb"
             pil_image = PIL.Image.open(p)
             metadata = get_image_metadata(pil_image)
             image = np.array(pil_image, dtype=np.uint8)
-            dataset.color_space = "srgb"
         images.append(image)
         image_sizes.append([image.shape[1], image.shape[0]])
         all_metadata.append(metadata)
