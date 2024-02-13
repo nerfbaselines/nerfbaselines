@@ -57,11 +57,16 @@ class Dataset:
     points3D_rgb: Optional[np.ndarray] = None  # [M, 3]
 
     metadata: Dict = field(default_factory=dict)
-    color_space: Optional[ColorSpace] = None
 
     def __post_init__(self):
         if self.file_paths_root is None:
             self.file_paths_root = Path(os.path.commonpath(self.file_paths))
+        if self.metadata.get("expected_scene_scale") is None:
+            if self.cameras.nears_fars is not None:
+                return float(self.cameras.nears_fars.mean())
+            else:
+                # TODO: this will only work for object-centric scenes. This code needs to be moved to the data parsers.
+                return float(np.percentile(np.linalg.norm(self.cameras.poses[..., :3, 3] - self.cameras.poses[..., :3, 3].mean(), axis=-1), 90))
 
     def __len__(self):
         return len(self.file_paths)
@@ -88,7 +93,7 @@ class Dataset:
                 return [obj[i] for i in indices]
             raise ValueError(f"Cannot index object of type {type(obj)}")
 
-        return dataclasses.replace(self, **{k: index(v) for k, v in self.__dict__.items() if k not in {"file_paths_root", "points3D_xyz", "points3D_rgb", "metadata", "color_space"}})
+        return dataclasses.replace(self, **{k: index(v) for k, v in self.__dict__.items() if k not in {"file_paths_root", "points3D_xyz", "points3D_rgb", "metadata"}})
 
     @mark_host
     def load_features(self, required_features, supported_camera_models=None):
@@ -102,19 +107,19 @@ class Dataset:
 
     @property
     def expected_scene_scale(self):
-        if "expected_scene_scale" in self.metadata:
-            return float(self.metadata["expected_scene_scale"])
-        if self.cameras.nears_fars is not None:
-            return float(self.cameras.nears_fars.mean())
+        return self.metadata.get("expected_scene_scale")
 
-        # TODO: this will only work for object-centric scenes. This code needs to be moved to the data parsers.
-        return float(np.percentile(np.linalg.norm(self.cameras.poses[..., :3, 3] - self.cameras.poses[..., :3, 3].mean(), axis=-1), 90))
+    @property
+    def color_space(self) -> ColorSpace:
+        color_space = self.metadata.get("color_space", None)
+        return "srgb" if color_space is None else color_space
 
     def clone(self):
         return dataclasses.replace(
             self, 
             cameras=self.cameras.clone(), 
             images=self.images.copy() if self.images is not None else None,
+            metadata=self.metadata.copy(),
             sampling_masks=self.sampling_masks.copy() if self.sampling_masks is not None else None)
 
 
@@ -306,3 +311,17 @@ class RayMethod(Method):
             yield {  # type: ignore
                 k: np.concatenate([x[k] for x in outputs], 0).reshape((h, w, -1)) for k in outputs[0].keys()  # type: ignore
             }
+
+
+class EvaluationProtocol(Protocol):
+    def get_name(self) -> str:
+        ...
+        
+    def render(self, method: Method, dataset: Dataset, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
+        ...
+
+    def evaluate(self, predictions: Iterable[RenderOutput], dataset: Dataset) -> Iterable[Dict[str, Union[float, int]]]:
+        ...
+
+    def accumulate_metrics(self, metrics: Iterable[Dict[str, Union[float, int]]]) -> Dict[str, Union[float, int]]:
+        ...

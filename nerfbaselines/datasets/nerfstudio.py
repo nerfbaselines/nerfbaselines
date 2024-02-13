@@ -13,7 +13,7 @@ import numpy as np
 from PIL import Image
 
 from ._colmap_utils import read_points3D_binary, read_points3D_text
-from ._common import DatasetNotFoundError
+from ._common import DatasetNotFoundError, get_scene_scale
 from ..cameras import CameraModel, Cameras
 from ..types import Dataset, FrozenSet, DatasetFeature
 
@@ -457,7 +457,11 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
         file_paths_root=images_root,
         points3D_xyz=points3D_xyz,
         points3D_rgb=points3D_rgb,
-        metadata={"name": "nerfstudio"},
+        metadata={
+            "name": "nerfstudio",
+            "expected_scene_scale": get_scene_scale(cameras, "object-centric") if split == "train" else None,
+            "type": "object-centric",
+        },
     )
 
 

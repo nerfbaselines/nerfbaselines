@@ -25,7 +25,7 @@ from .utils import convert_image_dtype
 from .types import Method, CurrentProgress, RenderOutput
 from .cameras import Cameras, CameraModel
 
-from .io import open_any_directory
+from .io import open_any_directory, serialize_ns_info
 from . import registry
 
 

@@ -320,9 +320,6 @@ def no_extras(request):
 
     from nerfbaselines import evaluate
 
-    def raise_import_error(*args, **kwargs):
-        raise ImportError()
-
-    with mock.patch.object(evaluate, "test_extra_metrics", raise_import_error):
+    with mock.patch.object(evaluate, "_EXTRA_METRICS_AVAILABLE", False):
         yield None
         return

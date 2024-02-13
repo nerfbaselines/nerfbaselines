@@ -10,7 +10,7 @@ import requests
 from tqdm import tqdm
 
 from ..types import Dataset
-from ._common import DatasetNotFoundError, single
+from ._common import DatasetNotFoundError, single, get_scene_scale
 from .colmap import load_colmap_dataset
 
 DATASET_NAME = "phototourism"
@@ -52,6 +52,8 @@ def load_phototourism_dataset(path: Path, split: str, use_nerfw_split=None, **kw
     )
     dataset.metadata["name"] = DATASET_NAME
     dataset.metadata["scene"] = scene
+    dataset.metadata["expected_scene_scale"] = get_scene_scale(dataset.cameras, "object-centric"),
+    dataset.metadata["type"] = "object-centric"
 
     if split_list is not None:
         indices = np.array(

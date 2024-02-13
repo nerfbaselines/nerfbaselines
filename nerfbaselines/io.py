@@ -1,3 +1,4 @@
+import numpy as np
 import time
 import tarfile
 import os
@@ -192,3 +193,17 @@ def open_any_directory(path: Union[str, Path], mode: OpenMode = "r") -> Iterator
     Path(path).mkdir(parents=True, exist_ok=True)
     yield Path(path)
     return
+
+
+def serialize_ns_info(info: dict) -> dict:
+    info = info.copy()
+    if "background_color" in info:
+        info["background_color"] = info["background_color"].tolist()
+    return info
+
+
+def deserialize_ns_info(info: dict) -> dict:
+    info = info.copy()
+    if "background_color" in info:
+        info["background_color"] = np.array(info["background_color"], dtype=np.uint8)
+    return info
