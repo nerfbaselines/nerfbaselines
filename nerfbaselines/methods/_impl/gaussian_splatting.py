@@ -43,8 +43,21 @@ from scene import Scene, sceneLoadTypeCallbacks  # noqa: E402
 from utils import camera_utils  # noqa: E402
 
 
+def getProjectionMatrixFromOpenCV(w, h, fx, fy, cx, cy, znear, zfar):
+    z_sign = 1.0
+    P = torch.zeros((4, 4))
+    P[0, 0] = 2.0 * fx / w
+    P[1, 1] = 2.0 * fy / h
+    P[0, 2] = (2.0 * cx - w) / w
+    P[1, 2] = (2.0 * cy - h) / h
+    P[3, 2] = z_sign
+    P[2, 2] = z_sign * zfar / (zfar - znear)
+    P[2, 3] = -(zfar * znear) / (zfar - znear)
+    return P
+
 #
 # Patch Gaussian Splatting to include sampling masks
+# Also, fix cx, cy (ignored in gaussian-splatting)
 #
 # Patch loadCam to include sampling mask
 _old_loadCam = camera_utils.loadCam
@@ -56,15 +69,31 @@ def loadCam(args, id, cam_info, resolution_scale):
         sampling_mask = PILtoTorch(cam_info.sampling_mask, (camera.image_width, camera.image_height))
     setattr(camera, "sampling_mask", sampling_mask)
     setattr(camera, "_patched", True)
+
+    # Fix cx, cy (ignored in gaussian-splatting)
+    camera.cx = cam_info.cx
+    camera.cy = cam_info.cy
+    camera.projection_matrix = getProjectionMatrixFromOpenCV(
+        camera.image_width, 
+        camera.image_height, 
+        camera.focal_x, 
+        camera.focal_y, 
+        camera.cx, 
+        camera.cy, 
+        camera.znear, 
+        camera.zfar).transpose(0, 1).cuda()
+
     return camera
 camera_utils.loadCam = loadCam
 
 
 # Patch CameraInfo to add sampling mask
 class CameraInfo(_old_CameraInfo):
-    def __new__(cls, *args, sampling_mask=None, **kwargs):
+    def __new__(cls, *args, sampling_mask=None, cx, cy, **kwargs):
         self = super(CameraInfo, cls).__new__(cls, *args, **kwargs)
         self.sampling_mask = sampling_mask
+        self.cx = cx
+        self.cy = cy
         return self
 scene.dataset_readers.CameraInfo = CameraInfo
 
@@ -84,7 +113,7 @@ def normalize_ssim(ssim_value, mask_percentage):
     return ssim_value
 
 
-def _load_cam(pose, intrinsics, camera_id, image_name, image_size, device=None):
+def _load_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, image_path=None, sampling_mask=None):
     pose = np.copy(pose)
     pose = np.concatenate([pose, np.array([[0, 0, 0, 1]], dtype=pose.dtype)], axis=0)
     pose = np.linalg.inv(pose)
@@ -94,19 +123,16 @@ def _load_cam(pose, intrinsics, camera_id, image_name, image_size, device=None):
 
     width, height = image_size
     fx, fy, cx, cy = intrinsics
-    cam = Camera(
-        colmap_id=int(camera_id),
-        R=R,
-        T=T,
-        FoVx=focal2fov(float(fx), float(width)),
-        FoVy=focal2fov(float(fy), float(height)),
-        image=torch.zeros((3, height, width), dtype=torch.float32),
-        gt_alpha_mask=None,
-        image_name=image_name,
-        uid=id,
-        data_device=device,
-    )
-    return cam
+    if image is None:
+        image = Image.fromarray(np.zeros((height, width, 3), dtype=torch.uint8))
+    return CameraInfo(
+        uid=idx, R=R, T=T, 
+        FovX=focal2fov(float(fx), float(width)),
+        FovY=focal2fov(float(fy), float(height)),
+        image=image, image_path=image_path, image_name=image_name, 
+        width=int(width), height=int(height),
+        sampling_mask=sampling_mask,
+        cx=cx, cy=cy)
 
 
 def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: str, white_background: bool = False):
@@ -116,17 +142,9 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
 
     cam_infos = []
     for idx, extr in enumerate(dataset.cameras.poses):
-        intr = dataset.cameras.intrinsics[idx]
+        intrinsics = dataset.cameras.intrinsics[idx]
         width, height = dataset.cameras.image_sizes[idx]
-        focal_length_x, focal_length_y, cx, cy = intr
-        FovY = focal2fov(focal_length_y, height)
-        FovX = focal2fov(focal_length_x, width)
-
-        extr = np.copy(extr)
-        extr = np.concatenate([extr, np.array([[0, 0, 0, 1]], dtype=extr.dtype)], axis=0)
-        extr = np.linalg.inv(extr)
-        R, T = extr[:3, :3], extr[:3, 3]
-        R = np.transpose(R)
+        pose = dataset.cameras.poses[idx]
         image_path = dataset.file_paths[idx] if dataset.file_paths is not None else f"{idx:06d}.png"
         image_name = (
             os.path.relpath(str(dataset.file_paths[idx]), str(dataset.file_paths_root)) if dataset.file_paths is not None and dataset.file_paths_root is not None else os.path.basename(image_path)
@@ -149,12 +167,13 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
         if dataset.sampling_masks is not None:
             sampling_mask = Image.fromarray((dataset.sampling_masks[idx] * 255).astype(np.uint8))
 
-        cam_info = CameraInfo(
-            uid=idx, R=R, T=T, FovY=float(FovY), FovX=float(FovX), 
-            image=image, image_path=image_path, image_name=image_name, 
-            width=int(width), height=int(height),
+        cam_info = _load_caminfo(
+            idx, pose, intrinsics, 
+            image_name=image_name, 
+            image_path=image_path,
+            image_size=(w, h),
+            image=image,
             sampling_mask=sampling_mask,
-            cx=cx, cy=cy,
         )
         cam_infos.append(cam_info)
 
@@ -320,7 +339,8 @@ class GaussianSplatting(Method):
             if progress_callback:
                 progress_callback(CurrentProgress(global_i, global_total, 0, len(poses)))
             for i, pose in enumerate(poses):
-                viewpoint = _load_cam(pose, intrinsics[i], i, f"{i:06d}.png", sizes[i], device="cuda")
+                viewpoint_cam = _load_caminfo(i, pose, intrinsics[i], f"{i:06d}.png", sizes[i])
+                viewpoint = loadCam(self.dataset, i, viewpoint_cam, 1.0)
                 image = torch.clamp(render(viewpoint, self.gaussians, self.pipe, self.background)["render"], 0.0, 1.0)
                 global_i += int(sizes[i].prod(-1))
                 if progress_callback:
