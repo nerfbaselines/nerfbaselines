@@ -87,6 +87,10 @@ class ViserViewer:
             else:
                 path = str(Path(path).relative_to(Path(dataset.file_paths_root or "")))
             c2w = cam.poses
+
+            # Convert from Opencv to OpenGL coordinate system
+            c2w[..., 0:3, 1:3] *= -1
+
             assert len(c2w.shape) == 2
             if c2w.shape[0] == 3:
                 c2w = np.concatenate([c2w, np.eye(4, dtype=np.float32)[-1:]], 0)
@@ -198,6 +202,10 @@ def rotation_matrix(a, b):
 
 
 def get_orientation_transform(poses):
+    poses = poses.copy()
+
+    # Convert from OpenCV to OpenGL coordinate system
+    poses[..., 0:3, 1:3] *= -1
     origins = poses[..., :3, 3]
     mean_origin = np.mean(origins, 0)
     translation = mean_origin

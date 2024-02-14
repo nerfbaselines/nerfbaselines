@@ -128,6 +128,11 @@ class _CustomDataParser(DataParser):
         npmap["opencv_fisheye"] = npmap["fisheye"]
         camera_types = [npmap[CameraModel(self.dataset.cameras.camera_types[i]).name.lower()] for i in range(len(self.dataset.cameras.poses))]
 
+        poses = self.dataset.cameras.poses.copy()
+       
+        # Convert from Opencv to OpenGL coordinate system
+        poses[..., 0:3, 1:3] *= -1
+
         # in x,y,z order
         # assumes that the scene is centered at the origin
         if self.dataset.metadata.get("name") == "blender":
@@ -136,7 +141,7 @@ class _CustomDataParser(DataParser):
         else:
             aabb_scale = 1
             if self.method.checkpoint is None:
-                dp_trans, dp_scale = self.method._get_pose_transform(self.dataset.cameras.poses)
+                dp_trans, dp_scale = self.method._get_pose_transform(poses)
                 self.method.dataparser_params = dict(
                     dataparser_transform=dp_trans,
                     dataparser_scale=dp_scale,
@@ -148,7 +153,7 @@ class _CustomDataParser(DataParser):
             assert self.method.dataparser_params is not None
         self.method._patch_dataparser_params()
         scene_box = SceneBox(aabb=torch.tensor([[-aabb_scale, -aabb_scale, -aabb_scale], [aabb_scale, aabb_scale, aabb_scale]], dtype=torch.float32))
-        th_poses = self.method._transform_poses(torch.from_numpy(self.dataset.cameras.poses).float())
+        th_poses = self.method._transform_poses(torch.from_numpy(poses).float())
         distortion_parameters = torch.from_numpy(_map_distortion_parameters(self.dataset.cameras.distortion_parameters))
         cameras = NSCameras(
             camera_to_worlds=th_poses,
@@ -292,7 +297,11 @@ class NerfStudio(Method):
     def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
         if self._mode is None:
             self._setup_eval()
-        poses = cameras.poses
+        poses = cameras.poses.copy()
+
+        # Convert from Opencv to OpenGL coordinate system
+        poses[..., 0:3, 1:3] *= -1
+
         poses = torch.from_numpy(poses)
         assert poses.dim() == 3
         poses = self._transform_poses(poses)

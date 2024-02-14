@@ -53,9 +53,15 @@ def load_llff_dataset(path: Path, split: str, downscale_factor: int = 4, **kwarg
     i_test = np.arange(0, poses.shape[0], hold_every)
     indices = i_test if split != "train" else np.array(list(set(np.arange(len(poses))) - set(i_test)))
 
+    c2w = poses[indices, :3, :4]
+
+    # Convert from OpenGL to OpenCV coordinate system
+    c2w = c2w.copy()
+    c2w[..., 0:3, 1:3] *= -1
+
     return Dataset(
         cameras=Cameras(
-            poses=poses[indices, :3, :4],
+            poses=c2w,
             normalized_intrinsics=(intrinsics / img_wh[:1].T)[indices],
             camera_types=np.full(len(indices), CameraModel.PINHOLE.value, dtype=np.int32),
             distortion_parameters=np.zeros((len(indices), 0), dtype=np.float32),

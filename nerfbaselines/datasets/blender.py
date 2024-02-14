@@ -45,6 +45,11 @@ def load_blender_dataset(path: Path, split: str, **kwargs):
     fx = fy = 0.5 * w / np.tan(0.5 * float(meta["camera_angle_x"]))
     cx = cy = 0.5 * w
     intrinsics = np.array([fx, fy, cx, cy], dtype=np.float32)[None].repeat(len(cams), axis=0)
+    c2w = np.stack(cams)[:, :3, :4]
+
+    # Convert from OpenGL to OpenCV coordinate system
+    c2w[..., 0:3, 1:3] *= -1
+
     return Dataset(
         cameras=Cameras(
             poses=np.stack(cams)[:, :3, :4],

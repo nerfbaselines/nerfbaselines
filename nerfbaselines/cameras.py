@@ -449,9 +449,6 @@ class Cameras:
         uv = _undistort(self.camera_types, self.distortion_parameters, uv, xnp=xnp)
         directions = xnp.concatenate((uv, xnp.ones_like(uv[..., :1])), -1)
 
-        # Switch from OpenCV to OpenGL coordinate system
-        directions[..., 1:] *= -1
-
         rotation = self.poses[..., :3, :3]  # (..., 3, 3)
         directions = (directions[..., None, :] * rotation).sum(-1)
         origins = xnp.broadcast_to(self.poses[..., :3, 3], directions.shape)
@@ -468,8 +465,6 @@ class Cameras:
         # Rotation and translation
         uvw = xyz - origins
         uvw = (rotation * uvw[..., :, None]).sum(-2)
-        # Switch from OpenGL to OpenCV coordinate system
-        uvw[..., 1:] *= -1
 
         # Camera -> Camera distorted
         uv = xnp.divide(uvw[..., :2], uvw[..., 2:], out=xnp.zeros_like(uvw[..., :2]), where=xnp.abs(uvw[..., 2:]) > eps)

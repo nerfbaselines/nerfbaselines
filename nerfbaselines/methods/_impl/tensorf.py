@@ -101,6 +101,12 @@ class TensoRFDataset:
 
         self.transform = np.eye(4)
 
+        poses = dataset.cameras.poses.copy()
+
+        # Convert from OpenCV to OpenGL coordinate system
+        poses[..., 0:3, 1:3] *= -1
+
+
         if dataset.metadata.get("name") == "blender":
             self.white_bg = True
             self.near_far = [2.0, 6.0]
@@ -109,7 +115,6 @@ class TensoRFDataset:
             assert dataset.metadata.get("type") == "forward-facing"
             assert dataset.cameras.nears_fars is not None
 
-            poses = dataset.cameras.poses
             if transform is None:
                 transform = get_llff_transform(poses, dataset.cameras.nears_fars)
             poses = apply_transform(poses, transform)
@@ -127,7 +132,7 @@ class TensoRFDataset:
             self.scene_bbox = torch.tensor([[-1.5, -1.67, -1.0], [1.5, 1.67, 1.0]])
             self.transform = transform
         else:
-            camera_centers = dataset.cameras.poses[:, :3, 3]
+            camera_centers = poses[:, :3, 3]
             scene_bbox, far = compute_scene_bbox_and_far(camera_centers)
             self.scene_bbox = torch.tensor(scene_bbox)
             self.near_far = [0.1, far]

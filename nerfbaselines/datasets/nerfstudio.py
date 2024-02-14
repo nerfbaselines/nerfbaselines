@@ -399,8 +399,13 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
     else:
         distortion_params = np.stack(distort, 0)[idx_tensor]
 
+    c2w = poses[:, :3, :4]
+
+    # Convert from OpenGL to OpenCV coordinate system
+    c2w[0:3, 1:3] *= -1
+
     cameras = Cameras(
-        poses=poses[:, :3, :4],
+        poses=c2w,
         normalized_intrinsics=np.stack([fx, fy, cx, cy], -1) / width[:, None],
         camera_types=np.full((len(indices),), camera_type.value, dtype=np.int32),
         distortion_parameters=distortion_params,

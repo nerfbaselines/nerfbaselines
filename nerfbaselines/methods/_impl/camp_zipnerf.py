@@ -75,7 +75,10 @@ def convert_posedata(dataset: Dataset):
         camtoworlds.append(dataset.cameras.poses[i])
         fx, fy, cx, cy = dataset.cameras.intrinsics[i]
         pixtocams.append(np.linalg.inv(camera_utils.intrinsic_matrix(fx, fy, cx, cy)))
-    camtoworlds = np.stack(camtoworlds, axis=0).astype(np.float32)
+    camtoworlds = np.stack(camtoworlds, axis=0).astype(np.float32).copy()
+
+    # Convert from Opencv to OpenGL coordinate system
+    camtoworlds[..., 0:3, 1:3] *= -1
 
     pixtocams = np.stack(pixtocams, axis=0)
     distortion_params = None
