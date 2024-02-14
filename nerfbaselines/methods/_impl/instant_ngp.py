@@ -96,6 +96,11 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
         name = str(dataset.file_paths[i])
         # b = sharpness(name) if os.path.exists(name) else 1.0
         c2w = dataset.cameras.poses[i, :3, :4]
+
+        # Convert from Opencv to OpenGL coordinate system
+        c2w = c2w.copy()
+        c2w[..., 0:3, 1:3] *= -1
+
         c2w = np.concatenate([c2w[0:3, 0:4], bottom], 0)
 
         if not keep_coords:

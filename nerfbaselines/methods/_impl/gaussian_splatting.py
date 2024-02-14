@@ -86,10 +86,6 @@ def normalize_ssim(ssim_value, mask_percentage):
 
 def _load_cam(pose, intrinsics, camera_id, image_name, image_size, device=None):
     pose = np.copy(pose)
-
-    # Convert from OpenGL to COLMAP's camera coordinate system (OpenCV)
-    pose[0:3, 1:3] *= -1
-
     pose = np.concatenate([pose, np.array([[0, 0, 0, 1]], dtype=pose.dtype)], axis=0)
     pose = np.linalg.inv(pose)
     R = pose[:3, :3]
@@ -127,9 +123,6 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
         FovX = focal2fov(focal_length_x, width)
 
         extr = np.copy(extr)
-
-        # Convert from OpenGL to COLMAP's camera coordinate system (OpenCV)
-        extr[0:3, 1:3] *= -1
         extr = np.concatenate([extr, np.array([[0, 0, 0, 1]], dtype=extr.dtype)], axis=0)
         extr = np.linalg.inv(extr)
         R, T = extr[:3, :3], extr[:3, 3]
@@ -157,8 +150,11 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
             sampling_mask = Image.fromarray((dataset.sampling_masks[idx] * 255).astype(np.uint8))
 
         cam_info = CameraInfo(
-            uid=idx, R=R, T=T, FovY=float(FovY), FovX=float(FovX), image=image, image_path=image_path, image_name=image_name, width=int(width), height=int(height),
+            uid=idx, R=R, T=T, FovY=float(FovY), FovX=float(FovX), 
+            image=image, image_path=image_path, image_name=image_name, 
+            width=int(width), height=int(height),
             sampling_mask=sampling_mask,
+            cx=cx, cy=cy,
         )
         cam_infos.append(cam_info)
 

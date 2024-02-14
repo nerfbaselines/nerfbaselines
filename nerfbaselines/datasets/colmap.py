@@ -287,10 +287,6 @@ def load_colmap_dataset(path: Path,
         w2c = np.concatenate([w2c, np.array([[0, 0, 0, 1]], dtype=w2c.dtype)], 0)
         c2w = np.linalg.inv(w2c)
 
-        # Convert from COLMAP's camera coordinate system (OpenCV) to ours (OpenGL)
-        c2w[0:3, 1:3] *= -1
-        # c2w = c2w[np.array([1, 0, 2, 3]), :]
-        # c2w[2, :] *= -1
         camera_poses.append(c2w[0:3, :])
         i += 1
 

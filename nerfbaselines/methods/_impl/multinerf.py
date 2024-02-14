@@ -93,7 +93,11 @@ class NBDataset(MNDataset):
         # TODO: handle rawnerf and FF scenes
 
         # Rotate/scale poses to align ground with xy plane and fit to unit cube.
-        poses = self.dataset.cameras.poses
+        poses = self.dataset.cameras.poses.copy()
+
+        # Convert from Opencv to OpenGL coordinate system
+        poses[..., 0:3, 1:3] *= -1
+
         if self._dataparser_transform is not None:
             transform = self._dataparser_transform
             scale = np.linalg.norm(transform[:3, :3], ord=2, axis=-2)

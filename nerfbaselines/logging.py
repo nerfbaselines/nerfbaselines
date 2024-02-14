@@ -9,7 +9,7 @@ import contextlib
 
 from pathlib import Path
 import typing
-from typing import Optional, Union, List, Dict
+from typing import Optional, Union, List, Dict, Sequence
 from typing import TYPE_CHECKING
 from .utils import convert_image_dtype
 try:
@@ -36,6 +36,12 @@ class LoggerEvent(Protocol):
                       labels: Union[None, List[Dict[str, str]], List[str]] = None) -> None:
         ...
 
+    def add_plot(self, tag: str, *data: np.ndarray,
+                 axes_labels: Optional[Sequence[str]] = None, 
+                 title: Optional[str] = None,
+                 **kwargs) -> None:
+        ...
+
 
 class Logger(Protocol):
     def add_event(self, step: int) -> typing.ContextManager[LoggerEvent]:
@@ -54,6 +60,73 @@ class Logger(Protocol):
                       images: Optional[List[np.ndarray]] = None, 
                       labels: Union[None, List[Dict[str, str]], List[str]] = None) -> None:
         ...
+
+
+class BaseLoggerEvent(LoggerEvent):
+    def add_scalar(self, tag: str, value: Union[float, int]) -> None:
+        raise NotImplementedError()
+    
+    def add_text(self, tag: str, text: str) -> None:
+        raise NotImplementedError()
+    
+    def add_image(self, tag: str, image: np.ndarray, display_name: Optional[str] = None, description: Optional[str] = None, **kwargs) -> None:
+        raise NotImplementedError()
+    
+    def add_embedding(self, tag: str, embeddings: np.ndarray, *,
+                        images: Optional[List[np.ndarray]] = None, 
+                        labels: Union[None, List[Dict[str, str]], List[str]] = None) -> None:
+        raise NotImplementedError()
+    
+    def add_plot(self, tag: str, *data: np.ndarray,
+                 axes_labels: Optional[Sequence[str]] = None, 
+                 title: Optional[str] = None,
+                 colors: Optional[Sequence[np.ndarray]] = None,
+                 labels: Optional[Sequence[str]] = None,
+                 **kwargs) -> None:
+        assert len(data) > 0, "At least one data array should be provided"
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        assert all(len(d.shape) == 2 for d in data), "All data should have two dimensions"
+        assert all(d.shape[1] == data[0].shape[1] for d in data), "All data should have the same number of columns"
+        num_dim = data[0].shape[1]
+        if axes_labels is None:
+            axes_labels = ["x", "y", "z"][:num_dim]
+        else:
+            assert num_dim == len(axes_labels), "All data should have the same number of columns as axes_labels"
+        assert data[0].shape[1] == 2, "Only 2D plots are supported"
+
+        colors_mpl = None
+        if colors is not None:
+            assert len(colors) == len(data), "Number of colors should match number of data arrays"
+            assert all(c.shape == (3,) for c in colors), "All colors should be RGB"
+            colors_mpl = [tuple((c / 255).tolist()) for c in colors]
+        
+        if labels is not None:
+            assert len(labels) == len(data), "Number of labels should match number of data arrays"
+
+        # Render the image using matplotlib
+        fig, ax = plt.subplots(nrows=1, ncols=1)  # create figure & 1 axis
+        for i, d in enumerate(data):
+            x, y = d.T
+            kwargs = {}
+            if colors_mpl is not None:
+                kwargs["color"] = colors_mpl[i]
+            if labels is not None:
+                kwargs["label"] = labels[i]
+            ax.plot(x, y, **kwargs)
+        ax.set_xlabel(axes_labels[0])
+        ax.set_ylabel(axes_labels[1])
+
+        # Render plot as np array
+        fig.canvas.draw()
+        with io.BytesIO() as img_buf:
+            fig.savefig(img_buf, format='png')
+            img_buf.seek(0)
+            plot_img = np.array(Image.open(img_buf))
+        plt.close(fig)
+        self.add_image(tag, plot_img, display_name=title, description=title)
 
 
 class BaseLogger(Logger):
@@ -79,7 +152,7 @@ class BaseLogger(Logger):
             event.add_embedding(tag, embeddings, images=images, labels=labels)
 
 
-class WandbLoggerEvent(LoggerEvent):
+class WandbLoggerEvent(BaseLoggerEvent):
     def __init__(self, commit):
         self._commit = commit
 
@@ -167,7 +240,7 @@ class ConcatLogger(BaseLogger):
         return ",".join(map(str, self.loggers))
 
 
-class TensorboardLoggerEvent:
+class TensorboardLoggerEvent(BaseLoggerEvent):
     def __init__(self, logdir, summaries, step):
         self._step = step
         self._logdir = logdir
