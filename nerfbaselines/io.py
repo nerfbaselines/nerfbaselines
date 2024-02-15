@@ -195,15 +195,31 @@ def open_any_directory(path: Union[str, Path], mode: OpenMode = "r") -> Iterator
     return
 
 
-def serialize_ns_info(info: dict) -> dict:
+def serialize_nb_info(info: dict) -> dict:
     info = info.copy()
-    if "background_color" in info:
-        info["background_color"] = info["background_color"].tolist()
+    if "dataset_metadata" in info:
+        info["dataset_metadata"] = dm = info["dataset_metadata"].copy()
+        if "background_color" in dm:
+            dm["background_color"] = dm["background_color"].tolist()
+
+    def ts(x):
+        _ = info
+        if isinstance(x, np.ndarray):
+            breakpoint()
+        if isinstance(x, dict):
+            return {k: ts(v) for k, v in x.items()}
+        elif isinstance(x, (list, tuple)):
+            return [ts(v) for v in x]
+        else:
+            return x
+    ts(info)
     return info
 
 
-def deserialize_ns_info(info: dict) -> dict:
+def deserialize_nb_info(info: dict) -> dict:
     info = info.copy()
-    if "background_color" in info:
-        info["background_color"] = np.array(info["background_color"], dtype=np.uint8)
+    if "dataset_metadata" in info:
+        info["dataset_metadata"] = dm = info["dataset_metadata"].copy()
+        if "background_color" in dm:
+            dm["background_color"] = np.array(dm["background_color"], dtype=np.uint8)
     return info

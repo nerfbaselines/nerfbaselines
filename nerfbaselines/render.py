@@ -18,7 +18,7 @@ from typing import Any, Iterable, cast
 from .datasets import load_dataset, Dataset
 from .utils import setup_logging, image_to_srgb, save_image, save_depth, visualize_depth, handle_cli_error, convert_image_dtype, assert_not_none
 from .types import Method, CurrentProgress, RenderOutput, EvaluationProtocol
-from .io import open_any_directory, serialize_ns_info
+from .io import open_any_directory, serialize_nb_info, deserialize_nb_info
 from . import cameras as _cameras
 from . import registry
 from . import __version__
@@ -106,7 +106,7 @@ def with_supported_camera_models(supported_camera_models):
     return decorator
 
 
-def store_predictions(output: Path, predictions: Iterable[RenderOutput], dataset: Dataset, *, ns_info=None) -> Iterable[RenderOutput]:
+def store_predictions(output: Path, predictions: Iterable[RenderOutput], dataset: Dataset, *, nb_info=None) -> Iterable[RenderOutput]:
     background_color =  dataset.metadata.get("background_color", None)
     assert background_color is None or background_color.dtype == np.uint8, "background_color must be None or uint8"
     color_space = dataset.color_space
@@ -150,9 +150,9 @@ def store_predictions(output: Path, predictions: Iterable[RenderOutput], dataset
                 background_color = background_color.tolist()
             fp.write(
                 json.dumps(
-                    serialize_ns_info(
+                    serialize_nb_info(
                         {
-                            **(ns_info or {}),
+                            **(nb_info or {}),
                             "nb_version": __version__,
                             "dataset_metadata": dataset.metadata,
                         }),
@@ -194,7 +194,7 @@ def render_all_images(
     dataset: Dataset,
     output: Path,
     description: str = "rendering all images",
-    ns_info: Optional[dict] = None,
+    nb_info: Optional[dict] = None,
     evaluation_protocol: Optional[EvaluationProtocol] = None,
 ) -> Iterable[RenderOutput]:
     if evaluation_protocol is None:
@@ -204,27 +204,27 @@ def render_all_images(
     background_color =  dataset.metadata.get("background_color", None)
     if background_color is not None:
         background_color = convert_image_dtype(background_color, np.uint8)
-    if ns_info is None:
-        ns_info = {}
+    if nb_info is None:
+        nb_info = {}
     else:
-        ns_info = ns_info.copy()
-        assert dataset.color_space == ns_info.get("color_space", "srgb"), \
-            f"Dataset color space {dataset.color_space} != method color space {ns_info['color_space']}"
-        if "dataset_background_color" in ns_info:
-            info_background_color = ns_info.get("dataset_background_color")
+        nb_info = nb_info.copy()
+        assert dataset.color_space == nb_info.get("color_space", "srgb"), \
+            f"Dataset color space {dataset.color_space} != method color space {nb_info['color_space']}"
+        if "dataset_background_color" in nb_info:
+            info_background_color = nb_info.get("dataset_background_color")
             if info_background_color is not None:
                 info_background_color = np.array(info_background_color, np.uint8)
             assert info_background_color is None or (background_color is not None and np.array_equal(info_background_color, background_color)), \
                 f"Dataset background color {background_color} != method background color {info_background_color}"
-    ns_info["checkpoint_sha256"] = get_method_sha(method)
-    ns_info["evaluation_protocol"] = evaluation_protocol.get_name()
+    nb_info["checkpoint_sha256"] = get_method_sha(method)
+    nb_info["evaluation_protocol"] = evaluation_protocol.get_name()
 
     with tqdm(desc=description) as pbar:
         yield from store_predictions(
             output,
             evaluation_protocol.render(method, dataset, progress_callback=build_update_progress(pbar)),
             dataset=dataset,
-            ns_info=ns_info)
+            nb_info=nb_info)
 
 
 @click.command("render")
@@ -244,9 +244,10 @@ def render_command(checkpoint: Union[str, Path], data, output, split, verbose, b
         assert checkpoint_path.exists(), f"checkpoint path {checkpoint} does not exist"
         assert (checkpoint_path / "nb-info.json").exists(), f"checkpoint path {checkpoint} does not contain nb-info.json"
         with (checkpoint_path / "nb-info.json").open("r") as f:
-            ns_info = json.load(f)
+            nb_info = json.load(f)
+        nb_info = deserialize_nb_info(nb_info)
 
-        method_name = ns_info["method"]
+        method_name = nb_info["method"]
         method_spec = registry.get(method_name)
         method_cls, backend = method_spec.build(backend=backend, checkpoint=Path(os.path.abspath(str(checkpoint))))
         logging.info(f"Using backend: {backend}")
@@ -259,9 +260,9 @@ def render_command(checkpoint: Union[str, Path], data, output, split, verbose, b
             method_info = method.get_info()
             dataset = load_dataset(data, split=split, features=method_info.required_features)
             dataset.load_features(method_info.required_features)
-            if dataset.color_space != ns_info["color_space"]:
-                raise RuntimeError(f"Dataset color space {dataset.color_space} != method color space {ns_info['color_space']}")
-            for _ in render_all_images(method, dataset, output=Path(output), ns_info=ns_info):
+            if dataset.color_space != nb_info["color_space"]:
+                raise RuntimeError(f"Dataset color space {dataset.color_space} != method color space {nb_info['color_space']}")
+            for _ in render_all_images(method, dataset, output=Path(output), nb_info=nb_info):
                 pass
         finally:
             if hasattr(method, "close"):

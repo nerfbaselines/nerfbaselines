@@ -16,7 +16,7 @@ from tqdm import tqdm
 from .utils import read_image, convert_image_dtype
 from .types import Optional, Literal, Dataset, ProgressCallback, RenderOutput, EvaluationProtocol, Cameras
 from .render import image_to_srgb, Method, with_supported_camera_models
-from .io import open_any_directory
+from .io import open_any_directory, deserialize_nb_info, serialize_nb_info
 from . import metrics
 
 
@@ -42,6 +42,7 @@ def get_extra_metrics_available() -> bool:
         logging.error(exc)
         logging.error("Extra metrics are not available and will be disabled. Please install torch and jax and other required dependencies by running `pip install nerfbaselines[extras]`.")
         _EXTRA_METRICS_AVAILABLE = False
+    return _EXTRA_METRICS_AVAILABLE
 
 
 @typing.overload
@@ -117,14 +118,14 @@ def _get_metrics_hash(metrics_lists):
     return metrics_sha.hexdigest()
 
 
-def evaluate(predictions: Union[str, Path], output: Path, description: str = "evaluating"):
+def evaluate(predictions: Union[str, Path], output: Path, description: str = "evaluating", run_extra_metrics: Optional[bool] = None):
     """
     Evaluate a set of predictions.
 
     Args:
         predictions: Path to a directory containing the predictions.
         output: Path to a json file where the results will be written.
-        disable_extra_metrics: If True, skip the evaluation of metrics requiring extra dependencies.
+        run_extra_metrics: If True, force the extra metrics to run. If False, disable the extra metrics.
         description: Description of the evaluation, used for progress bar.
     Returns:
         A dictionary containing the results.
@@ -133,8 +134,9 @@ def evaluate(predictions: Union[str, Path], output: Path, description: str = "ev
     with open_any_directory(str(predictions), "r") as predictions_path:
         with open(str(predictions_path / "info.json"), "r", encoding="utf8") as f:
             info = json.load(f)
+        info = deserialize_nb_info(info)
 
-        evaluation_protocol = get_evaluation_protocol(name=info["evaluation_protocol"])
+        evaluation_protocol = get_evaluation_protocol(name=info["evaluation_protocol"], run_extra_metrics=run_extra_metrics)
 
         # Run the evaluation
         metrics_lists = {}
@@ -176,7 +178,7 @@ def evaluate(predictions: Union[str, Path], output: Path, description: str = "ev
         predictions_sha, ground_truth_sha = get_predictions_hashes(predictions_path)
         precision = 5
         out = {
-            "info": info,
+            "info": serialize_nb_info(info),
             "metrics": {k: round(v, precision) for k, v in metrics.items()},
             "metrics_raw": {k: _encode_values(metrics_lists[k]) for k in metrics_lists},
             "metrics_sha256": _get_metrics_hash(metrics_lists),

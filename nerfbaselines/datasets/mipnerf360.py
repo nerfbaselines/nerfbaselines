@@ -44,6 +44,7 @@ def load_mipnerf360_dataset(path: Path, split: str, **kwargs):
     dataset.metadata["scene"] = scene
     dataset.metadata["expected_scene_scale"] = get_scene_scale(dataset.cameras, "object-centric")
     dataset.metadata["type"] = "object-centric"
+    dataset.metadata["color_space"] = "srgb"
 
     image_names = dataset.file_paths
     inds = np.argsort(image_names)

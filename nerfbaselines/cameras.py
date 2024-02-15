@@ -423,6 +423,13 @@ class Cameras:
         for i in range(len(self)):
             yield self[i]
 
+    @staticmethod
+    def get_image_pixels(image_sizes: np.ndarray, xnp=np) -> np.ndarray:
+        if len(image_sizes.shape) == 1:
+            w, h = image_sizes
+            return np.stack(np.meshgrid(np.arange(w), np.flip(np.arange(h)), indexing="xy"), -1).reshape(-1, 2)
+        return np.concatenate([Cameras.get_image_pixels(s, xnp=xnp) for s in image_sizes])
+
     def get_rays(self, xy: np.ndarray, xnp=np) -> Tuple[np.ndarray, np.ndarray]:
         assert xy.shape[-1] == 2
         assert xy.shape[0] == len(self)
@@ -619,7 +626,7 @@ def warp_image_between_cameras(cameras1: Cameras, cameras2: Cameras, images: np.
     # cam2 = dataclasses.replace(cam2, image_sizes=cam1.image_sizes)
 
     w, h = cam2.image_sizes
-    xy = xnp.stack(xnp.meshgrid(xnp.arange(w), xnp.arange(h), indexing="xy"), -1).reshape(-1, 2)
+    xy = Cameras.get_image_pixels(cam2.image_sizes, xnp=xnp)
     xy = xy.astype(xnp.float32) + 0.5
 
     # Camera models assume that the upper left pixel center is (0.5, 0.5).

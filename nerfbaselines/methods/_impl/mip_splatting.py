@@ -46,6 +46,7 @@ from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov
 from scene.dataset_readers import storePly, fetchPly
 from scene.dataset_readers import CameraInfo as _old_CameraInfo
 from utils.general_utils import safe_state
+from utils.graphics_utils import fov2focal  # noqa: E402
 from utils.loss_utils import l1_loss, ssim
 from utils.sh_utils import SH2RGB
 from scene import Scene, sceneLoadTypeCallbacks
@@ -81,6 +82,8 @@ def loadCam(args, id, cam_info, resolution_scale):
     setattr(camera, "_patched", True)
 
     # Fix cx, cy (ignored in mip-splatting)
+    camera.focal_x = fov2focal(cam_info.FovX, camera.image_width)
+    camera.focal_y = fov2focal(cam_info.FovY, camera.image_height)
     camera.cx = cam_info.cx
     camera.cy = cam_info.cy
     camera.projection_matrix = getProjectionMatrixFromOpenCV(

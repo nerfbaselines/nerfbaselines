@@ -36,7 +36,7 @@ def test_camera(camera_type):
         nears_fars=None,
     )
 
-    xy = np.stack(np.meshgrid(np.arange(0, 100), np.arange(0, 200), indexing="ij"), -1).reshape(1, -1, 2).astype(np.float32)
+    xy = Cameras.get_image_pixels(np.array([100, 200])).reshape(1, -1, 2).astype(np.float32)
     origins, dirs = cameras[:, None].unproject(xy)
     xy_new = cameras[:, None].project(origins + dirs)
     xy = np.broadcast_to(xy, xy_new.shape)

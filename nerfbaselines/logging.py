@@ -9,7 +9,7 @@ import contextlib
 
 from pathlib import Path
 import typing
-from typing import Optional, Union, List, Dict, Sequence
+from typing import Optional, Union, List, Dict, Sequence, Any
 from typing import TYPE_CHECKING
 from .utils import convert_image_dtype
 try:
@@ -154,7 +154,7 @@ class BaseLogger(Logger):
 
 class WandbLoggerEvent(BaseLoggerEvent):
     def __init__(self, commit):
-        self._commit = commit
+        self._commit: Dict[str, Any] = commit
 
     def add_scalar(self, tag: str, value: Union[float, int]) -> None:
         self._commit[tag] = value
@@ -164,10 +164,9 @@ class WandbLoggerEvent(BaseLoggerEvent):
 
     def add_image(self, tag: str, image: np.ndarray, display_name: Optional[str] = None, description: Optional[str] = None, **kwargs) -> None:
         import wandb
-        image = wandb.Image(image, caption=description)
-        self._commit[tag] = [image]
+        self._commit[tag] = [wandb.Image(image, caption=description)]
 
-    def add_embedding(self, tag: str, embeddings: np.ndarray, step: int, *, 
+    def add_embedding(self, tag: str, embeddings: np.ndarray, *, 
                       images: Optional[List[np.ndarray]] = None, 
                       labels: Union[None, List[Dict[str, str]], List[str]] = None) -> None:
                     
@@ -187,7 +186,7 @@ class WandbLoggerEvent(BaseLoggerEvent):
     
 
 class WandbLogger(BaseLogger):
-    def __init__(self, output: Path):
+    def __init__(self, output: Union[str, Path]):
         import wandb
         wandb_run: "wandb.sdk.wandb_run.Run" = wandb.init(dir=str(output))
         self._wandb_run = wandb_run
@@ -203,7 +202,7 @@ class WandbLogger(BaseLogger):
         return "wandb"
 
 
-class ConcatLoggerEvent(LoggerEvent):
+class ConcatLoggerEvent:
     def __init__(self, events):
         self.events = events
 
@@ -229,7 +228,7 @@ class ConcatLogger(BaseLogger):
         def enter_event(loggers, events):
             if loggers:
                 with loggers[0].add_event(step) as event:
-                    enter_event(loggers[1:], [event] + events)
+                    return enter_event(loggers[1:], [event] + events)
             else:
                 return ConcatLoggerEvent(events)
         yield enter_event(self.loggers, [])

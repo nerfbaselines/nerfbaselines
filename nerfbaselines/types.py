@@ -61,12 +61,6 @@ class Dataset:
     def __post_init__(self):
         if self.file_paths_root is None:
             self.file_paths_root = Path(os.path.commonpath(self.file_paths))
-        if self.metadata.get("expected_scene_scale") is None:
-            if self.cameras.nears_fars is not None:
-                return float(self.cameras.nears_fars.mean())
-            else:
-                # TODO: this will only work for object-centric scenes. This code needs to be moved to the data parsers.
-                return float(np.percentile(np.linalg.norm(self.cameras.poses[..., :3, 3] - self.cameras.poses[..., :3, 3].mean(), axis=-1), 90))
 
     def __len__(self):
         return len(self.file_paths)
@@ -297,9 +291,9 @@ class RayMethod(Method):
             progress_callback(CurrentProgress(i=global_i, total=total_batches, image_i=0, image_total=len(sizes)))
         for i, image_size in enumerate(sizes.tolist()):
             w, h = image_size
-            xy = np.stack(np.meshgrid(np.arange(w), np.arange(h), indexing="xy"), -1).reshape(-1, 2)
-            outputs: List[RenderOutput] = []
             local_cameras = cameras[i : i + 1, None]
+            xy = local_cameras.get_image_pixels(image_size)
+            outputs: List[RenderOutput] = []
             for xy in batched(xy, batch_size):
                 origins, directions = local_cameras.get_rays(xy[None], xnp=cast(Any, xnp))
                 _outputs = self.render_rays(origins=origins[0], directions=directions[0], nears_fars=local_cameras[0].nears_fars)
