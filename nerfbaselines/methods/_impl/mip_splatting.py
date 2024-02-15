@@ -249,7 +249,7 @@ class MipSplatting(Method):
 
     def setup_train(self, train_dataset, *, num_iterations: Optional[int] = None, config_overrides=None):
         # Initialize system state (RNG)
-        safe_state(True)
+        safe_state(False)
 
         if self.checkpoint is None:
             if train_dataset.metadata.get("name") == "blender":
@@ -308,7 +308,7 @@ class MipSplatting(Method):
 
     def _eval_setup(self):
         # Initialize system state (RNG)
-        safe_state(True)
+        safe_state(False)
 
         # Setup model
         self.gaussians = GaussianModel(self.dataset.sh_degree)
