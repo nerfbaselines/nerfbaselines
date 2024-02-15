@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 import numpy as np
 from ..types import Dataset, Cameras, CameraModel
-from ._common import DatasetNotFoundError
+from ._common import DatasetNotFoundError, get_default_viewer_transform
 
 
 BLENDER_SCENES = {"lego", "ship", "drums", "hotdog", "materials", "mic", "chair", "ficus"}
@@ -50,6 +50,8 @@ def load_blender_dataset(path: Path, split: str, **kwargs):
     # Convert from OpenGL to OpenCV coordinate system
     c2w[..., 0:3, 1:3] *= -1
 
+    viewer_transform, viewer_pose = get_default_viewer_transform(c2w, "object-centric")
+
     return Dataset(
         cameras=Cameras(
             poses=np.stack(cams)[:, :3, :4],
@@ -68,6 +70,8 @@ def load_blender_dataset(path: Path, split: str, **kwargs):
             "color_space": "srgb",
             "type": "object-centric",
             "expected_scene_scale": 4,
+            "viewer_transform": viewer_transform,
+            "viewer_initial_pose": viewer_pose,
             "background_color": np.array([255, 255, 255], dtype=np.uint8),
         },
     )

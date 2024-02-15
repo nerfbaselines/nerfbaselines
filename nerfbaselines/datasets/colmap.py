@@ -9,7 +9,7 @@ from ..utils import Indices
 from ..cameras import CameraModel, Cameras
 from ._colmap_utils import read_cameras_binary, read_images_binary, read_points3D_binary, qvec2rotmat
 from ._colmap_utils import read_cameras_text, read_images_text, read_points3D_text, Image, Camera, Point3D
-from ._common import DatasetNotFoundError, padded_stack
+from ._common import DatasetNotFoundError, padded_stack, get_default_viewer_transform
 
 
 def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.ndarray, Tuple[int, int]]:
@@ -343,4 +343,8 @@ def load_colmap_dataset(path: Path,
         dataset = dataset[indices]
     dataset.metadata["name"] = "colmap"
     dataset.metadata["color_space"] = "srgb"
+
+    viewer_transform, viewer_pose = get_default_viewer_transform(dataset.cameras.poses, None)
+    dataset.metadata["viewer_transform"] = viewer_transform
+    dataset.metadata["viewer_initial_pose"] = viewer_pose
     return dataset

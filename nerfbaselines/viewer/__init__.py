@@ -70,7 +70,7 @@ def get_orientation_transform(poses):
 
 
 @click.command("viewer")
-@click.option("--checkpoint", default=None, required=True)
+@click.option("--checkpoint", default=None, required=False)
 @click.option("--data", type=str, default=None, required=False)
 @click.option("--verbose", "-v", is_flag=True)
 @click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
@@ -80,38 +80,47 @@ def get_orientation_transform(poses):
 def main(checkpoint: str, data, verbose, backend, viewer="viser", port=6006):
     setup_logging(verbose)
 
-    # Read method nb-info
-    logging.info(f"Loading checkpoint {checkpoint}")
-    with open_any_directory(checkpoint) as checkpoint_path:
-        assert checkpoint_path.exists(), f"checkpoint path {checkpoint} does not exist"
-        assert (checkpoint_path / "nb-info.json").exists(), f"checkpoint path {checkpoint} does not contain nb-info.json"
-        with (checkpoint_path / "nb-info.json").open("r") as f:
-            nb_info = json.load(f)
-        nb_info = deserialize_nb_info(nb_info)
-
-        method_name = nb_info["method"]
-        method_spec = registry.get(method_name)
-        method_cls, backend = method_spec.build(backend=backend)
-        logging.info(f"Using backend: {backend}")
-
-        if hasattr(method_cls, "install"):
-            method_cls.install()
-
-        method = method_cls(checkpoint=checkpoint_path.absolute())
+    def run_viewer(method=None, nb_info=None):
         try:
             if viewer == "viser":
                 from .viser import run_viser_viewer
 
-                run_viser_viewer(method, port=port, data=data)
+                run_viser_viewer(method=method, port=port, data=data, nb_info=nb_info)
             elif viewer == "nerfstudio":
                 from .nerfstudio import run_nerfstudio_viewer
 
-                run_nerfstudio_viewer(method, port=port, data=data)
+                run_nerfstudio_viewer(method=method, port=port, data=data)
             else:
                 raise ValueError(f"Unknown viewer {viewer}")
         finally:
             if hasattr(method, "close"):
                 typing.cast(Any, method).close()
+
+    # Read method nb-info
+    if checkpoint is not None:
+        logging.info(f"Loading checkpoint {checkpoint}")
+        with open_any_directory(checkpoint) as checkpoint_path:
+            assert checkpoint_path.exists(), f"checkpoint path {checkpoint} does not exist"
+            assert (checkpoint_path / "nb-info.json").exists(), f"checkpoint path {checkpoint} does not contain nb-info.json"
+            with (checkpoint_path / "nb-info.json").open("r") as f:
+                nb_info = json.load(f)
+            nb_info = deserialize_nb_info(nb_info)
+
+            method_name = nb_info["method"]
+            method_spec = registry.get(method_name)
+            method_cls, backend = method_spec.build(backend=backend)
+            logging.info(f"Using backend: {backend}")
+
+            if hasattr(method_cls, "install"):
+                method_cls.install()
+
+            method = method_cls(checkpoint=checkpoint_path.absolute())
+            run_viewer(method)
+    else:
+        logging.info("Starting viewer without method")
+        run_viewer()
+
+    
 
 
 if __name__ == "__main__":

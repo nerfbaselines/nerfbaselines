@@ -9,7 +9,7 @@ import zipfile
 from tqdm import tqdm
 import tempfile
 from ..types import Dataset
-from ._common import DatasetNotFoundError, single, get_scene_scale
+from ._common import DatasetNotFoundError, single, get_scene_scale, get_default_viewer_transform
 from .colmap import load_colmap_dataset
 
 
@@ -45,6 +45,11 @@ def load_mipnerf360_dataset(path: Path, split: str, **kwargs):
     dataset.metadata["expected_scene_scale"] = get_scene_scale(dataset.cameras, "object-centric")
     dataset.metadata["type"] = "object-centric"
     dataset.metadata["color_space"] = "srgb"
+
+    viewer_transform, viewer_pose = get_default_viewer_transform(dataset.cameras.poses, "object-centric")
+    dataset.metadata["viewer_transform"] = viewer_transform
+    dataset.metadata["viewer_initial_pose"] = viewer_pose
+
 
     image_names = dataset.file_paths
     inds = np.argsort(image_names)
