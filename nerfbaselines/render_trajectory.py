@@ -25,7 +25,7 @@ from .utils import convert_image_dtype
 from .types import Method, CurrentProgress, RenderOutput
 from .cameras import Cameras, CameraModel
 
-from .io import open_any_directory, serialize_ns_info
+from .io import open_any_directory, serialize_nb_info, deserialize_nb_info
 from . import registry
 
 
@@ -39,14 +39,14 @@ def render_frames(
     fps: float,
     description: str = "rendering frames",
     output_type: OutputType = "color",
-    ns_info: Optional[dict] = None,
+    nb_info: Optional[dict] = None,
 ) -> None:
     assert cameras.image_sizes is not None, "cameras.image_sizes must be set"
     info = method.get_info()
     render = with_supported_camera_models(info.supported_camera_models)(method.render)
     color_space = "srgb"
-    background_color = ns_info.get("background_color") if ns_info is not None else None
-    expected_scene_scale = ns_info.get("expected_scene_scale") if ns_info is not None else None
+    background_color = nb_info.get("background_color") if nb_info is not None else None
+    expected_scene_scale = nb_info.get("expected_scene_scale") if nb_info is not None else None
     allow_transparency = True
 
     def _predict_all():
@@ -218,9 +218,10 @@ def main(checkpoint: Union[str, Path], trajectory: Path, output, output_type: Ou
         assert checkpoint_path.exists(), f"checkpoint path {checkpoint} does not exist"
         assert (checkpoint_path / "nb-info.json").exists(), f"checkpoint path {checkpoint} does not contain nb-info.json"
         with (checkpoint_path / "nb-info.json").open("r") as f:
-            ns_info = json.load(f)
+            nb_info = json.load(f)
+        nb_info = deserialize_nb_info(nb_info)
 
-        method_name = ns_info["method"]
+        method_name = nb_info["method"]
         method_spec = registry.get(method_name)
         method_cls, backend = method_spec.build(backend=backend, checkpoint=Path(os.path.abspath(str(checkpoint_path))))
         logging.info(f"Using backend: {backend}")
@@ -230,7 +231,7 @@ def main(checkpoint: Union[str, Path], trajectory: Path, output, output_type: Ou
 
         method = method_cls()
         try:
-            render_frames(method, _trajectory.cameras, output, output_type=output_type, ns_info=ns_info, fps=_trajectory.fps)
+            render_frames(method, _trajectory.cameras, output, output_type=output_type, nb_info=nb_info, fps=_trajectory.fps)
             logging.info(f"Output saved to {output}")
         finally:
             if hasattr(method, "close"):

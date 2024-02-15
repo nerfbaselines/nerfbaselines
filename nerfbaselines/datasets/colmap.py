@@ -342,4 +342,5 @@ def load_colmap_dataset(path: Path,
                 indices = test_indices_array
         dataset = dataset[indices]
     dataset.metadata["name"] = "colmap"
+    dataset.metadata["color_space"] = "srgb"
     return dataset

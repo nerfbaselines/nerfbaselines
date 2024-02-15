@@ -8,7 +8,7 @@ import click
 import numpy as np
 
 from ..datasets._colmap_utils import qvec2rotmat, rotmat2qvec
-from ..io import open_any_directory
+from ..io import open_any_directory, deserialize_nb_info
 from ..utils import setup_logging, handle_cli_error
 from .. import registry
 
@@ -86,9 +86,10 @@ def main(checkpoint: str, data, verbose, backend, viewer="viser", port=6006):
         assert checkpoint_path.exists(), f"checkpoint path {checkpoint} does not exist"
         assert (checkpoint_path / "nb-info.json").exists(), f"checkpoint path {checkpoint} does not contain nb-info.json"
         with (checkpoint_path / "nb-info.json").open("r") as f:
-            ns_info = json.load(f)
+            nb_info = json.load(f)
+        nb_info = deserialize_nb_info(nb_info)
 
-        method_name = ns_info["method"]
+        method_name = nb_info["method"]
         method_spec = registry.get(method_name)
         method_cls, backend = method_spec.build(backend=backend)
         logging.info(f"Using backend: {backend}")

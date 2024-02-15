@@ -101,9 +101,10 @@ def download_dataset_command(dataset, output, verbose):
 @main.command("evaluate")
 @click.argument("predictions", type=click.Path(file_okay=True, dir_okay=True, path_type=Path), required=True)
 @click.option("--output", "-o", type=click.Path(file_okay=True, dir_okay=False, path_type=Path), required=True)
-@click.option("--disable-extra-metrics", help="Disable extra metrics which need additional dependencies.", is_flag=True)
-def evaluate_command(predictions, output, disable_extra_metrics):
-    evaluate(predictions, output, disable_extra_metrics=disable_extra_metrics)
+@click.option("--force-extra-metrics", "run_extra_metrics", flag_value=True, default=None, is_flag=True, help="Force extra metrics to run (this needs additional dependencies).")
+@click.option("--disable-extra-metrics", "run_extra_metrics", flag_value=False, default=None, is_flag=True, help="Disable extra metrics which need additional dependencies.")
+def evaluate_command(predictions, output, run_extra_metrics=None):
+    evaluate(predictions, output, run_extra_metrics=run_extra_metrics)
 
 
 @main.command("render-dataset-results")

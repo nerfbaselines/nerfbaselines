@@ -95,19 +95,20 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python"):
     from nerfbaselines.render import get_checkpoint_sha, render_command
     from nerfbaselines.utils import Indices, remap_error
     from nerfbaselines.utils import NoGPUError
+    from nerfbaselines.io import deserialize_nb_info
 
     # train_command.callback(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters)
     (tmp_path / "output").mkdir()
     try:
         train_cmd = remap_error(train_command.callback)
-        train_cmd(method_name, None, str(dataset_path), str(tmp_path / "output"), False, backend, Indices.every_iters(5), Indices([-1]), num_iterations=13, disable_extra_metrics=True, vis="none")
+        train_cmd(method_name, None, str(dataset_path), str(tmp_path / "output"), False, backend, Indices.every_iters(5), Indices([-1]), num_iterations=13, run_extra_metrics=True, vis="none")
     except NoGPUError:
         pytest.skip("no GPU available")
 
     # Test if model was saved at the end
     assert (tmp_path / "output" / "checkpoint-13").exists()
     assert "nb-info.json" in os.listdir(tmp_path / "output" / "checkpoint-13")
-    info = json.load((tmp_path / "output" / "checkpoint-13" / "nb-info.json").open("r"))
+    info = deserialize_nb_info(json.load((tmp_path / "output" / "checkpoint-13" / "nb-info.json").open("r")))
     assert "resources_utilization" in info
 
     # By default, the model should render all images at the end
@@ -117,6 +118,7 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python"):
         tar.extract(tar.getmember("info.json"), tmp_path / "tmpinfo")
         with open(tmp_path / "tmpinfo" / "info.json", "r") as f:
             info = json.load(f)
+        info = deserialize_nb_info(info)
         (tmp_path / "tmp-renders").mkdir(parents=True)
         tar.extractall(tmp_path / "tmp-renders")
     assert info["checkpoint_sha256"] is not None, "checkpoint sha not saved in info.json"
@@ -150,7 +152,7 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python"):
         Indices.every_iters(5),
         Indices([-1]),
         num_iterations=14,
-        disable_extra_metrics=True,
+        run_extra_metrics=True,
         vis="none",
     )
     assert (tmp_path / "output" / "checkpoint-14").exists()
@@ -303,9 +305,13 @@ def mock_torch():
 
 @pytest.fixture
 def mock_extras(mock_torch):
+    from nerfbaselines import evaluate
     lpips = mock.MagicMock()
+    
 
-    with mock.patch.dict(sys.modules, {"lpips": lpips}):
+    with mock.patch.object(evaluate, "_test_extra_metrics", lambda *args, **kwargs: None), \
+         mock.patch.object(evaluate, "_EXTRA_METRICS_AVAILABLE", False), \
+         mock.patch.dict(sys.modules, {"lpips": lpips}):
         yield {
             "torch": mock_torch,
             "lpips": lpips,
@@ -320,6 +326,10 @@ def no_extras(request):
 
     from nerfbaselines import evaluate
 
-    with mock.patch.object(evaluate, "_EXTRA_METRICS_AVAILABLE", False):
+    def raise_import_error(*args, **kwargs):
+        raise ImportError()
+
+    with mock.patch.object(evaluate, "_test_extra_metrics", raise_import_error), \
+         mock.patch.object(evaluate, "_EXTRA_METRICS_AVAILABLE", False):
         yield None
         return

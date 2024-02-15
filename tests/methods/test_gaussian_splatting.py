@@ -26,10 +26,12 @@ def mock_gaussian_splatting(mock_torch):
             "utils.loss_utils": mock.MagicMock(),
             "utils.sh_utils": mock.MagicMock(),
             "utils.camera_utils": mock.MagicMock(),
+            "utils.graphics_utils": mock.MagicMock(),
         },
     ):
         # from arguments import ModelParams, PipelineParams, OptimizationParams
         cast(mock.MagicMock, sys.modules["utils"]).camera_utils = sys.modules["utils.camera_utils"]
+        cast(mock.MagicMock, sys.modules["utils.graphics_utils"]).fov2focal = lambda x, y: x / y
         arguments = cast(mock.MagicMock, sys.modules["arguments"])
 
         def setup_model_args(parser):
@@ -70,6 +72,8 @@ def mock_gaussian_splatting(mock_torch):
                 self.image_width = kwargs["image"].shape[1]
                 self.image_height = kwargs["image"].shape[0]
                 self.original_image = kwargs["image"]
+                self.znear = 0.1
+                self.zfar = 100.0
                 for k, v in kwargs.items():
                     setattr(self, k, v)
 
@@ -80,7 +84,7 @@ def mock_gaussian_splatting(mock_torch):
             dct.pop("height")
             dct["FoVx"] = dct.pop("FovX")
             dct["FoVy"] = dct.pop("FovY")
-            dct["image"] = torch.tensor(np.array(cam_info.image) / 255.0)
+            dct["image"] = torch.tensor(np.array(cam_info.image) / 255.0).permute(2, 0, 1).float()
             dct["colmap_id"] = 0
             dct["gt_alpha_mask"] = None
             dct["data_device"] = "cuda"

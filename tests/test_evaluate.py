@@ -27,11 +27,14 @@ def _generate_predictions(path, background_color=None):
             {
                 "method": "test",
                 "nb_version": "0.0.0",
-                "color_space": "srgb",
-                "expected_scene_scale": 1.0,
-                "dataset_name": "test",
-                "dataset_scene": "test",
-                "dataset_background_color": background_color,
+                "dataset_metadata": {
+                    "name": "test",
+                    "scene": "test",
+                    "background_color": [0, 0, 0],
+                    "color_space": "srgb",
+                    "expected_scene_scale": 1.0,
+                },
+                "evaluation_protocol": "default",
             },
             fp,
             indent=4,
@@ -42,7 +45,7 @@ def _generate_predictions(path, background_color=None):
 @pytest.mark.filterwarnings("ignore::UserWarning:torchvision")
 def test_evaluate_folder(tmp_path, background_color):
     _generate_predictions(tmp_path / "predictions", background_color)
-    evaluate(tmp_path / "predictions", output=tmp_path / "results.json", disable_extra_metrics=True)
+    evaluate(tmp_path / "predictions", output=tmp_path / "results.json", run_extra_metrics=False)
     assert os.path.exists(tmp_path / "results.json")
 
     with pytest.raises(FileExistsError):
@@ -53,7 +56,7 @@ def test_evaluate_folder(tmp_path, background_color):
 @pytest.mark.filterwarnings("ignore::UserWarning:torchvision")
 def test_evaluate_folder_extras(tmp_path):
     _generate_predictions(tmp_path / "predictions")
-    evaluate(tmp_path / "predictions", output=tmp_path / "results.json", disable_extra_metrics=False)
+    evaluate(tmp_path / "predictions", output=tmp_path / "results.json", run_extra_metrics=True)
     assert os.path.exists(tmp_path / "results.json")
     with (tmp_path / "results.json").open("r", encoding="utf8") as f:
         results = json.load(f)

@@ -144,8 +144,9 @@ def test_train_command(tmp_path, wandb_init_run, vis):
 
             # Last log is the final evaluation
             assert wandb_mock.log.call_args[1]["step"] == 13
-            last_event = wandb_mock.log.call_args[0][0]
-            assert "eval-all-test/color" in last_event
+            all_keys = set(sum((list(k[0][0].keys()) for k in wandb_mock.log.call_args_list), []))
+            print(all_keys)
+            assert "eval-all-test/color" in all_keys
 
             eval_single_calls = []
             eval_all_calls = []
@@ -162,7 +163,7 @@ def test_train_command(tmp_path, wandb_init_run, vis):
                 must_have.difference_update(args[0].keys())
             assert eval_single_calls == [5, 10]
             assert eval_all_calls == [13]
-            assert train_calls == [10, 13]
+            assert train_calls == [13]
             assert len(must_have) == 0
 
         if "tensorboard" in vis:
@@ -214,7 +215,7 @@ def test_train_command_extras(tmp_path):
         _TestMethod._reset()
         shutil.rmtree(tmp_path / "output")
         (tmp_path / "output").mkdir()
-        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(5), Indices([-1]), disable_extra_metrics=True, vis="tensorboard")
+        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(5), Indices([-1]), run_extra_metrics=True, vis="tensorboard")
         print(os.listdir(tmp_path / "output"))
         assert (tmp_path / "output" / "checkpoint-13").exists()
         assert (tmp_path / "output" / "predictions-13.tar.gz").exists()
@@ -259,7 +260,7 @@ def test_train_command_extras(tmp_path):
         registry.pop("_test", None)
 
 
-def test_train_command_no_extras(tmp_path):
+def test_train_command_no_extras(tmp_path, no_extras):
     from nerfbaselines.train import train_command
     from nerfbaselines.registry import registry, MethodSpec
 

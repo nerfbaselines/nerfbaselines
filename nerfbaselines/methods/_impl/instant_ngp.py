@@ -362,7 +362,9 @@ class InstantNGP(Method):
                 images=[np.zeros((h, w, 3), dtype=np.uint8) for w, h in cameras.image_sizes],
                 file_paths_root="eval",
                 file_paths=[f"eval/{i:06d}.png" for i in range(len(cameras.poses))],
-                color_space=self.dataparser_params["color_space"],
+                metadata={
+                    "color_space": self.dataparser_params["color_space"],
+                }
             )
             self._write_images(dataset, tmpdir)
             with (Path(tmpdir) / "transforms.json").open("w") as f:

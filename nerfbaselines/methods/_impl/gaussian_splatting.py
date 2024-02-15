@@ -30,13 +30,12 @@ from utils.general_utils import PILtoTorch
 from arguments import ModelParams, PipelineParams, OptimizationParams # noqa: E402
 from gaussian_renderer import render # noqa: E402
 from scene import GaussianModel # noqa: E402
-from scene.cameras import Camera  # noqa: E402
 import scene.dataset_readers
 from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # noqa: E402
 from scene.dataset_readers import CameraInfo as _old_CameraInfo
 from scene.dataset_readers import storePly, fetchPly  # noqa: E402
 from utils.general_utils import safe_state  # noqa: E402
-from utils.image_utils import psnr  # noqa: E402
+from utils.graphics_utils import fov2focal  # noqa: E402
 from utils.loss_utils import l1_loss, ssim  # noqa: E402
 from utils.sh_utils import SH2RGB  # noqa: E402
 from scene import Scene, sceneLoadTypeCallbacks  # noqa: E402
@@ -71,6 +70,8 @@ def loadCam(args, id, cam_info, resolution_scale):
     setattr(camera, "_patched", True)
 
     # Fix cx, cy (ignored in gaussian-splatting)
+    camera.focal_x = fov2focal(cam_info.FovX, camera.image_width)
+    camera.focal_y = fov2focal(cam_info.FovY, camera.image_height)
     camera.cx = cam_info.cx
     camera.cy = cam_info.cy
     camera.projection_matrix = getProjectionMatrixFromOpenCV(
