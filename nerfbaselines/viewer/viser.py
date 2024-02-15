@@ -1,15 +1,24 @@
 from pathlib import Path
 from collections import deque
 from time import perf_counter
+from typing import Optional
 
 import numpy as np
 import viser
 
-from ..types import Method, Dataset, FrozenSet, DatasetFeature
+from ..types import Method, Dataset, FrozenSet, DatasetFeature, Literal
 from ..cameras import Cameras
 from ..datasets._colmap_utils import qvec2rotmat, rotmat2qvec
 from ..utils import CancellationToken, CancelledException, cancellable, assert_not_none
+from ..datasets._common import apply_transform, get_transform_and_scale
 from ..datasets import load_dataset
+
+
+def invert_transform(transform):
+    transform, scale = get_transform_and_scale(transform)
+    transform = np.linalg.inv(transform)
+    transform[..., :3, :] /= scale
+    return transform
 
 
 def get_c2w(camera):
@@ -26,8 +35,16 @@ def get_position_quaternion(c2s):
     return position, wxyz
 
 
+ControlType = Literal["object-centric", "default"]
+
+
 class ViserViewer:
-    def __init__(self, method: Method, port, transform=None):
+    def __init__(self, 
+                 method: Optional[Method], 
+                 port, 
+                 transform=None, 
+                 initial_pose=None,
+                 control_type: ControlType = "default"):
         self.port = port
         self.method = method
         self.transform = transform if transform is not None else np.eye(4, dtype=np.float32)
@@ -37,6 +54,7 @@ class ViserViewer:
 
         self._render_times = deque(maxlen=3)
         self.server = viser.ViserServer(port=self.port)
+        self.server.world_axes.visible = True
 
         self.need_update = False
         self.resolution_slider = self.server.add_gui_slider("Resolution", min=30, max=4096, step=2, initial_value=1024)
@@ -54,6 +72,17 @@ class ViserViewer:
             def _(_camera_handle: viser.CameraHandle):
                 self._reset_render()
 
+            pos, quat = get_position_quaternion(
+                apply_transform(initial_pose, self.transform)
+            )
+            client.camera.position = pos
+            client.camera.wxyz = quat
+            client.camera.up_direction = np.array([0, 0, 1], dtype=np.float32)
+
+            # For object-centric scenes, we look at the origin
+            if True:
+                client.camera.look_at = np.array([0, 0, 0], dtype=np.float32)
+
         self._cancellation_token = None
         self._setup_gui()
 
@@ -67,7 +96,21 @@ class ViserViewer:
 
     def run(self):
         while True:
-            self._update()
+            if self.method is not None:
+                self._update()
+    
+    def add_initial_point_cloud(self, points, colors):
+        transform, scale = get_transform_and_scale(self.transform)
+        points = np.concatenate([points, np.ones((len(points), 1))], -1) @ transform.T
+        points = points[..., :-1] / points[..., -1:]
+        points *= scale
+        self.server.add_point_cloud(
+            "/initial-point-cloud",
+            points=points,
+            colors=colors,
+            point_size=0.005,
+            point_shape="circle",
+        )
 
     def add_dataset_views(self, dataset: Dataset, split: str):
         def _set_view_to_camera(handle: viser.SceneNodePointerEvent[viser.CameraFrustumHandle]):
@@ -86,16 +129,7 @@ class ViserViewer:
                 path = str(path)[len("/undistorted/") :]
             else:
                 path = str(Path(path).relative_to(Path(dataset.file_paths_root or "")))
-            c2w = cam.poses
-
-            # Convert from Opencv to OpenGL coordinate system
-            c2w[..., 0:3, 1:3] *= -1
-
-            assert len(c2w.shape) == 2
-            if c2w.shape[0] == 3:
-                c2w = np.concatenate([c2w, np.eye(4, dtype=np.float32)[-1:]], 0)
-            c2w = self.transform @ c2w
-            c2w[0:3, 1:3] *= -1
+            c2w = apply_transform(cam.poses, self.transform)
             pos, quat = get_position_quaternion(c2w)
             W, H = cam.image_sizes.tolist()
             fy = cam.intrinsics[1]
@@ -103,7 +137,7 @@ class ViserViewer:
                 f"/dataset-{split}/{path}/frustum",
                 fov=2 * np.arctan2(H / 2, fy),
                 aspect=W / H,
-                scale=0.15,
+                scale=0.03,
                 position=pos,
                 wxyz=quat,
                 image=image[::downsample_factor, ::downsample_factor] if image is not None else None,
@@ -218,17 +252,49 @@ def get_orientation_transform(poses):
     return transform
 
 
-def run_viser_viewer(method: Method, data, port=6006):
+def run_viser_viewer(method: Optional[Method] = None, 
+                     data=None, 
+                     max_num_views: Optional[int] = 100,
+                     port=6006,
+                     nb_info=None):
+    def build_server(dataset_metadata=None, **kwargs):
+        transform = initial_pose = None
+        control_type = "default"
+        if dataset_metadata is not None:
+            transform = dataset_metadata.get("viewer_transform")
+            initial_pose = dataset_metadata.get("viewer_initial_pose")
+            control_type = "object-centric" if dataset_metadata["type"] == "object-centric" else "default"
+            initial_pose = apply_transform(initial_pose, invert_transform(transform))
+        return ViserViewer(**kwargs, 
+                           port=port, 
+                           method=method,
+                           transform=transform,
+                           initial_pose=initial_pose,
+                           control_type=control_type)
+
     if data is not None:
-        features: FrozenSet[DatasetFeature] = frozenset({"color"})
+        features: FrozenSet[DatasetFeature] = frozenset({"color", "points3D_xyz"})
         train_dataset = load_dataset(data, split="test", features=features)
+        server = build_server(dataset_metadata=train_dataset.metadata)
+
+        if max_num_views is not None and len(train_dataset) > max_num_views:
+            train_dataset = train_dataset[np.random.choice(len(train_dataset), 100)]
+
+        server.add_initial_point_cloud(train_dataset.points3D_xyz, train_dataset.points3D_rgb)
+
         test_dataset = load_dataset(data, split="train", features=features)
-        server = ViserViewer(method, port=port, transform=get_orientation_transform(train_dataset.cameras.poses))
+        if max_num_views is not None and len(test_dataset) > max_num_views:
+            test_dataset = test_dataset[np.random.choice(len(test_dataset), 100)]
 
         train_dataset.load_features(features)
         server.add_dataset_views(train_dataset, "train")
+
         test_dataset.load_features(features)
         server.add_dataset_views(test_dataset, "test")
+
+    elif nb_info is not None:
+        dataset_metadata = nb_info.get("dataset_metadata")
+        server = build_server(dataset_metadata=dataset_metadata)
     else:
-        server = ViserViewer(method, port=port)
+        server = build_server()
     server.run()

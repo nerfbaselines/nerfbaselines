@@ -6,7 +6,7 @@ import zipfile
 from tqdm import tqdm
 import tempfile
 from ..types import Dataset
-from ._common import DatasetNotFoundError, single, get_scene_scale
+from ._common import DatasetNotFoundError, single, get_scene_scale, get_default_viewer_transform
 from .colmap import load_colmap_dataset
 
 
@@ -31,8 +31,11 @@ def load_tanksandtemples_dataset(path: Path, split: str, downscale_factor: int =
     dataset: Dataset = load_colmap_dataset(path, images_path=images_path, split=None, **kwargs)
     dataset.metadata["name"] = DATASET_NAME
     dataset.metadata["scene"] = scene
-    dataset.metadata["expected_scene_scale"] = get_scene_scale(dataset.cameras, "object-centric"),
-    dataset.metadata["type"] = "object-centric"
+    dataset.metadata["expected_scene_scale"] = get_scene_scale(dataset.cameras, None),
+    dataset.metadata["type"] = None
+    viewer_transform, viewer_pose = get_default_viewer_transform(dataset.cameras.poses, None)
+    dataset.metadata["viewer_transform"] = viewer_transform
+    dataset.metadata["viewer_initial_pose"] = viewer_pose
     return dataset
 
 

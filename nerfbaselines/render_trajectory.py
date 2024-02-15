@@ -22,10 +22,10 @@ except ImportError:
 from .utils import setup_logging, image_to_srgb, save_image, visualize_depth, handle_cli_error
 from .render import with_supported_camera_models
 from .utils import convert_image_dtype
-from .types import Method, CurrentProgress, RenderOutput
+from .types import Method, CurrentProgress
 from .cameras import Cameras, CameraModel
 
-from .io import open_any_directory, serialize_nb_info, deserialize_nb_info
+from .io import open_any_directory, deserialize_nb_info
 from . import registry
 
 

@@ -13,7 +13,7 @@ import numpy as np
 from PIL import Image
 
 from ._colmap_utils import read_points3D_binary, read_points3D_text
-from ._common import DatasetNotFoundError, get_scene_scale
+from ._common import DatasetNotFoundError, get_scene_scale, get_default_viewer_transform
 from ..cameras import CameraModel, Cameras
 from ..types import Dataset, FrozenSet, DatasetFeature
 
@@ -348,12 +348,6 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
     # poses[:, :3, 3] *= scale_factor
 
     # Choose image_filenames and poses based on split, but after auto orient and scaling the poses.
-    image_filenames = [image_filenames[i] for i in indices]
-    mask_filenames = [mask_filenames[i] for i in indices] if len(mask_filenames) > 0 else []
-    depth_filenames = [depth_filenames[i] for i in indices] if len(depth_filenames) > 0 else []
-
-    idx_tensor = np.array(indices, dtype=np.int32)
-    poses = poses[idx_tensor]
 
     # # in x,y,z order
     # # assumes that the scene is centered at the origin
@@ -375,12 +369,12 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
             has_distortion = any(np.any(x != 0.0) for x in distort)
         camera_type = CameraModel.OPENCV if has_distortion else CameraModel.PINHOLE
 
-    fx = np.full((len(indices),), meta["fl_x"], dtype=np.float32) if fx_fixed else np.array(fx, dtype=np.float32)[idx_tensor]
-    fy = np.full((len(indices),), meta["fl_y"], dtype=np.float32) if fy_fixed else np.array(fy, dtype=np.float32)[idx_tensor]
-    cx = np.full((len(indices),), meta["cx"], dtype=np.float32) if cx_fixed else np.array(cx, dtype=np.float32)[idx_tensor]
-    cy = np.full((len(indices),), meta["cy"], dtype=np.float32) if cy_fixed else np.array(cy, dtype=np.float32)[idx_tensor]
-    height = np.full((len(indices),), meta["h"], dtype=np.int32) if height_fixed else np.array(height, dtype=np.int32)[idx_tensor]
-    width = np.full((len(indices),), meta["w"], dtype=np.int32) if width_fixed else np.array(width, dtype=np.int32)[idx_tensor]
+    fx = np.full((len(poses),), meta["fl_x"], dtype=np.float32) if fx_fixed else np.array(fx, dtype=np.float32)
+    fy = np.full((len(poses),), meta["fl_y"], dtype=np.float32) if fy_fixed else np.array(fy, dtype=np.float32)
+    cx = np.full((len(poses),), meta["cx"], dtype=np.float32) if cx_fixed else np.array(cx, dtype=np.float32)
+    cy = np.full((len(poses),), meta["cy"], dtype=np.float32) if cy_fixed else np.array(cy, dtype=np.float32)
+    height = np.full((len(poses),), meta["h"], dtype=np.int32) if height_fixed else np.array(height, dtype=np.int32)
+    width = np.full((len(poses),), meta["w"], dtype=np.int32) if width_fixed else np.array(width, dtype=np.int32)
     if distort_fixed:
         distortion_params = np.repeat(
             np.array(
@@ -393,11 +387,11 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
                     float(meta["k4"]) if "k4" in meta else 0.0,
                 ]
             )[None, :],
-            len(indices),
+            len(poses),
             0,
         )
     else:
-        distortion_params = np.stack(distort, 0)[idx_tensor]
+        distortion_params = np.stack(distort, 0)
 
     c2w = poses[:, :3, :4]
 
@@ -407,7 +401,7 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
     cameras = Cameras(
         poses=c2w,
         normalized_intrinsics=np.stack([fx, fy, cx, cy], -1) / width[:, None],
-        camera_types=np.full((len(indices),), camera_type.value, dtype=np.int32),
+        camera_types=np.full((len(poses),), camera_type.value, dtype=np.int32),
         distortion_parameters=distortion_params,
         image_sizes=np.stack([height, width], -1),
         nears_fars=None,
@@ -455,6 +449,9 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
         points3D_xyz = points3D_xyz[..., np.array([1, 0, 2])]
         points3D_xyz[..., 2] *= -1
 
+    viewer_transform, viewer_pose = get_default_viewer_transform(cameras.poses, None)
+
+    idx_tensor = np.array(indices, dtype=np.int32)
     return Dataset(
         cameras=cameras,
         file_paths=image_filenames,
@@ -465,9 +462,11 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
         metadata={
             "name": "nerfstudio",
             "expected_scene_scale": get_scene_scale(cameras, "object-centric") if split == "train" else None,
-            "type": "object-centric",
+            "type": None,
+            "viewer_transform": viewer_transform,
+            "viewer_initial_pose": viewer_pose,
         },
-    )
+    )[idx_tensor]
 
 
 def grab_file_id(zip_url: str) -> str:
