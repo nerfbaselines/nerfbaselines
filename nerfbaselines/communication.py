@@ -383,6 +383,20 @@ class RemoteMethod(Method):
         else:
             self._call("save", path, **kwargs)
 
+    @cancellable(mark_only=True)
+    def export_demo(self, path: Path, **kwargs):
+        if self.shared_path is not None:
+            name = hashlib.sha256(str(path).encode("utf-8")).hexdigest()
+            local, remote = self.shared_path  # pylint: disable=unpacking-non-sequence
+            local_path = os.path.join(local, name)
+            remote_path = os.path.join(remote, name)
+            shutil.copytree(str(path), local_path, dirs_exist_ok=True)
+            self._call("export_demo", Path(remote_path), **kwargs)
+            shutil.copytree(local_path, str(path), dirs_exist_ok=True)
+        else:
+            self._call("export_demo", path, **kwargs)
+
+
     def close(self):
         if self._client is not None:
             assert self._recv is not None, "_recv not set"
@@ -407,12 +421,8 @@ class RemoteProcessMethod(RemoteMethod):
     build_code: Optional[str] = None
     python_path: str = "python"
 
-    def __init__(self, *args, build_code: Optional[str] = None, python_path: Optional[str] = None, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if build_code is not None:
-            self.build_code = build_code
-        if python_path is not None:
-            self.python_path = python_path
         self._server_process: Optional[subprocess.Popen] = None
         self._tmp_shared_dir: Optional[tempfile.TemporaryDirectory] = None
         assert self.build_code is not None, "RemoteProcessMethod requires build_code to be specified"
@@ -440,9 +450,13 @@ class RemoteProcessMethod(RemoteMethod):
 
         return types.new_class(method.__name__, bases=bases, exec_body=build)
 
+    @classmethod
+    def _wrap_get_server_process_args(cls, args):
+        return args
+
     def _get_server_process_args(self, env):
         if env.get("_NB_IS_DOCKERFILE", "0") == "1":
-            return ["bash", "-l"]
+            return self._wrap_get_server_process_args(["bash", "-l"])
         assert self._tmp_shared_dir is not None, "Temporary directory not created"
         is_verbose = logging.getLogger().isEnabledFor(logging.DEBUG)
         ready_path = self._tmp_shared_dir.name
@@ -464,7 +478,7 @@ args, kwargs = nerfbaselines.communication.RemoteMethod.decode_args(os.environ["
 authkey = os.environ["NB_AUTHKEY"].encode("ascii")
 start_backend(method, ConnectionParams(port=int(os.environ["NB_PORT"]), authkey=authkey), address="{self._local_address}")
 """
-        return [self.python_path, "-c", code]
+        return self._wrap_get_server_process_args([self.python_path, "-c", code])
 
     @classmethod
     def _get_isolated_env(cls):

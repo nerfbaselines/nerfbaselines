@@ -11,9 +11,9 @@ RUN apt-get update --fix-missing && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-py311_23.9.0-0-Linux-x86_64.sh -O ~/miniconda.sh && \
-    bash ~/miniconda.sh -b -u -p /opt/conda && \
-    rm -rf ~/miniconda.sh && \
+RUN curl -L -o ~/conda.sh -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh" && \
+    bash ~/conda.sh -b -u -p /opt/conda && \
+    rm -rf ~/conda.sh && \
     /opt/conda/bin/conda clean -ay && \
     ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh
 

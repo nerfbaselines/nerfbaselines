@@ -1,3 +1,5 @@
+import tempfile
+import subprocess
 import types
 import os
 from typing import Optional, List, Tuple
@@ -29,6 +31,7 @@ class DockerMethod(RemoteProcessMethod):
     mounts: Optional[List[Tuple[str, str]]] = None
     home_path: str = "/root"
     environments_path: str = "/var/nb-prefix/docker-conda-envs"
+    default_cuda_archs: str = "7.0 7.5 8.0 8.6+PTX"
 
     def __init__(self, *args, mounts: Optional[List[Tuple[str, str]]] = None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -210,25 +213,35 @@ class DockerMethod(RemoteProcessMethod):
             self.image,
         ] + python_args
 
-    # TODO: @jkulhanek
-    # @classmethod
-    # def get_dockerfile(cls):
-    #     sub_args = super(DockerMethod, cls)._get_install_args()  # pylint: disable=assignment-from-none
-    #     script = f"FROM {cls.image}\n"
-    #     if sub_args:
-    #         args_safe = []
-    #         for arg in sub_args:  # pylint: disable=not-an-iterable
-    #             if "\n" in arg:
-    #                 arg = shlex.quote(arg)
-    #                 arg = arg.replace("\n", " \\n\\\n")
-    #                 args_safe.append(f'"$(echo {arg})"')
-    #             else:
-    #                 args_safe.append(shlex.quote(arg))
-    #         script += "RUN " + " ".join(args_safe) + "\n"
-    #     if cls.python_path != "python":
-    #         script += f'RUN ln -s "$(which {cls.python_path})" "/usr/bin/python"' + "\n"
-    #     env = cls._get_isolated_env()
-    #     env["_NB_IS_DOCKERFILE"] = "1"
-    #     entrypoint = super()._get_server_process_args(env)
-    #     script += "ENTRYPOINT [" + ", ".join("'" + x.rstrip("\n") + "'" for x in entrypoint) + "]\n"
-    #     return script
+    @classmethod
+    def get_dockerfile(cls):
+        sub_args = super(DockerMethod, cls)._get_install_args()  # pylint: disable=assignment-from-none
+        script = f"FROM {cls.image}\n"
+        if sub_args:
+            args_safe = []
+            for arg in sub_args:  # pylint: disable=not-an-iterable
+                if "\n" in arg:
+                    arg = shlex.quote(arg)
+                    arg = arg.replace("\n", " \\n\\\n")
+                    args_safe.append(f'"$(echo {arg})"')
+                else:
+                    args_safe.append(shlex.quote(arg))
+            script += f'RUN export TORCH_CUDA_ARCH_LIST="{cls.default_cuda_archs}" && \\'
+            script += " ".join(args_safe) + "\n"
+        if cls.python_path != "python":
+            script += f'RUN ln -s "$(which {cls.python_path})" "/usr/bin/python"' + "\n"
+        env = cls._get_isolated_env()
+        env["_NB_IS_DOCKERFILE"] = "1"
+        entrypoint = cls._wrap_get_server_process_args(["nerfbaselines"])
+        script += "ENTRYPOINT [" + ", ".join("'" + x.rstrip("\n") + "'" for x in entrypoint) + "]\n"
+        return script
+
+    @classmethod
+    def build_docker_image(cls):
+        with tempfile.NamedTemporaryFile("w", suffix=".Dockerfile") as f:
+            f.write(cls.get_dockerfile())
+            f.seek(0)
+            subprocess.check_call([
+                "docker", "build", "-"
+            ], stdin=f)
+            breakpoint()

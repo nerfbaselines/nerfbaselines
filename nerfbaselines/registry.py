@@ -41,7 +41,7 @@ from .utils import partialclass
 from .utils import assert_not_none
 
 
-DEFAULT_DOCKER_IMAGE = "kulhanek/nerfbaselines:v1"
+DEFAULT_DOCKER_IMAGE = "kulhanek/nerfbaselines:v2"
 Backend = Literal["conda", "docker", "apptainer", "python"]
 ALL_BACKENDS = list(get_args(Backend))
 registry = {}
@@ -90,19 +90,23 @@ def discover_methods() -> Dict[str, Union["MethodSpec", "MethodSpecDict"]]:
 
 # Auto register
 _auto_register_completed = False
+_registration_fastpath = None
 
 
 def auto_register(force=False):
     global _auto_register_completed
+    global _registration_fastpath
     if _auto_register_completed and not force:
         return
     from . import methods
 
     # TODO: do this more robustly
+    _registration_fastpath = __package__ + ".methods"
     for package in os.listdir(os.path.dirname(methods.__file__)):
         if package.endswith(".py") and not package.startswith("_") and package != "__init__.py":
             package = package[:-3]
             importlib.import_module(f".methods.{package}", __package__)
+    _registration_fastpath = None
     for name, spec in discover_methods().items():
         register(spec, name)
     _auto_register_completed = True
@@ -124,12 +128,15 @@ def register(spec: Union["MethodSpec", "MethodSpecDict"], name: str, *args, meta
 def _make_entrypoint_absolute(entrypoint: str) -> str:
     module, name = entrypoint.split(":")
     if module.startswith("."):
-        module_base = current_module = _make_entrypoint_absolute.__module__
-        index = 1
-        while module_base == current_module:
-            frame = inspect.stack()[index]
-            module_base = assert_not_none(inspect.getmodule(frame[0])).__name__
-            index += 1
+        if _registration_fastpath is not None:
+            module_base = _registration_fastpath
+        else:
+            module_base = current_module = _make_entrypoint_absolute.__module__
+            index = 1
+            while module_base == current_module:
+                frame = inspect.stack()[index]
+                module_base = assert_not_none(inspect.getmodule(frame[0])).__name__
+                index += 1
         if module == ".":
             module = module_base
         else:

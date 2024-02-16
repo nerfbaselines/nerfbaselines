@@ -10,7 +10,9 @@ cd gaussian-splatting
 git checkout 2eee0e26d2d5fd00ec462df47752223952f6bf4e
 conda env update --file environment.yml --prune --prefix "$CONDA_PREFIX"
 conda install -y conda-build
+conda install -c conda-forge -y nodejs==20.9.0
 conda develop .
+pip install lpips==0.1.4
 pip install importlib_metadata typing_extensions
 """,
     },

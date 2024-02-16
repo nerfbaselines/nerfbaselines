@@ -16,8 +16,10 @@ conda develop .
 
 conda install -y pytorch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 pytorch-cuda=11.7 -c pytorch -c nvidia
 conda install -y cudatoolkit-dev=11.7 -c conda-forge
+conda install -c conda-forge -y nodejs==20.9.0
 
 pip install -r requirements.txt
+pip install lpips==0.1.4
 
 pip install submodules/diff-gaussian-rasterization
 pip install submodules/simple-knn/

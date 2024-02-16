@@ -1,4 +1,6 @@
+import json
 from pathlib import Path
+import subprocess
 import shlex
 import logging
 import copy
@@ -11,6 +13,9 @@ from ...types import Method, MethodInfo, CurrentProgress, ProgressCallback, Rend
 from ...datasets import Dataset
 from ...cameras import CameraModel, Cameras
 from ...utils import cached_property
+from ...pose_utils import get_transform_and_scale
+from ...math_utils import rotate_spherical_harmonics, rotation_matrix_to_quaternion, quaternion_multiply
+from ...io import wget
 
 try:
     from shlex import join as shlex_join
@@ -34,6 +39,7 @@ import scene.dataset_readers
 from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # noqa: E402
 from scene.dataset_readers import CameraInfo as _old_CameraInfo
 from scene.dataset_readers import storePly, fetchPly  # noqa: E402
+from scene.gaussian_model import inverse_sigmoid, build_rotation, PlyData, PlyElement  # noqa: E402
 from utils.general_utils import safe_state  # noqa: E402
 from utils.graphics_utils import fov2focal  # noqa: E402
 from utils.loss_utils import l1_loss, ssim  # noqa: E402
@@ -125,7 +131,7 @@ def _load_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, ima
     width, height = image_size
     fx, fy, cx, cy = intrinsics
     if image is None:
-        image = Image.fromarray(np.zeros((height, width, 3), dtype=torch.uint8))
+        image = Image.fromarray(np.zeros((height, width, 3), dtype=np.uint8))
     return CameraInfo(
         uid=idx, R=R, T=T, 
         FovX=focal2fov(float(fx), float(width)),
@@ -429,3 +435,72 @@ class GaussianSplatting(Method):
         torch.save((self.gaussians.capture(), self.step), str(path) + f"/chkpnt-{self.step}.pth")
         with open(str(path) + "/args.txt", "w") as f:
             f.write(shlex_join(self._args_list))
+
+    def export_demo(self, path: Path, *, viewer_transform, viewer_initial_pose):
+        if self.scene is None:
+            self._eval_setup()
+        model: GaussianModel = self.gaussians
+        transform, scale = get_transform_and_scale(viewer_transform)
+        R, t = transform[..., :3, :3], transform[..., :3, 3]
+        xyz = model._xyz.detach().cpu().numpy()
+        xyz = (xyz @ R.T + t[None, :]) * scale
+        normals = np.zeros_like(xyz)
+
+        f_dc = model._features_dc.detach().cpu().transpose(2, 1).numpy()
+        f_rest = model._features_rest.detach().cpu().transpose(2, 1).numpy()
+
+        # Rotate sh using Winger's group on SO3
+        features = rotate_spherical_harmonics(R, np.concatenate((f_dc, f_rest), axis=-1))
+        features = features.reshape(features.shape[0], -1)
+        f_dc, f_rest = features[..., :f_dc.shape[-1]], features[..., f_dc.shape[-1]:]
+
+        # fuse opacity and scale
+        opacities = model.get_opacity.detach().cpu().numpy()
+        gs_scale = model.scaling_inverse_activation(model.get_scaling * scale).detach().cpu().numpy()
+        
+        rotation = model.get_rotation.detach().cpu().numpy()
+        rotation_update = rotation_matrix_to_quaternion(R)
+        rotation = quaternion_multiply(rotation_update, rotation)
+
+        dtype_full = [(attribute, 'f4') for attribute in model.construct_list_of_attributes()]
+
+        elements = np.empty(xyz.shape[0], dtype=dtype_full)
+        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, gs_scale, rotation), axis=1)
+        elements[:] = list(map(tuple, attributes))
+        el = PlyElement.describe(elements, 'vertex')
+
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            ply_file = os.path.join(tmpdirname, "gaussian_splat.ply")
+            out_file = os.path.join(tmpdirname, "gaussian_splat.ksplat")
+            ply_data = PlyData([el])
+            ply_data.write(ply_file)
+            logging.info(f"Converting to ksplat format: {ply_file} -> {out_file}")
+
+            # Convert to ksplat format
+            subprocess.check_call(["bash", "-c", f"""
+if [ ! -e /tmp/gaussian-splats-3d ]; then
+    rm -rf "/tmp/gaussian-splats-3d-tmp"
+    git clone https://github.com/mkkellogg/GaussianSplats3D.git "/tmp/gaussian-splats-3d-tmp"
+    cd /tmp/gaussian-splats-3d-tmp
+    npm install
+    npm run build
+    cd "$PWD"
+    mv /tmp/gaussian-splats-3d-tmp /tmp/gaussian-splats-3d
+fi
+node /tmp/gaussian-splats-3d/util/create-ksplat.js {shlex.quote(ply_file)} {shlex.quote(out_file)}
+"""])
+            output = Path(path)
+            os.rename(out_file, output / "scene.ksplat")
+            wget(
+                "https://raw.githubusercontent.com/gzuidhof/coi-serviceworker/7b1d2a092d0d2dd2b7270b6f12f13605de26f214/coi-serviceworker.min.js", 
+                output / "coi-serviceworker.min.js")
+            wget(
+                "https://raw.githubusercontent.com/jkulhanek/nerfbaselines/bd328ea7d68942eea76037baed50501daa3a2425/web/public/three.module.min.js",
+                output / "three.module.min.js")
+            wget(
+                "https://raw.githubusercontent.com/jkulhanek/nerfbaselines/bd328ea7d68942eea76037baed50501daa3a2425/web/public/gaussian-splats-3d.module.min.js",
+                output / "gaussian-splats-3d.module.min.js")
+            format_vector = lambda v: "[" + ",".join(f'{x:.3f}' for x in v) + "]"  # noqa: E731
+            with (output / "index.html").open("w", encoding="utf8") as f, \
+                open(Path(__file__).parent / "gaussian_splatting_demo.html", "r", encoding="utf8") as template:
+                f.write(template.read().replace("{up}", format_vector(viewer_initial_pose.reshape(-1))))

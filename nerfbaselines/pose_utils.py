@@ -64,3 +64,20 @@ def viewmatrix(
     vecs[ax] = orthogonal_dir(vecs[(ax + 1) % 3], vecs[(ax + 2) % 3])
     m = np.stack(vecs + [position], axis=1)
     return m
+
+
+def get_transform_and_scale(transform):
+    scale = np.linalg.norm(transform[:3, :3], axis=0)
+    assert np.allclose(scale, scale[0], atol=1e-3, rtol=0)
+    scale = float(np.mean(scale).item())
+    transform = transform.copy()
+    transform[:3, :] /= scale
+    return transform, scale
+
+
+def apply_transform(poses, transform):
+    transform, scale = get_transform_and_scale(transform)
+    poses = unpad_poses(transform @ pad_poses(poses))
+    poses[..., :3, 3] *= scale
+    return poses
+

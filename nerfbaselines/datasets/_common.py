@@ -11,7 +11,7 @@ from typing import Optional
 from ..types import Dataset, Literal
 from .. import cameras
 from ..utils import padded_stack
-from ..pose_utils import rotation_matrix, pad_poses, unpad_poses, viewmatrix
+from ..pose_utils import rotation_matrix, pad_poses, unpad_poses, viewmatrix, apply_transform
 
 
 def single(xs):
@@ -50,22 +50,6 @@ def get_transform_poses_pca(poses):
     scale_factor = 1.0 / np.max(np.abs(poses_recentered[:, :3, 3]))
     transform = np.diag(np.array([scale_factor] * 3 + [1])) @ transform
     return transform
-
-
-def get_transform_and_scale(transform):
-    scale = np.linalg.norm(transform[:3, :3], axis=0)
-    assert np.allclose(scale, scale[0])
-    scale = float(scale[0])
-    transform = transform.copy()
-    transform[:3, :] /= scale
-    return transform, scale
-
-
-def apply_transform(poses, transform):
-    transform, scale = get_transform_and_scale(transform)
-    poses = unpad_poses(transform @ pad_poses(poses))
-    poses[..., :3, 3] *= scale
-    return poses
 
 
 def focus_point_fn(poses, xnp = np):
