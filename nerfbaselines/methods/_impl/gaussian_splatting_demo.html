@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  <title>Demo</title>
+  <script type="text/javascript" src="coi-serviceworker.min.js"></script>
+  <script type="importmap">
+    {
+        "imports": {
+            "three": "./three.module.min.js",
+            "@mkkellogg/gaussian-splats-3d": "./gaussian-splats-3d.module.min.js"
+        }
+    }
+  </script>
+  <style>body { background-color: #000000; height: 100vh; margin: 0px; }</style>
+</head>
+<body>
+  <script type="module">
+    import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
+    const p = {pose};
+    const viewer = new GaussianSplats3D.Viewer({
+        cameraUp:[-p[1],-p[5],-p[9]],
+        initialCameraPosition:[p[3],p[7],p[11]], 
+        initialCameraLookAt:[p[3]+p[2],p[7]+p[6],p[11]+p[10]],
+    });
+    viewer.init();
+    viewer.addSplatScene("scene.ksplat", { 'halfPrecisionCovariancesOnGPU': true }).then(() => { viewer.start(); });
+  </script>
+</body>
+</html>

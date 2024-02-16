@@ -584,3 +584,30 @@ class SetParamOptionType(click.ParamType):
             self.fail(f"expected key=value pair, got {value}", param, ctx)
         k, v = value.split("=", 1)
         return k, v
+
+
+def get_package_dependencies(extra=None):
+    if sys.version_info < (3, 10):
+        from importlib_metadata import distribution
+    else:
+        from importlib.metadata import distribution
+
+    requires = []
+    requires_with_conditions = distribution(__package__).requires
+    for r in requires_with_conditions:
+        if ";" in r:
+            r, condition = r.split(";")
+            condition = condition.strip().replace(" ", "")
+            if condition.startswith("extra=="):
+                extracond = condition.split("==")[1][1:-1]
+                if extra is not None and extracond in extra:
+                    requires.append(r)
+                continue
+            elif condition.startswith("python_version"):
+                requires.append(r)
+                continue
+            else:
+                raise ValueError(f"Unknown condition {condition}")
+        r = r.strip()
+        requires.append(r)
+    return requires

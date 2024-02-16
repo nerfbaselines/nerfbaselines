@@ -171,7 +171,7 @@ class WandbLoggerEvent(BaseLoggerEvent):
                       labels: Union[None, List[Dict[str, str]], List[str]] = None) -> None:
                     
         import wandb
-        table = wandb.Table()
+        table = wandb.Table([])
         table.add_column("embedding", embeddings)
         if labels is not None:
             if isinstance(labels[0], dict):
@@ -180,15 +180,46 @@ class WandbLoggerEvent(BaseLoggerEvent):
             else:
                 table.add_column("label", labels)
         if images is not None:
-            for image in images:
-                table.add_column("image", wandb.Image(image))
+            table.add_column("image", [wandb.Image(image) for image in images])
         self._commit[tag] = table
+
+    def add_plot(self, tag: str, *data: np.ndarray, 
+                 axes_labels: Sequence[str] | None = None, 
+                 title: str | None = None, 
+                 colors: Sequence[np.ndarray] | None = None, 
+                 labels: Sequence[str] | None = None, **kwargs) -> None:
+        if len(data) == 0 or data[0].shape[-1] != 2 or colors is not None:
+            # Not supported by WandbLogger
+            return super().add_plot(tag, *data, axes_labels=axes_labels, title=title, colors=colors, labels=labels, **kwargs)
+
+        import wandb
+
+        if colors is not None:
+            warnings.warn("WandbLogger does not support colors for add_plot, ignoring them")
+
+        xlabel, ylabel = axes_labels or ["x", "y"]
+        if len(data) == 1:
+            table = wandb.Table(data=[[x, y] for x, y in data[0]], columns=[xlabel, ylabel])
+            self._commit[tag] = wandb.plot.line(
+                table,
+                x=xlabel,
+                y=ylabel,
+                title=title
+            )
+        else:
+            self._commit[tag] = wandb.plot.line_series(
+                [x[:, 0] for x in data],
+                [x[:, 1] for x in data],
+                keys=labels,
+                title=title,
+                xname=xlabel,
+            )
     
 
 class WandbLogger(BaseLogger):
-    def __init__(self, output: Union[str, Path]):
+    def __init__(self, output: Union[str, Path], **kwargs):
         import wandb
-        wandb_run: "wandb.sdk.wandb_run.Run" = wandb.init(dir=str(output))
+        wandb_run: "wandb.sdk.wandb_run.Run" = wandb.init(dir=str(output), **kwargs)
         self._wandb_run = wandb_run
         self._wandb = wandb
 
@@ -228,10 +259,10 @@ class ConcatLogger(BaseLogger):
         def enter_event(loggers, events):
             if loggers:
                 with loggers[0].add_event(step) as event:
-                    return enter_event(loggers[1:], [event] + events)
+                    yield from enter_event(loggers[1:], [event] + events)
             else:
-                return ConcatLoggerEvent(events)
-        yield enter_event(self.loggers, [])
+                yield ConcatLoggerEvent(events)
+        yield from enter_event(self.loggers, [])
 
     def __str__(self):
         if not self:

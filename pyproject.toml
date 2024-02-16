@@ -39,16 +39,16 @@ dynamic = ["version"]
 [project.optional-dependencies]
 extras = [
     'torch',
-    'jax',
     'lpips',
-    'dm-pix',
-    'torchmetrics',
     'viser',
 ]
 
 dev = [
+    'torchmetrics',
+    'jax',
     'pytest',
     'typeguard',
+    'dm-pix',
 ]
 
 

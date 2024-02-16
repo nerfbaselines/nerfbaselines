@@ -83,13 +83,14 @@ fi
 """
         return ["bash", "-c", script]
 
-    def _get_server_process_args(self, env, *args, **kwargs):
-        assert self.conda_name is not None, "CondaMethod requires conda_name to be specified"
+    @classmethod
+    def _wrap_get_server_process_args(cls, args):
+        assert cls.conda_name is not None, "CondaMethod requires conda_name to be specified"
         return [
             "bash",
             "-c",
             f"""eval "$(conda shell.bash hook)" && \
-conda activate {os.path.join(self.environments_path, self.conda_name, self.get_environment_hash(), ".e", self.conda_name)} && \
-exec {shlex.join(super()._get_server_process_args(env, *args, **kwargs))}
+conda activate {os.path.join(cls.environments_path, cls.conda_name, cls.get_environment_hash(), ".e", cls.conda_name)} && \
+exec {shlex.join(super()._wrap_get_server_process_args(args))}
 """,
         ]

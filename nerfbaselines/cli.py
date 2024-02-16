@@ -150,5 +150,14 @@ def render_dataset_results_command(results: Path, dataset, output_type, output, 
         render_output(dataset_info)
 
 
+@main.command("build-docker-image")
+@click.option("--method", type=click.Choice(list(registry.supported_methods())), required=True)
+def build_docker_image_command(method):
+    _method, _ = registry.get(method).build(backend="docker")
+    _method.build_docker_image()
+
+
+
+main.add_lazy_command("nerfbaselines.export_demo", "export-demo")
 main.add_lazy_command("nerfbaselines.viewer", "viewer")
 main.add_lazy_command("nerfbaselines.render_trajectory", "render-trajectory")

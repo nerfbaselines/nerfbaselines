@@ -21,6 +21,26 @@ from .utils import assert_not_none
 OpenMode = Literal["r", "w"]
 
 
+def wget(url: str, output: Union[str, Path]):
+    output = Path(output)
+    response = requests.get(url, stream=True)
+    response.raise_for_status()
+    total_size_in_bytes = int(response.headers.get("content-length", 0))
+    block_size = 1024  # 1 Kibibyte
+    progress_bar = tqdm(
+        total=total_size_in_bytes, unit="iB", unit_scale=True, desc="Downloading"
+    )
+    with open(output, "wb") as f:
+        for data in response.iter_content(block_size):
+            progress_bar.update(len(data))
+            f.write(data)
+    progress_bar.close()
+    if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
+        logging.error(
+            f"Failed to download {url}. {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes."
+        )
+
+
 @contextlib.contextmanager
 def open_any(
     path: Union[str, Path, BinaryIO], mode: OpenMode = "r"
@@ -201,11 +221,15 @@ def serialize_nb_info(info: dict) -> dict:
         info["dataset_metadata"] = dm = info["dataset_metadata"].copy()
         if "background_color" in dm:
             dm["background_color"] = dm["background_color"].tolist()
+        if "viewer_initial_pose" in dm:
+            dm["viewer_initial_pose"] = np.round(dm["viewer_initial_pose"], 5).tolist()
+        if "viewer_transform" in dm:
+            dm["viewer_transform"] = np.round(dm["viewer_transform"], 5).tolist()
 
     def ts(x):
         _ = info
         if isinstance(x, np.ndarray):
-            breakpoint()
+            raise NotImplementedError("Numpy arrays are not supported in nb-info")
         if isinstance(x, dict):
             return {k: ts(v) for k, v in x.items()}
         elif isinstance(x, (list, tuple)):
@@ -222,4 +246,8 @@ def deserialize_nb_info(info: dict) -> dict:
         info["dataset_metadata"] = dm = info["dataset_metadata"].copy()
         if "background_color" in dm:
             dm["background_color"] = np.array(dm["background_color"], dtype=np.uint8)
+        if "viewer_initial_pose" in dm:
+            dm["viewer_initial_pose"] = np.array(dm["viewer_initial_pose"], dtype=np.float32)
+        if "viewer_transform" in dm:
+            dm["viewer_transform"] = np.array(dm["viewer_transform"], dtype=np.float32)
     return info
