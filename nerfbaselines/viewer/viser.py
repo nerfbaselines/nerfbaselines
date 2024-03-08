@@ -1,3 +1,4 @@
+import contextlib
 from pathlib import Path
 from collections import deque
 from time import perf_counter
@@ -10,8 +11,9 @@ from ..types import Method, Dataset, FrozenSet, DatasetFeature, Literal
 from ..cameras import Cameras
 from ..datasets._colmap_utils import qvec2rotmat, rotmat2qvec
 from ..utils import CancellationToken, CancelledException, cancellable, assert_not_none
-from ..datasets._common import apply_transform, get_transform_and_scale
+from ..pose_utils import apply_transform, get_transform_and_scale
 from ..datasets import load_dataset
+from ..backends._rpc import EventCancellationToken
 
 
 def invert_transform(transform):
@@ -72,16 +74,17 @@ class ViserViewer:
             def _(_camera_handle: viser.CameraHandle):
                 self._reset_render()
 
-            pos, quat = get_position_quaternion(
-                apply_transform(initial_pose, self.transform)
-            )
-            client.camera.position = pos
-            client.camera.wxyz = quat
-            client.camera.up_direction = np.array([0, 0, 1], dtype=np.float32)
+            if initial_pose is not None:
+                pos, quat = get_position_quaternion(
+                    apply_transform(initial_pose, self.transform)
+                )
+                client.camera.position = pos
+                client.camera.wxyz = quat
+                client.camera.up_direction = np.array([0, 0, 1], dtype=np.float32)
 
-            # For object-centric scenes, we look at the origin
-            if True:
-                client.camera.look_at = np.array([0, 0, 0], dtype=np.float32)
+                # For object-centric scenes, we look at the origin
+                if True:
+                    client.camera.look_at = np.array([0, 0, 0], dtype=np.float32)
 
         self._cancellation_token = None
         self._setup_gui()
@@ -90,6 +93,7 @@ class ViserViewer:
         self._render_state = {}
         if self._cancellation_token is not None:
             self._cancellation_token.cancel()
+            self._cancellation_token = None
 
     def _setup_gui(self):
         self.fps = self.server.add_gui_text("FPS", initial_value="-1", disabled=True)
@@ -97,7 +101,13 @@ class ViserViewer:
     def run(self):
         while True:
             if self.method is not None:
-                self._update()
+                try:
+                    self._update()
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    print(f"Error: {e}")
+
     
     def add_initial_point_cloud(self, points, colors):
         transform, scale = get_transform_and_scale(self.transform)
@@ -176,11 +186,10 @@ class ViserViewer:
                 self._render_state[client.client_id] = render_state + 1
                 cancellation_token = self._cancellation_token = None
                 if render_state == 1:
-                    cancellation_token = CancellationToken()
+                    cancellation_token = EventCancellationToken()
                     self._cancellation_token = cancellation_token
 
                 c2w = get_c2w(camera)
-                c2w[0:3, 1:3] *= -1
                 c2w = self._inv_transform @ c2w
                 camera = Cameras(
                     poses=c2w[None, :3, :4],
@@ -191,7 +200,9 @@ class ViserViewer:
                     nears_fars=None,
                 )
                 try:
-                    outputs = next(iter(cancellable(self.method.render)(camera, cancellation_token=self._cancellation_token)))
+                    with self._cancellation_token or contextlib.nullcontext():
+                        for outputs in self.method.render(camera):
+                            pass
                 except CancelledException:
                     # if we got interrupted, don't send the output to the viewer
                     self._render_state[client.client_id] = 0
@@ -263,7 +274,7 @@ def run_viser_viewer(method: Optional[Method] = None,
         if dataset_metadata is not None:
             transform = dataset_metadata.get("viewer_transform")
             initial_pose = dataset_metadata.get("viewer_initial_pose")
-            control_type = "object-centric" if dataset_metadata["type"] == "object-centric" else "default"
+            control_type = "object-centric" if dataset_metadata.get("type") == "object-centric" else "default"
             initial_pose = apply_transform(initial_pose, invert_transform(transform))
         return ViserViewer(**kwargs, 
                            port=port, 

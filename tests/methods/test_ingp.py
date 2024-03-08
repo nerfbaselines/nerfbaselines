@@ -1,3 +1,6 @@
+from enum import Enum
+from pathlib import Path
+import tempfile
 import pytest
 import contextlib
 import numpy as np
@@ -8,12 +11,19 @@ from unittest import mock
 METHOD_NAME = "instant-ngp"
 
 
+class ColorSpace(Enum):
+    SRGB = 0
+    Linear = 1
+
+
 @contextlib.contextmanager
 def mock_instant_ngp():
     testbed = mock.MagicMock()
     pyngp = mock.Mock()
     pyngp.Testbed = lambda: testbed
     pyngp.__file__ = "pyngp/__init__.py"
+    pyngp.ColorSpace = ColorSpace
+    
     testbed.training_step = 0
     w, h = 200, 100
 
@@ -44,10 +54,14 @@ def mock_instant_ngp():
     testbed.set_camera_to_training_view = mock.Mock(side_effect=_set_camera_to_training_view)
     testbed.frame = mock.Mock(side_effect=inc_training_step)
     testbed.loss = 0.1
-    with mock.patch.dict(sys.modules, {"pyngp": pyngp}):
+    with mock.patch.dict(sys.modules, {"pyngp": pyngp}), tempfile.TemporaryDirectory() as tempdir:
         from nerfbaselines.methods._impl import instant_ngp
+        
+        pyngp.__file__ = str(Path(tempdir).joinpath("pyngp/__init__.py"))
+        Path(tempdir).joinpath("configs", "nerf").mkdir(exist_ok=True, parents=True)
+        Path(tempdir).joinpath("configs", "nerf", "base.json").write_text("{}")
 
-        old_setup_train = instant_ngp.InstantNGP.setup_train
+        old_setup_train = instant_ngp.InstantNGP._setup_train
 
         def new_setup_train(self, train_dataset, *args, **kwargs):
             nonlocal image_sizes
@@ -72,13 +86,20 @@ def mock_instant_ngp():
                 testbed.nerf.training.dataset.n_images = old_n_images
             return out
 
-        with mock.patch.object(instant_ngp.InstantNGP, "render", new_render), mock.patch.object(instant_ngp.InstantNGP, "setup_train", new_setup_train):
+        intt = instant_ngp.InstantNGP.__init__
+        def init(self, *args, **kwargs):
+            intt(self, *args, **kwargs)
+            self.num_iterations = 13
+
+        with mock.patch.object(instant_ngp.InstantNGP, "render", new_render), \
+              mock.patch.object(instant_ngp.InstantNGP, "_setup_train", new_setup_train), \
+              mock.patch.object(instant_ngp.InstantNGP, "__init__", init):
             yield None
 
 
 @pytest.mark.method(METHOD_NAME)
 @mock_instant_ngp()
-def test_train_instant_ngp_mocked(run_test_train):
+def test_train_instant_ngp_mocked(run_test_train, mock_torch):
     run_test_train()
 
 

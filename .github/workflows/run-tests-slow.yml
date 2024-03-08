@@ -1,6 +1,6 @@
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "develop"]
     tags-ignore: ['v*']
   pull_request:
   workflow_dispatch:

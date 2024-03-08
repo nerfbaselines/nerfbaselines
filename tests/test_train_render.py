@@ -4,8 +4,7 @@ from typing import Iterable, cast
 from pathlib import Path
 import os
 import numpy as np
-from nerfbaselines import Method, MethodInfo, Cameras, RenderOutput, CurrentProgress, Indices
-from nerfbaselines.backends.conda import CondaMethod
+from nerfbaselines import Method, MethodInfo, Cameras, RenderOutput, CurrentProgress, Indices, ModelInfo
 from nerfbaselines.datasets import _colmap_utils as colmap_utils
 from nerfbaselines.cameras import CameraModel
 from unittest import mock
@@ -37,26 +36,34 @@ def make_dataset(path: Path, num_images=10):
 
 
 class _TestMethod(Method):
-    _install_called_count = 0
     _save_paths = []
     _last_step = None
     _setup_train_dataset = []
     _render_call_step = []
 
+    def __init__(self, *args, train_dataset=None, **kwargs):
+        if train_dataset is not None:
+            self._setup_train_dataset.append(train_dataset)
+
     @staticmethod
     def _reset():
-        _TestMethod._install_called_count = 0
         _TestMethod._save_paths = []
         _TestMethod._last_step = None
         _TestMethod._setup_train_dataset = []
         _TestMethod._render_call_step = []
 
     @classmethod
-    def install(cls):
-        _TestMethod._install_called_count += 1
-
-    def get_info(self) -> MethodInfo:
+    def get_method_info(self):
         return MethodInfo(
+            name="_test",
+            required_features=frozenset(("color",)),
+            supported_camera_models=frozenset((CameraModel.PINHOLE,)),
+        )
+
+
+    def get_info(self) -> ModelInfo:
+        return ModelInfo(
+            name="_test",
             loaded_step=None,
             supported_camera_models=frozenset(
                 (
@@ -87,9 +94,6 @@ class _TestMethod(Method):
                     )
                 )
 
-    def setup_train(self, train_dataset, **kwargs):
-        self._setup_train_dataset.append(train_dataset)
-
     def train_iteration(self, step: int):
         _TestMethod._last_step = step
         return {"loss": 0.1}
@@ -108,7 +112,7 @@ def wandb_init_run():
 
 
 @pytest.mark.parametrize("vis", ["none", "wandb", "tensorboard", "wandb+tensorboard"])
-def test_train_command(tmp_path, wandb_init_run, vis):
+def test_train_command(mock_extras, tmp_path, wandb_init_run, vis):
     from nerfbaselines.train import train_command
     from nerfbaselines.registry import registry, MethodSpec
     import wandb
@@ -116,19 +120,27 @@ def test_train_command(tmp_path, wandb_init_run, vis):
     _ns_prefix_backup = os.environ.get("NS_PREFIX", None)
     try:
         os.environ["NS_PREFIX"] = str(tmp_path / "prefix")
-        registry["_test"] = MethodSpec(method=_TestMethod, conda=CondaMethod.wrap(_TestMethod, conda_name="_test", python_version="3.10", install_script=""))
+        spec: MethodSpec = {
+            "name": "_test",
+            "method": _TestMethod.__module__ + ":_TestMethod",
+            "conda": {
+                "environment_name": "_test",
+                "python_version": "3.10",
+                "install_script": "",
+            }
+        }
+        registry["_test"] = spec
 
         # train_command.callback(method, checkpoint, data, output, verbose, backend, eval_single_iters, eval_all_iters, vis="none")
         make_dataset(tmp_path / "data")
         (tmp_path / "output").mkdir()
         assert train_command.callback is not None
-        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(5), Indices([-1]), vis=vis)
+        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), vis=vis)
 
         # Test if model was saved at the end
         assert len(_TestMethod._save_paths) > 0
         assert "13" in _TestMethod._save_paths[-1]
         assert _TestMethod._last_step == 12
-        assert _TestMethod._install_called_count == 1
         assert _TestMethod._setup_train_dataset is not None
         assert (tmp_path / "output" / "checkpoint-13").exists()
         assert _TestMethod._render_call_step == [4, 4, 9, 9, 12]
@@ -193,12 +205,21 @@ def test_train_command_extras(tmp_path):
     assert train_command.callback is not None
 
     try:
-        registry["_test"] = MethodSpec(method=_TestMethod, conda=CondaMethod.wrap(_TestMethod, conda_name="_test", python_version="3.10", install_script=""))
+        spec: MethodSpec = {
+            "name": "test",
+            "method": _TestMethod.__module__ + ":_TestMethod",
+            "conda": {
+                "environment_name": "_test",
+                "python_version": "3.10",
+                "install_script": "",
+            }
+        }
+        registry["_test"] = spec
 
         # train_command.callback(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters)
         make_dataset(tmp_path / "data")
         (tmp_path / "output").mkdir()
-        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(5), Indices([-1]), vis="tensorboard")
+        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), vis="tensorboard")
 
         # By default, the model should render all images at the end
         print(os.listdir(tmp_path / "output"))
@@ -215,23 +236,8 @@ def test_train_command_extras(tmp_path):
         _TestMethod._reset()
         shutil.rmtree(tmp_path / "output")
         (tmp_path / "output").mkdir()
-        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(5), Indices([-1]), run_extra_metrics=True, vis="tensorboard")
-        print(os.listdir(tmp_path / "output"))
-        assert (tmp_path / "output" / "checkpoint-13").exists()
-        assert (tmp_path / "output" / "predictions-13.tar.gz").exists()
-        assert (tmp_path / "output" / "results-13.json").exists()
-        assert (tmp_path / "output" / "tensorboard").exists()
-        # LPIPS should be computed by default
-        with open(tmp_path / "output" / "results-13.json", "r") as f:
-            results = json.load(f)
-            assert "lpips" not in results["metrics"], "lpips should not be in results"
-        assert not (tmp_path / "output" / "output.zip").exists(), "output artifact should not be generated without extra metrics"
-
-        _TestMethod._reset()
-        shutil.rmtree(tmp_path / "output")
-        (tmp_path / "output").mkdir()
         train_command.callback(
-            "_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(5), Indices([-1]), generate_output_artifact=False, vis="tensorboard"
+            "_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), generate_output_artifact=False, vis="tensorboard"
         )
         print(os.listdir(tmp_path / "output"))
         assert (tmp_path / "output" / "checkpoint-13").exists()
@@ -248,42 +254,12 @@ def test_train_command_extras(tmp_path):
         _TestMethod._reset()
         shutil.rmtree(tmp_path / "output")
         (tmp_path / "output").mkdir()
-        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(5), Indices([-1]), generate_output_artifact=True, vis="tensorboard")
+        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), generate_output_artifact=True, vis="tensorboard")
         assert (tmp_path / "output" / "checkpoint-13").exists()
         assert (tmp_path / "output" / "predictions-13.tar.gz").exists()
         assert (tmp_path / "output" / "results-13.json").exists()
         assert (tmp_path / "output" / "tensorboard").exists()
         assert (tmp_path / "output" / "output.zip").exists(), "output artifact should not be generated without extra metrics"
-
-    finally:
-        _TestMethod._reset()
-        registry.pop("_test", None)
-
-
-def test_train_command_no_extras(tmp_path, no_extras):
-    from nerfbaselines.train import train_command
-    from nerfbaselines.registry import registry, MethodSpec
-
-    try:
-        registry["_test"] = MethodSpec(method=_TestMethod, conda=CondaMethod.wrap(_TestMethod, conda_name="_test", python_version="3.10", install_script=""))
-
-        # train_command.callback(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters)
-        make_dataset(tmp_path / "data")
-        (tmp_path / "output").mkdir()
-        assert train_command.callback is not None
-        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(5), Indices([-1]), vis="none")
-
-        # By default, the model should render all images at the end
-        print(os.listdir(tmp_path / "output"))
-        assert (tmp_path / "output" / "checkpoint-13").exists()
-        assert (tmp_path / "output" / "predictions-13.tar.gz").exists()
-        assert (tmp_path / "output" / "results-13.json").exists()
-        with open(tmp_path / "output" / "results-13.json", "r") as f:
-            results = json.load(f)
-            assert "lpips" not in results["metrics"], "lpips should not be in results"
-
-        # LPIPS should not be computed without extras, output artifact should not be produced
-        assert not (tmp_path / "output" / "output.zip").exists()
 
     finally:
         _TestMethod._reset()
@@ -304,11 +280,11 @@ def test_train_command_undistort(tmp_path, wandb_init_run):
             info.supported_camera_models = frozenset((CameraModel.PINHOLE,))
             return info
 
-        def setup_train(self, train_dataset, *args, **kwargs):
+        def __init__(self, *args, train_dataset, **kwargs):
             nonlocal setup_data_was_called
             setup_data_was_called = True
             assert all(train_dataset.cameras.camera_types == 0)
-            return super().setup_train(train_dataset, *args, **kwargs)
+            super().__init__(*args, train_dataset=train_dataset, **kwargs)
 
         def render(self, cameras, *args, **kwargs):
             nonlocal render_was_called
@@ -316,15 +292,26 @@ def test_train_command_undistort(tmp_path, wandb_init_run):
             assert all(cameras.camera_types == 0)
             return super().render(cameras, *args, **kwargs)
 
+    test_train_command_undistort._TestMethod = _Method
+
     _ns_prefix_backup = os.environ.get("NS_PREFIX", None)
     try:
         os.environ["NS_PREFIX"] = str(tmp_path / "prefix")
-        registry["_test"] = MethodSpec(method=_Method, conda=CondaMethod.wrap(_Method, conda_name="_test", python_version="3.10", install_script=""))
+        spec: MethodSpec = {
+            "name": "_test",
+            "method": _TestMethod.__module__ + ":test_train_command_undistort._TestMethod",
+            "conda": {
+                "environment_name": "_test",
+                "python_version": "3.10",
+                "install_script": "",
+            }
+        }
+        registry["_test"] = spec
 
         # train_command.callback(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters)
         make_dataset(tmp_path / "data")
         (tmp_path / "output").mkdir()
-        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices([1]), Indices([]), vis="none")
+        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(9), Indices([1]), Indices([]), vis="none")
         assert render_was_called
     finally:
         _TestMethod._reset()
@@ -344,13 +331,23 @@ def test_render_command(tmp_path, output_type):
     _ns_prefix_backup = os.environ.get("NS_PREFIX", None)
     try:
         os.environ["NS_PREFIX"] = str(tmp_path / "prefix")
-        registry["_test"] = MethodSpec(method=_TestMethod, conda=CondaMethod.wrap(_TestMethod, conda_name="_test", python_version="3.10", install_script=""))
+        spec: MethodSpec = {
+            "name": "_test",
+            "method": _TestMethod.__module__ + ":_TestMethod",
+            "conda": {
+                "environment_name": "_test",
+                "python_version": "3.10",
+                "install_script": "",
+            }
+        }
+        registry["_test"] = spec
 
         make_dataset(tmp_path / "data")
         (tmp_path / "output").mkdir()
         # Generate checkpoint
         assert train_command.callback is not None
-        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices([]), Indices([]), vis="none")
+        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, 
+                               "python", Indices([]), Indices([]), Indices([]), vis="none")
 
         # render_command(checkpoint, data, output, split, verbose, backend)
         if output_type == "folder":

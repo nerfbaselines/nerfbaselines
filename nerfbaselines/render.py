@@ -19,6 +19,7 @@ from .datasets import load_dataset, Dataset
 from .utils import setup_logging, image_to_srgb, save_image, save_depth, visualize_depth, handle_cli_error, convert_image_dtype, assert_not_none
 from .types import Method, CurrentProgress, RenderOutput, EvaluationProtocol
 from .io import open_any_directory, serialize_nb_info, deserialize_nb_info
+from . import backends
 from . import cameras as _cameras
 from . import registry
 from . import __version__
@@ -233,9 +234,9 @@ def render_all_images(
 @click.option("--output", type=Path, default="predictions", help="output directory or tar.gz file")
 @click.option("--split", type=str, default="test")
 @click.option("--verbose", "-v", is_flag=True)
-@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
+@click.option("--backend", "backend_name", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @handle_cli_error
-def render_command(checkpoint: Union[str, Path], data, output, split, verbose, backend):
+def render_command(checkpoint: Union[str, Path], data, output, split, verbose, backend_name):
     checkpoint = str(checkpoint)
     setup_logging(verbose)
 
@@ -248,15 +249,9 @@ def render_command(checkpoint: Union[str, Path], data, output, split, verbose, b
         nb_info = deserialize_nb_info(nb_info)
 
         method_name = nb_info["method"]
-        method_spec = registry.get(method_name)
-        method_cls, backend = method_spec.build(backend=backend, checkpoint=Path(os.path.abspath(str(checkpoint))))
-        logging.info(f"Using backend: {backend}")
-
-        if hasattr(method_cls, "install"):
-            method_cls.install()
-
-        method = method_cls()
-        try:
+        backends.mount(checkpoint_path, checkpoint_path)
+        with registry.build_method(method_name, backend=backend_name) as method_cls:
+            method: Method = method_cls(checkpoint=checkpoint_path)
             method_info = method.get_info()
             dataset = load_dataset(data, split=split, features=method_info.required_features)
             dataset.load_features(method_info.required_features)
@@ -264,6 +259,3 @@ def render_command(checkpoint: Union[str, Path], data, output, split, verbose, b
                 raise RuntimeError(f"Dataset color space {dataset.color_space} != method color space {nb_info['color_space']}")
             for _ in render_all_images(method, dataset, output=Path(output), nb_info=nb_info):
                 pass
-        finally:
-            if hasattr(method, "close"):
-                typing.cast(Any, method).close()

@@ -20,6 +20,7 @@ def mock_gaussian_splatting(mock_torch):
             "scene": mock.MagicMock(),
             "scene.cameras": mock.MagicMock(),
             "scene.dataset_readers": mock.MagicMock(),
+            "scene.gaussian_model": mock.MagicMock(),
             "utils": mock.MagicMock(),
             "utils.general_utils": mock.MagicMock(),
             "utils.image_utils": mock.MagicMock(),
@@ -27,6 +28,7 @@ def mock_gaussian_splatting(mock_torch):
             "utils.sh_utils": mock.MagicMock(),
             "utils.camera_utils": mock.MagicMock(),
             "utils.graphics_utils": mock.MagicMock(),
+            "scipy": mock.MagicMock(),
         },
     ):
         # from arguments import ModelParams, PipelineParams, OptimizationParams
@@ -53,7 +55,7 @@ def mock_gaussian_splatting(mock_torch):
         arguments.ModelParams = setup_model_args
 
         def setup_opt_args(parser):
-            parser.add_argument("--iterations", type=int)
+            parser.add_argument("--iterations", type=int, default=13)
             out = mock.MagicMock()
             out.extract = lambda args: args
             return out
@@ -74,6 +76,7 @@ def mock_gaussian_splatting(mock_torch):
                 self.original_image = kwargs["image"]
                 self.znear = 0.1
                 self.zfar = 100.0
+                self.world_view_transform = torch.eye(4)
                 for k, v in kwargs.items():
                     setattr(self, k, v)
 

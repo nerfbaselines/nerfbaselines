@@ -1,4 +1,5 @@
 # pylint: disable=protected-access
+import enum
 import os
 import dataclasses
 from functools import partial
@@ -8,9 +9,9 @@ from pathlib import Path
 import copy
 import tempfile
 from collections import defaultdict
-from typing import Iterable, Optional, TypeVar
+from typing import Iterable, Optional, TypeVar, List, Tuple, Any
 import numpy as np
-from ...types import Method, ProgressCallback, CurrentProgress, MethodInfo
+from ...types import Method, ProgressCallback, CurrentProgress, MethodInfo, ModelInfo
 from ...types import Dataset, RenderOutput
 from ...cameras import CameraModel, Cameras
 from ...utils import convert_image_dtype
@@ -88,6 +89,56 @@ def _config_safe_set(config, path, value, autocast=False):
         return True
     return False
 
+
+def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
+    def format_value(v, key=None):
+        if isinstance(v, (str, float, int, bool, bytes, type(None))):
+            return v
+        if isinstance(v, (list, tuple)):
+            return [format_value(x) for x in v]
+        if isinstance(v, dict):
+            return {k: format_value(x) for k, x in v.items()}
+        if isinstance(v, type):
+            return v.__module__ + ":" + v.__name__
+        if isinstance(v, Path):
+            return str(v)
+        if isinstance(v, enum.Enum):
+            return v.name
+        if dataclasses.is_dataclass(v):
+            return flatten_hparams(v, separator=separator, _prefix=_prefix)
+        return repr(v)
+        raise ValueError(f"Unsupported type {type(v)} for key {key}")
+
+    flat = {}
+    if dataclasses.is_dataclass(hparams):
+        hparams = {f.name: getattr(hparams, f.name) for f in dataclasses.fields(hparams)}
+    for k, v in hparams.items():
+        if _prefix:
+            k = f"{_prefix}{separator}{k}"
+        if isinstance(v, dict) or dataclasses.is_dataclass(v):
+            flat.update(flatten_hparams(v, _prefix=k))
+        else:
+            flat[k] = format_value(v, key=k)
+    return flat
+
+
+
+def _get_config_dict(config):
+    def dict_factory(items: List[Tuple[str, Any]]):
+        def _safe_value(v):
+            if isinstance(v, Path):
+                return str(v)
+            if isinstance(v, (bool, str, int, float, bytes, type(None))):
+                return v
+            if isinstance(v, np.ndarray):
+                return v.tolist()
+            if isinstance(v, torch.Tensor):
+                return _safe_value(v.detach().cpu().numpy())
+            if isinstance(v, enum.Enum):
+                return v.name
+            return str(v)
+        return {k: _safe_value(v) for k, v in items}
+    return dataclasses.asdict(config, dict_factory=dict_factory)
 
 class _CustomDataParser(DataParser):
     def __init__(self, method, dataset, config, *args, **kwargs):
@@ -169,7 +220,7 @@ class _CustomDataParser(DataParser):
         metadata = {}
         transform_matrix = self.method.dataparser_params["dataparser_transform"]
         scale_factor = self.method.dataparser_params["dataparser_scale"]
-        if self.method.require_points3D:
+        if self.method._require_points3D:
             assert self.dataset.points3D_xyz is not None, "Points3D are required but not provided"
             xyz = torch.from_numpy(self.dataset.points3D_xyz).float()
 
@@ -192,12 +243,16 @@ class _CustomDataParser(DataParser):
 
 
 class NerfStudio(Method):
-    nerfstudio_name: Optional[str] = None
-    require_points3D: bool = False
+    _method_name: str = "nerfstudio"
+    _nerfstudio_name: Optional[str] = None
+    _require_points3D: bool = False
 
-    def __init__(self, nerfstudio_name: Optional[str] = None, checkpoint: Optional[Path] = None, require_points3D: Optional[bool] = None):
+    def __init__(self, *,
+                 checkpoint: Optional[Path] = None,
+                 train_dataset: Optional[Dataset] = None, 
+                 config_overrides: Optional[dict] = None):
+        assert self._nerfstudio_name is not None, "nerfstudio_name must be set in the subclass"
         self.checkpoint = str(checkpoint) if checkpoint is not None else None
-        self.nerfstudio_name = nerfstudio_name or self.nerfstudio_name
         if checkpoint is not None:
             # Load nerfstudio checkpoint
             with open(os.path.join(checkpoint, "config.yml"), "r", encoding="utf8") as f:
@@ -205,20 +260,28 @@ class NerfStudio(Method):
             self._original_config = copy.deepcopy(config)
             config.get_base_dir = lambda *_: Path(checkpoint)
             config.load_dir = config.get_checkpoint_dir()
-        elif self.nerfstudio_name is not None:
-            config = all_methods[self.nerfstudio_name]
+        elif self._nerfstudio_name is not None:
+            config = all_methods[self._nerfstudio_name]
             self._original_config = copy.deepcopy(config)
         else:
             raise ValueError("Either checkpoint or name must be provided")
         self.config = copy.deepcopy(config)
-        super().__init__(batch_size=self.config.pipeline.datamanager.train_num_rays_per_batch)
         self._trainer = None
         self._dm = None
         self.step = 0
         self._tmpdir = tempfile.TemporaryDirectory()
         self._mode = None
         self.dataparser_params = None
-        self.require_points3D = require_points3D if require_points3D is not None else self.require_points3D
+
+        if train_dataset is not None:
+            self._apply_config_patch_for_dataset(self._original_config, train_dataset)
+        for k, v in (config_overrides or {}).items():
+            if not _config_safe_set(self._original_config, k, v):
+                raise ValueError(f"Invalid config key {k}")
+        if train_dataset is not None:
+            self._setup_train(train_dataset)
+        else:
+            self._setup_eval()
 
     def _patch_dataparser_params(self):
         pass
@@ -268,13 +331,13 @@ class NerfStudio(Method):
     def batch_size(self):
         return self.config.pipeline.datamanager.train_num_rays_per_batch
 
-    def get_info(self) -> MethodInfo:
+    @classmethod
+    def get_method_info(cls) -> MethodInfo:
         features = ("color",)
-        if self.require_points3D:
+        if cls._require_points3D:
             features = features + ("points3D_xyz", "points3D_rgb")
-        info = MethodInfo(
-            loaded_step=None,
-            num_iterations=self.config.max_num_iterations,
+        return MethodInfo(
+            name=cls._method_name,
             required_features=frozenset(features),
             supported_camera_models=frozenset(
                 (
@@ -283,8 +346,16 @@ class NerfStudio(Method):
                     CameraModel.OPENCV_FISHEYE,
                 )
             ),
+        )
+
+    def get_info(self) -> ModelInfo:
+        info = ModelInfo(
+            loaded_step=None,
+            num_iterations=self.config.max_num_iterations,
             batch_size=self.config.pipeline.datamanager.train_num_rays_per_batch,
             eval_batch_size=self.config.pipeline.model.eval_num_rays_per_chunk,
+            hparams=flatten_hparams(self.config, separator="."),
+            **vars(self.get_method_info())
         )
         if self.checkpoint is not None:
             model_path = os.path.join(self.checkpoint, self.config.relative_model_dir)
@@ -295,8 +366,6 @@ class NerfStudio(Method):
 
     @torch.no_grad()
     def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
-        if self._mode is None:
-            self._setup_eval()
         poses = cameras.poses.copy()
 
         # Convert from Opencv to OpenGL coordinate system
@@ -435,20 +504,12 @@ class NerfStudio(Method):
             DM.setup_eval = lambda *args, **kwargs: None
         config.pipeline.datamanager._target = DM  # pylint: disable=protected-access
 
-    def setup_train(self, train_dataset: Dataset, *, num_iterations: Optional[int] = None, config_overrides=None):
+    def _setup_train(self, train_dataset: Dataset):
         if self.checkpoint is not None:
             self.dataparser_params = torch.load(os.path.join(self.checkpoint, "dataparser_params.pth"), map_location="cpu")
-        self._apply_config_patch_for_dataset(self._original_config, train_dataset)
-        for k, v in (config_overrides or {}).items():
-            if not _config_safe_set(self._original_config, k, v):
-                raise ValueError(f"Invalid config key {k}")
         self.config = copy.deepcopy(self._original_config)
         # We use this hack to release the memory after the data was copied to cached dataloader
         images_holder = [train_dataset.images]
-        del train_dataset.images
-
-        if num_iterations is not None:
-            self.config.max_num_iterations = num_iterations
 
         self._patch_datamanager(self.config, train_dataset, images_holder)
         self.config.output_dir = Path(self._tmpdir.name)
@@ -536,8 +597,6 @@ class NerfStudio(Method):
             path: Path to save.
         """
         path = Path(path)
-        if self._mode is None:
-            self._setup_eval()
         assert isinstance(self._trainer, Trainer)
         bckp = self._trainer.checkpoint_dir
         self._trainer.checkpoint_dir = path

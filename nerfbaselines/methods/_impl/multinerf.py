@@ -1,13 +1,19 @@
+import warnings
 import os
 from typing import Optional
 from pathlib import Path
 import numpy as np
 import functools
 import gc
-from ...types import Method, MethodInfo, Dataset, CurrentProgress
+from ...types import Method, MethodInfo, ModelInfo, Dataset, CurrentProgress
 from ...cameras import Cameras, CameraModel
 from ...utils import padded_stack
 
+try:
+    # We need to import torch before jax to load correct CUDA libraries
+    import torch
+except ImportError:
+    torch = None
 import gin
 import jax
 from jax import random
@@ -20,6 +26,53 @@ from internal import configs
 from internal import models
 from internal import train_utils  # pylint: disable=unused-import
 from internal import utils
+
+
+def gin_config_to_dict(config_str: str):
+    cfg = {}
+    def format_value(v):
+        if v in {"True", "False"}:
+            return v == "True"  # bool
+        if len(v) > 1 and v[0] == v[-1] == "'" or v[0] == v[-1] == '"':
+            return v[1:-1]  # str
+        if len(v) > 1 and v[0] == "(" and v[-1] == ")":
+            return v
+            # return tuple(format_value(x.strip()) for x in v[1:-1].split(",") if x.strip())  # tuple
+        if len(v) > 1 and v[0] == "{" and v[-1] == "}":
+            return v
+            # return {format_value(x.split(":", 1)[0].strip()): format_value(x.split(":", 1)[1].strip()) for x in v[1:-1].split(",") if x.strip()}  # dict
+        if v.startswith("@"):
+            return v
+        if v == "None":
+            return None
+        if "." in v or "e" in v:
+            return float(v)  # float
+        return int(v)  # int
+
+    lines = config_str.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
+        line = line.strip()
+        if line.startswith('#'):
+            continue
+        if not line:
+            continue
+        if "=" not in line:
+            warnings.warn(f"Unsupported line in gin config: {line}")
+            continue
+        k, v = line.split("=", 1)
+        k = k.strip()
+        v = v.strip()
+        if v == "\\":
+            # Continuation
+            while i < len(lines) and lines[i].startswith(" ") or lines[i].startswith("\t"):
+                v += lines[i].strip()
+                i += 1
+        v = format_value(v)
+        cfg[k] = v
+    return cfg
 
 
 class NBDataset(MNDataset):
@@ -138,16 +191,14 @@ class NBDataset(MNDataset):
 
 
 class MultiNeRF(Method):
-    batch_size: int = 16384
-    num_iterations: Optional[int] = None
-    learning_rate_multiplier: float = 1.0
+    _method_name: str = "multinerf"
 
-    def __init__(self, checkpoint=None, batch_size: Optional[int] = None, num_iterations: Optional[int] = None, learning_rate_multiplier: Optional[float] = None):
-        super().__init__()
+    def __init__(self, *,
+                 checkpoint=None, 
+                 train_dataset: Optional[Dataset] = None,
+                 config_overrides=None):
         self.checkpoint = str(checkpoint) if checkpoint is not None else None
-        self.batch_size = self.batch_size if batch_size is None else batch_size
-        self.num_iterations = self.num_iterations if num_iterations is None else num_iterations
-        self.learning_rate_multiplier = self.learning_rate_multiplier if learning_rate_multiplier is None else learning_rate_multiplier
+        self._config_overrides = config_overrides
 
         self._loaded_step = None
         self.pdataset_iter = None
@@ -169,7 +220,13 @@ class MultiNeRF(Method):
             self.step = self._loaded_step = int(next(iter((x for x in os.listdir(checkpoint) if x.startswith("checkpoint_")))).split("_")[1])
             self._config_str = (Path(checkpoint) / "config.gin").read_text()
             self.config = self._load_config()
-            self.num_iterations = self.config.max_steps
+        else:
+            self.config = self._load_config(train_dataset.metadata.get("name"), config_overrides=config_overrides)
+
+        if train_dataset is not None:
+            self._setup_train(train_dataset)
+        else:
+            self._setup_eval()
 
     def _load_config(self, dataset_name=None, num_iterations=None, config_overrides=None):
         if self.checkpoint is None:
@@ -181,18 +238,12 @@ class MultiNeRF(Method):
             if dataset_name == "blender":
                 config_path = f"{configs_path}/blender_256.gin"
             gin.parse_config_file(config_path, skip_unknown=True)
-            gin.bind_parameter("Config.batch_size", self.batch_size)
-            num_iterations = num_iterations or self.num_iterations
-            config = configs.Config()
-            config.lr_init *= self.learning_rate_multiplier
-            config.lr_final *= self.learning_rate_multiplier
-            gin.bind_parameter("Config.lr_init", config.lr_init)
-            gin.bind_parameter("Config.lr_final", config.lr_final)
+            config_overrides, _config_overrides = (self._config_overrides or {}).copy(), (config_overrides or {})
+            config_overrides.update(_config_overrides)
             gin.parse_config([
                 f'{k} = {v}' for k, v in (config_overrides or {}).items()
             ])
-            if num_iterations is not None:
-                gin.bind_parameter("Config.max_steps", num_iterations)
+            # gin.bind_parameter("Config.max_steps", num_iterations)
         else:
             assert self._config_str is not None, "Config string must be set when loading from checkpoint"
             gin.parse_config(self._config_str, skip_unknown=False)
@@ -200,11 +251,22 @@ class MultiNeRF(Method):
         config = configs.Config()
         return config
 
-    def get_info(self):
+    @classmethod
+    def get_method_info(cls) -> MethodInfo:
+        assert cls._method_name is not None, "Method was not properly registered"
         return MethodInfo(
-            num_iterations=self.num_iterations,
-            loaded_step=self._loaded_step,
+            name=cls._method_name,
+            required_features=frozenset(("color",)),
             supported_camera_models=frozenset((CameraModel.PINHOLE, CameraModel.OPENCV, CameraModel.OPENCV_FISHEYE)),
+        )
+
+    def get_info(self):
+        return ModelInfo(
+            num_iterations=self.config.max_steps,
+            loaded_step=self._loaded_step,
+            loaded_checkpoint=self.checkpoint,
+            hparams=gin_config_to_dict(self._config_str or ""),
+            **vars(self.get_method_info())
         )
 
     def _setup_eval(self):
@@ -229,11 +291,7 @@ class MultiNeRF(Method):
         self.rngs = random.split(rng, jax.local_device_count())  # For pmapping RNG keys.
         self.state = state
 
-    def setup_train(self, train_dataset: Dataset, *, num_iterations=None, config_overrides=None):
-        if self.config is None:
-            self.config = self._load_config(train_dataset.metadata.get("name"), num_iterations=num_iterations, config_overrides=config_overrides)
-            self.num_iterations = self.config.max_steps
-
+    def _setup_train(self, train_dataset: Dataset, *, config_overrides=None):
         rng = random.PRNGKey(20200823)
         # Shift the numpy random seed by process_index() to shuffle data loaded by different
         # hosts.
@@ -332,11 +390,12 @@ class MultiNeRF(Method):
         return out
 
     def save(self, path):
+        path = os.path.abspath(str(path))
         if self.render_eval_pfn is None:
             self._setup_eval()
         if jax.process_index() == 0:
             state_to_save = jax.device_get(flax.jax_utils.unreplicate(self.state))
-            checkpoints.save_checkpoint(str(path), state_to_save, int(self.step), keep=100)
+            checkpoints.save_checkpoint(path, state_to_save, int(self.step), keep=100)
             np.savetxt(Path(path) / "dataparser_transform.txt", self._dataparser_transform)
             with (Path(path) / "config.gin").open("w+") as f:
                 f.write(self._config_str)

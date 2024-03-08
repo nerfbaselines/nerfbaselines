@@ -1,24 +1,13 @@
-from ..registry import MethodSpec, CondaMethod, LazyMethod, register
-
-try:
-    from typing import Optional
-except ImportError:
-    from typing_extensions import Optional
+import os
+from ..registry import MethodSpec, register
 
 
-class MultiNeRF(LazyMethod["._impl.multinerf:MultiNeRF"]):
-    batch_size: int = 16384
-    num_iterations: Optional[int] = None
-    learning_rate_multiplier: float = 1.0
-
-
-MultiNeRFSpec = MethodSpec(
-    method=MultiNeRF,
-    conda=CondaMethod.wrap(
-        MultiNeRF,
-        conda_name="multinerf",
-        python_version="3.9",
-        install_script="""# Clone the repo.
+MultiNeRFSpec: MethodSpec = {
+    "method": "._impl.multinerf:MultiNeRF",
+    "conda": {
+        "environment_name": os.path.split(__file__[:-3])[-1].replace("_", "-"),
+        "python_version": "3.9",
+        "install_script": """# Clone the repo.
 git clone https://github.com/jkulhanek/multinerf.git
 cd multinerf
 git checkout 0e6699cc01eb3f0e77e0f7c15057a3ee29ad74ba
@@ -39,8 +28,8 @@ conda develop "$PWD/internal/pycolmap/pycolmap"
 # Confirm that all the unit tests pass.
 # ./scripts/run_all_unit_tests.sh
 """,
-    ),
-    metadata={
+    },
+    "metadata": {
         "name": "Mip-NeRF 360",
         "description": "",
         "paper_title": "Mip-NeRF 360: Unbounded Anti-Aliased Neural Radiance Fields",
@@ -48,10 +37,11 @@ conda develop "$PWD/internal/pycolmap/pycolmap"
         "paper_link": "https://arxiv.org/pdf/2111.12077.pdf",
         "link": "https://jonbarron.info/mipnerf360/",
     },
-)
+}
+
 register(
     MultiNeRFSpec,
-    "mipnerf360",
+    name="mipnerf360",
     metadata={
         "name": "Mip-NeRF 360",
         "description": """Official Mip-NeRF 360 implementation addapted to handle different camera distortion/intrinsic parameters.
@@ -61,10 +51,15 @@ It is, however slower to train and render compared to other approaches.""",
 )
 register(
     MultiNeRFSpec,
-    "mipnerf360:single-gpu",
-    batch_size=4096,
-    num_iterations=1_000_000,
-    learning_rate_multiplier=1 / 2,
+    name="mipnerf360:single-gpu",
+    kwargs={
+        "config_overrides": {
+            "Config.batch_size": 4096,
+            "lr_init": 0.002 / 2,
+            "lr_final": 0.00002 / 2,
+            "Config.max_steps": 1_000_000,
+        }
+    },
     metadata={
         "name": "Mip-NeRF 360 (single GPU)",
         "description": """Mip-NeRF 360 implementation addapted to handle different camera distortion/intrinsic parameters.

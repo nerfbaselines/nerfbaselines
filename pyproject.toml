@@ -39,7 +39,6 @@ dynamic = ["version"]
 [project.optional-dependencies]
 extras = [
     'torch',
-    'lpips',
     'viser',
 ]
 

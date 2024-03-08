@@ -1,4 +1,4 @@
-FROM "nvidia/cuda:11.8.0-devel-ubuntu22.04"
+FROM ubuntu:22.04
 
 RUN apt-get update --fix-missing && \
     apt-get install -y wget \
@@ -11,7 +11,10 @@ RUN apt-get update --fix-missing && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-RUN curl -L -o ~/conda.sh -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh" && \
+ENV PYTHONDONTWRITEBYTECODE=1
+
+RUN echo "[global]\nno-cache-dir = True\n[install]\ncompile = no\n" > /etc/pip.conf && \
+    curl -L -o ~/conda.sh -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh" && \
     bash ~/conda.sh -b -u -p /opt/conda && \
     rm -rf ~/conda.sh && \
     /opt/conda/bin/conda clean -ay && \

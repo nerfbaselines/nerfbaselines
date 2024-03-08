@@ -26,21 +26,20 @@ try:
     from typing import get_args, get_origin
 except ImportError:
     from typing_extensions import get_args, get_origin  # noqa: F401
-if TYPE_CHECKING:
-    try:
-        from typing import NotRequired  # type: ignore
-    except ImportError:
-        from typing_extensions import NotRequired  # type: ignore
+try:
+    from typing import NotRequired  # type: ignore
+except ImportError:
+    from typing_extensions import NotRequired  # type: ignore
 try:
     from typing import FrozenSet
 except ImportError:
     from typing_extensions import FrozenSet  # type: ignore
 from .cameras import Cameras, CameraModel
-from .utils import mark_host, padded_stack
+from .utils import mark_host, padded_stack, generate_interface
 
 
 ColorSpace = Literal["srgb", "linear"]
-NB_PREFIX = os.path.expanduser(os.environ.get("NB_PREFIX", "~/.cache/nerfbaselines"))
+NB_PREFIX = os.path.expanduser(os.environ.get("NERFBASELINES_PREFIX", "~/.cache/nerfbaselines"))
 
 
 @dataclass
@@ -136,44 +135,71 @@ def batched(array, batch_size):
 DatasetFeature = Literal["color", "points3D_xyz", "points3D_rgb"]
 
 
-if TYPE_CHECKING:
-
+if TypedDict is not None:
     class RenderOutput(TypedDict):
         color: np.ndarray  # [h w 3]
         depth: NotRequired[np.ndarray]  # [h w]
-
 else:
     RenderOutput = Dict
 
 
 @dataclass
 class MethodInfo:
+    name: str
+    required_features: FrozenSet[DatasetFeature] = field(default_factory=frozenset)
+    supported_camera_models: FrozenSet = field(default_factory=lambda: frozenset((CameraModel.PINHOLE,)))
+
+
+@dataclass
+class ModelInfo:
+    name: str
     loaded_step: Optional[int] = None
+    loaded_checkpoint: Optional[str] = None
     num_iterations: Optional[int] = None
     batch_size: Optional[int] = None
     eval_batch_size: Optional[int] = None
     required_features: FrozenSet[DatasetFeature] = field(default_factory=frozenset)
     supported_camera_models: FrozenSet = field(default_factory=lambda: frozenset((CameraModel.PINHOLE,)))
+    hparams: Dict[str, Any] = field(default_factory=dict)
 
 
 @runtime_checkable
+@generate_interface
 class Method(Protocol):
+    def __init__(self, 
+                 *,
+                 checkpoint: Union[Path, None] = None,
+                 train_dataset: Optional[Dataset] = None,
+                 config_overrides: Optional[Dict[str, Any]] = None):
+        pass
+
     @classmethod
-    def install(cls):
+    def install(self):
         """
         Install the method.
         """
         pass
 
+    @classmethod
     @abstractmethod
-    def get_info(self) -> MethodInfo:
+    def get_method_info(cls) -> MethodInfo:
+        """
+        Get method info needed to initialize the datasets.
+
+        Returns:
+            Method info.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def get_info(self) -> ModelInfo:
         """
         Get method defaults for the trainer.
 
         Returns:
             Method info.
         """
-        return MethodInfo()
+        raise NotImplementedError()
 
     @abstractmethod
     def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:  # [h w c]
@@ -183,18 +209,6 @@ class Method(Protocol):
         Args:
             cameras: Cameras.
             progress_callback: Callback for progress.
-        """
-        raise NotImplementedError()
-
-    @abstractmethod
-    def setup_train(self, train_dataset: Dataset, *, num_iterations: Optional[int] = None, config_overrides: Optional[Dict[str, Any]] = None):
-        """
-        Setup training data, model, optimizer, etc.
-
-        Args:
-            train_dataset: Training dataset.
-            num_iterations: Optional number of iterations to train.
-            config_overrides: Optional set of config overrides.
         """
         raise NotImplementedError()
 
@@ -220,6 +234,8 @@ class Method(Protocol):
 
 
 class RayMethod(Method):
+    name: str
+
     def __init__(self, batch_size, seed: int = 42, config_overrides: Optional[Dict[str, Any]] = None, xnp=np):
         self.batch_size = batch_size
         self.train_dataset: Optional[Dataset] = None
@@ -229,6 +245,9 @@ class RayMethod(Method):
         self.config_overrides = {}
         self.config_overrides.update(config_overrides or {})
         self._rng: np.random.Generator = xnp.random.default_rng(seed)
+
+    def get_name(self):
+        return self.name
 
     @abstractmethod
     def render_rays(self, origins: np.ndarray, directions: np.ndarray, nears_fars: Optional[np.ndarray]) -> RenderOutput:  # batch 3  # batch 3  # batch 3
@@ -307,6 +326,8 @@ class RayMethod(Method):
             }
 
 
+@runtime_checkable
+@generate_interface
 class EvaluationProtocol(Protocol):
     def get_name(self) -> str:
         ...

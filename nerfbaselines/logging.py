@@ -12,15 +12,38 @@ import typing
 from typing import Optional, Union, List, Dict, Sequence, Any
 from typing import TYPE_CHECKING
 from .utils import convert_image_dtype
-try:
-    from typing import Protocol
-except ImportError:
-    from typing_extensions import Protocol
+from .types import runtime_checkable, Protocol
 
 if TYPE_CHECKING:
     import wandb.sdk.wandb_run
 
 
+def _flatten_simplify_hparams(hparams: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
+    flat = {}
+    def simplify(v):
+        if isinstance(v, (tuple, list)):
+            chars = "()" if isinstance(v, tuple) else "[]"
+            flat[k] = chars[0] + ",".join(simplify(x) for x in v) + chars[1]
+        if isinstance(v, dict):
+            return "{" + ",".join(f"{k}:{simplify(v)}" for k, v in v.items()) + "}"
+        if isinstance(v, (float, int)):
+            return str(v)
+        if isinstance(v, (str, Path)):
+            return f"'{v}'"
+        return str(v)
+
+    for k, v in hparams.items():
+        if prefix:
+            k = f"{prefix}/{k}"
+        if isinstance(v, Path):
+            flat[k] = str(v)
+        elif isinstance(v, (tuple, list, dict)):
+            flat[k] = simplify(v)
+        else:
+            flat[k] = v
+    return flat
+
+@runtime_checkable
 class LoggerEvent(Protocol):
     def add_scalar(self, tag: str, value: Union[float, int]) -> None:
         ...
@@ -42,7 +65,11 @@ class LoggerEvent(Protocol):
                  **kwargs) -> None:
         ...
 
+    def add_histogram(self, tag: str, values: np.ndarray) -> None:
+        ...
 
+
+@runtime_checkable
 class Logger(Protocol):
     def add_event(self, step: int) -> typing.ContextManager[LoggerEvent]:
         ...
@@ -151,6 +178,9 @@ class BaseLogger(Logger):
         with self.add_event(step) as event:
             event.add_embedding(tag, embeddings, images=images, labels=labels)
 
+    def add_hparams(self, hparams: Dict[str, Any]):
+        raise NotImplementedError()
+
 
 class WandbLoggerEvent(BaseLoggerEvent):
     def __init__(self, commit):
@@ -184,10 +214,10 @@ class WandbLoggerEvent(BaseLoggerEvent):
         self._commit[tag] = table
 
     def add_plot(self, tag: str, *data: np.ndarray, 
-                 axes_labels: Sequence[str] | None = None, 
-                 title: str | None = None, 
-                 colors: Sequence[np.ndarray] | None = None, 
-                 labels: Sequence[str] | None = None, **kwargs) -> None:
+                 axes_labels: Optional[Sequence[str]] = None, 
+                 title: Optional[str] = None, 
+                 colors: Optional[Sequence[np.ndarray]] = None, 
+                 labels: Optional[Sequence[str]] = None, **kwargs) -> None:
         if len(data) == 0 or data[0].shape[-1] != 2 or colors is not None:
             # Not supported by WandbLogger
             return super().add_plot(tag, *data, axes_labels=axes_labels, title=title, colors=colors, labels=labels, **kwargs)
@@ -229,6 +259,9 @@ class WandbLogger(BaseLogger):
         yield WandbLoggerEvent(commit)
         self._wandb_run.log(commit, step=step)
 
+    def add_hparams(self, hparams: Dict[str, Any]):
+        self._wandb_run.config.update(_flatten_simplify_hparams(hparams))
+
     def __str__(self):
         return "wandb"
 
@@ -264,6 +297,10 @@ class ConcatLogger(BaseLogger):
                 yield ConcatLoggerEvent(events)
         yield from enter_event(self.loggers, [])
 
+    def add_hparams(self, hparams: Dict[str, Any], **kwargs):
+        for logger in self.loggers:
+            logger.add_hparams(hparams, **kwargs)
+
     def __str__(self):
         if not self:
             return "[]"
@@ -275,6 +312,16 @@ class TensorboardLoggerEvent(BaseLoggerEvent):
         self._step = step
         self._logdir = logdir
         self._summaries = summaries
+
+        # Create default bins for histograms, see generate_testdata.py in tensorflow/tensorboard
+        v = 1e-12
+        buckets = []
+        neg_buckets = []
+        while v < 1e20:
+            buckets.append(v)
+            neg_buckets.append(-v)
+            v *= 1.1
+        self.default_bins = neg_buckets[::-1] + [0] + buckets
 
     @staticmethod
     def _encode(rawstr):
@@ -438,11 +485,233 @@ class TensorboardLoggerEvent(BaseLoggerEvent):
             f.write(tf.compat.as_bytes(config_pbtxt))
 
 
+    def add_histogram(self,
+                      tag: str,
+                      values: np.ndarray):
+        """Add histogram to summary.
+
+        Args:
+            tag: Data identifier
+            values: Values to build histogram
+        """
+        from tensorboard.compat.proto.summary_pb2 import Summary, HistogramProto
+
+        max_bins = None
+        bins = self.default_bins
+
+        def make_histogram(values, bins, max_bins=None):
+            """Convert values into a histogram proto using logic from histogram.cc."""
+            if values.size == 0:
+                raise ValueError("The input has no element.")
+            values = values.reshape(-1)
+            counts, limits = np.histogram(values, bins=bins)
+            num_bins = len(counts)
+            if max_bins is not None and num_bins > max_bins:
+                subsampling = num_bins // max_bins
+                subsampling_remainder = num_bins % subsampling
+                if subsampling_remainder != 0:
+                    counts = np.pad(
+                        counts,
+                        pad_width=[[0, subsampling - subsampling_remainder]],
+                        mode="constant",
+                        constant_values=0,
+                    )
+                counts = counts.reshape(-1, subsampling).sum(axis=-1)
+                new_limits = np.empty((counts.size + 1,), limits.dtype)
+                new_limits[:-1] = limits[:-1:subsampling]
+                new_limits[-1] = limits[-1]
+                limits = new_limits
+
+            # Find the first and the last bin defining the support of the histogram:
+
+            cum_counts = np.cumsum(np.greater(counts, 0))
+            start, end = np.searchsorted(cum_counts, [0, cum_counts[-1] - 1], side="right")
+            start = int(start)
+            end = int(end) + 1
+            del cum_counts
+
+            # TensorBoard only includes the right bin limits. To still have the leftmost limit
+            # included, we include an empty bin left.
+            # If start == 0, we need to add an empty one left, otherwise we can just include the bin left to the
+            # first nonzero-count bin:
+            counts = (
+                counts[start - 1 : end] if start > 0 else np.concatenate([[0], counts[:end]])
+            )
+            limits = limits[start : end + 1]
+
+            if counts.size == 0 or limits.size == 0:
+                raise ValueError("The histogram is empty, please file a bug report.")
+
+            sum_sq = values.dot(values)
+            return HistogramProto(
+                min=values.min(),
+                max=values.max(),
+                num=len(values),
+                sum=values.sum(),
+                sum_squares=sum_sq,
+                bucket_limit=limits.tolist(),
+                bucket=counts.tolist(),
+            )
+
+        hist = make_histogram(values, bins, max_bins)
+        self._summaries.append(Summary.Value(tag=tag, histo=hist))
+
+
+def _tensorboard_hparams(hparam_dict=None, metrics_list=None, hparam_domain_discrete=None):
+    from tensorboard.plugins.hparams.api_pb2 import (
+        DataType,
+        Experiment,
+        HParamInfo,
+        MetricInfo,
+        MetricName,
+        Status,
+    )
+    from tensorboard.plugins.hparams.metadata import (
+        EXPERIMENT_TAG,
+        PLUGIN_DATA_VERSION,
+        PLUGIN_NAME,
+        SESSION_END_INFO_TAG,
+        SESSION_START_INFO_TAG,
+    )
+    from tensorboard.plugins.hparams.plugin_data_pb2 import (
+        HParamsPluginData,
+        SessionEndInfo,
+        SessionStartInfo,
+    )
+    from tensorboard.compat.proto.summary_pb2 import (
+        Summary,
+        SummaryMetadata,
+    )
+    from google.protobuf import struct_pb2
+
+    hparam_domain_discrete = hparam_domain_discrete or {}
+    for k, v in hparam_domain_discrete.items():
+        if (
+            k not in hparam_dict
+            or not isinstance(v, list)
+            or not all(isinstance(d, type(hparam_dict[k])) for d in v)
+        ):
+            raise TypeError(
+                f"parameter: hparam_domain_discrete[{k}] should be a list of same type as hparam_dict[{k}]."
+            )
+    hps = []
+
+    ssi = SessionStartInfo()
+    for k, v in hparam_dict.items():
+        if v is None:
+            continue
+        if isinstance(v, (int, float)):
+            ssi.hparams[k].number_value = v
+
+            if k in hparam_domain_discrete:
+                domain_discrete: Optional[struct_pb2.ListValue] = struct_pb2.ListValue(
+                    values=[
+                        struct_pb2.Value(number_value=d)
+                        for d in hparam_domain_discrete[k]
+                    ]
+                )
+            else:
+                domain_discrete = None
+
+            hps.append(
+                HParamInfo(
+                    name=k,
+                    type=DataType.Value("DATA_TYPE_FLOAT64"),
+                    domain_discrete=domain_discrete,
+                )
+            )
+            continue
+
+        if isinstance(v, str):
+            ssi.hparams[k].string_value = v
+
+            if k in hparam_domain_discrete:
+                domain_discrete = struct_pb2.ListValue(
+                    values=[
+                        struct_pb2.Value(string_value=d)
+                        for d in hparam_domain_discrete[k]
+                    ]
+                )
+            else:
+                domain_discrete = None
+
+            hps.append(
+                HParamInfo(
+                    name=k,
+                    type=DataType.Value("DATA_TYPE_STRING"),
+                    domain_discrete=domain_discrete,
+                )
+            )
+            continue
+
+        if isinstance(v, bool):
+            ssi.hparams[k].bool_value = v
+
+            if k in hparam_domain_discrete:
+                domain_discrete = struct_pb2.ListValue(
+                    values=[
+                        struct_pb2.Value(bool_value=d)
+                        for d in hparam_domain_discrete[k]
+                    ]
+                )
+            else:
+                domain_discrete = None
+
+            hps.append(
+                HParamInfo(
+                    name=k,
+                    type=DataType.Value("DATA_TYPE_BOOL"),
+                    domain_discrete=domain_discrete,
+                )
+            )
+            continue
+
+        if isinstance(v, np.ndarray):
+            ssi.hparams[k].number_value = v.item()
+            hps.append(HParamInfo(name=k, type=DataType.Value("DATA_TYPE_FLOAT64")))
+            continue
+        raise ValueError(
+            "value should be one of int, float, str, bool, or np.ndarray"
+        )
+
+    content = HParamsPluginData(session_start_info=ssi, version=PLUGIN_DATA_VERSION)
+    smd = SummaryMetadata(
+        plugin_data=SummaryMetadata.PluginData(
+            plugin_name=PLUGIN_NAME, content=content.SerializeToString()
+        )
+    )
+    ssi = Summary(value=[Summary.Value(tag=SESSION_START_INFO_TAG, metadata=smd)])
+
+    mts = [MetricInfo(name=MetricName(tag=k)) for k in metrics_list]
+
+    exp = Experiment(hparam_infos=hps, metric_infos=mts)
+
+    content = HParamsPluginData(experiment=exp, version=PLUGIN_DATA_VERSION)
+    smd = SummaryMetadata(
+        plugin_data=SummaryMetadata.PluginData(
+            plugin_name=PLUGIN_NAME, content=content.SerializeToString()
+        )
+    )
+    exp = Summary(value=[Summary.Value(tag=EXPERIMENT_TAG, metadata=smd)])
+
+    sei = SessionEndInfo(status=Status.Value("STATUS_SUCCESS"))
+    content = HParamsPluginData(session_end_info=sei, version=PLUGIN_DATA_VERSION)
+    smd = SummaryMetadata(
+        plugin_data=SummaryMetadata.PluginData(
+            plugin_name=PLUGIN_NAME, content=content.SerializeToString()
+        )
+    )
+    sei = Summary(value=[Summary.Value(tag=SESSION_END_INFO_TAG, metadata=smd)])
+
+    return exp, ssi, sei
+
+
 class TensorboardLogger(BaseLogger):
-    def __init__(self, output: Union[str, Path]):
+    def __init__(self, output: Union[str, Path], hparam_plugin_metrics: Optional[Sequence[str]] = None):
         from tensorboard.summary.writer.event_file_writer import EventFileWriter
 
         self._writer = EventFileWriter(str(output))
+        self._hparam_plugin_metrics = hparam_plugin_metrics or []
 
     @contextlib.contextmanager
     def add_event(self, step: int):
@@ -453,6 +722,17 @@ class TensorboardLogger(BaseLogger):
         yield TensorboardLoggerEvent(self._writer.get_logdir(), summaries, step=step)
         summary = Summary(value=summaries)
         self._writer.add_event(Event(summary=summary, step=step))
-    
+
+    def add_hparams(self, hparams: Dict[str, Any]):
+        from tensorboard.compat.proto.event_pb2 import Event
+        if not isinstance(hparams, dict):
+            raise TypeError("hparam should be dictionary.")
+        hparam_domain_discrete = {}
+        hparams = _flatten_simplify_hparams(hparams)
+        exp, ssi, sei = _tensorboard_hparams(hparams, self._hparam_plugin_metrics or [], hparam_domain_discrete)
+        self._writer.add_event(Event(summary=exp, step=0))
+        self._writer.add_event(Event(summary=ssi, step=0))
+        self._writer.add_event(Event(summary=sei, step=0))
+
     def __str__(self):
         return "tensorboard"

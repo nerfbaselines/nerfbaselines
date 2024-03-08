@@ -211,7 +211,7 @@ def open_any_directory(path: Union[str, Path], mode: OpenMode = "r") -> Iterator
 
     # Normal file
     Path(path).mkdir(parents=True, exist_ok=True)
-    yield Path(path)
+    yield Path(path).absolute()
     return
 
 

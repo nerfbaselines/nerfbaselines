@@ -117,11 +117,13 @@ def mock_multinerf():
         models.render_image = render_image
 
         def fix_spec(v):
-            if v.method.__name__.lower() == "multinerf":
-                data = vars(v)
-                data["kwargs"] = {**v.kwargs, "batch_size": 128}
-                v = v.__class__(**data)
-                return v
+            if v["method"].split(":")[-1].lower() == "multinerf":
+                v = v.copy()
+                v["kwargs"] = (v.get("kwargs") or {}).copy()
+                v["kwargs"]["config_overrides"] = {
+                    **(v["kwargs"].get("config_overrides") or {}),
+                    "Config.batch_size": 128,
+                }
             return v
 
         new_registry = {k: fix_spec(v) for k, v in nerfbaselines.registry.registry.items()}
@@ -129,7 +131,7 @@ def mock_multinerf():
         with mock.patch.object(nerfbaselines.registry, "registry", new_registry):
             from nerfbaselines.methods._impl.multinerf import MultiNeRF
 
-            old_setup_train = MultiNeRF.setup_train
+            old_setup_train = MultiNeRF._setup_train
             old_save = MultiNeRF.save
 
             def new_setup_train(self, train_dataset, *args, **kwargs):
@@ -141,7 +143,7 @@ def mock_multinerf():
                 old_save(self, path)
                 os.makedirs(path / f"checkpoint_{self.step}")
 
-            with mock.patch.object(MultiNeRF, "setup_train", new_setup_train), mock.patch.object(MultiNeRF, "save", new_save):
+            with mock.patch.object(MultiNeRF, "_setup_train", new_setup_train), mock.patch.object(MultiNeRF, "save", new_save):
                 yield None
 
 
@@ -151,7 +153,7 @@ def mock_multinerf():
 )
 @mock_multinerf()
 @_enable_gc
-def test_train_multinerf_mocked(run_test_train, method_name):
+def test_train_multinerf_mocked(run_test_train, method_name, mock_torch):
     run_test_train()
 
 

@@ -2,7 +2,6 @@ import subprocess
 import itertools
 import tempfile
 import importlib
-import shlex
 import os
 import logging
 from pathlib import Path
@@ -13,11 +12,11 @@ from .train import train_command
 from .render import render_command
 from . import registry
 from .utils import setup_logging
-from .communication import RemoteProcessMethod, NB_PREFIX
 from .datasets import download_dataset
-from .evaluate import evaluate
+from .evaluate import evaluate, run_inside_eval_container
 from .results import MethodLink
-from .types import get_args
+from .types import get_args, NB_PREFIX
+from . import backends
 
 
 class LazyGroup(click.Group):
@@ -66,24 +65,17 @@ main.add_command(render_command)
 
 @main.command("shell")
 @click.option("--method", type=click.Choice(list(registry.supported_methods())), required=True)
-@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
+@click.option("--backend", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @click.option("--verbose", "-v", is_flag=True)
 def shell_command(method, backend, verbose):
     logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)
 
     method_spec = registry.get(method)
-    _method, backend = method_spec.build(backend=backend)
-    logging.info(f"Using method: {method}, backend: {backend}")
-
-    assert issubclass(_method, RemoteProcessMethod)
-    methodobj = _method()
-    if hasattr(methodobj, "install"):
-        methodobj.install()
-    env = methodobj._get_isolated_env()
-    env["_NB_IS_DOCKERFILE"] = "1"
-    args = methodobj._get_server_process_args(env)
-    os.execv("/bin/bash", ["/bin/bash", "-c", shlex.join(args)])
+    backend_impl = backends.get_backend(method_spec, backend)
+    logging.info(f"Using method: {method}, backend: {backend_impl.name}")
+    backend_impl.install()
+    backend_impl.shell()
 
 
 @main.command("download-dataset")
@@ -101,10 +93,9 @@ def download_dataset_command(dataset, output, verbose):
 @main.command("evaluate")
 @click.argument("predictions", type=click.Path(file_okay=True, dir_okay=True, path_type=Path), required=True)
 @click.option("--output", "-o", type=click.Path(file_okay=True, dir_okay=False, path_type=Path), required=True)
-@click.option("--force-extra-metrics", "run_extra_metrics", flag_value=True, default=None, is_flag=True, help="Force extra metrics to run (this needs additional dependencies).")
-@click.option("--disable-extra-metrics", "run_extra_metrics", flag_value=False, default=None, is_flag=True, help="Disable extra metrics which need additional dependencies.")
-def evaluate_command(predictions, output, run_extra_metrics=None):
-    evaluate(predictions, output, run_extra_metrics=run_extra_metrics)
+def evaluate_command(predictions, output):
+    with run_inside_eval_container():
+        evaluate(predictions, output)
 
 
 @main.command("render-dataset-results")
@@ -150,12 +141,18 @@ def render_dataset_results_command(results: Path, dataset, output_type, output, 
         render_output(dataset_info)
 
 
-@main.command("build-docker-image")
-@click.option("--method", type=click.Choice(list(registry.supported_methods())), required=True)
-def build_docker_image_command(method):
-    _method, _ = registry.get(method).build(backend="docker")
-    _method.build_docker_image()
-
+@main.command("docker-build-image", hidden=True)
+@click.option("--method", type=click.Choice(list(registry.supported_methods())), required=False)
+@click.option("--skip-if-exists-remotely", is_flag=True)
+@click.option("--push", is_flag=True)
+def build_docker_image_command(method=None, push=False, skip_if_exists_remotely=False):
+    from .backends._docker import build_docker_image, get_docker_spec
+    spec = registry.get(method) if method is not None else None
+    if spec is not None:
+        spec = get_docker_spec(spec)
+        if spec is None:
+            raise RuntimeError(f"Method {method} does not support building docker images")
+    build_docker_image(spec, skip_if_exists_remotely=skip_if_exists_remotely, push=push)
 
 
 main.add_lazy_command("nerfbaselines.export_demo", "export-demo")

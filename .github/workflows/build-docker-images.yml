@@ -1,0 +1,107 @@
+on:
+  workflow_dispatch:
+  workflow_call:
+jobs:
+  common-tests:
+    runs-on: ubuntu-latest
+    name: run-tests-common
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.7","3.8","3.9","3.10","3.11","3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install nerfbaselines
+        run: |
+          pip install --upgrade pip
+          pip install -e .
+          pip install pytest typeguard pyright
+      - name: Run pyright, pytests
+        run: |
+          pytest -rA
+      - name: Test if README results are up to date
+        run: |
+          for dataset in blender mipnerf360 nerfstudio; do
+            results=$(python -m nerfbaselines render-dataset-results --dataset $dataset --method-links results) python -c "import os;assert os.environ['results'] in open('README.md').read(), 'README.md is out of date. Please run \'python -m nerfbaselines render-dataset-results --dataset $dataset --method-links results\' and add the output to README.md file'"
+          done
+      - name: Install dev-extras
+        id: dev-extras
+        if: ${{ matrix.python == '3.9' }}
+        run: |
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          pip install 'jax[cpu]'
+          pip install -e ".[extras]"
+      - name: Run dev-extras tests
+        run: |
+          pyright
+          pytest --run-extras
+        if: ${{ steps.dev-extras.outcome == 'success' }}
+
+  setup:
+    runs-on: ubuntu-latest
+    needs: common-tests
+    outputs:
+      methods: ${{ steps.data-step.outputs.methods }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.9
+      - name: Install nerfbaselines
+        run: |
+          pip install --upgrade pip
+          pip install -e .
+          pip install pytest typeguard
+      - name: Run tests
+        run: pytest -rA
+      - id: data-step
+        run: |
+          pip install --upgrade pip
+          pip install -e .
+          python -c 'import nerfbaselines.backends.docker as d; import json; print("methods=" + json.dumps([x for x in d.get_docker_methods_to_build()]))' >> $GITHUB_OUTPUT
+
+  build-base-docker-image:
+    runs-on: ubuntu-latest
+    needs: common-tests
+    steps:
+      - name: Free root space
+        uses: almahmoud/free-root-space@main
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.9
+      - name: Install nerfbaselines
+        run: |
+          pip install --upgrade pip
+          pip install -e .
+          pip install pytest typeguard
+      - name: Run tests
+        run: |
+          nerfbaselines build-docker-image --push --skip-if-exists-remotely
+
+  build-docker-images:
+    runs-on: ubuntu-latest
+    name: run-tests-docker
+    needs: setup
+    strategy:
+      # fail-fast: false
+      matrix:
+        method: ${{ fromJson(needs.setup.outputs.methods) }}
+    steps:
+      - name: Free root space
+        uses: almahmoud/free-root-space@main
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.9
+      - name: Install nerfbaselines
+        run: |
+          pip install --upgrade pip
+          pip install -e .
+          pip install pytest typeguard
+      - name: Run tests
+        run: |
+          nerfbaselines build-docker-image --method "${{ matrix.method }}" --push --skip-if-exists-remotely

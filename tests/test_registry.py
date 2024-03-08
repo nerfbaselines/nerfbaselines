@@ -1,96 +1,93 @@
-from nerfbaselines.backends import CondaMethod
+from unittest import mock
+from nerfbaselines.types import Method
 
-class _TestMethod:
-    def __init__(self, test=1):
-        self.test = test
+class _TestMethod(Method):
+    _method_name = None
+    _test = 1
+
+    def __init__(self):
+        assert self._method_name is not None, "Method name not set"
+        self.test = self._test
+
+    @classmethod
+    def get_method_info(self):
+        raise NotImplementedError()
+
+    def get_info(self):
+        raise NotImplementedError()
+
+    def render(self, *args, **kwargs):
+        raise NotImplementedError()
+
+    def train_iteration(self, *args, **kwargs):
+        raise NotImplementedError()
+
+    def save(self, *args, **kwargs):
+        raise NotImplementedError()
 
 
-def test_convert_spec_dict_to_spec():
-    from nerfbaselines.registry import convert_spec_dict_to_spec, MethodSpecDict
+def test_registry_build_method():
+    from nerfbaselines.registry import build_method, MethodSpec, registry
+    from nerfbaselines.backends._conda import CondaBackend
+    from nerfbaselines.backends import SimpleBackend
 
-
-    spec_dict: MethodSpecDict = {
-        "method": ".:_TestMethod",
-        "conda": {
-            "conda_name": "test",
-            "build_code": "",
-        }
-    }
-    spec = convert_spec_dict_to_spec(spec_dict)
-    method_class, _ = spec.build(backend="python")
-    method = method_class()
-    assert isinstance(method, _TestMethod)
-    assert method.test == 1
-    
-    spec_dict: MethodSpecDict = {
+    spec_dict: MethodSpec = {
+        "name": "test",
         "method": _TestMethod.__module__ + ":_TestMethod",
         "conda": {
-            "conda_name": "test",
-            "build_code": "",
-        }
-    }
-    spec = convert_spec_dict_to_spec(spec_dict)
-    method_class, _ = spec.build(backend="python")
-    method = method_class()
-    assert isinstance(method, _TestMethod)
-    assert method.test == 1
-
-    conda_method = spec.build(backend="conda")[0]()
-    assert isinstance(conda_method, CondaMethod)
-
-
-def test_convert_spec_dict_to_spec_method_args():
-    from nerfbaselines.registry import convert_spec_dict_to_spec, MethodSpecDict
-
-
-    spec_dict: MethodSpecDict = {
-        "method": ".:_TestMethod",
-        "conda": {
-            "conda_name": "test",
-            "build_code": "",
+            "environment_name": "test",
+            "install_script": "",
         },
         "kwargs": {
             "test": 2,
         }
     }
-    spec = convert_spec_dict_to_spec(spec_dict)
-    method_class, _ = spec.build(backend="python")
-    method = method_class()
-    assert isinstance(method, _TestMethod)
-    assert method.test == 2
+    with mock.patch.dict(registry, test=spec_dict):
+        with build_method("test", backend="python") as method_cls:
+            method = method_cls()
+            assert isinstance(method, _TestMethod)
+            assert method.test == 2
     
-    spec_dict: MethodSpecDict = {
+    spec_dict: MethodSpec = {
+        "name": "test",
         "method": _TestMethod.__module__ + ":_TestMethod",
         "conda": {
-            "conda_name": "test",
-            "build_code": "",
+            "environment_name": "test",
+            "install_script": "",
         },
         "kwargs": {
             "test": 2,
         }
     }
-    spec = convert_spec_dict_to_spec(spec_dict)
-    method_class, _ = spec.build(backend="python")
-    method = method_class()
-    assert isinstance(method, _TestMethod)
-    assert method.test == 2
 
-    conda_method = spec.build(backend="conda")[0]()
-    assert isinstance(conda_method, CondaMethod)
+    # def start(self):
+    #      self._rpc_backend = SimpleBackend()
+    # mock.patch.object(CondaBackend, "install", lambda *_: None), \
+    # mock.patch.object(CondaBackend, "_ensure_started", start):
+    with mock.patch.dict(registry, test=spec_dict):
+        with build_method("test", backend="python") as method_cls:
+            method = method_cls()
+            assert isinstance(method, _TestMethod)
+            assert method.test == 2
+
+        # with build_method("test", backend="conda") as method_cls:
+        #     assert issubclass(method_cls, Method)
 
 
 def test_register_spec():
-    from nerfbaselines.registry import register, get
+    from nerfbaselines.registry import register, build_method
+    from nerfbaselines import registry
 
-
-    register({
-        "method": ".:_TestMethod",
-        "conda": {
-            "conda_name": "test",
-            "build_code": "",
-        }
-    }, "_test_" + test_register_spec.__name__)
-    method_class, _ = get("_test_" + test_register_spec.__name__).build(backend="python")
-    method = method_class()
-    assert isinstance(method, _TestMethod)
-    assert method.test == 1
+    with mock.patch.object(registry, "registry", {}):
+        register({
+            "name": "test",
+            "method": test_register_spec.__module__ + ":_TestMethod",
+            "conda": {
+                "environment_name": "test",
+                "install_script": "",
+            }
+        }, name="_test_" + test_register_spec.__name__)
+        with build_method("_test_" + test_register_spec.__name__, backend="python") as method_cls:
+            method = method_cls()
+            assert isinstance(method, _TestMethod)
+            assert method.test == 1

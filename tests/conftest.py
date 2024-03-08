@@ -11,6 +11,7 @@ import pytest
 from pathlib import Path
 import numpy as np
 from PIL import Image
+from nerfbaselines.train import Trainer
 
 
 class _nullcontext(contextlib.nullcontext):
@@ -99,9 +100,19 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python"):
 
     # train_command.callback(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters)
     (tmp_path / "output").mkdir()
+    num_steps = [13]
     try:
         train_cmd = remap_error(train_command.callback)
-        train_cmd(method_name, None, str(dataset_path), str(tmp_path / "output"), False, backend, Indices.every_iters(5), Indices([-1]), num_iterations=13, run_extra_metrics=True, vis="none")
+        old_init = Trainer.__init__
+        
+        def __init__(self, *args, **kwargs):
+            old_init(self, *args, **kwargs)
+            self.num_iterations = num_steps[0]
+            for v in vars(self).values():
+                if isinstance(v, Indices):
+                    v.total = self.num_iterations + 1
+        with mock.patch.object(Trainer, '__init__', __init__):
+            train_cmd(method_name, None, str(dataset_path), str(tmp_path / "output"), False, backend, Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), vis="none")
     except NoGPUError:
         pytest.skip("no GPU available")
 
@@ -127,7 +138,7 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python"):
     # Test restore checkpoint and render
     render_cmd = remap_error(render_command.callback)
     # render_command(checkpoint, data, output, split, verbose, backend):
-    render_cmd(tmp_path / "output" / "checkpoint-13", str(dataset_path), str(tmp_path / "output-render"), "test", verbose=False, backend=backend)
+    render_cmd(tmp_path / "output" / "checkpoint-13", str(dataset_path), str(tmp_path / "output-render"), "test", verbose=False, backend_name=backend)
 
     print(os.listdir(tmp_path / "output-render"))
     assert (tmp_path / "output-render").exists()
@@ -142,19 +153,20 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python"):
 
     # Test can restore checkpoint and continue training
     (tmp_path / "output" / "predictions-13.tar.gz").unlink()
-    train_cmd(
-        method_name,
-        tmp_path / "output" / "checkpoint-13",
-        str(dataset_path),
-        str(tmp_path / "output"),
-        False,
-        backend,
-        Indices.every_iters(5),
-        Indices([-1]),
-        num_iterations=14,
-        run_extra_metrics=True,
-        vis="none",
-    )
+    num_steps[0] = 14
+    with mock.patch.object(Trainer, '__init__', __init__):
+        train_cmd(
+            method_name,
+            tmp_path / "output" / "checkpoint-13",
+            str(dataset_path),
+            str(tmp_path / "output"),
+            False,
+            backend,
+            Indices.every_iters(9), 
+            Indices.every_iters(5),
+            Indices([-1]),
+            vis="none",
+        )
     assert (tmp_path / "output" / "checkpoint-14").exists()
     assert (tmp_path / "output" / "predictions-14.tar.gz").exists()
     assert not (tmp_path / "output" / "predictions-13.tar.gz").exists()
@@ -191,6 +203,11 @@ def mock_torch():
     torch = mock.MagicMock()
 
     class Tensor(np.ndarray):
+        def __new__(self, value):
+            if isinstance(value, np.ndarray):
+                return value.view(Tensor)
+            return np.array(value).view(Tensor)
+
         def cuda(self):
             return self
 
@@ -243,6 +260,24 @@ def mock_torch():
             self -= value
             return self
 
+        def unsqueeze(self, dim):
+            return np.expand_dims(self, dim)
+
+        def bmm(self, other):
+            return np.matmul(self, other)
+
+        def sum(self, dim=None, dtype=None, keepdim=False):
+            self = np.ndarray.view(self, np.ndarray)
+            if isinstance(dim, list):
+                dim = tuple(dim)
+            return Tensor(np.sum(self, axis=dim, dtype=dtype, keepdims=keepdim))
+
+        def mean(self, dim=None, dtype=None, keepdim=False):
+            self = np.ndarray.view(self, np.ndarray)
+            if isinstance(dim, list):
+                dim = tuple(dim)
+            return Tensor(np.mean(self, axis=dim, dtype=dtype, keepdims=keepdim))
+        
     def from_numpy(x):
         assert not isinstance(x, Tensor)
         return x.view(Tensor)
@@ -266,6 +301,10 @@ def mock_torch():
     torch.bool = bool
     torch.long = np.int64
     torch.cat = torch.concatenate
+    torch.sum = Tensor.sum
+    torch.mean = Tensor.mean
+    # torch.sum = lambda x, dim=None, dtype=None, keepdim=False: np.sum(x, axis=dim, dtype=dtype, keepdims=keepdim).view(Tensor)
+    # torch.mean = lambda x, dim=None, dtype=None, keepdim=False: np.mean(x, axis=dim, dtype=dtype, keepdims=keepdim).view(Tensor)
     torch.Tensor = Tensor
 
     def save(value, file):
@@ -299,24 +338,85 @@ def mock_torch():
 
     torch.save = save
     torch.load = load
-    with mock.patch.dict(sys.modules, {"torch": torch}):
+    torchvision = mock.MagicMock()
+    alexnet = mock.MagicMock()
+    alexnet.features = torch.zeros((512, 1, 1, 3))
+    torchvision.models.alexnet = mock.MagicMock(return_value=alexnet)
+    torch.nn = mock.MagicMock()
+
+    class Module:
+        def __init__(self, *args, **kwargs):
+            self._modules = []
+
+        @property
+        def modules(self):
+            return self._modules or [Module()]
+        
+        @modules.setter
+        def modules(self, value):
+            self._modules = value
+
+        def forward(self, *args, **kwargs):
+            return torch.Tensor(np.random.rand(1, 1, 3, 3))
+
+        def register_buffer(self, name, value):
+            setattr(self, name, value)
+
+        def train(self, train=True):
+            return self
+
+        def eval(self):
+            return self.train(False)
+
+        def to(self, *args, **kwargs):
+            return self
+
+        def cpu(self):
+            return self
+
+        def cuda(self):
+            return self
+        
+        def load_state_dict(self, state_dict, strict=True):
+            pass
+        
+        def parameters(self):
+            return []
+
+        def __call__(self, *args, **kwargs):
+            return self.forward(*args, **kwargs)
+
+    torch.nn.Module = Module
+    torch.nn.ModuleList = list
+    torch.nn.Conv2d = Module
+
+    class Sequential(Module):
+        def __init__(self, *args):
+            self.modules = list(args)
+
+        def add_module(self, name, module):
+            self.modules.append(module)
+
+        def forward(self, x):
+            for m in self.modules:
+                x = m(x)
+            return x
+
+    torch.nn.Sequential = Sequential
+    
+    with mock.patch.dict(sys.modules, {
+        "torch": torch, 
+        "torch.nn": torch.nn,
+        "torchvision": torchvision}):
         yield torch
 
 
 @pytest.fixture
 def mock_extras(mock_torch):
-    from nerfbaselines import evaluate
-    lpips = mock.MagicMock()
-    
-
-    with mock.patch.object(evaluate, "_test_extra_metrics", lambda *args, **kwargs: None), \
-         mock.patch.object(evaluate, "_EXTRA_METRICS_AVAILABLE", False), \
-         mock.patch.dict(sys.modules, {"lpips": lpips}):
-        yield {
-            "torch": mock_torch,
-            "lpips": lpips,
-        }
-
+    yield {
+        "scipy": mock.MagicMock(),
+        "torch": mock_torch,
+    }
 
 @pytest.fixture(autouse=True)
 def no_extras(request):
@@ -324,12 +424,12 @@ def no_extras(request):
         yield None
         return
 
-    from nerfbaselines import evaluate
+    class FailedTorch:
+        def __getattribute__(self, __name: str):
+            raise ImportError("torch not available")
 
-    def raise_import_error(*args, **kwargs):
-        raise ImportError()
-
-    with mock.patch.object(evaluate, "_test_extra_metrics", raise_import_error), \
-         mock.patch.object(evaluate, "_EXTRA_METRICS_AVAILABLE", False):
+    with mock.patch.dict(sys.modules, {
+        "torch": FailedTorch(),
+    }):
         yield None
         return

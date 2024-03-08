@@ -1,3 +1,4 @@
+import itertools
 import json
 from pathlib import Path
 import subprocess
@@ -9,10 +10,10 @@ import os
 import tempfile
 import numpy as np
 from PIL import Image
-from ...types import Method, MethodInfo, CurrentProgress, ProgressCallback, RenderOutput
+from ...types import Method, MethodInfo, ModelInfo, CurrentProgress, ProgressCallback, RenderOutput
 from ...datasets import Dataset
 from ...cameras import CameraModel, Cameras
-from ...utils import cached_property
+from ...utils import cached_property, flatten_hparams
 from ...pose_utils import get_transform_and_scale
 from ...math_utils import rotate_spherical_harmonics, rotation_matrix_to_quaternion, quaternion_multiply
 from ...io import wget
@@ -89,6 +90,7 @@ def loadCam(args, id, cam_info, resolution_scale):
         camera.cy, 
         camera.znear, 
         camera.zfar).transpose(0, 1).cuda()
+    camera.full_proj_transform = (camera.world_view_transform.unsqueeze(0).bmm(camera.projection_matrix.unsqueeze(0))).squeeze(0)
 
     return camera
 camera_utils.loadCam = loadCam
@@ -120,12 +122,14 @@ def normalize_ssim(ssim_value, mask_percentage):
     return ssim_value
 
 
-def _load_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, image_path=None, sampling_mask=None):
+def _load_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, image_path=None, sampling_mask=None, scale_coords=None):
     pose = np.copy(pose)
     pose = np.concatenate([pose, np.array([[0, 0, 0, 1]], dtype=pose.dtype)], axis=0)
     pose = np.linalg.inv(pose)
     R = pose[:3, :3]
     T = pose[:3, 3]
+    if scale_coords is not None:
+        T = T * scale_coords
     R = np.transpose(R)
 
     width, height = image_size
@@ -142,9 +146,9 @@ def _load_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, ima
         cx=cx, cy=cy)
 
 
-def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: str, white_background: bool = False):
+def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: str, white_background: bool = False, scale_coords=None):
     if dataset is None:
-        return SceneInfo(None, [], [], nerf_normalization=dict(radius=None), ply_path=None)
+        return SceneInfo(None, [], [], nerf_normalization=dict(radius=None, translate=None), ply_path=None)
     assert np.all(dataset.cameras.camera_types == CameraModel.PINHOLE.value), "Only pinhole cameras supported"
 
     cam_infos = []
@@ -181,6 +185,7 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
             image_size=(w, h),
             image=image,
             sampling_mask=sampling_mask,
+            scale_coords=scale_coords,
         )
         cam_infos.append(cam_info)
 
@@ -188,6 +193,8 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
     nerf_normalization = getNerfppNorm(cam_infos)
 
     points3D_xyz = dataset.points3D_xyz
+    if scale_coords is not None:
+        points3D_xyz = points3D_xyz * scale_coords
     points3D_rgb = dataset.points3D_rgb
     if points3D_xyz is None and dataset.metadata.get("name", None) == "blender":
         # https://github.com/graphdeco-inria/gaussian-splatting/blob/2eee0e26d2d5fd00ec462df47752223952f6bf4e/scene/dataset_readers.py#L221C4-L221C4
@@ -206,9 +213,13 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
 
 
 class GaussianSplatting(Method):
-    config_overrides: Optional[dict] = None
+    _method_name: str = "gaussian-splatting"
 
-    def __init__(self, checkpoint: Optional[Path] = None, config_overrides: Optional[dict] = None):
+    def __init__(self, 
+                 *,
+                 checkpoint: Optional[Path] = None,
+                 train_dataset: Optional[Dataset] = None,
+                 config_overrides: Optional[dict] = None):
         self.checkpoint = checkpoint
         self.gaussians = None
         self.background = None
@@ -221,56 +232,52 @@ class GaussianSplatting(Method):
         if checkpoint is not None:
             with open(os.path.join(checkpoint, "args.txt"), "r", encoding="utf8") as f:
                 self._args_list = shlex.split(f.read())
-        self._load_config()
 
         self._viewpoint_stack = []
         self._input_points = None
 
-        self.config_overrides = self.config_overrides or {}
-        self.config_overrides.update(config_overrides or {})
-
-    def _load_config(self):
-        parser = ArgumentParser(description="Training script parameters")
-        lp = ModelParams(parser)
-        op = OptimizationParams(parser)
-        pp = PipelineParams(parser)
-        args = parser.parse_args(self._args_list)
-        self.dataset = lp.extract(args)
-        self.opt = op.extract(args)
-        self.pipe = pp.extract(args)
-
-    def setup_train(self, train_dataset, *, num_iterations: Optional[int] = None, config_overrides=None):
-        # Initialize system state (RNG)
-        safe_state(False)
-
+        # Setup config
         if self.checkpoint is None:
             if train_dataset.metadata.get("name") == "blender":
                 # Blender scenes have white background
                 self._args_list.append("--white_background")
                 logging.info("overriding default background color to white for blender dataset")
 
-            assert "--iterations" not in self._args_list, "iterations should not be specified when loading from checkpoint"
-            if num_iterations is not None:
-                self._load_config()
-                self._args_list.extend(("--iterations", str(num_iterations)))
-                iter_factor = num_iterations / 30_000
-                self._args_list.extend(("--densify_from_iter", str(int(self.opt.densify_from_iter * iter_factor))))
-                self._args_list.extend(("--densify_until_iter", str(int(self.opt.densify_until_iter * iter_factor))))
-                self._args_list.extend(("--densification_interval", str(int(self.opt.densification_interval * iter_factor))))
-                self._args_list.extend(("--opacity_reset_interval", str(int(self.opt.opacity_reset_interval * iter_factor))))
-                self._args_list.extend(("--position_lr_max_steps", str(int(self.opt.position_lr_max_steps * iter_factor))))
-
-            config_overrides, _config_overrides = (self.config_overrides or {}), config_overrides
-            config_overrides.update(_config_overrides or {})
+        if config_overrides is not None:
             for k, v in config_overrides.items():
-                self._args_list.append(f"--{k}")
-                self._args_list.append(str(v))
-            self._load_config()
+                if f'--{k}' in self._args_list:
+                    self._args_list[self._args_list.index(f'--{k}') + 1] = str(v)
+                else:
+                    self._args_list.append(f"--{k}")
+                    self._args_list.append(str(v))
+
+        self._load_config()
 
         if self.checkpoint is None:
             # Verify parameters are set correctly
             if train_dataset.metadata.get("name") == "blender":
                 assert self.dataset.white_background, "white_background should be True for blender dataset"
+
+        if train_dataset is not None:
+            self._setup_train(train_dataset)
+        else:
+            self._setup_eval()
+
+    def _load_config(self):
+        parser = ArgumentParser(description="Training script parameters")
+        lp = ModelParams(parser)
+        op = OptimizationParams(parser)
+        pp = PipelineParams(parser)
+        parser.add_argument("--scale_coords", type=float, default=None, help="Scale the coords")
+        args = parser.parse_args(self._args_list)
+        self.dataset = lp.extract(args)
+        self.dataset.scale_coords = args.scale_coords
+        self.opt = op.extract(args)
+        self.pipe = pp.extract(args)
+
+    def _setup_train(self, train_dataset: Dataset):
+        # Initialize system state (RNG)
+        safe_state(False)
 
         # Setup model
         self.gaussians = GaussianModel(self.dataset.sh_degree)
@@ -286,7 +293,7 @@ class GaussianSplatting(Method):
         self._input_points = (train_dataset.points3D_xyz, train_dataset.points3D_rgb)
         self._viewpoint_stack = []
 
-    def _eval_setup(self):
+    def _setup_eval(self):
         # Initialize system state (RNG)
         safe_state(False)
 
@@ -309,14 +316,25 @@ class GaussianSplatting(Method):
             loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(str(self.checkpoint)) if x.startswith("chkpnt-"))[-1]
         return loaded_step
 
-    def get_info(self) -> MethodInfo:
-        info = MethodInfo(
+    @classmethod
+    def get_method_info(cls):
+        assert cls._method_name is not None, "Method was not properly registered"
+        return MethodInfo(
+            name=cls._method_name,
             required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset((CameraModel.PINHOLE,)),
+        )
+
+    def get_info(self) -> ModelInfo:
+        return ModelInfo(
             num_iterations=self.opt.iterations,
             loaded_step=self._loaded_step,
+            loaded_checkpoint=self.checkpoint,
+            hparams=(
+                flatten_hparams(dict(itertools.chain(vars(self.dataset).items(), vars(self.opt).items(), vars(self.pipe).items()))) 
+                if self.dataset is not None else {}),
+            **vars(self.get_method_info()),
         )
-        return info
 
     def _build_scene(self, dataset):
         opt = copy.copy(self.dataset)
@@ -327,7 +345,9 @@ class GaussianSplatting(Method):
             backup = sceneLoadTypeCallbacks["Colmap"]
             try:
                 info = self.get_info()
-                sceneLoadTypeCallbacks["Colmap"] = lambda *args, **kwargs: _convert_dataset_to_gaussian_splatting(dataset, td, white_background=self.dataset.white_background)
+                def colmap_loader(*args, **kwargs):
+                    return _convert_dataset_to_gaussian_splatting(dataset, td, white_background=self.dataset.white_background, scale_coords=self.dataset.scale_coords)
+                sceneLoadTypeCallbacks["Colmap"] = colmap_loader
                 return Scene(opt, self.gaussians, load_iteration=info.loaded_step if dataset is None else None)
             finally:
                 sceneLoadTypeCallbacks["Colmap"] = backup
@@ -346,13 +366,14 @@ class GaussianSplatting(Method):
             if progress_callback:
                 progress_callback(CurrentProgress(global_i, global_total, 0, len(poses)))
             for i, pose in enumerate(poses):
-                viewpoint_cam = _load_caminfo(i, pose, intrinsics[i], f"{i:06d}.png", sizes[i])
+                viewpoint_cam = _load_caminfo(i, pose, intrinsics[i], f"{i:06d}.png", sizes[i], scale_coords=self.dataset.scale_coords)
                 viewpoint = loadCam(self.dataset, i, viewpoint_cam, 1.0)
                 image = torch.clamp(render(viewpoint, self.gaussians, self.pipe, self.background)["render"], 0.0, 1.0)
                 global_i += int(sizes[i].prod(-1))
                 if progress_callback:
                     progress_callback(CurrentProgress(global_i, global_total, i + 1, len(poses)))
                 color = image.detach().permute(1, 2, 0).cpu().numpy()
+
                 yield {
                     "color": color,
                 }

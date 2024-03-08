@@ -14,7 +14,7 @@ try:
 except ImportError:
     from typing_extensions import Optional
 
-from nerfbaselines.types import Dataset, CurrentProgress, RenderOutput, MethodInfo, ProgressCallback
+from nerfbaselines.types import Dataset, CurrentProgress, RenderOutput, MethodInfo, ModelInfo, ProgressCallback
 from nerfbaselines import Cameras, CameraModel
 from nerfbaselines import Method
 
@@ -178,12 +178,13 @@ class TensoRFDataset:
 
 
 class TensoRF(Method):
-    config_overrides: Optional[dict] = None
+    _method_name: str = "tensorf"
 
-    def __init__(self, checkpoint: Optional[Path] = None, config_overrides: Optional[dict] = None):
+    def __init__(self, *,
+                 checkpoint: Optional[Path] = None, 
+                 train_dataset: Optional[Dataset] = None,
+                 config_overrides: Optional[dict] = None):
         self.checkpoint = checkpoint
-        self.config_overrides = self.config_overrides or {}
-        self.config_overrides.update(config_overrides or {})
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.renderer = OctreeRender_trilinear_fast
 
@@ -200,17 +201,32 @@ class TensoRF(Method):
         self.step = 0
 
         self._load_config()
+        if train_dataset is not None:
+            self._setup_train(train_dataset, config_overrides=config_overrides)
+        else:
+            self._setup_eval()
 
     def _load_config(self):
         self.args = config_parser(shlex.join(self._arg_list))
 
-    def get_info(self) -> MethodInfo:
+    @classmethod
+    def get_method_info(cls) -> MethodInfo:
+        assert cls._method_name is not None, "Method was not properly registered"
         return MethodInfo(
+            name=cls._method_name,
+            required_features=frozenset(("color",)),
+            supported_camera_models=frozenset(CameraModel.__members__.values()),
+        )
+
+    def get_info(self) -> ModelInfo:
+        return ModelInfo(
+            name=self._method_name,
             num_iterations=self.args.n_iters,
             supported_camera_models=frozenset(CameraModel.__members__.values()),
             loaded_step=self.metadata.get("step"),
             batch_size=self.args.batch_size,
             eval_batch_size=self.args.batch_size,
+            hparams=vars(self.args) if self.args else {},
         )
 
     def save(self, path: Path):
@@ -245,7 +261,8 @@ class TensoRF(Method):
         self.tensorf = getattr(models, self.args.model_name)(**kwargs)
         self.tensorf.load(ckpt)
 
-    def setup_train(self, train_dataset: Dataset, *, num_iterations: Optional[int] = None, config_overrides: Optional[Dict[str, Any]] = None):
+    def _setup_train(self, train_dataset: Dataset, *, config_overrides: Optional[Dict[str, Any]] = None):
+        config_overrides = (config_overrides or {}).copy()
         if self.checkpoint is not None:
             raise NotImplementedError("Loading from checkpoint is not supported for TensoRF")
 
@@ -253,7 +270,6 @@ class TensoRF(Method):
             "type": train_dataset.metadata.get("type"),
             "name": train_dataset.metadata.get("name"),
         }
-        config_overrides, _config_overrides = {}, config_overrides
 
         # Load dataset-specific config
         dataset_name = train_dataset.metadata.get("name")
@@ -267,10 +283,7 @@ class TensoRF(Method):
         with config_file.open("r", encoding="utf8") as f:
             config_overrides.update(configargparse.DefaultConfigFileParser().parse(f))
 
-        config_overrides.update(self.config_overrides or {})
-        if num_iterations is not None:
-            config_overrides["n_iters"] = str(num_iterations)
-        config_overrides.update(_config_overrides or {})
+        # config_overrides["n_iters"] = str(num_iterations)
         for k, v in config_overrides.items():
             if isinstance(v, list):
                 for vs in v:

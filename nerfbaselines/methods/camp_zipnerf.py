@@ -1,24 +1,13 @@
-from ..registry import MethodSpec, CondaMethod, LazyMethod, register
-
-try:
-    from typing import Optional
-except ImportError:
-    from typing_extensions import Optional
+import os
+from ..registry import MethodSpec, register
 
 
-class CamP_ZipNerf(LazyMethod["._impl.camp_zipnerf:CamP_ZipNeRF"]):
-    batch_size: int = 8192
-    num_iterations: Optional[int] = None
-    learning_rate_multiplier: float = 1.0
-
-
-CamP_ZipNerfSpec = MethodSpec(
-    method=CamP_ZipNerf,
-    conda=CondaMethod.wrap(
-        CamP_ZipNerf,
-        conda_name="zipnerf",
-        python_version="3.11",
-        install_script="""# Clone the repo.
+CamP_ZipNerfSpec: MethodSpec = {
+    "method": "._impl.camp_zipnerf:CamP_ZipNeRF",
+    "conda": {
+        "environment_name": os.path.split(__file__[:-3])[-1].replace("_", "-"),
+        "python_version": "3.11",
+        "install_script": """# Clone the repo.
 git clone https://github.com/jonbarron/camp_zipnerf.git
 cd camp_zipnerf
 
@@ -27,7 +16,7 @@ conda install -y pip conda-build
 
 # Install requirements.
 python -m pip install --upgrade pip
-python -m pip install --upgrade "jax[cuda11_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+python -m pip install --upgrade "jax[cuda11_pip]==0.4.23" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 python -m pip install -r requirements.txt
 
 # Manually install rmbrualla's `pycolmap` (don't use pip's! It's different).
@@ -39,14 +28,16 @@ conda develop "$PWD/internal/pycolmap/pycolmap"
 # Confirm that all the unit tests pass.
 # ./scripts/run_all_unit_tests.sh
 """,
-    ),
-    metadata={},
-)
+    },
+    "metadata": {},
+}
 
 register(
     CamP_ZipNerfSpec,
-    "zipnerf",
-    camp=False,
+    name="zipnerf",
+    kwargs={
+        "camp": False,
+    },
     metadata={
         "name": "Zip-NeRF",
         "paper_title": "Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields",
@@ -60,8 +51,7 @@ Instead of sampling along the ray it samples along a spiral path - approximating
 
 register(
     CamP_ZipNerfSpec,
-    "camp",
-    camp=True,
+    name="camp",
     metadata={
         "name": "Zip-NeRF",
         "paper_title": "CamP: Camera Preconditioning for Neural Radiance Fields",
@@ -70,4 +60,7 @@ register(
         "link": "https://camp-nerf.github.io/",
         "description": """CamP is an extension of Zip-NeRF which adds pose refinement to the training process. """,
     },
+    kwargs={
+        "camp": True,
+    }
 )

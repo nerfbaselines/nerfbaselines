@@ -41,22 +41,9 @@ def _generate_predictions(path, background_color=None):
         )
 
 
-@pytest.mark.parametrize("background_color", [None, [0, 0, 0]])
-@pytest.mark.filterwarnings("ignore::UserWarning:torchvision")
-def test_evaluate_folder(tmp_path, background_color):
-    _generate_predictions(tmp_path / "predictions", background_color)
-    evaluate(tmp_path / "predictions", output=tmp_path / "results.json", run_extra_metrics=False)
-    assert os.path.exists(tmp_path / "results.json")
-
-    with pytest.raises(FileExistsError):
-        evaluate(tmp_path / "predictions", output=tmp_path / "results.json")
-
-
-@pytest.mark.extras
-@pytest.mark.filterwarnings("ignore::UserWarning:torchvision")
-def test_evaluate_folder_extras(tmp_path):
+def test_evaluate_folder(tmp_path, mock_torch):
     _generate_predictions(tmp_path / "predictions")
-    evaluate(tmp_path / "predictions", output=tmp_path / "results.json", run_extra_metrics=True)
+    evaluate(tmp_path / "predictions", output=tmp_path / "results.json")
     assert os.path.exists(tmp_path / "results.json")
     with (tmp_path / "results.json").open("r", encoding="utf8") as f:
         results = json.load(f)
@@ -66,20 +53,7 @@ def test_evaluate_folder_extras(tmp_path):
         evaluate(tmp_path / "predictions", output=tmp_path / "results.json")
 
 
-def test_evaluate_targz(tmp_path):
-    _generate_predictions(tmp_path / "predictions")
-    with tarfile.open(tmp_path / "predictions.tar.gz", "w:gz") as tar:
-        tar.add(tmp_path / "predictions", arcname="")
-    _results = evaluate(tmp_path / "predictions.tar.gz", output=tmp_path / "results.json")
-    assert os.path.exists(tmp_path / "results.json")
-
-    with pytest.raises(FileExistsError):
-        evaluate(tmp_path / "predictions.tar.gz", output=tmp_path / "results.json")
-
-
-@pytest.mark.extras
-@pytest.mark.filterwarnings("ignore::UserWarning:torchvision")
-def test_evaluate_targz_extras(tmp_path):
+def test_evaluate_targz(tmp_path, mock_torch):
     _generate_predictions(tmp_path / "predictions")
     with tarfile.open(tmp_path / "predictions.tar.gz", "w:gz") as tar:
         tar.add(tmp_path / "predictions", arcname="")
@@ -93,26 +67,7 @@ def test_evaluate_targz_extras(tmp_path):
         evaluate(tmp_path / "predictions.tar.gz", output=tmp_path / "results.json")
 
 
-@pytest.mark.filterwarnings("ignore::UserWarning:torchvision")
-def test_evaluate_command(tmp_path):
-    _generate_predictions(tmp_path / "predictions")
-    args = ["nerfbaselines", "evaluate", str(tmp_path / "predictions"), "-o", str(tmp_path / "results.json"), "--disable-extra-metrics"]
-
-    with mock.patch.object(sys, "argv", args):
-        import nerfbaselines.cli
-
-        with pytest.raises(SystemExit) as excinfo:
-            nerfbaselines.cli.main()
-            assert excinfo.value.code == 0
-    assert os.path.exists(tmp_path / "results.json")
-    with (tmp_path / "results.json").open("r", encoding="utf8") as f:
-        results = json.load(f)
-        assert "ssim" in results["metrics"]
-
-
-@pytest.mark.extras
-@pytest.mark.filterwarnings("ignore::UserWarning:torchvision")
-def test_evaluate_command_extras(tmp_path):
+def test_evaluate_command_extras(tmp_path, mock_torch):
     _generate_predictions(tmp_path / "predictions")
     args = ["nerfbaselines", "evaluate", str(tmp_path / "predictions"), "-o", str(tmp_path / "results.json")]
 
@@ -125,4 +80,5 @@ def test_evaluate_command_extras(tmp_path):
     assert os.path.exists(tmp_path / "results.json")
     with (tmp_path / "results.json").open("r", encoding="utf8") as f:
         results = json.load(f)
+        assert "ssim" in results["metrics"]
         assert "lpips" in results["metrics"]
