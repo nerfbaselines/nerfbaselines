@@ -93,9 +93,12 @@ def mock_nerfstudio(mock_torch):
     oconfig.pipeline = mock.MagicMock()
     oconfig.pipeline.datamanager = mock.MagicMock()
     oconfig.pipeline.datamanager.train_num_rays_per_batch = torch.tensor(128)
+    oconfig.pipeline.model.config.max_num_iterations = 12
+    oconfig.pipeline.model.config.eval_num_rays_per_chunk = 12
     oconfig.pipeline.datamanager.dataparser = mock.MagicMock()
     oconfig.pipeline.datamanager._target = DataManager
     oconfig.eval_num_rays_per_chunk = 128
+    oconfig.max_num_iterations = 12
     oconfig.relative_model_dir = "test"
     trainer.pipeline = mock.MagicMock()
     trainer.pipeline.model = Model()

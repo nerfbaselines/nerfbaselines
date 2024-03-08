@@ -43,7 +43,8 @@ def test_cancellable():
 
     token = TimeLimitCancellationToken()
     with pytest.raises(CancelledException):
-        fn(cancellation_token=token)
+        with token:
+            fn()
     assert was_called, "Function was not called"
 
 
@@ -62,8 +63,9 @@ def test_cancellable_generator():
     token = TimeLimitCancellationToken()
     out = []
     with pytest.raises(CancelledException):
-        for i in fn(cancellation_token=token):
-            out.append(i)
+        with token:
+            for i in fn():
+                out.append(i)
     assert len(out) > 1, "Function was not called"
     assert was_called, "Function was not called"
 

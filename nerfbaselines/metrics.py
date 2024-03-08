@@ -377,7 +377,7 @@ def _lpips(a, b, net, version="0.1"):
 
     lp_net = _LPIPS_CACHE.get(net)
     if lp_net is None:
-        from lpips import LPIPS
+        from ._metrics_lpips import LPIPS
 
         lp_net = LPIPS(net="alex", version=version)
         _LPIPS_CACHE[net] = lp_net

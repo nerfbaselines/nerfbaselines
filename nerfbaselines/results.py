@@ -10,6 +10,7 @@ import numpy as np
 from . import metrics
 from . import datasets
 from .types import Literal, Optional
+from ._constants import WEBPAGE_URL
 
 try:
     from typing import TypedDict
@@ -106,7 +107,7 @@ def compile_dataset_results(results_path: Path, dataset: str) -> Dict[str, Any]:
     dataset_info["methods"] = []
     for method_id in os.listdir(results_path):
         method_spec = registry.get(method_id)
-        method_data = method_spec.metadata.copy()
+        method_data = method_spec.get("metadata", {}).copy()
         method_data["id"] = method_id
         method_data["scenes"] = {}
 
@@ -218,7 +219,7 @@ def render_markdown_dataset_results_table(results, method_links: MethodLink = "n
                 elif method_links == "website" and "link" in method:
                     value = f"[{value}]({method['link']})"
                 elif method_links == "results":
-                    value = f"[{value}](https://jkulhanek.com/nerfbaselines/m-{method['id'].replace(':', '--')})"
+                    value = f"[{value}]({WEBPAGE_URL}/m-{method['id'].replace(':', '--')})"
             elif column == "total_train_time":
                 value = format_duration(value)
             elif column == "gpu_memory":

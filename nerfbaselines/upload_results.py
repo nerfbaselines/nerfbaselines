@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 from .render import get_checkpoint_sha
 from .evaluate import get_predictions_hashes
+from ._constants import REPOSITORY_NAME
 
 
 def _upload_fileio_single(path: Path):
@@ -82,7 +83,7 @@ def _create_github_update_link(results):
     if scene is None:
         raise ValueError("dataset_scene must be set")
     value = urllib.parse.quote_plus(json.dumps(results, indent=2))
-    url = f"https://github.com/jkulhanek/nerfbaselines/new/main?filename=results/{method}/{dataset_name}/{scene}.json&value={value}"
+    url = f"https://github.com/{REPOSITORY_NAME}/new/main?filename=results/{method}/{dataset_name}/{scene}.json&value={value}"
     return url
 
 

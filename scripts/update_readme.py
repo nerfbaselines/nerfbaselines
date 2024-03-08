@@ -10,6 +10,7 @@ except ImportError:
     import nerfbaselines  # noqa
 from nerfbaselines.cli import render_dataset_results_command
 from nerfbaselines.results import get_dataset_info
+from nerfbaselines._constants import WEBPAGE_URL
 import tempfile
 
 
@@ -36,7 +37,7 @@ def update_dataset_results(readme: str, dataset):
     dataset_info = get_dataset_info(dataset)
     new_section = f"""{lines[section_start]}
 {dataset_info['description']}
-Detailed results are available on the project page: [https://jkulhanek.com/nerfbaselines/{dataset}](https://jkulhanek.com/nerfbaselines/{dataset})
+Detailed results are available on the project page: [{WEBPAGE_URL}/{dataset}]({WEBPAGE_URL}/{dataset})
 
 {new_results}
 """

@@ -9,6 +9,7 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+import itertools
 import subprocess
 import random
 from pathlib import Path
@@ -34,10 +35,10 @@ except ImportError:
 
 import torch
 
-from ...types import Method, MethodInfo, CurrentProgress, ProgressCallback, RenderOutput
+from ...types import Method, MethodInfo, CurrentProgress, ProgressCallback, RenderOutput, ModelInfo
 from ...datasets import Dataset
 from ...cameras import CameraModel, Cameras
-from ...utils import cached_property
+from ...utils import cached_property, flatten_hparams
 from ...pose_utils import get_transform_and_scale
 from ...math_utils import rotate_spherical_harmonics, rotation_matrix_to_quaternion
 from ...io import wget
@@ -100,6 +101,7 @@ def loadCam(args, id, cam_info, resolution_scale):
         camera.cy, 
         camera.znear, 
         camera.zfar).transpose(0, 1).cuda()
+    camera.full_proj_transform = (camera.world_view_transform.unsqueeze(0).bmm(camera.projection_matrix.unsqueeze(0))).squeeze(0)
 
     return camera
 camera_utils.loadCam = loadCam
@@ -217,9 +219,12 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
 
 
 class MipSplatting(Method):
-    config_overrides: Optional[dict] = None
+    _method_name: str = "mip-splatting"
 
-    def __init__(self, checkpoint: Optional[Path] = None, config_overrides: Optional[dict] = None):
+    def __init__(self, *,
+                 checkpoint: Optional[Path] = None, 
+                 config_overrides: Optional[dict] = None,
+                 train_dataset: Optional[Dataset] = None):
         self.checkpoint = checkpoint
         self.gaussians = None
         self.background = None
@@ -239,8 +244,11 @@ class MipSplatting(Method):
 
         self.trainCameras = None
         self.highresolution_index = None
-        self.config_overrides = self.config_overrides or {}
-        self.config_overrides.update(config_overrides or {})
+
+        if train_dataset is not None:
+            self._setup_train(train_dataset, config_overrides=config_overrides)
+        else:
+            self._setup_eval()
 
     def _load_config(self):
         parser = ArgumentParser(description="Training script parameters")
@@ -252,7 +260,7 @@ class MipSplatting(Method):
         self.opt = op.extract(args)
         self.pipe = pp.extract(args)
 
-    def setup_train(self, train_dataset, *, num_iterations: Optional[int] = None, config_overrides=None):
+    def _setup_train(self, train_dataset, *, config_overrides=None):
         # Initialize system state (RNG)
         safe_state(False)
 
@@ -263,22 +271,16 @@ class MipSplatting(Method):
                 logging.info("overriding default background color to white for blender dataset")
 
             assert "--iterations" not in self._args_list, "iterations should not be specified when loading from checkpoint"
-            if num_iterations is not None:
-                self._load_config()
-                self._args_list.extend(("--iterations", str(num_iterations)))
-                iter_factor = num_iterations / 30_000
-                self._args_list.extend(("--densify_from_iter", str(int(self.opt.densify_from_iter * iter_factor))))
-                self._args_list.extend(("--densify_until_iter", str(int(self.opt.densify_until_iter * iter_factor))))
-                self._args_list.extend(("--densification_interval", str(int(self.opt.densification_interval * iter_factor))))
-                self._args_list.extend(("--opacity_reset_interval", str(int(self.opt.opacity_reset_interval * iter_factor))))
-                self._args_list.extend(("--position_lr_max_steps", str(int(self.opt.position_lr_max_steps * iter_factor))))
 
-            config_overrides, _config_overrides = (self.config_overrides or {}), config_overrides
-            config_overrides.update(_config_overrides or {})
+        if config_overrides is not None:
             for k, v in config_overrides.items():
-                self._args_list.append(f"--{k}")
-                self._args_list.append(str(v))
-            self._load_config()
+                if f'--{k}' in self._args_list:
+                    self._args_list[self._args_list.index(f'--{k}') + 1] = str(v)
+                else:
+                    self._args_list.append(f"--{k}")
+                    self._args_list.append(str(v))
+
+        self._load_config()
 
         if self.checkpoint is None:
             # Verify parameters are set correctly
@@ -311,7 +313,7 @@ class MipSplatting(Method):
 
         self.gaussians.compute_3D_filter(cameras=self.trainCameras)
 
-    def _eval_setup(self):
+    def _setup_eval(self):
         # Initialize system state (RNG)
         safe_state(False)
 
@@ -334,12 +336,24 @@ class MipSplatting(Method):
             loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(str(self.checkpoint)) if x.startswith("chkpnt-"))[-1]
         return loaded_step
 
-    def get_info(self) -> MethodInfo:
-        info = MethodInfo(
+    @classmethod
+    def get_method_info(cls):
+        assert cls._method_name is not None, "Method was not properly registered"
+        return MethodInfo(
+            name=cls._method_name,
             required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset((CameraModel.PINHOLE,)),
+        )
+
+    def get_info(self) -> ModelInfo:
+        info = ModelInfo(
             num_iterations=self.opt.iterations,
             loaded_step=self._loaded_step,
+            loaded_checkpoint=str(self.checkpoint) if self.checkpoint is not None else None,
+            hparams=(
+                flatten_hparams(dict(itertools.chain(vars(self.dataset).items(), vars(self.opt).items(), vars(self.pipe).items())))
+                if self.dataset is not None else {}),
+            **vars(self.get_method_info()),
         )
         return info
 

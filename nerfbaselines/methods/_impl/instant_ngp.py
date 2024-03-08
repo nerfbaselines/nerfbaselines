@@ -1,3 +1,4 @@
+import logging
 import struct
 import math
 import contextlib
@@ -9,12 +10,10 @@ from typing import Optional, Iterable
 import tempfile
 import numpy as np
 from PIL import Image, ImageOps
-from ...types import Dataset, Method, MethodInfo, ProgressCallback, CurrentProgress, RenderOutput
+from ...types import Dataset, Method, MethodInfo, ModelInfo, ProgressCallback, CurrentProgress, RenderOutput
 from ...cameras import CameraModel, Cameras
-from ...utils import cast_value
-
-
-AABB_SCALE = 32
+from ...utils import cast_value, flatten_hparams
+from ...pose_utils import pad_poses, unpad_poses
 
 
 def rotmat(a, b):
@@ -56,6 +55,8 @@ def linear_to_srgb(img):
 
 def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale=None, aabb_scale=None, keep_coords=None, **kwargs):
     frames = []
+    up = np.zeros(3)
+
     for i in range(len(dataset)):
         camera = {}
         camera["w"] = int(dataset.cameras.image_sizes[i, 0])
@@ -92,7 +93,6 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
         # camera["fovy"] = camera["camera_angle_y"] * 180 / math.pi
         frame = camera.copy()
         bottom = np.array([0.0, 0.0, 0.0, 1.0]).reshape([1, 4])
-        up = np.zeros(3)
         name = str(dataset.file_paths[i])
         # b = sharpness(name) if os.path.exists(name) else 1.0
         c2w = dataset.cameras.poses[i, :3, :4]
@@ -101,7 +101,7 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
         c2w = c2w.copy()
         c2w[..., 0:3, 1:3] *= -1
 
-        c2w = np.concatenate([c2w[0:3, 0:4], bottom], 0)
+        c2w = np.concatenate([c2w[..., 0:3, 0:4], bottom], 0)
 
         if not keep_coords:
             c2w = c2w[[1, 0, 2, 3], :]
@@ -120,40 +120,41 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
         # don't keep colmap coords - reorient the scene to be easier to work with
         up = up / np.linalg.norm(up)
         R = rotmat(up, [0, 0, 1])  # rotate up vector to [0,0,1]
-        R = np.pad(R, [0, 1])
-        R[-1, -1] = 1
+        dataparser_transform = np.eye(4, dtype=np.float32)
+        dataparser_transform[..., :3, :3] = R
+        poses = [np.matmul(dataparser_transform, pad_poses(f["transform_matrix"])) for f in frames]
 
         # find a central point they are all looking at
         totw = 0.0
         totp = np.array([0.0, 0.0, 0.0])
-        for f in frames:
-            mf = f["transform_matrix"][0:3, :]
-            for g in frames:
-                mg = g["transform_matrix"][0:3, :]
+        for p in poses:
+            mf = p[0:3, :]
+            for g in poses:
+                mg = g[0:3, :]
                 p, w = closest_point_2_lines(mf[:, 3], mf[:, 2], mg[:, 3], mg[:, 2])
                 if w > 0.00001:
                     totp += p * w
                     totw += w
         if totw > 0.0:
             totp /= totw
-        offset_mat = np.eye(4, dtype=R.dtype)
-        offset_mat[0:3, 3] = -totp
-        dataparser_transform = R
+        dataparser_transform[..., :3, 3] = -totp
     elif dataparser_transform is None:
         dataparser_transform = np.eye(4, dtype=np.float32)
+        # dataparser_transform[..., 0:3, 1:3] *= -1
 
     # Compute scale
     if dataparser_scale is None and not keep_coords:
         avglen = 0.0
         for f in frames:
-            avglen += np.linalg.norm(f["transform_matrix"][0:3, 3])
+            pose = np.matmul(dataparser_transform, pad_poses(f["transform_matrix"]))
+            avglen += np.linalg.norm(pose[0:3, 3])
         avglen /= nframes
         dataparser_scale = float(4.0 / avglen)  # scale to "nerf sized"
     elif dataparser_scale is None:
         dataparser_scale = 1.0
 
     for f in frames:
-        f["transform_matrix"] = np.matmul(dataparser_transform, f["transform_matrix"])  # rotate up to be the z axis
+        f["transform_matrix"] = unpad_poses(np.matmul(dataparser_transform, pad_poses(f["transform_matrix"])))
         f["transform_matrix"][0:3, 3] *= dataparser_scale
         f["transform_matrix"] = f["transform_matrix"].tolist()
 
@@ -164,8 +165,12 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
 
 
 class InstantNGP(Method):
-    def __init__(self, checkpoint: Optional[Path] = None, **kwargs):
-        super().__init__(**kwargs)
+    _method_name: str = "instant-ngp"
+
+    def __init__(self, *,
+                 checkpoint: Optional[Path] = None, 
+                 train_dataset: Optional[Dataset] = None,
+                 config_overrides: Optional[dict] = None):
         self.checkpoint = Path(checkpoint) if checkpoint is not None else None
         self._train_transforms = None
         self.testbed = None
@@ -176,10 +181,30 @@ class InstantNGP(Method):
         self._tempdir = tempfile.TemporaryDirectory()
         self._tempdir.__enter__()
         self._eval_setup_step = None
+        self._config = None
+        self._is_render_mode = False
 
-    def get_info(self):
+        if train_dataset is not None:
+            self._setup_train(train_dataset, config_overrides)
+        else:
+            raise RuntimeError("WTF")
+            self._setup_eval()
+
+    @classmethod
+    def get_method_info(cls):
+        assert cls._method_name is not None, "Method was not properly registered"
         return MethodInfo(
-            num_iterations=self.num_iterations, required_features=frozenset(("color",)), supported_camera_models=frozenset((CameraModel.PINHOLE, CameraModel.OPENCV, CameraModel.OPENCV_FISHEYE))
+            name=cls._method_name,
+            required_features=frozenset(("color",)), 
+            supported_camera_models=frozenset((CameraModel.PINHOLE, CameraModel.OPENCV, CameraModel.OPENCV_FISHEYE)),
+        )
+
+    def get_info(self) -> ModelInfo:
+        return ModelInfo(
+            num_iterations=self.num_iterations, 
+            loaded_checkpoint=str(self.checkpoint) if self.checkpoint is not None else None,
+            hparams=flatten_hparams(self._config or {}),
+            **vars(self.get_method_info()),
         )
 
     def _setup(self, train_transforms):
@@ -192,18 +217,23 @@ class InstantNGP(Method):
             testbed.load_training_data(str(train_transforms))
         if self.checkpoint is not None:
             testbed.load_snapshot(str(self.checkpoint / "checkpoint.ingp"))
+            self._config = json.loads((self.checkpoint / "config.json").read_text())
         else:
             package_root = Path(os.path.dirname(os.path.dirname(os.path.abspath(ngp.__file__))))
             testbed.reload_network_from_file(str(package_root / "configs" / "nerf" / "base.json"))
+            self._config = json.loads((package_root / "configs" / "nerf" / "base.json").read_text())
+        self._config["testbed"] = testbed_cfg = self._config.get("testbed", {})
+        testbed_cfg["nerf"] = testbed_cfg.get("nerf", {})
+        testbed_cfg["nerf"]["training"] = testbed_cfg["nerf"].get("training", {})
 
+        # Update cfg
         # Default parameters from scripts/run.py
-        testbed.nerf.sharpen = 0.0
-        testbed.exposure = 0.0
-        testbed.shall_train = True
-        testbed.nerf.render_with_lens_distortion = True
-
+        testbed_cfg["exposure"] = 0.0
+        testbed_cfg["nerf"]["sharpen"] = 0.0
+        testbed_cfg["nerf"]["render_with_lens_distortion"] = True
+        testbed_cfg["shall_train"] = True
         if self.dataparser_params.get("nerf_compatibility", False):
-            print("NeRF compatibility mode enabled")
+            logging.info("NeRF compatibility mode enabled")
 
             # Prior nerf papers accumulate/blend in the sRGB
             # color space. This messes not only with background
@@ -211,22 +241,31 @@ class InstantNGP(Method):
             # We support this behavior, but we only enable it
             # for the case of synthetic nerf data where we need
             # to compare PSNR numbers to results of prior work.
-            testbed.color_space = ngp.ColorSpace.SRGB
+            testbed_cfg["color_space"] = ngp.ColorSpace.SRGB.name
 
             # No exponential cone tracing. Slightly increases
             # quality at the cost of speed. This is done by
             # default on scenes with AABB 1 (like the synthetic
             # ones), but not on larger scenes. So force the
             # setting here.
-            testbed.nerf.cone_angle_constant = 0
+            testbed_cfg["nerf"]["cone_angle_constant"] = 0
 
             # Match nerf paper behaviour and train on a fixed bg.
-            testbed.nerf.training.random_bg_color = False
+            testbed_cfg["nerf"]["training"]["random_bg_color"] = False
 
             # Blender uses background_color = [255, 255, 255, 255]
             # NOTE: this is different from ingp official implementation
-            testbed.background_color = [1.0, 1.0, 1.0, 1.000]
+            testbed_cfg["background_color"] = [1.0, 1.0, 1.0, 1.000]
 
+        def set_params(obj, cfg):
+            for k, v in cfg.items():
+                if obj == testbed and k == "color_space":
+                    v = getattr(ngp.ColorSpace, v)
+                if isinstance(v, dict):
+                    set_params(getattr(obj, k), v)
+                else:
+                    setattr(obj, k, v)
+        set_params(testbed, testbed_cfg)
         self.testbed = testbed
 
     def _write_images(self, dataset: Dataset, tmpdir: str):
@@ -234,7 +273,7 @@ class InstantNGP(Method):
 
         for i, impath_source in enumerate(tqdm(dataset.file_paths, desc="caching images")):
             impath_source = Path(impath_source)
-            impath_target = Path(tmpdir) / impath_source.relative_to(dataset.file_paths_root)
+            impath_target = Path(tmpdir) / str(impath_source.relative_to(dataset.file_paths_root)).replace("/", "__")
             dataset.file_paths[i] = impath_target
             impath_target.parent.mkdir(parents=True, exist_ok=True)
             if impath_target.exists():
@@ -242,6 +281,7 @@ class InstantNGP(Method):
             width, height = dataset.cameras.image_sizes[i]
             if impath_source.exists():
                 impath_target.symlink_to(impath_source)
+                logging.debug(f"symlinked {impath_source} to {impath_target}")
             else:
                 img = dataset.images[i][:height, :width]
                 if dataset.color_space == "srgb":
@@ -257,6 +297,7 @@ class InstantNGP(Method):
                     with open(str(impath_target), "wb") as f:
                         f.write(struct.pack("ii", img.shape[0], img.shape[1]))
                         f.write(img.astype(np.float16).tobytes())
+                logging.debug(f"copied {impath_source} to {impath_target}")
             if dataset.sampling_masks is not None:
                 mask = dataset.sampling_masks[i]
                 mask = Image.fromarray(mask[:height, :width], mode="L")
@@ -264,10 +305,10 @@ class InstantNGP(Method):
                 maskname = impath_target.with_name(f"dynamic_mask_{impath_target.name}")
                 dataset.sampling_masks[i] = maskname
                 mask.save(str(maskname))
+        dataset.file_paths_root = str(tmpdir)
 
-    def setup_train(self, train_dataset: Dataset, *, num_iterations: Optional[int] = None, config_overrides=None):
+    def _setup_train(self, train_dataset: Dataset, config_overrides):
         # Write images
-        self.num_iterations = num_iterations or self.num_iterations
         self._eval_setup_step = None
         tmpdir = self._tempdir.name
         self._write_images(train_dataset, tmpdir)
@@ -289,7 +330,7 @@ class InstantNGP(Method):
                 keep_coords = True
                 nerf_compatibility = True
             else:
-                aabb_scale = AABB_SCALE
+                aabb_scale = 32
                 keep_coords = False
                 nerf_compatibility = False
 
@@ -323,18 +364,27 @@ class InstantNGP(Method):
             self._setup(Path(tmpdir) / "transforms.json")
 
     def train_iteration(self, step: int):
+        assert not self._is_render_mode, "Cannot train in render mode"
+        if step == self.num_iterations:
+            raise StopIteration
         current_frame = self.testbed.training_step
+        deadline = 100
         while current_frame < step:
             if not self.testbed.frame():
                 raise RuntimeError("Training failed")
             current_frame = self.testbed.training_step
+            deadline -= 1
+            if deadline < 0:
+                raise RuntimeError("Training failed")
+        if step == self.num_iterations - 1:
+            # Release the tempdir
+            self._tempdir.cleanup()
+            self._tempdir = None
         return {
             "loss": self.testbed.loss,
         }
 
     def save(self, path: Path):
-        if self.dataparser_params is None:
-            self._setup_eval()
         path = Path(path)
         path.mkdir(parents=True, exist_ok=True)
         with (path / "meta.json").open("w") as f:
@@ -349,6 +399,8 @@ class InstantNGP(Method):
                 f,
                 indent=2,
             )
+        with (path / "config.json").open("w") as f:
+            json.dump(self._config, f, indent=2)
         with (path / "train_transforms.json").open("w") as f:
             json.dump(self._train_transforms, f, indent=2)
         self.testbed.save_snapshot(str(path / "checkpoint.ingp"), False)
@@ -356,6 +408,7 @@ class InstantNGP(Method):
     @contextlib.contextmanager
     def _with_eval_setup(self, cameras: Cameras):
         with tempfile.TemporaryDirectory() as tmpdir:
+            self._is_render_mode = True
             dataset = Dataset(
                 cameras=cameras,
                 sampling_mask_paths=None,
@@ -375,6 +428,8 @@ class InstantNGP(Method):
             old_testbed_render_min_transmittance = self.testbed.nerf.render_min_transmittance
             old_testbed_shall_train = self.testbed.shall_train
             try:
+                self.testbed.load_training_data(str(Path(tmpdir) / "transforms.json"))
+
                 if self.dataparser_params.get("nerf_compatibility", False):
                     # Blender uses background_color = [255, 255, 255, 255]
                     # NOTE: this is different from ingp official implementation
@@ -390,7 +445,6 @@ class InstantNGP(Method):
                 self.testbed.nerf.render_min_transmittance = 1e-4
 
                 self.testbed.shall_train = False
-                self.testbed.load_training_data(str(Path(tmpdir) / "transforms.json"))
                 yield self.testbed
 
             finally:
@@ -398,14 +452,14 @@ class InstantNGP(Method):
                 self.testbed.snap_to_pixel_centers = old_testbed_snap_to_pixel_centers
                 self.testbed.nerf.render_min_transmittance = old_testbed_render_min_transmittance
                 self.testbed.shall_train = old_testbed_shall_train
-                if self._eval_setup_step is None:
-                    with (Path(self._tempdir.name) / "transforms.json").open("w") as f:
-                        json.dump(self._train_transforms, f)
-                    self.testbed.load_training_data(str(Path(self._tempdir.name) / "transforms.json"))
+                if self._tempdir is not None:
+                    if self._eval_setup_step is None:
+                        with (Path(self._tempdir.name) / "transforms.json").open("w") as f:
+                            json.dump(self._train_transforms, f)
+                        self.testbed.load_training_data(str(Path(self._tempdir.name) / "transforms.json"))
+                    self._is_render_mode = False
 
     def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
-        if self.dataparser_params is None:
-            self._setup_eval()
         with self._with_eval_setup(cameras) as testbed:
             spp = 8
             if progress_callback:

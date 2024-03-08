@@ -1,17 +1,20 @@
-from ..backends import DockerMethod
-from ..registry import MethodSpec, LazyMethod, register
-from ..types import Optional
+import os
+from ..registry import MethodSpec, register
 
 
-class TetraNeRF(LazyMethod["._impl.tetranerf:TetraNeRF"]):
-    nerfstudio_name: Optional[str] = None
-    require_points3D: bool = True
-
-
-TetraNeRFSpec = MethodSpec(
-    method=TetraNeRF,
-    docker=DockerMethod.wrap(TetraNeRF, image="kulhanek/tetra-nerf:latest", python_path="python3", home_path="/home/user"),
-    metadata={
+TetraNeRFSpec: MethodSpec = {
+    "method": "._impl.tetranerf:TetraNeRF",
+    "docker": {
+        "environment_name": os.path.split(__file__[:-3])[-1].replace("_", "-"),
+        "image": "kulhanek/tetra-nerf:latest",
+        "python_path": "python3",
+        "home_path": "/home/user",
+    },
+    "kwargs": {
+        "require_points3D": True,
+        "nerfstudio_name": None,
+    },
+    "metadata": {
         "name": "Tetra-NeRF",
         "paper_title": "Tetra-NeRF: Representing Neural Radiance Fields Using Tetrahedra",
         "paper_authors": ["Jonas Kulhanek", "Torsten Sattler"],
@@ -20,16 +23,24 @@ TetraNeRFSpec = MethodSpec(
         "description": """Tetra-NeRF is a method that represents the scene as tetrahedral mesh obtained using Delaunay tetrahedralization. The input point cloud has to be provided (for COLMAP datasets the point cloud is automatically extracted). This is the official implementation
     from the paper.""",
     },
-)
+}
 
-register(TetraNeRFSpec, "tetra-nerf", nerfstudio_name="tetra-nerf-original", require_points3D=True, metadata={})
+register(
+    TetraNeRFSpec, 
+    name="tetra-nerf", 
+    kwargs={
+        "nerfstudio_name": "tetra-nerf-original", 
+        "require_points3D": True
+    })
+
 register(
     TetraNeRFSpec,
-    "tetra-nerf:latest",
-    nerfstudio_name="tetra-nerf",
-    require_points3D=True,
+    name="tetra-nerf:latest",
+    kwargs={
+        "nerfstudio_name": "tetra-nerf",
+        "require_points3D": True,
+    },
     metadata={
         "name": "Tetra-NeRF (latest)",
         "description": """This variant of Tetra-NeRF uses biased sampling to speed-up training and rendering. It trains/renders almost twice as fast without sacrificing quality. WARNING: this variant is not the same as the one used in the Tetra-NeRF paper.""",
-    },
-)
+    })

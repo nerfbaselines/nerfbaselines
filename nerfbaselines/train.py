@@ -3,28 +3,27 @@ import struct
 import sys
 import json
 import hashlib
-from functools import partial
 import time
 import os
 import math
 import logging
 from pathlib import Path
-import typing
-from typing import Callable, Optional, Union, Type, List, Any, Dict, Tuple
+from typing import Optional, Union, List, Any, Dict, Tuple
 from tqdm import tqdm
 import numpy as np
 import click
 from .io import open_any_directory, deserialize_nb_info, serialize_nb_info
 from .datasets import load_dataset, Dataset
-from .utils import Indices, setup_logging, partialclass, image_to_srgb, visualize_depth, handle_cli_error
+from .utils import Indices, setup_logging, image_to_srgb, visualize_depth, handle_cli_error
 from .utils import remap_error, get_resources_utilization_info, assert_not_none
 from .utils import IndicesClickType, SetParamOptionType
 from .utils import make_image_grid
 from .types import Method, Literal, FrozenSet
 from .render import render_all_images, build_update_progress
-from .evaluate import EvaluationProtocol, get_extra_metrics_available
+from .evaluate import EvaluationProtocol
 from .upload_results import prepare_results_for_upload
 from .logging import TensorboardLogger, WandbLogger, ConcatLogger, Logger
+from . import backends
 from . import __version__
 from . import registry
 from . import evaluate
@@ -33,12 +32,6 @@ from . import evaluate
 def compute_exponential_gamma(num_iters: int, initial_lr: float, final_lr: float) -> float:
     gamma = (math.log(final_lr) - math.log(initial_lr)) / num_iters
     return math.exp(gamma)
-
-
-def method_get_resources_utilization_info(method):
-    if hasattr(method, "call"):
-        return method.call(f"{get_resources_utilization_info.__module__}.{get_resources_utilization_info.__name__}")
-    return get_resources_utilization_info()
 
 
 def log_metrics(logger: Logger, metrics, *, prefix: str = "", step: int):
@@ -68,11 +61,8 @@ def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, st
     # Pseudo-randomly select an image based on the step
     total_rays = 0
     with tqdm(desc=f"rendering single image at step={step}") as pbar:
-        predictions = next(
-            iter(
-                evaluation_protocol.render(method, dataset_slice, progress_callback=build_update_progress(pbar, simple=True))
-            )
-        )
+        for predictions in evaluation_protocol.render(method, dataset_slice, progress_callback=build_update_progress(pbar, simple=True)):
+            pass
     elapsed = time.perf_counter() - start
 
     # Log to wandb
@@ -80,7 +70,8 @@ def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, st
         logging.debug(f"logging image to {logger}")
 
         # Log to wandb
-        metrics = next(iter(evaluation_protocol.evaluate([predictions], dataset_slice)))
+        for metrics in evaluation_protocol.evaluate([predictions], dataset_slice):
+            pass
 
         w, h = dataset_slice.cameras.image_sizes[0]
         gt = dataset_slice.images[0][:h, :w]
@@ -92,7 +83,8 @@ def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, st
 
         image_path = dataset_slice.file_paths[0]
         if dataset_slice.file_paths_root is not None:
-            image_path = str(Path(image_path).relative_to(dataset_slice.file_paths_root))
+            if str(image_path).startswith(str(dataset_slice.file_paths_root)):
+                image_path = str(Path(image_path).relative_to(dataset_slice.file_paths_root))
 
         metrics["image-path"] = image_path
         metrics["fps"] = 1 / elapsed
@@ -141,11 +133,14 @@ def eval_all(method: Method, logger: Logger, dataset: Dataset, *, output: Union[
         output = output / f"predictions-{step}.tar.gz"
 
     if output.exists():
-        shutil.rmtree(str(output))
+        if output.is_file():
+            os.unlink(str(output))
+        else:
+            shutil.rmtree(str(output))
         logging.warning(f"removed existing predictions at {output}")
 
     if output_metrics.exists():
-        shutil.rmtree(str(output))
+        os.unlink(str(output_metrics))
         logging.warning(f"removed existing results at {output_metrics}")
 
     start = time.perf_counter()
@@ -176,7 +171,11 @@ def eval_all(method: Method, logger: Logger, dataset: Dataset, *, output: Union[
     elapsed = time.perf_counter() - start
 
     # Compute metrics
-    info = evaluate.evaluate(output, output_metrics, description=f"evaluating all images at step={step}")
+    info = evaluate.evaluate(
+        output, 
+        output_metrics, 
+        evaluation_protocol=evaluation_protocol,
+        description=f"evaluating all images at step={step}")
     metrics = info["metrics"]
 
     if logger:
@@ -216,29 +215,28 @@ class MetricsAccumulator:
     def update(self, metrics: Dict[str, Union[int, float]]) -> None:
         if self._state is None:
             self._state = {}
-        n_iters_since_update = self._state.pop("n_iters_since_update", 0) + 1
         state = self._state
+        n_iters_since_update = state["n_iters_since_update"] = state.get("n_iters_since_update", {})
         for k, v in metrics.items():
             accumulation_mode = self.options.get(k, "average")
+            n_iters_since_update[k] = n = n_iters_since_update.get(k, 0) + 1
             if k not in state:
                 state[k] = 0
             if accumulation_mode == "last":
                 state[k] = v
             elif accumulation_mode == "average":
-                state[k] = state[k] * ((n_iters_since_update - 1) / n_iters_since_update) + v / n_iters_since_update
+                state[k] = state[k] * ((n - 1) / n) + v / n
             elif accumulation_mode == "sum":
                 state[k] += v
             else:
                 raise ValueError(f"Unknown accumulation mode {accumulation_mode}")
-        state["n_iters_since_update"] = n_iters_since_update
-        self._state = state
 
     def pop(self) -> Dict[str, Union[int, float]]:
         if self._state is None:
             return {}
         state = self._state
         self._state = None
-        state.pop("n_iters_since_update", 0)
+        state.pop("n_iters_since_update", None)
         return state
 
 
@@ -249,57 +247,38 @@ class Trainer:
     def __init__(
         self,
         *,
-        train_dataset: Union[str, Path, Callable[[], Dataset]],
-        test_dataset: Union[None, str, Path, Callable[[], Dataset]] = None,
-        method: Type[Method],
+        train_dataset: Dataset,
+        test_dataset: Optional[Dataset] = None,
+        method: Method,
         output: Path = Path("."),
-        num_iterations: Optional[int] = None,
         save_iters: Indices = Indices.every_iters(10_000, zero=True),
         eval_few_iters: Indices = Indices.every_iters(2_000),
         eval_all_iters: Indices = Indices([-1]),
         loggers: FrozenSet[Visualization] = frozenset(),
-        run_extra_metrics: bool = False,
-        method_name: Optional[str] = None,
         generate_output_artifact: Optional[bool] = None,
-        checkpoint: Union[str, Path, None] = None,
         config_overrides: Optional[Dict[str, Any]] = None,
     ):
-        self.method_name = method_name or method.__name__
-        self.checkpoint = Path(checkpoint) if checkpoint is not None else None
-        self.method = method(**({"checkpoint": checkpoint} if checkpoint is not None else {}))
-        method_info = self.method.get_info()
-        if isinstance(train_dataset, (Path, str)):
-            if test_dataset is None:
-                test_dataset = train_dataset
-            train_dataset_path = train_dataset
-            train_dataset = partial(load_dataset, train_dataset, split="train", features=method_info.required_features)
+        self.method = method
+        self.model_info = self.method.get_info()
+        self.test_dataset: Optional[Dataset] = test_dataset
 
-            # Allow direct access to the stored images if needed for docker remote
-            if hasattr(self.method, "mounts"):
-                typing.cast(Any, self.method).mounts.append((str(train_dataset_path), str(train_dataset_path)))
-        if isinstance(test_dataset, (Path, str)):
-            test_dataset = partial(load_dataset, test_dataset, split="test", features=method_info.required_features)
-        assert test_dataset is not None, "test dataset must be specified"
-        self._train_dataset_fn: Callable[[], Dataset] = train_dataset
-        self._test_dataset_fn: Callable[[], Dataset] = test_dataset
-        self.test_dataset: Optional[Dataset] = None
+        self.step = self.model_info.loaded_step or 0
+        self.num_iterations = self.model_info.num_iterations
+        if self.num_iterations is None:
+            raise RuntimeError(f"Method {self.model_info.name} must specify the default number of iterations")
 
-        self.step = method_info.loaded_step or 0
         self.output = output
-        self.num_iterations = num_iterations
         self.save_iters = save_iters
 
         self.eval_few_iters = eval_few_iters
         self.eval_all_iters = eval_all_iters
         self.loggers = loggers
-        self.run_extra_metrics = run_extra_metrics
         self.generate_output_artifact = generate_output_artifact
         self.config_overrides = config_overrides
 
         self._logger: Optional[Logger] = None
         self._average_image_size = None
         self._dataset_metadata = None
-        self._method_info = method_info
         self._total_train_time = 0
         self._resources_utilization_info = None
         self._train_dataset_for_eval = None
@@ -309,21 +288,57 @@ class Trainer:
         })
 
         # Restore checkpoint if specified
-        if self.checkpoint is not None:
-            with open(self.checkpoint / "nb-info.json", mode="r", encoding="utf8") as f:
+        if self.model_info.loaded_checkpoint is not None:
+            with Path(self.model_info.loaded_checkpoint).joinpath("nb-info.json").open("r", encoding="utf8") as f:
                 info = json.load(f)
                 info = deserialize_nb_info(info)
                 self._total_train_time = info["total_train_time"]
                 self._resources_utilization_info = info["resources_utilization"]
 
-    def _setup_num_iterations(self):
-        if self.num_iterations is None:
-            self.num_iterations = self._method_info.num_iterations
-        if self.num_iterations is None:
-            raise RuntimeError(f"Method {self.method_name} must specify the default number of iterations")
+        # Fix total for indices
         for v in vars(self).values():
             if isinstance(v, Indices):
                 v.total = self.num_iterations + 1
+
+        # Validate and setup datasets
+        self._setup_data(train_dataset, test_dataset)
+
+    def _setup_data(self, train_dataset, test_dataset):
+        # Validate and setup datasets
+        # Store a slice of train dataset used for eval_few
+        self._average_image_size = train_dataset.cameras.image_sizes.prod(-1).astype(np.float32).mean()
+        dataset_background_color = train_dataset.metadata.get("background_color")
+        if dataset_background_color is not None:
+            assert isinstance(dataset_background_color, np.ndarray), "Dataset background color must be a numpy array"
+            assert dataset_background_color.dtype == np.uint8, "Dataset background color must be an uint8 array"
+        train_dataset_indices = np.linspace(0, len(train_dataset) - 1, 16, dtype=int)
+        self._train_dataset_for_eval = train_dataset[train_dataset_indices]
+
+        assert train_dataset.color_space is not None
+        color_space = train_dataset.color_space
+        self._dataset_metadata = train_dataset.metadata.copy()
+
+        # Setup test dataset dataset
+        self.test_dataset = test_dataset
+        if test_dataset is not None:
+            if test_dataset.color_space != color_space:
+                raise RuntimeError(f"train dataset color space {color_space} != test dataset color space {test_dataset.color_space}")
+            test_background_color = test_dataset.metadata.get("background_color")
+            if test_background_color is not None:
+                assert isinstance(test_background_color, np.ndarray), "Dataset's background_color must be a numpy array"
+            if not (
+                (test_background_color is None and dataset_background_color is None) or 
+                (
+                    test_background_color is not None and 
+                    dataset_background_color is not None and
+                    np.array_equal(test_background_color, dataset_background_color)
+                )
+            ):
+                raise RuntimeError(f"train dataset color space {dataset_background_color} != test dataset color space {test_dataset.metadata.get('background_color')}")
+
+        self._validate_output_artifact()
+        test_dataset_name = self.test_dataset.metadata.get("name") if self.test_dataset is not None else train_dataset.metadata.get("name")
+        self._evaluation_protocol = evaluate.get_evaluation_protocol(test_dataset_name)
 
     def _validate_output_artifact(self):
         # Validate generate output artifact
@@ -334,8 +349,6 @@ class Trainer:
             #     messages.append(f"num_iterations ({self.num_iterations}) must be in save_iters: {self.save_iters}")
             if self.num_iterations not in self.eval_all_iters:
                 messages.append(f"num_iterations ({self.num_iterations}) must be in eval_all_iters: {self.eval_all_iters}")
-            if not self.run_extra_metrics:
-                messages.append("Extra metrics must be enabled. Please verify they are installed and not disabled by --disable-extra-metrics flag.")
             if "tensorboard" not in self.loggers:
                 messages.append("Tensorboard logger must be enabled. Please add `--vis tensorboard` to the command line arguments.")
 
@@ -352,64 +365,15 @@ class Trainer:
             else:
                 self.generate_output_artifact = True
 
-    @remap_error
-    def setup_data(self):
-        logging.info("loading train dataset")
-        train_dataset: Dataset = self._train_dataset_fn()
-        logging.info("loading eval dataset")
-        method_info = self.method.get_info()
-
-        train_dataset.load_features(method_info.required_features, method_info.supported_camera_models)
-        assert train_dataset.cameras.image_sizes is not None, "image sizes must be specified"
-        self._average_image_size = train_dataset.cameras.image_sizes.prod(-1).astype(np.float32).mean()
-        dataset_background_color = train_dataset.metadata.get("background_color")
-        if dataset_background_color is not None:
-            assert isinstance(dataset_background_color, np.ndarray), "Dataset background color must be a numpy array"
-            assert dataset_background_color.dtype == np.uint8, "Dataset background color must be an uint8 array"
-
-        # Store a slice of train dataset used for eval_few
-        train_dataset_indices = np.linspace(0, len(train_dataset) - 1, 16, dtype=int)
-        self._train_dataset_for_eval = train_dataset[train_dataset_indices]
-
-        self.method.setup_train(train_dataset, num_iterations=self.num_iterations, **({"config_overrides": self.config_overrides} if self.config_overrides is not None else {}))
-
-        assert train_dataset.color_space is not None
-        color_space = train_dataset.color_space
-        self._dataset_metadata = train_dataset.metadata.copy()
-
-        self.test_dataset = self._test_dataset_fn()
-        self.test_dataset.metadata["expected_scene_scale"] = self._dataset_metadata.get("expected_scene_scale")
-        self.test_dataset.load_features(method_info.required_features.union({"color"}))
-        if self.test_dataset.color_space != color_space:
-            raise RuntimeError(f"train dataset color space {color_space} != test dataset color space {self.test_dataset.color_space}")
-        test_background_color = self.test_dataset.metadata.get("background_color")
-        if test_background_color is not None:
-            assert isinstance(test_background_color, np.ndarray), "Dataset's background_color must be a numpy array"
-        if not (
-            (test_background_color is None and dataset_background_color is None) or 
-            (
-                test_background_color is not None and 
-                dataset_background_color is not None and
-                np.array_equal(test_background_color, dataset_background_color)
-            )
-        ):
-            raise RuntimeError(f"train dataset color space {dataset_background_color} != test dataset color space {self.test_dataset.metadata.get('background_color')}")
-
-        self._method_info = self.method.get_info()
-        self._setup_num_iterations()
-        self._validate_output_artifact()
-        test_dataset_name = self.test_dataset.metadata.get("name") if self.test_dataset.metadata is not None else train_dataset.metadata.get("name")
-        self._evaluation_protocol = evaluate.get_evaluation_protocol(test_dataset_name, run_extra_metrics=self.run_extra_metrics)
-
     def _get_nb_info(self):
         dataset_metadata = self._dataset_metadata.copy()
         expected_scene_scale = self._dataset_metadata.get("expected_scene_scale", None)
         dataset_metadata["expected_scene_scale"] = round(expected_scene_scale, 5) if expected_scene_scale is not None else None
         dataset_metadata["background_color"] = dataset_metadata["background_color"].tolist() if dataset_metadata.get("background_color") is not None else None
         return {
-            "method": self.method_name,
+            "method": self.model_info.name,
             "nb_version": __version__,
-            "num_iterations": self._method_info.num_iterations,
+            "num_iterations": self.model_info.num_iterations,
             "total_train_time": round(self._total_train_time, 5),
             "resources_utilization": self._resources_utilization_info,
             # Date time in ISO format
@@ -473,7 +437,7 @@ class Trainer:
             util = self._resources_utilization_info
         if update:
             logging.debug(f"computing resource utilization at step={self.step}")
-            new_util = method_get_resources_utilization_info(self.method)
+            new_util = get_resources_utilization_info()
             for k, v in new_util.items():
                 if k not in util:
                     util[k] = 0
@@ -493,13 +457,13 @@ class Trainer:
 
         update_frequency = 100
         with tqdm(total=self.num_iterations, initial=self.step, desc="training") as pbar:
-            last_update_i = self.step
             for i in range(self.step, self.num_iterations):
                 self.step = i
                 metrics = self.train_iteration()
                 # Checkpoint changed, reset sha
                 self._checkpoint_sha = None
                 self.step = i + 1
+                pbar.update()
 
                 # Update accumulated metrics
                 self._acc_metrics.update(metrics)
@@ -515,8 +479,6 @@ class Trainer:
                             "train/loss": f'{acc_metrics["loss"]:.4f}',
                         }
                     )
-                    pbar.update(self.step - last_update_i)
-                    last_update_i = self.step
                     log_metrics(logger, acc_metrics, prefix="train/", step=self.step)
 
                 # Visualize and save
@@ -549,10 +511,6 @@ class Trainer:
                  step=self.step, evaluation_protocol=self._evaluation_protocol,
                  split="test", nb_info=nb_info, output=self.output)
 
-    def close(self):
-        if self.method is not None and hasattr(self.method, "close"):
-            typing.cast(Any, self.method).close()
-
     def eval_few(self):
         logger = self.get_logger()
 
@@ -574,108 +532,116 @@ class Trainer:
 
 
 @click.command("train")
-@click.option("--method", type=click.Choice(sorted(registry.supported_methods())), required=True, help="Method to use")
+@click.option("--method", "method_name", type=click.Choice(sorted(registry.supported_methods())), required=True, help="Method to use")
 @click.option("--checkpoint", type=click.Path(exists=True, path_type=Path), default=None)
 @click.option("--data", type=str, required=True)
 @click.option("--output", type=str, default=".")
 @click.option("--vis", type=click.Choice(["none", "wandb", "tensorboard", "wandb+tensorboard"]), default="tensorboard", help="Logger to use. Defaults to tensorboard.")
 @click.option("--verbose", "-v", is_flag=True)
+@click.option("--save-iters", type=IndicesClickType(), default=Indices.every_iters(10_000), help="When to save the model")
 @click.option("--eval-few-iters", type=IndicesClickType(), default=Indices.every_iters(2_000), help="When to evaluate on few images")
 @click.option("--eval-all-iters", type=IndicesClickType(), default=Indices([-1]), help="When to evaluate all images")
-@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
-@click.option("--force-extra-metrics", "run_extra_metrics", help="Force running extra metrics which need additional dependencies.", is_flag=True, default=None, flag_value=True)
-@click.option("--disable-extra-metrics", "run_extra_metrics", help="Disable extra metrics which need additional dependencies.", is_flag=True, default=None, flag_value=False)
+@click.option("--backend", "backend_name", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @click.option("--disable-output-artifact", "generate_output_artifact", help="Disable producing output artifact containing final model and predictions.", default=None, flag_value=False, is_flag=True)
 @click.option("--force-output-artifact", "generate_output_artifact", help="Force producing output artifact containing final model and predictions.", default=None, flag_value=True, is_flag=True)
-@click.option("--num-iterations", type=int, help="Number of training iterations.", default=None)
 @click.option("--set", "config_overrides", help="Override a parameter in the method.", type=SetParamOptionType(), multiple=True, default=None)
 @handle_cli_error
 def train_command(
-    method,
+    method_name,
     checkpoint,
     data,
     output,
     verbose,
-    backend,
+    backend_name,
+    save_iters,
     eval_few_iters,
     eval_all_iters,
-    num_iterations=None,
-    run_extra_metrics=None,
     generate_output_artifact=None,
     vis="none",
     config_overrides=None,
 ):
+    loggers: FrozenSet[Visualization]
+    if vis == "wandb":
+        loggers = frozenset(("wandb",))
+    elif vis == "tensorboard":
+        loggers = frozenset(("tensorboard",))
+    elif vis in {"wandb+tensorboard", "tensorboard+wandb"}:
+        loggers = frozenset(("wandb", "tensorboard"))
+    elif vis == "none":
+        loggers = frozenset()
+    else:
+        raise ValueError(f"unknown visualization tool {vis}")
+
     logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)
 
     if config_overrides is not None and isinstance(config_overrides, (list, tuple)):
         config_overrides = dict(config_overrides)
 
-    if run_extra_metrics is None:
-        run_extra_metrics = get_extra_metrics_available()
-
-    if method is None and checkpoint is None:
+    if method_name is None and checkpoint is None:
         logging.error("Either --method or --checkpoint must be specified")
         sys.exit(1)
 
     def _train(checkpoint_path=None):
-        with open_any_directory(output, "w") as output_path:
-            # Make paths absolute, and change working directory to output
-            _data = data
-            if "://" not in _data:
-                _data = os.path.abspath(_data)
+        # Make paths absolute
+        _data = data
+        if "://" not in _data:
+            _data = os.path.abspath(_data)
+            backends.mount(_data, _data)
+        if checkpoint_path is not None:
+            backends.mount(checkpoint_path, checkpoint_path)
+        with open_any_directory(output, "w") as output_path, \
+                    backends.mount(output_path, output_path):
+
+            # change working directory to output
             os.chdir(str(output_path))
 
-            method_spec = registry.get(method)
-            _method, _backend = method_spec.build(backend=backend, checkpoint=Path(os.path.abspath(checkpoint_path)) if checkpoint_path else None)
-            logging.info(f"Using method: {method}, backend: {_backend}")
+            method_cls: Method
+            with registry.build_method(method_name, backend_name) as method_cls:
 
-            # Enable direct memory access to images and if supported by the backend
-            if _backend in {"docker", "apptainer"} and "://" not in _data:
-                _method = partialclass(_method, mounts=[(_data, _data)])
-            if hasattr(_method, "install"):
-                _method.install()
+                # Load train dataset
+                logging.info("loading train dataset")
+                method_info = method_cls.get_method_info()
+                train_dataset = load_dataset(_data, split="train", features=method_info.required_features)
+                train_dataset.load_features(method_info.required_features, method_info.supported_camera_models)
+                assert train_dataset.cameras.image_sizes is not None, "image sizes must be specified"
 
-            loggers: FrozenSet[Visualization]
-            if vis == "wandb":
-                loggers = frozenset(("wandb",))
-            elif vis == "tensorboard":
-                loggers = frozenset(("tensorboard",))
-            elif vis in {"wandb+tensorboard", "tensorboard+wandb"}:
-                loggers = frozenset(("wandb", "tensorboard"))
-            elif vis == "none":
-                loggers = frozenset()
-            else:
-                raise ValueError(f"unknown visualization tool {vis}")
+                # Load eval dataset
+                logging.info("loading eval dataset")
+                test_dataset = load_dataset(_data, split="test", features=method_info.required_features)
+                test_dataset.metadata["expected_scene_scale"] = train_dataset.metadata.get("expected_scene_scale")
+                test_dataset.load_features(method_info.required_features.union({"color"}))
 
-            trainer = Trainer(
-                train_dataset=_data,
-                output=Path(output),
-                method=_method,
-                eval_all_iters=eval_all_iters,
-                eval_few_iters=eval_few_iters,
-                loggers=frozenset(loggers),
-                num_iterations=num_iterations,
-                run_extra_metrics=run_extra_metrics,
-                generate_output_artifact=generate_output_artifact,
-                method_name=method,
-                config_overrides=config_overrides,
-            )
-            try:
-                trainer.setup_data()
+                # Build the method
+                method = method_cls(
+                    checkpoint=Path(os.path.abspath(checkpoint_path)) if checkpoint_path else None,
+                    train_dataset=train_dataset,
+                    config_overrides=config_overrides,
+                )
+
+                trainer = Trainer(
+                    train_dataset=train_dataset,
+                    test_dataset=test_dataset,
+                    method=method,
+                    output=Path(output),
+                    save_iters=save_iters,
+                    eval_all_iters=eval_all_iters,
+                    eval_few_iters=eval_few_iters,
+                    loggers=frozenset(loggers),
+                    generate_output_artifact=generate_output_artifact,
+                    config_overrides=config_overrides,
+                )
                 trainer.train()
-            finally:
-                trainer.close()
 
     if checkpoint is not None:
         with open_any_directory(checkpoint) as checkpoint_path:
             with open(os.path.join(checkpoint_path, "nb-info.json"), "r", encoding="utf8") as f:
                 info = json.load(f)
             info = deserialize_nb_info(info)
-            if method is not None and method != info["method"]:
-                logging.error(f"Argument --method={method} is in conflict with the checkpoint's method {info['method']}.")
+            if method_name is not None and method_name != info["method"]:
+                logging.error(f"Argument --method={method_name} is in conflict with the checkpoint's method {info['method']}.")
                 sys.exit(1)
-            method = info["method"]
+            method_name = info["method"]
             _train(checkpoint_path)
     else:
         _train(None)

@@ -54,7 +54,7 @@ def load_blender_dataset(path: Path, split: str, **kwargs):
 
     return Dataset(
         cameras=Cameras(
-            poses=np.stack(cams)[:, :3, :4],
+            poses=c2w,
             normalized_intrinsics=intrinsics / image_sizes[..., :1],
             camera_types=np.full(len(cams), CameraModel.PINHOLE.value, dtype=np.int32),
             distortion_parameters=np.zeros((len(cams), 0), dtype=np.float32),

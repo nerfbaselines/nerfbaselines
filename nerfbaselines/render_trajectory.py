@@ -1,7 +1,6 @@
 import sys
 from dataclasses import dataclass
-import typing
-from typing import Literal, Union, Dict, IO, Optional, Any, Iterable
+from typing import Literal, Union, Dict, IO, Optional, Any
 import time
 import io
 import os
@@ -27,6 +26,7 @@ from .cameras import Cameras, CameraModel
 
 from .io import open_any_directory, deserialize_nb_info
 from . import registry
+from . import backends
 
 
 OutputType = Literal["color", "depth"]
@@ -199,9 +199,9 @@ class Trajectory:
 @click.option("--output", type=click.Path(path_type=Path), default=None, help="output a mp4/directory/tar.gz file")
 @click.option("--output-type", type=click.Choice(get_args(OutputType)), default="color", help="output type")
 @click.option("--verbose", "-v", is_flag=True)
-@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
+@click.option("--backend", "backend_name", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @handle_cli_error
-def main(checkpoint: Union[str, Path], trajectory: Path, output, output_type: OutputType, verbose, backend):
+def main(checkpoint: Union[str, Path], trajectory: Path, output, output_type: OutputType, verbose, backend_name):
     checkpoint = str(checkpoint)
     setup_logging(verbose)
 
@@ -223,16 +223,8 @@ def main(checkpoint: Union[str, Path], trajectory: Path, output, output_type: Ou
 
         method_name = nb_info["method"]
         method_spec = registry.get(method_name)
-        method_cls, backend = method_spec.build(backend=backend, checkpoint=Path(os.path.abspath(str(checkpoint_path))))
-        logging.info(f"Using backend: {backend}")
-
-        if hasattr(method_cls, "install"):
-            method_cls.install()
-
-        method = method_cls()
-        try:
+        backends.mount(checkpoint_path, checkpoint_path)
+        with registry.build_method(method_spec, backend=backend_name) as method_cls:
+            method = method_cls(checkpoint=checkpoint_path)
             render_frames(method, _trajectory.cameras, output, output_type=output_type, nb_info=nb_info, fps=_trajectory.fps)
             logging.info(f"Output saved to {output}")
-        finally:
-            if hasattr(method, "close"):
-                typing.cast(Any, method).close()

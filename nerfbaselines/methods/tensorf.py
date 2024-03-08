@@ -1,10 +1,11 @@
-from ..registry import register, MethodSpecDict
+import os
+from ..registry import register, MethodSpec
 
 
-TensoRFSpecDict: MethodSpecDict = {
+TensoRFSpec: MethodSpec = {
     "method": "._impl.tensorf:TensoRF",
     "conda": {
-        "conda_name": "tensorf",
+        "environment_name": os.path.split(__file__[:-3])[-1].replace("_", "-"),
         "python_version": "3.8",
         "install_script": """# Install TensoRF
 git clone https://github.com/apchenstu/TensoRF.git tensorf
@@ -30,4 +31,4 @@ pip install plyfile six
     },
 }
 
-register(TensoRFSpecDict, "tensorf")
+register(TensoRFSpec, name="tensorf")

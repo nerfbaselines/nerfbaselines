@@ -6,7 +6,7 @@ import numpy as np
 import PIL.Image
 import PIL.ExifTags
 from tqdm import tqdm
-from typing import Optional
+from typing import Optional, Tuple
 from ..types import Dataset, Literal
 from .. import cameras
 from ..utils import padded_stack
@@ -60,7 +60,7 @@ def focus_point_fn(poses, xnp = np):
     return focus_pt
 
 
-def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> np.ndarray:
+def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np.ndarray, np.ndarray]:
     if dataset_type == "object-centric":
         transform = get_transform_poses_pca(poses)
 

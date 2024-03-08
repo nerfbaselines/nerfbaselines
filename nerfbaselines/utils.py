@@ -1,3 +1,7 @@
+import dataclasses
+import threading
+from collections import deque
+import contextlib
 import time
 import click
 import sys
@@ -10,6 +14,7 @@ from pathlib import Path
 from functools import wraps
 from typing import Any, Optional, Dict, TYPE_CHECKING, Union, List, TypeVar, Iterable
 from typing import BinaryIO
+from typing import TypedDict
 import logging
 import types
 import numpy as np
@@ -43,7 +48,14 @@ else:
 
             return property(fn_cached)
 
+
 T = TypeVar("T")
+_generate_interface_types = []
+
+
+def generate_interface(cls):
+    _generate_interface_types.append(cls)
+    return cls
 
 
 def assert_not_none(value: Optional[T]) -> T:
@@ -97,16 +109,51 @@ class CancelledException(Exception):
     pass
 
 
-class CancellationToken:
-    def __init__(self):
+class _CancellationTokenMeta(type):
+    _current_stack = {}
+
+    @property
+    def current(cls) -> Optional["CancellationToken"]:
+        thread_id = threading.get_ident()
+        stack = _CancellationTokenMeta._current_stack.get(thread_id, None)
+        if not stack:
+            return None
+        return stack[-1]
+
+    def _push_token(cls, token):
+        thread_id = threading.get_ident()
+        stack = _CancellationTokenMeta._current_stack.get(thread_id, None)
+        if stack is None:
+            _CancellationTokenMeta._current_stack[thread_id] = deque([token])
+        else:
+            stack.append(token)
+    
+    def _pop_token(cls, token):
+        thread_id = threading.get_ident()
+        _CancellationTokenMeta._current_stack[thread_id].pop()
+
+
+class CancellationToken(metaclass=_CancellationTokenMeta):
+    def __init__(self, parent_token: Optional['CancellationToken'] = None):
+        self.parent = parent_token
+        self._callbacks = []
         self._cancelled = False
+        if parent_token is not None:
+            parent_token.register_callback(self.cancel)
 
     def cancel(self):
         self._cancelled = True
+        for cb in self._callbacks:
+            cb()
 
     @property
     def cancelled(self):
+        if self.parent is not None and self.parent.cancelled:
+            return True
         return self._cancelled
+
+    def register_callback(self, callback):
+        self._callbacks.append(callback)
 
     def _trace(self, frame, event, arg):
         if event == "line":
@@ -132,33 +179,48 @@ class CancellationToken:
         finally:
             sys.settrace(None)
 
+    def raise_for_cancelled(self):
+        if self.cancelled:
+            raise CancelledException
+
+    def __enter__(self):
+        type(self)._push_token(self)
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        type(self)._pop_token(self)
+
 
 # TODO: fix signature of wrapped function
-def cancellable(fn=None, mark_only=False) -> Any:
-    def wrap(fn) -> Any:
-        if getattr(fn, "__cancellable__", False):
-            return fn
+def cancellable(fn=None, mark_only=False, cancellation_token: Optional[CancellationToken] = None):
+    def wrap(fn):
         if mark_only:
             fn.__cancellable__ = True
             return fn
 
+        if getattr(fn, "__cancellable__", False) and cancellation_token is None:
+            return fn
+
         if inspect.isgeneratorfunction(fn):
             @wraps(fn)
-            def wrapped_generator(*args, cancellation_token: Optional[CancellationToken] = None, **kwargs):
-                if cancellation_token is not None:
-                    yield from cancellation_token.invoke(fn, *args, **kwargs)
-                else:
-                    yield from fn(*args, **kwargs)
-
+            def wrapped_generator(*args, **kwargs):
+                with (cancellation_token or contextlib.nullcontext()):
+                    token = CancellationToken.current
+                    if token is None or getattr(fn, "__cancellable__", False):
+                        yield from fn(*args, **kwargs)
+                    else:
+                        yield from token.invoke(fn, *args, **kwargs)
             wrapped_generator.__cancellable__ = True  # type: ignore
             return wrapped_generator
         else:
             @wraps(fn)
-            def wrapped_function(*args, cancellation_token: Optional[CancellationToken] = None, **kwargs):
-                if cancellation_token is not None:
-                    return cancellation_token.invoke(fn, *args, **kwargs)
-                else:
-                    return fn(*args, **kwargs)
+            def wrapped_function(*args, **kwargs):
+                with (cancellation_token or contextlib.nullcontext()):
+                    token = CancellationToken.current
+                    if token is None or getattr(fn, "__cancellable__", False):
+                        return fn(*args, **kwargs)
+                    else:
+                        return token.invoke(fn, *args, **kwargs)
             wrapped_function.__cancellable__ = True  # type: ignore
             return wrapped_function
 
@@ -428,7 +490,27 @@ def visualize_depth(depth: np.ndarray, expected_scale: Optional[float] = None, n
     return (out * 255).astype(xnp.uint8)
 
 
-def get_resources_utilization_info(pid=None):
+def run_on_host():
+    def wrap(fn):
+        @wraps(fn)
+        @generate_interface
+        def wrapped(*args, **kwargs):
+            from .backends import Backend
+            if Backend.current is not None:
+                return Backend.current.wrap(fn)(*args, **kwargs)
+            return fn(*args, **kwargs)
+        wrapped.__run_on_host_original__ = fn
+        return wrapped
+    return wrap
+
+
+class ResourcesUtilizationInfo(TypedDict, total=False):
+    memory: int
+    gpu_memory: int
+
+
+@run_on_host()
+def get_resources_utilization_info(pid: Optional[int] = None) -> ResourcesUtilizationInfo:
     if pid is None:
         pid = os.getpid()
 
@@ -610,4 +692,21 @@ def get_package_dependencies(extra=None):
                 raise ValueError(f"Unknown condition {condition}")
         r = r.strip()
         requires.append(r)
+    requires.sort()
     return requires
+
+
+def flatten_hparams(hparams: Dict[str, Any], *, separator: str = "/", _prefix: str = "") -> Dict[str, Any]:
+    flat = {}
+    if dataclasses.is_dataclass(hparams):
+        hparams = {f.name: getattr(hparams, f.name) for f in dataclasses.fields(hparams)}
+    for k, v in hparams.items():
+        if _prefix:
+            k = f"{_prefix}{separator}{k}"
+        if isinstance(v, dict) or dataclasses.is_dataclass(v):
+            flat.update(flatten_hparams(v, _prefix=k))
+        else:
+            flat[k] = v
+    return flat
+
+

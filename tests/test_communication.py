@@ -1,24 +1,28 @@
+from unittest import mock
 import contextlib
 import pytest
 from typing import Iterable
 import numpy as np
 from time import sleep
-import threading
-from nerfbaselines import Method, MethodInfo, Cameras, RenderOutput
+from nerfbaselines import Method, MethodInfo, Cameras, RenderOutput, ModelInfo, CameraModel
 from nerfbaselines.utils import CancellationToken, CancelledException
 
 
 def test_render(use_remote_method):
     class TestMethodRenderCancellable(Method):
+        def __init__(self):
+            pass
+
+        @classmethod
+        def get_method_info(self) -> MethodInfo:
+            return MethodInfo(name="_test")
+
         def get_info(self):
-            return MethodInfo()
+            return ModelInfo(**self.get_method_info())
 
         def render(self, cameras, progress_callback=None) -> Iterable[RenderOutput]:
             yield {"color": np.full(tuple(), 23)}
             yield {"color": np.full(tuple(), 26)}
-
-        def setup_train(self, train_dataset, **kwargs):
-            pass
 
         def train_iteration(self, step: int):
             pass
@@ -26,7 +30,8 @@ def test_render(use_remote_method):
         def save(self, path):
             pass
 
-    with use_remote_method(TestMethodRenderCancellable()) as remote_method:
+    with use_remote_method(TestMethodRenderCancellable) as remote_method_cls:
+        remote_method = remote_method_cls()
         cameras = Cameras(
             poses=np.eye(4, dtype=np.float32)[None, :3, :4],
             normalized_intrinsics=np.zeros((1, 4), dtype=np.float32),
@@ -42,14 +47,21 @@ def test_render(use_remote_method):
 @pytest.fixture
 def use_remote_method():
     @contextlib.contextmanager
-    def wrap(method=None):
-        from nerfbaselines.communication import start_backend, RemoteMethod, ConnectionParams
+    def wrap(method=None, intercept=None):
+        from nerfbaselines.backends import SimpleBackend
 
         if method is None:
 
             class TestMethod(Method):
+                def __init__(self):
+                    pass
+
+                @classmethod
+                def get_method_info(self) -> MethodInfo:
+                    return MethodInfo(name="_test")
+
                 def get_info(self):
-                    return MethodInfo()
+                    return ModelInfo(**self.get_method_info())
 
                 def render(self, cameras, progress_callback=None) -> Iterable[RenderOutput]:
                     for i in range(100):
@@ -65,46 +77,83 @@ def use_remote_method():
                 def save(self, path):
                     pass
 
-            method = TestMethod()
+            method = TestMethod
 
-        connection_params = ConnectionParams()
-        thread = threading.Thread(target=start_backend, args=(method, connection_params), daemon=True)
-        thread.start()
-        sleep(0.02)
-        try:
-            remote_method = RemoteMethod(connection_params=connection_params)
-            try:
-                yield remote_method
-            finally:
-                remote_method.close()
-        finally:
-            thread.join(0.02)
+        from importlib import import_module
+        module = import_module(method.__module__)
+        # Make default
+        setattr(module, method.__name__, getattr(module, method.__name__, None))
+        with SimpleBackend() as backend, \
+                mock.patch.object(module, method.__name__, method):
+            if intercept:
+                oci = backend.instance_call
+                backend.instance_call = lambda *args, **kwargs: intercept(oci, *args, **kwargs)
+                ocs = backend.static_call
+                backend.static_call = lambda *args, **kwargs: intercept(ocs, *args, **kwargs)
+            remote_method = backend.wrap(method)
+            yield remote_method
 
     return wrap
 
 
 def test_get_resource_utilization(use_remote_method):
-    from nerfbaselines.train import method_get_resources_utilization_info
+    from nerfbaselines.utils import get_resources_utilization_info
 
-    with use_remote_method() as remote_method:
-        info = method_get_resources_utilization_info(remote_method)
+    called = False
+    def intercept(callback, fn, *args, **kwargs):
+        nonlocal called
+        called = True
+        assert fn == f'{get_resources_utilization_info.__module__}:{get_resources_utilization_info.__name__}'
+        return callback(fn, *args, **kwargs)
+
+    with use_remote_method(intercept=intercept) as _:
+        info = get_resources_utilization_info()
         assert isinstance(info, dict)
+
+    assert called, "intercept was not called"
+
+
+def test_compute_metrics(use_remote_method):
+    from nerfbaselines.evaluate import compute_metrics
+
+    called = False
+    def intercept(callback, function, *args, **kwargs):
+        nonlocal called
+        called = True
+        assert function == f'{compute_metrics.__module__}:{compute_metrics.__name__}'
+        return callback(function, *args, **kwargs)
+
+    with use_remote_method(intercept=intercept) as _, mock.patch('nerfbaselines.metrics.lpips', lambda x, y: np.array([0.0, 0.0, 0.0])):
+        im1 = np.zeros((21, 27, 3), dtype=np.float32)
+        info = compute_metrics(im1, im1)
+        assert isinstance(info, dict)
+
+    assert called, "intercept was not called"
 
 
 def test_render_cancellable(use_remote_method):
     from nerfbaselines.utils import cancellable
 
     class TestMethodRenderCancellable(Method):
-        def get_info(self):
-            return MethodInfo()
+        def __init__(self):
+            pass
 
+        @classmethod
+        def get_method_info(cls) -> MethodInfo:
+            return MethodInfo(
+                name="_test",
+                required_features={"color"},
+                supported_camera_models={CameraModel.OPENCV}
+            )
+
+        def get_info(self):
+            return ModelInfo(**vars(self.get_method_info()))
+
+        @cancellable
         def render(self, cameras, progress_callback=None) -> Iterable[RenderOutput]:
             for i in range(400):
                 sleep(0.001)
                 yield {"color": np.full(tuple(), i)}
-
-        def setup_train(self, train_dataset, **kwargs):
-            pass
 
         def train_iteration(self, step: int):
             pass
@@ -112,8 +161,8 @@ def test_render_cancellable(use_remote_method):
         def save(self, path):
             pass
 
-    with use_remote_method(TestMethodRenderCancellable()) as remote_method:
-        assert getattr(remote_method.render, "__cancellable__", False)
+    with use_remote_method(TestMethodRenderCancellable) as remote_method_cls:
+        remote_method = remote_method_cls()
         cameras = Cameras(
             poses=np.eye(4, dtype=np.float32)[None, :3, :4],
             normalized_intrinsics=np.zeros((1, 4), dtype=np.float32),
@@ -124,8 +173,8 @@ def test_render_cancellable(use_remote_method):
         )
         cancelation_token = CancellationToken()
         vals = []
-        with pytest.raises(CancelledException):
-            for vw in remote_method.render(cameras, cancellation_token=cancelation_token):
+        with pytest.raises(CancelledException), cancelation_token:
+            for vw in remote_method.render(cameras):
                 v = int(vw["color"])
                 vals.append(v)
                 if v > 3:
@@ -133,8 +182,8 @@ def test_render_cancellable(use_remote_method):
         assert len(vals) < 100
 
         vals = []
-        with pytest.raises(CancelledException):
-            for vw in cancellable(remote_method.render)(cameras, cancellation_token=cancelation_token):
+        with pytest.raises(CancelledException), cancelation_token:
+            for vw in cancellable(remote_method.render)(cameras):
                 v = int(vw["color"])
                 vals.append(v)
                 if v > 3:

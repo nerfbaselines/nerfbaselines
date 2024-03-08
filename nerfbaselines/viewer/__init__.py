@@ -10,6 +10,7 @@ import numpy as np
 from ..datasets._colmap_utils import qvec2rotmat, rotmat2qvec
 from ..io import open_any_directory, deserialize_nb_info
 from ..utils import setup_logging, handle_cli_error
+from .. import backends
 from .. import registry
 
 
@@ -73,7 +74,7 @@ def get_orientation_transform(poses):
 @click.option("--checkpoint", default=None, required=False)
 @click.option("--data", type=str, default=None, required=False)
 @click.option("--verbose", "-v", is_flag=True)
-@click.option("--backend", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
+@click.option("--backend", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @click.option("--port", type=int, default=6006)
 @click.option("--viewer", type=click.Choice(["viser", "nerfstudio"]), default="viser")
 @handle_cli_error
@@ -107,15 +108,10 @@ def main(checkpoint: str, data, verbose, backend, viewer="viser", port=6006):
             nb_info = deserialize_nb_info(nb_info)
 
             method_name = nb_info["method"]
-            method_spec = registry.get(method_name)
-            method_cls, backend = method_spec.build(backend=backend)
-            logging.info(f"Using backend: {backend}")
-
-            if hasattr(method_cls, "install"):
-                method_cls.install()
-
-            method = method_cls(checkpoint=checkpoint_path.absolute())
-            run_viewer(method)
+            backends.mount(checkpoint_path, checkpoint_path)
+            with registry.build_method(method_name, backend=backend) as method_cls:
+                method = method_cls(checkpoint=checkpoint_path)
+                run_viewer(method, nb_info=nb_info)
     else:
         logging.info("Starting viewer without method")
         run_viewer()

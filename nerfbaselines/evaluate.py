@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import os
 import struct
@@ -13,50 +14,28 @@ import tempfile
 
 from tqdm import tqdm
 
-from .utils import read_image, convert_image_dtype
-from .types import Optional, Literal, Dataset, ProgressCallback, RenderOutput, EvaluationProtocol, Cameras
+from .utils import read_image, convert_image_dtype, run_on_host
+from .types import Optional, Literal, Dataset, ProgressCallback, RenderOutput, EvaluationProtocol, Cameras, MethodInfo
 from .render import image_to_srgb, Method, with_supported_camera_models
 from .io import open_any_directory, deserialize_nb_info, serialize_nb_info
+from .backends import get_backend
 from . import metrics
 
 
-_EXTRA_METRICS_AVAILABLE = None
-
-
-def _test_extra_metrics():
-    """
-    Test if the extra metrics are available.
-
-    """
-    a = np.zeros((1, 48, 56, 3), dtype=np.float32)
-    b = np.ones((1, 48, 56, 3), dtype=np.float32)
-    compute_metrics(a, b, run_extras=True)
-
-
-def get_extra_metrics_available() -> bool:
-    global _EXTRA_METRICS_AVAILABLE
-    try:
-        _test_extra_metrics()
-        _EXTRA_METRICS_AVAILABLE = True
-    except ImportError as exc:
-        logging.error(exc)
-        logging.error("Extra metrics are not available and will be disabled. Please install torch and jax and other required dependencies by running `pip install nerfbaselines[extras]`.")
-        _EXTRA_METRICS_AVAILABLE = False
-    return _EXTRA_METRICS_AVAILABLE
-
-
 @typing.overload
-def compute_metrics(pred: np.ndarray, gt: np.ndarray, *, run_extras: bool = ..., reduce: Literal[True] = True) -> Dict[str, float]:
+def compute_metrics(pred: np.ndarray, gt: np.ndarray, *, reduce: Literal[True] = True) -> Dict[str, float]:
     ...
 
 
 @typing.overload
-def compute_metrics(pred: np.ndarray, gt: np.ndarray, *, run_extras: bool = ..., reduce: Literal[False]) -> Dict[str, np.ndarray]:
+def compute_metrics(pred: np.ndarray, gt: np.ndarray, *, reduce: Literal[False]) -> Dict[str, np.ndarray]:
     ...
 
 
-def compute_metrics(pred, gt, *, run_extras: bool = False, reduce: bool = True):
+@run_on_host()
+def compute_metrics(pred, gt, *, reduce: bool = True):
     # NOTE: we blend with black background here!
+    run_extras = True
     def reduction(x):
         if reduce:
             return x.mean().item()
@@ -118,15 +97,18 @@ def _get_metrics_hash(metrics_lists):
     return metrics_sha.hexdigest()
 
 
-def evaluate(predictions: Union[str, Path], output: Path, description: str = "evaluating", run_extra_metrics: Optional[bool] = None):
+def evaluate(predictions: Union[str, Path], 
+             output: Path, 
+             description: str = "evaluating", 
+             evaluation_protocol: Optional[EvaluationProtocol] = None):
     """
     Evaluate a set of predictions.
 
     Args:
         predictions: Path to a directory containing the predictions.
         output: Path to a json file where the results will be written.
-        run_extra_metrics: If True, force the extra metrics to run. If False, disable the extra metrics.
         description: Description of the evaluation, used for progress bar.
+        evaluation_protocol: The evaluation protocol to use. If None, the protocol from info.json will be used.
     Returns:
         A dictionary containing the results.
     """
@@ -136,7 +118,8 @@ def evaluate(predictions: Union[str, Path], output: Path, description: str = "ev
             info = json.load(f)
         info = deserialize_nb_info(info)
 
-        evaluation_protocol = get_evaluation_protocol(name=info["evaluation_protocol"], run_extra_metrics=run_extra_metrics)
+        if evaluation_protocol is None:
+            evaluation_protocol = get_evaluation_protocol(name=info["evaluation_protocol"])
 
         # Run the evaluation
         metrics_lists = {}
@@ -196,8 +179,8 @@ def evaluate(predictions: Union[str, Path], output: Path, description: str = "ev
 
 
 class DefaultEvaluationProtocol(EvaluationProtocol):
-    def __init__(self, run_extra_metrics: Optional[bool] = None, **kwargs):
-        self._run_extra_metrics = run_extra_metrics
+    def __init__(self, **kwargs):
+        pass
 
     def render(self, method: Method, dataset: Dataset, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
         info = method.get_info()
@@ -208,9 +191,6 @@ class DefaultEvaluationProtocol(EvaluationProtocol):
         return "default"
 
     def evaluate(self, predictions: Iterable[RenderOutput], dataset: Dataset) -> Iterable[Dict[str, Union[float, int]]]:
-        if self._run_extra_metrics is None:
-            self._run_extra_metrics = get_extra_metrics_available()
-
         background_color = dataset.metadata.get("background_color")
         for i, prediction in enumerate(predictions):
             pred = prediction["color"]
@@ -219,7 +199,7 @@ class DefaultEvaluationProtocol(EvaluationProtocol):
             gt = image_to_srgb(gt, np.uint8, color_space=dataset.color_space, background_color=background_color)
             pred_f = convert_image_dtype(pred, np.float32)
             gt_f = convert_image_dtype(gt, np.float32)
-            yield compute_metrics(pred_f[None], gt_f[None], run_extras=self._run_extra_metrics, reduce=True)
+            yield compute_metrics(pred_f[None], gt_f[None], reduce=True)
 
     def accumulate_metrics(self, metrics: Iterable[Dict[str, Union[float, int]]]) -> Dict[str, Union[float, int]]:
         acc = {}
@@ -232,3 +212,27 @@ class DefaultEvaluationProtocol(EvaluationProtocol):
 
 def get_evaluation_protocol(name: Optional[str] = None, dataset_name: Optional[str] = None, **kwargs) -> EvaluationProtocol:
     return DefaultEvaluationProtocol(**kwargs)
+
+
+@contextlib.contextmanager
+def run_inside_eval_container():
+    """
+    Ensures PyTorch is available to compute extra metrics (lpips)
+    """
+    try:
+        import torch as _
+        yield None
+        return
+    except ImportError:
+        pass
+
+    logging.warning("PyTorch is not available in the current environment, we will create a new environment to compute extra metrics (lpips)")
+    backend = get_backend({
+        "method": None,
+        "conda": {
+            "environment_name": "_metrics", 
+            "install_script": ""
+        }}, os.environ.get("NERFBASELINES_BACKEND", None))
+    with backend:
+        backend.install()
+        yield None
