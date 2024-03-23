@@ -72,22 +72,15 @@ def get_transform_and_scale(transform):
     return transform, scale
 
 
-def pad_poses(poses):
+def apply_transform(poses, transform):
+    transform, scale = get_transform_and_scale(transform)
     if poses.shape[-2] < 4:
         shape = poses.shape[:-2]
         poses = poses.reshape((-1, *poses.shape[-2:]))
         poses = np.concatenate((poses, np.tile(np.array([0, 0, 0, 1]), (len(poses), 1, 1))), -2)
         poses = poses.reshape((*shape, 4, 4))
-    return poses
-
-
-def unpad_poses(poses):
-    return poses[..., :3, :]
-
-
-def apply_transform(poses, transform):
-    transform, scale = get_transform_and_scale(transform)
-    poses = unpad_poses(transform @ pad_poses(poses))
+    poses = transform @ poses
+    poses = poses[..., :3, :]
     poses[:, :3, 3] *= scale
     return poses
 
@@ -102,10 +95,6 @@ class TensoRFDataset:
         self.transform = np.eye(4)
 
         poses = dataset.cameras.poses.copy()
-
-        # Convert from OpenCV to OpenGL coordinate system
-        poses[..., 0:3, 1:3] *= -1
-
 
         if dataset.metadata.get("name") == "blender":
             self.white_bg = True
@@ -146,14 +135,24 @@ class TensoRFDataset:
         self.all_rgbs = []
 
         for i, cam in enumerate(dataset.cameras):
-            origins, directions, xy = get_rays_and_indices(cam)
-            origins = torch.tensor(origins)
-            directions = torch.tensor(directions)
-            directions = directions / np.linalg.norm(directions, axis=-1, keepdims=True)
             if dataset.metadata.get("type") == "forward-facing":
+                origins, directions, xy = get_rays_and_indices(cam)
+                origins = origins.copy()
+                directions = directions.copy()
+                # Directions and origins to openGL
+                origins[..., 1:3] *= -1
+                directions[..., 1:3] *= -1
+                origins = torch.tensor(origins)
+                directions = torch.tensor(directions)
+
                 W, H = cam.image_sizes
-                fx = cam.intrinsics[0]
+                fx, *_ = cam.intrinsics
                 origins, directions = ndc_rays_blender(H, W, fx, 1.0, origins, directions)
+            else:
+                origins, directions, xy = get_rays_and_indices(cam)
+                origins = torch.tensor(origins)
+                directions = torch.tensor(directions)
+                directions = torch.nn.functional.normalize(directions, 2, dim=-1)
             self.all_rays.append(torch.cat([origins, directions], -1).float())
 
             if dataset.images is not None:
@@ -165,6 +164,7 @@ class TensoRFDataset:
                 if rgbs.shape[1] == 4:
                     rgbs = rgbs[:, :3] * rgbs[:, -1:] + (1 - rgbs[:, -1:])
                 self.all_rgbs.append(torch.from_numpy(rgbs))
+
 
         if not self.is_stack:
             self.all_rays = torch.cat(self.all_rays, 0)  # (len(self.meta['frames])*h*w, 3)
@@ -374,7 +374,9 @@ class TensoRF(Method):
         # rgb_map, alphas_map, depth_map, weights, uncertainty
         ndc_ray = self.args.ndc_ray
         rgb_map, alphas_map, depth_map, weights, uncertainty = self.renderer(
-            rays_train, self.tensorf, chunk=self.args.batch_size, N_samples=self.nSamples, white_bg=self.white_bg, ndc_ray=ndc_ray, device=self.device, is_train=True
+            rays_train, self.tensorf, chunk=self.args.batch_size, 
+            N_samples=self.nSamples, white_bg=self.white_bg, ndc_ray=ndc_ray, 
+            device=self.device, is_train=True,
         )
 
         loss = torch.mean((rgb_map - rgb_train) ** 2)
@@ -427,8 +429,10 @@ class TensoRF(Method):
 
             if not self.args.ndc_ray and iteration == self.update_AlphaMask_list[1]:
                 # filter rays outside the bbox
-                allrays, allrgbs = self.tensorf.filtering_rays(self.allrays, self.allrgbs)
-                self.trainingSampler = SimpleSampler(allrgbs.shape[0], self.args.batch_size)
+                self.allrays, self.allrgbs = self.tensorf.filtering_rays(
+                    self.allrays, self.allrgbs,
+                )
+                self.trainingSampler = SimpleSampler(self.allrgbs.shape[0], self.args.batch_size)
 
         upsamp_list = self.args.upsamp_list
         if iteration in upsamp_list:
