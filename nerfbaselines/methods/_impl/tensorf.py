@@ -72,7 +72,7 @@ def get_transform_and_scale(transform):
     return transform, scale
 
 
-def apply_transform(poses, transform):
+def apply_transform(transform, poses):
     transform, scale = get_transform_and_scale(transform)
     if poses.shape[-2] < 4:
         shape = poses.shape[:-2]
@@ -106,7 +106,7 @@ class TensoRFDataset:
 
             if transform is None:
                 transform = get_llff_transform(poses, dataset.cameras.nears_fars)
-            poses = apply_transform(poses, transform)
+            poses = apply_transform(transform, poses)
 
             dataset = dataclasses.replace(
                 dataset,
