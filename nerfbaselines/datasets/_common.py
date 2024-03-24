@@ -65,7 +65,7 @@ def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np
     if dataset_type == "object-centric":
         transform = get_transform_poses_pca(poses)
 
-        poses = apply_transform(poses, transform)
+        poses = apply_transform(transform, poses)
         lookat = focus_point_fn(poses)
 
         # Get random camera positioned at the first dataset's camera origin and looking at the scene origin
@@ -95,7 +95,7 @@ def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np
         dataparser_scale = float(1 / maxlen)
         transform = np.diag([dataparser_scale, dataparser_scale, dataparser_scale, 1]) @ transform
 
-        camera = apply_transform(poses[0], transform)
+        camera = apply_transform(transform, poses[0])
         return transform, camera
     else:
         raise ValueError(f"Dataset type {dataset_type} is not supported")

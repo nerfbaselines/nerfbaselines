@@ -67,6 +67,7 @@ def viewmatrix(
 
 
 def get_transform_and_scale(transform):
+    assert len(transform.shape) == 2, "Transform should be a 4x4 or a 3x4 matrix."
     scale = np.linalg.norm(transform[:3, :3], axis=0)
     assert np.allclose(scale, scale[0], rtol=1e-3, atol=0)
     scale = float(np.mean(scale).item())
@@ -75,9 +76,24 @@ def get_transform_and_scale(transform):
     return transform, scale
 
 
-def apply_transform(poses, transform):
+def apply_transform(transform, poses):
     transform, scale = get_transform_and_scale(transform)
     poses = unpad_poses(transform @ pad_poses(poses))
     poses[..., :3, 3] *= scale
     return poses
+
+
+def invert_transform(transform, has_scale=False):
+    if has_scale:
+        transform, scale = get_transform_and_scale(transform)
+    else:
+        transform = transform.copy()
+    R = transform[..., :3, :3]
+    t = transform[..., :3, 3]
+    transform[..., :3, :] = np.concatenate([R.T, -R.T @ t[:, None]], axis=-2)
+    if has_scale:
+        transform[..., :3, :] *= 1/scale
+    return transform
+
+
 

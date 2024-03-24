@@ -11,16 +11,9 @@ from ..types import Method, Dataset, FrozenSet, DatasetFeature, Literal
 from ..cameras import Cameras
 from ..datasets._colmap_utils import qvec2rotmat, rotmat2qvec
 from ..utils import CancellationToken, CancelledException, cancellable, assert_not_none
-from ..pose_utils import apply_transform, get_transform_and_scale
+from ..pose_utils import apply_transform, get_transform_and_scale, invert_transform
 from ..datasets import load_dataset
 from ..backends._rpc import EventCancellationToken
-
-
-def invert_transform(transform):
-    transform, scale = get_transform_and_scale(transform)
-    transform = np.linalg.inv(transform)
-    transform[..., :3, :] /= scale
-    return transform
 
 
 def get_c2w(camera):
@@ -76,7 +69,7 @@ class ViserViewer:
 
             if initial_pose is not None:
                 pos, quat = get_position_quaternion(
-                    apply_transform(initial_pose, self.transform)
+                    apply_transform(self.transform, initial_pose)
                 )
                 client.camera.position = pos
                 client.camera.wxyz = quat
@@ -139,7 +132,7 @@ class ViserViewer:
                 path = str(path)[len("/undistorted/") :]
             else:
                 path = str(Path(path).relative_to(Path(dataset.file_paths_root or "")))
-            c2w = apply_transform(cam.poses, self.transform)
+            c2w = apply_transform(self.transform, cam.poses)
             pos, quat = get_position_quaternion(c2w)
             W, H = cam.image_sizes.tolist()
             fy = cam.intrinsics[1]
@@ -275,7 +268,7 @@ def run_viser_viewer(method: Optional[Method] = None,
             transform = dataset_metadata.get("viewer_transform")
             initial_pose = dataset_metadata.get("viewer_initial_pose")
             control_type = "object-centric" if dataset_metadata.get("type") == "object-centric" else "default"
-            initial_pose = apply_transform(initial_pose, invert_transform(transform))
+            initial_pose = apply_transform(invert_transform(transform), initial_pose)
         return ViserViewer(**kwargs, 
                            port=port, 
                            method=method,
