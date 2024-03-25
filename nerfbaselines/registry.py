@@ -5,30 +5,13 @@ import logging
 import inspect
 import os
 import importlib
-from typing import Optional, Type, Any, Tuple, Dict, TYPE_CHECKING, List, Iterable
+from typing import Optional, Type, Any, Tuple, Dict, List, Iterable
 
-try:
-    from typing import Literal
-except ImportError:
-    from typing_extensions import Literal  # type: ignore
-if TYPE_CHECKING:
-    try:
-        from typing import Required  # type: ignore
-    except ImportError:
-        from typing_extensions import Required  # type: ignore
-    try:
-        from typing import TypedDict
-    except ImportError:
-        from typing_extensions import TypedDict  # type: ignore
-try:
-    from typing import FrozenSet
-except ImportError:
-    from typing_extensions import FrozenSet  # type: ignore
 if sys.version_info < (3, 10):
     from importlib_metadata import entry_points
 else:
     from importlib.metadata import entry_points
-from .types import Method
+from .types import Method, TypedDict, Required, FrozenSet
 from .backends import BackendName
 from .backends import CondaBackendSpec, DockerBackendSpec, ApptainerBackendSpec
 from . import backends
@@ -164,20 +147,16 @@ def _make_entrypoint_absolute(entrypoint: str) -> str:
                 module = ".".join(module_base.split(".")[:-1]) + module
     return ":".join((module, name))
 
-if TYPE_CHECKING:
 
-    class MethodSpec(TypedDict, total=False):
-        name: Required[str]
-        method: Required[str]
-        conda: CondaBackendSpec
-        docker: DockerBackendSpec
-        apptainer: ApptainerBackendSpec
-        kwargs: Dict[str, Any]
-        metadata: Dict[str, Any]
-        backends_order: List[BackendName]
-
-else:
-    MethodSpec = dict
+class MethodSpec(TypedDict, total=False):
+    name: Required[str]
+    method: Required[str]
+    conda: CondaBackendSpec
+    docker: DockerBackendSpec
+    apptainer: ApptainerBackendSpec
+    kwargs: Dict[str, Any]
+    metadata: Dict[str, Any]
+    backends_order: List[BackendName]
 
 
 def register(spec: "MethodSpec", *, name: Optional[str] = None, metadata=None, kwargs=None) -> None:

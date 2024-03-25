@@ -244,7 +244,7 @@ def load_colmap_dataset(path: Path,
     else:
         raise DatasetNotFoundError("Missing 'sparse/0/images.{bin,txt}' file in COLMAP dataset")
 
-    points3D: Optional[Dict[str, Point3D]] = None
+    points3D: Optional[Dict[int, Point3D]] = None
     if load_points:
         if not (colmap_path / "points3D.bin").exists() and not (colmap_path / "points3D.txt").exists():
             raise DatasetNotFoundError("Missing 'sparse/0/points3D.{bin,txt}' file in COLMAP dataset")

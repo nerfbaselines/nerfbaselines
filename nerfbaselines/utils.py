@@ -14,7 +14,6 @@ from pathlib import Path
 from functools import wraps
 from typing import Any, Optional, Dict, TYPE_CHECKING, Union, List, TypeVar, Iterable
 from typing import BinaryIO
-from typing import TypedDict
 import logging
 import types
 import numpy as np
@@ -27,6 +26,14 @@ try:
     from typing import Literal
 except ImportError:
     from typing_extensions import Literal
+try:
+    from typing import NotRequired  # noqa: F401
+    from typing import Required  # noqa: F401
+    from typing import TypedDict
+except ImportError:
+    from typing_extensions import NotRequired  # noqa: F401
+    from typing_extensions import Required  # noqa: F401
+    from typing_extensions import TypedDict
 
 if TYPE_CHECKING:
     cached_property = property

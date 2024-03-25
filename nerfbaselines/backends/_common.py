@@ -10,9 +10,9 @@ from pathlib import Path
 import subprocess
 from typing import Optional
 from typing import  Union, Set, Callable, TYPE_CHECKING
-from typing import Literal, get_args, Sequence
+from typing import get_args, Sequence
 from ..utils import CancellationToken, cancellable
-from ..types import Method
+from ..types import Method, Literal
 if TYPE_CHECKING:
     from ..types import MethodSpec
 
