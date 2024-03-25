@@ -187,7 +187,6 @@ class InstantNGP(Method):
         if train_dataset is not None:
             self._setup_train(train_dataset, config_overrides)
         else:
-            raise RuntimeError("WTF")
             self._setup_eval()
 
     @classmethod
@@ -365,17 +364,16 @@ class InstantNGP(Method):
 
     def train_iteration(self, step: int):
         assert not self._is_render_mode, "Cannot train in render mode"
-        if step == self.num_iterations:
-            raise StopIteration
         current_frame = self.testbed.training_step
-        deadline = 100
-        while current_frame < step:
-            if not self.testbed.frame():
-                raise RuntimeError("Training failed")
-            current_frame = self.testbed.training_step
-            deadline -= 1
-            if deadline < 0:
-                raise RuntimeError("Training failed")
+        if step < self.num_iterations:
+            deadline = 100
+            while current_frame < step:
+                if not self.testbed.frame():
+                    raise RuntimeError("Training failed")
+                current_frame = self.testbed.training_step
+                deadline -= 1
+                if deadline < 0:
+                    raise RuntimeError("Training failed")
         if step == self.num_iterations - 1:
             # Release the tempdir
             self._tempdir.cleanup()

@@ -143,12 +143,12 @@ class FakeModel(torch.nn.Module):
                 self.method.render(
                     Cameras(
                         poses=c2w,
-                        normalized_intrinsics=np.concatenate(
+                        intrinsics=np.concatenate(
                             (
-                                camera.fx.numpy() / w,
-                                camera.fy.numpy() / w,
-                                camera.cx.numpy() / w,
-                                camera.cy.numpy() / w,
+                                camera.fx.numpy(),
+                                camera.fy.numpy(),
+                                camera.cx.numpy(),
+                                camera.cy.numpy(),
                             ),
                             -1,
                         ),

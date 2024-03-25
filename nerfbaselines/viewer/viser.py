@@ -186,7 +186,7 @@ class ViserViewer:
                 c2w = self._inv_transform @ c2w
                 camera = Cameras(
                     poses=c2w[None, :3, :4],
-                    normalized_intrinsics=np.array([[focal, focal, w_total / 2, h_total / 2]], dtype=np.float32) / w_total,
+                    intrinsics=np.array([[focal, focal, w_total / 2, h_total / 2]], dtype=np.float32),
                     camera_types=np.array([0], dtype=np.int32),
                     distortion_parameters=np.zeros((1, 8), dtype=np.float32),
                     image_sizes=np.array([[w, h]], dtype=np.int32),

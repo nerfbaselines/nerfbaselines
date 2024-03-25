@@ -367,7 +367,7 @@ def _undistort(camera_types: np.ndarray, distortion_params: np.ndarray, uv: np.n
 @dataclass(frozen=True)
 class Cameras:
     poses: np.ndarray  # [N, (R, t)]
-    normalized_intrinsics: np.ndarray  # [N, (fx,fy,cx,cy)]
+    intrinsics: np.ndarray  # [N, (fx,fy,cx,cy)]
 
     # Distortions
     camera_types: np.ndarray  # [N]
@@ -376,12 +376,6 @@ class Cameras:
     image_sizes: Optional[np.ndarray]  # [N, 2]
     nears_fars: Optional[np.ndarray]  # [N, 2]
     metadata: Optional[np.ndarray] = None
-
-    @cached_property
-    def intrinsics(self):
-        assert self.image_sizes is not None
-        assert self.normalized_intrinsics.shape[:-1] == self.image_sizes.shape[:-1], "normalized_intrinsics and image_sizes must be broadcastable"
-        return self.normalized_intrinsics * self.image_sizes[..., :1]
 
     def __len__(self):
         if len(self.poses.shape) == 2:
@@ -397,7 +391,7 @@ class Cameras:
     def __getitem__(self, index):
         return type(self)(
             poses=self.poses[index],
-            normalized_intrinsics=self.normalized_intrinsics[index],
+            intrinsics=self.intrinsics[index],
             camera_types=self.camera_types[index],
             distortion_parameters=self.distortion_parameters[index],
             image_sizes=self.image_sizes[index] if self.image_sizes is not None else None,
@@ -409,7 +403,7 @@ class Cameras:
         assert (self.image_sizes is None) == (value.image_sizes is None), "Either both or none of the cameras must have image sizes"
         assert (self.nears_fars is None) == (value.nears_fars is None), "Either both or none of the cameras must have nears and fars"
         self.poses[index] = value.poses
-        self.normalized_intrinsics[index] = value.normalized_intrinsics
+        self.intrinsics[index] = value.intrinsics
         self.camera_types[index] = value.camera_types
         self.distortion_parameters[index] = value.distortion_parameters
         if self.image_sizes is not None:
@@ -502,7 +496,7 @@ class Cameras:
             metadata = np.concatenate([cast(np.ndarray, v.metadata) for v in values])
         return cls(
             poses=np.concatenate([v.poses for v in values]),
-            normalized_intrinsics=np.concatenate([v.normalized_intrinsics for v in values]),
+            intrinsics=np.concatenate([v.intrinsics for v in values]),
             camera_types=np.concatenate([v.camera_types for v in values]),
             distortion_parameters=np.concatenate([v.distortion_parameters for v in values]),
             image_sizes=image_sizes,
@@ -511,7 +505,10 @@ class Cameras:
         )
 
     def with_image_sizes(self, image_sizes: np.ndarray) -> "Cameras":
-        return dataclasses.replace(self, image_sizes=image_sizes)
+        multipliers = image_sizes.astype(self.intrinsics.dtype) / self.image_sizes 
+        multipliers = np.concatenate([multipliers, multipliers], -1)
+        intrinsics = self.intrinsics * multipliers
+        return dataclasses.replace(self, image_sizes=image_sizes, intrinsics=intrinsics)
 
     def with_metadata(self, metadata: np.ndarray) -> "Cameras":
         return dataclasses.replace(self, metadata=metadata)
@@ -520,7 +517,7 @@ class Cameras:
         return dataclasses.replace(
             self,
             poses=np.copy(self.poses),
-            normalized_intrinsics=np.copy(self.normalized_intrinsics),
+            intrinsics=np.copy(self.intrinsics),
             camera_types=np.copy(self.camera_types),
             distortion_parameters=np.copy(self.distortion_parameters),
             image_sizes=np.copy(self.image_sizes) if self.image_sizes is not None else None,
@@ -605,7 +602,7 @@ def warp_image_between_cameras(cameras1: Cameras, cameras2: Cameras, images: np.
     assert cameras2.image_sizes is not None, "cameras2 must have image sizes"
     assert cameras1.image_sizes.shape == cameras2.image_sizes.shape, "Camera shapes must be the same"
 
-    if len(cameras1.normalized_intrinsics.shape) == 2:
+    if len(cameras1.intrinsics.shape) == 2:
         out_image_list = []
         for cam1, cam2, image in zip(cameras1, cameras2, images):
             out_image_list.append(warp_image_between_cameras(cam1, cam2, image))
@@ -730,21 +727,21 @@ def undistort_camera(camera: Cameras, xnp=np):
     cy = cy * h / orig_undistorted_camera_height
 
     undistorted_image_sizes = np.stack((w, h), -1)
-    undistorted_normalized_intrinsics = np.stack((fx, fy, cx, cy), -1) / w[:, None]
+    undistorted_intrinsics = np.stack((fx, fy, cx, cy), -1)
 
     # Get output
     if mask is None:
-        normalized_intrinsics = undistorted_normalized_intrinsics
+        intrinsics = undistorted_intrinsics
         image_sizes = undistorted_image_sizes
     else:
-        normalized_intrinsics = np.copy(original_camera.normalized_intrinsics)
+        intrinsics = np.copy(original_camera.intrinsics)
         image_sizes = np.copy(original_camera.image_sizes)
-        normalized_intrinsics[mask] = undistorted_normalized_intrinsics
+        intrinsics[mask] = undistorted_intrinsics
         image_sizes[mask] = undistorted_image_sizes
     return dataclasses.replace(
         original_camera,
         camera_types=np.full_like(original_camera.camera_types, CameraModel.PINHOLE.value),
         distortion_parameters=np.zeros_like(original_camera.distortion_parameters),
-        normalized_intrinsics=normalized_intrinsics,
+        intrinsics=intrinsics,
         image_sizes=image_sizes,
     )

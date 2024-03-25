@@ -194,7 +194,7 @@ def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.nda
 
     image_width: int = camera.width
     image_height: int = camera.height
-    intrinsics = np.array([fl_x, fl_y, cx, cy], dtype=np.float32) / float(image_width)
+    intrinsics = np.array([fl_x, fl_y, cx, cy], dtype=np.float32)
     distortion_params = np.array([out.get(k, 0.0) for k in ("k1", "k2", "p1", "p2", "k3", "k4")], dtype=np.float32)
     return intrinsics, camera_model.value, distortion_params, (image_width, image_height)
 
@@ -280,9 +280,9 @@ def load_colmap_dataset(path: Path,
         if sampling_mask_paths is not None:
             sampling_mask_paths.append(sampling_masks_path / Path(image.name).with_suffix(".png"))
 
-        rotation = qvec2rotmat(image.qvec).astype(np.float32)
+        rotation = qvec2rotmat(image.qvec).astype(np.float64)
 
-        translation = image.tvec.reshape(3, 1).astype(np.float32)
+        translation = image.tvec.reshape(3, 1).astype(np.float64)
         w2c = np.concatenate([rotation, translation], 1)
         w2c = np.concatenate([w2c, np.array([[0, 0, 0, 1]], dtype=w2c.dtype)], 0)
         c2w = np.linalg.inv(w2c)
@@ -307,11 +307,11 @@ def load_colmap_dataset(path: Path,
     # camera_ids=torch.tensor(camera_ids, dtype=torch.int32),
     cameras = Cameras(
         poses=np.stack(camera_poses, 0).astype(np.float32),
-        normalized_intrinsics=np.stack(camera_intrinsics, 0).astype(np.float32),
+        intrinsics=np.stack(camera_intrinsics, 0).astype(np.float32),
         camera_types=np.array(camera_types, dtype=np.int32),
         distortion_parameters=padded_stack(camera_distortion_params).astype(np.float32),
         image_sizes=np.stack(camera_sizes, 0).astype(np.int32),
-        nears_fars=nears_fars,
+        nears_fars=nears_fars.astype(np.float32),
     )
     dataset = Dataset(
         cameras=cameras,

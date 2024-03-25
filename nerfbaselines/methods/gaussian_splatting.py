@@ -1,6 +1,40 @@
 import os
 from ..registry import MethodSpec, register
 
+# NOTE: In the GS paper, they report two sets of numbers for Mip-NeRF 360, one 
+# using the official downscaled images provided by Mip-NeRF 360 (in suppmat) and
+# one where they downscale the images themselves (without storing them as JPEGs
+# to avoid compression artifacts). This makes roughly 0.5 dB difference in PSNR.
+# We use the official numbers for the downscaled JPEGs here to match most other
+# papers. If you want to reach the higher PSNR, you should avoid storing the
+# downscaled images as JPEGs.
+
+paper_results = {
+    # 360 scenes: bicycle flowers garden stump treehill room counter kitchen bonsai
+    # 360 PSNRs: 25.246 21.520 27.410 26.550 22.490 30.632 28.700 30.317 31.980
+    # 360 SSIMs: 0.771 0.605 0.868 0.775 0.638 0.914 0.905 0.922 0.938
+    # 360 LPIPS: 0.205 0.336 0.103 0.210 0.317 0.220 0.204 0.129 0.205
+    "mipnerf360/bicycle": {"psnr": 25.246, "ssim": 0.771, "lpips": 0.205},
+    "mipnerf360/flowers": {"psnr": 21.520, "ssim": 0.605, "lpips": 0.336},
+    "mipnerf360/garden": {"psnr": 27.410, "ssim": 0.868, "lpips": 0.103},
+    "mipnerf360/stump": {"psnr": 26.550, "ssim": 0.775, "lpips": 0.210},
+    "mipnerf360/treehill": {"psnr": 22.490, "ssim": 0.638, "lpips": 0.317},
+    "mipnerf360/room": {"psnr": 30.632, "ssim": 0.914, "lpips": 0.220},
+    "mipnerf360/counter": {"psnr": 28.700, "ssim": 0.905, "lpips": 0.204},
+    "mipnerf360/kitchen": {"psnr": 30.317, "ssim": 0.922, "lpips": 0.129},
+    "mipnerf360/bonsai": {"psnr": 31.980, "ssim": 0.938, "lpips": 0.205},
+
+    # blender scenes: Mic Chair Ship Materials Lego Drums Ficus Hotdog
+    # blender PSNRs: 35.36 35.83 30.80 30.00 35.78 26.15 34.87 37.72
+    "blender/mic": {"psnr": 35.36},
+    "blender/chair": {"psnr": 35.83},
+    "blender/ship": {"psnr": 30.80},
+    "blender/materials": {"psnr": 30.00},
+    "blender/lego": {"psnr": 35.78},
+    "blender/drums": {"psnr": 26.15},
+    "blender/ficus": {"psnr": 34.87},
+    "blender/hotdog": {"psnr": 37.72},
+}
 
 GaussianSplattingSpec: MethodSpec = {
     "method": "._impl.gaussian_splatting:GaussianSplatting",
@@ -29,7 +63,9 @@ pip install lpips==0.1.4 importlib_metadata typing_extensions
     }
 }
 
-register(GaussianSplattingSpec, name="gaussian-splatting")
+register(GaussianSplattingSpec, name="gaussian-splatting", metadata={
+    "paper_results": paper_results,
+})
 register(
     GaussianSplattingSpec,
     name="gaussian-splatting:large", 

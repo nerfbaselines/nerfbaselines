@@ -34,7 +34,7 @@ def test_render(use_remote_method):
         remote_method = remote_method_cls()
         cameras = Cameras(
             poses=np.eye(4, dtype=np.float32)[None, :3, :4],
-            normalized_intrinsics=np.zeros((1, 4), dtype=np.float32),
+            intrinsics=np.zeros((1, 4), dtype=np.float32),
             camera_types=np.zeros((1,), dtype=np.int32),
             distortion_parameters=np.zeros((1, 6), dtype=np.float32),
             image_sizes=np.array((64, 48), dtype=np.int32),
@@ -165,7 +165,7 @@ def test_render_cancellable(use_remote_method):
         remote_method = remote_method_cls()
         cameras = Cameras(
             poses=np.eye(4, dtype=np.float32)[None, :3, :4],
-            normalized_intrinsics=np.zeros((1, 4), dtype=np.float32),
+            intrinsics=np.zeros((1, 4), dtype=np.float32),
             camera_types=np.zeros((1,), dtype=np.int32),
             distortion_parameters=np.zeros((1, 6), dtype=np.float32),
             image_sizes=np.array((64, 48), dtype=np.int32),

@@ -62,7 +62,7 @@ def load_llff_dataset(path: Path, split: str, downscale_factor: int = 4, **kwarg
     return Dataset(
         cameras=Cameras(
             poses=c2w,
-            normalized_intrinsics=(intrinsics / img_wh[:1].T)[indices],
+            intrinsics=(intrinsics)[indices],
             camera_types=np.full(len(indices), CameraModel.PINHOLE.value, dtype=np.int32),
             distortion_parameters=np.zeros((len(indices), 0), dtype=np.float32),
             image_sizes=img_wh.T[indices],
