@@ -16,12 +16,11 @@ conda install -y -c conda-forge \
     make=4.3 cmake=3.26.4 xorg-libx11=1.8.7 xorg-libxcursor=1.2.0 \
     xorg-libxrandr=1.5.2 xorg-libxinerama=1.1.5 xorg-libxext=1.3.4 xorg-libxi=1.7.10 \
     glew=2.1.0 openexr=3.2.2 zlib=1.2 ocl-icd-system jsoncpp=1.9.5 \
-    gcc_linux-64=9 gxx_linux-64=9 git=2.34.1 \
-    openmp=8.0.1 minizip=4.0.5 \
+    gcc_linux-64=11.4 gxx_linux-64=11.4 git=2.34.1 \
+    openmp=8.0.1 minizip=1 \
     protobuf=3.18 \
     mesalib=24.0.2 mesa-libgl-cos7-x86_64=18.3.4 mesa-libgl-devel-cos7-x86_64=18.3.4
 conda install -y -c intel mkl=2024.0.0 mkl-static=2024.0.0
-conda remove -y minizip # Clashes with assimp
 # Reactivate environment to apply changes to PATH
 _prefix="$CONDA_PREFIX";conda deactivate;conda activate "$_prefix"
 ln -s "$CC" "$CONDA_PREFIX/bin/gcc";ln -s "$CXX" "$CONDA_PREFIX/bin/g++"
@@ -31,6 +30,8 @@ rm -rf libtorch.zip; wget https://download.pytorch.org/libtorch/cu117/libtorch-c
 unzip -q libtorch.zip -d "$CONDA_PREFIX/src"; rm libtorch.zip
 # Libcudnn is included in conda libs, remove it from libtorch
 rm -rf "$CONDA_PREFIX/src/libtorch/lib/libcudnn"*
+# Remove libstdc++ from conda to use the system one (see TRIPS README.md)
+rm "$CONDA_PREFIX/lib/libstdc++.so"*
 
 # Clone source code
 git clone https://github.com/lfranke/TRIPS.git "$CONDA_PREFIX/src/TRIPS"
@@ -59,6 +60,14 @@ echo "export LD_LIBRARY_PATH=\\"$CONDA_PREFIX/lib:\\$LD_LIBRARY_PATH\\"" >> "$CO
 """,
     },
     "metadata": {
+        "name": "TRIPS",
+        "description": """TRIPS performs point splatting into feature pyramid processed using CNNs. Speed comparable to Gaussian Splatting""",
+        "paper_title": "TRIPS: Trilinear Point Splatting for Real-Time Radiance Field Rendering",
+        "paper_authors": [
+            "Linus Franke", "Darius Rückert", "Laura Fink", "Marc Stamminger",
+        ],
+        "paper_link": "https://arxiv.org/pdf/2401.06003",
+        "link": "https://lfranke.github.io/trips/",
     },
 }
 

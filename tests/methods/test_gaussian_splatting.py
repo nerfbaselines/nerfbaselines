@@ -97,6 +97,7 @@ def mock_gaussian_splatting(mock_torch):
         def Scene(opt, gaussians, load_iteration):
             scene_info = cast(Any, sceneLoadTypeCallbacks["Colmap"]())
             scene = mock.MagicMock()
+            scene.train_cameras = {1.0: scene_info.train_cameras}
         
             loadCam = sys.modules["utils.camera_utils"].loadCam
             scene.getTrainCameras = lambda: [loadCam(None, None, x, None) for x in scene_info.train_cameras]

@@ -2,6 +2,24 @@ import os
 from ..registry import register, MethodSpec
 
 
+paper_results = {
+    # Mip-NeRF 360
+    # 360 scenes: bicycle flowers garden stump treehill room counter kitchen bonsai
+    # 360 PSNRs: 25.72 21.93 27.76 26.94 22.98 31.74 29.16 31.55 32.31
+    # 360 SSIMs: 0.780 0.623 0.875 0.786 0.655 0.928 0.916 0.933 0.948
+    # 360 LPIPS: 0.206 0.331 0.103 0.209 0.320 0.192 0.179 0.113 0.173
+    "mipnerf360/bicycle": {"psnr": 25.72, "ssim": 0.780, "lpips": 0.206},
+    "mipnerf360/flowers": {"psnr": 21.93, "ssim": 0.623, "lpips": 0.331},
+    "mipnerf360/garden": {"psnr": 27.76, "ssim": 0.875, "lpips": 0.103},
+    "mipnerf360/stump": {"psnr": 26.94, "ssim": 0.786, "lpips": 0.209},
+    "mipnerf360/treehill": {"psnr": 22.98, "ssim": 0.655, "lpips": 0.320},
+    "mipnerf360/room": {"psnr": 31.74, "ssim": 0.928, "lpips": 0.192},
+    "mipnerf360/counter": {"psnr": 29.16, "ssim": 0.916, "lpips": 0.179},
+    "mipnerf360/kitchen": {"psnr": 31.55, "ssim": 0.933, "lpips": 0.113},
+    "mipnerf360/bonsai": {"psnr": 32.31, "ssim": 0.948, "lpips": 0.173},
+}
+
+
 MipSplattingSpec: MethodSpec = {
     "method": "._impl.mip_splatting:MipSplatting",
     "conda": {
@@ -11,6 +29,8 @@ MipSplattingSpec: MethodSpec = {
 git clone https://github.com/autonomousvision/mip-splatting.git
 cd mip-splatting
 git checkout 746a17c9a906be256ed85b8fe18632f5d53e832d
+# Remove unsupported (and unnecessary) open3d dependency
+sed -i '/import open3d as o3d/d' train.py
 
 conda install -y conda-build
 conda develop .

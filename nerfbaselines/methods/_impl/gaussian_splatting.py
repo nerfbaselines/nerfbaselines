@@ -1,3 +1,4 @@
+import random
 import itertools
 import json
 from pathlib import Path
@@ -348,7 +349,11 @@ class GaussianSplatting(Method):
                 def colmap_loader(*args, **kwargs):
                     return _convert_dataset_to_gaussian_splatting(dataset, td, white_background=self.dataset.white_background, scale_coords=self.dataset.scale_coords)
                 sceneLoadTypeCallbacks["Colmap"] = colmap_loader
-                return Scene(opt, self.gaussians, load_iteration=info.loaded_step if dataset is None else None)
+                scene =  Scene(opt, self.gaussians, load_iteration=info.loaded_step if dataset is None else None)
+                # NOTE: This is a hack to match the RNG state of GS on 360 scenes
+                _tmp = list(range((len(next(iter(scene.train_cameras.values()))) + 6) // 7))
+                random.shuffle(_tmp)
+                return scene
             finally:
                 sceneLoadTypeCallbacks["Colmap"] = backup
 
@@ -361,17 +366,14 @@ class GaussianSplatting(Method):
         intrinsics = cameras.intrinsics
 
         with torch.no_grad():
-            global_total = int(sizes.prod(-1).sum())
-            global_i = 0
             if progress_callback:
-                progress_callback(CurrentProgress(global_i, global_total, 0, len(poses)))
+                progress_callback(CurrentProgress(0, len(poses), 0, len(poses)))
             for i, pose in enumerate(poses):
                 viewpoint_cam = _load_caminfo(i, pose, intrinsics[i], f"{i:06d}.png", sizes[i], scale_coords=self.dataset.scale_coords)
                 viewpoint = loadCam(self.dataset, i, viewpoint_cam, 1.0)
                 image = torch.clamp(render(viewpoint, self.gaussians, self.pipe, self.background)["render"], 0.0, 1.0)
-                global_i += int(sizes[i].prod(-1))
                 if progress_callback:
-                    progress_callback(CurrentProgress(global_i, global_total, i + 1, len(poses)))
+                    progress_callback(CurrentProgress(i+1, len(poses), i + 1, len(poses)))
                 color = image.detach().permute(1, 2, 0).cpu().numpy()
 
                 yield {

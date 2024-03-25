@@ -166,7 +166,7 @@ def read_nerfstudio_trajectory(data: Dict[str, Any]) -> "Trajectory":
     return Trajectory(
         cameras=Cameras(
             poses=camera_to_worlds,
-            normalized_intrinsics=intrinsics / w,
+            intrinsics=intrinsics,
             image_sizes=np.array((w, h), dtype=np.int32)[None].repeat(len(camera_to_worlds), 0),
             camera_types=np.array([camera_type.value] * len(camera_to_worlds), dtype=np.int32),
             distortion_parameters=np.zeros((len(camera_to_worlds), 0), dtype=np.float32),

@@ -139,6 +139,7 @@ if TypedDict is not None:
     class RenderOutput(TypedDict):
         color: np.ndarray  # [h w 3]
         depth: NotRequired[np.ndarray]  # [h w]
+        accumulation: NotRequired[np.ndarray]  # [h w]
 else:
     RenderOutput = Dict
 
