@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Optional, Callable, Iterable, List, Dict, TYPE_CHECKING, Any, cast, Union
+from typing import Optional, Callable, Iterable, List, Dict, Any, cast, Union
 from dataclasses import dataclass, field
 import dataclasses
 import os
@@ -19,17 +19,17 @@ try:
 except ImportError:
     from typing_extensions import Literal  # type: ignore
 try:
-    from typing import TypedDict
-except ImportError:
-    from typing_extensions import TypedDict  # type: ignore
-try:
     from typing import get_args, get_origin
 except ImportError:
     from typing_extensions import get_args, get_origin  # noqa: F401
 try:
-    from typing import NotRequired  # type: ignore
+    from typing import NotRequired  # noqa: F401
+    from typing import Required  # noqa: F401
+    from typing import TypedDict
 except ImportError:
-    from typing_extensions import NotRequired  # type: ignore
+    from typing_extensions import NotRequired  # noqa: F401
+    from typing_extensions import Required  # noqa: F401
+    from typing_extensions import TypedDict
 try:
     from typing import FrozenSet
 except ImportError:
@@ -135,13 +135,10 @@ def batched(array, batch_size):
 DatasetFeature = Literal["color", "points3D_xyz", "points3D_rgb"]
 
 
-if TypedDict is not None:
-    class RenderOutput(TypedDict):
-        color: np.ndarray  # [h w 3]
-        depth: NotRequired[np.ndarray]  # [h w]
-        accumulation: NotRequired[np.ndarray]  # [h w]
-else:
-    RenderOutput = Dict
+class RenderOutput(TypedDict, total=False):
+    color: Required[np.ndarray]  # [h w 3]
+    depth: np.ndarray  # [h w]
+    accumulation: np.ndarray  # [h w]
 
 
 @dataclass

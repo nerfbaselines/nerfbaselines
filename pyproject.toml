@@ -45,8 +45,8 @@ extras = [
 dev = [
     'torchmetrics',
     'jax',
-    'pytest',
-    'typeguard',
+    'pytest==7.4.4',
+    'typeguard==4.2.1',
     'dm-pix',
 ]
 

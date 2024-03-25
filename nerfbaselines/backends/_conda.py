@@ -4,13 +4,9 @@ from pathlib import Path
 import shlex
 from typing import Optional
 import hashlib
-try:
-    from typing import TypedDict
-except ImportError:
-    from typing_extensions import TypedDict
 
 import nerfbaselines
-from ..types import NB_PREFIX
+from ..types import NB_PREFIX, TypedDict
 from ..utils import get_package_dependencies
 from ._rpc import RemoteProcessRPCBackend, get_safe_environment
 

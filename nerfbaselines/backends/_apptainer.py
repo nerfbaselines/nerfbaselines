@@ -4,13 +4,9 @@ import subprocess
 import os
 from typing import Optional, List, Tuple, TYPE_CHECKING
 import shlex
-try:
-    from typing import TypedDict
-except ImportError:
-    from typing_extensions import TypedDict
 import nerfbaselines
 from ..utils import cached_property
-from ..types import NB_PREFIX
+from ..types import NB_PREFIX, TypedDict
 from ._docker import BASE_IMAGE
 from ._conda import conda_get_install_script, conda_get_environment_hash
 from ._rpc import RemoteProcessRPCBackend, get_safe_environment

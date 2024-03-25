@@ -1,5 +1,5 @@
 import math
-from typing import List, Dict, TYPE_CHECKING, Any, cast
+from typing import List, Dict, Any, cast
 import base64
 import os
 import struct
@@ -9,47 +9,35 @@ import warnings
 import numpy as np
 from . import metrics
 from . import datasets
-from .types import Literal, Optional
+from .types import Literal, Optional, TypedDict
 from ._constants import WEBPAGE_URL
-
-try:
-    from typing import TypedDict
-except ImportError:
-    pass
 
 
 MethodLink = Literal["paper", "website", "results", "none"]
 
 
-if TYPE_CHECKING:
+class SceneInfo(TypedDict):
+    id: str
+    name: str
 
-    class SceneInfo(TypedDict):
-        id: str
-        name: str
+class MetricInfo(TypedDict):
+    id: str
+    name: str
+    description: str
+    ascending: bool
+    link: str
 
-    class MetricInfo(TypedDict):
-        id: str
-        name: str
-        description: str
-        ascending: bool
-        link: str
-
-    class DatasetInfo(TypedDict):
-        id: str
-        name: str
-        description: str
-        scenes: List[SceneInfo]
-        metrics: List[MetricInfo]
-        default_metric: str
-        paper_title: str
-        paper_authors: List[str]
-        paper_link: str
-        link: str
-
-else:
-    DatasetInfo = dict
-    SceneInfo = dict
-    MetricInfo = dict
+class DatasetInfo(TypedDict):
+    id: str
+    name: str
+    description: str
+    scenes: List[SceneInfo]
+    metrics: List[MetricInfo]
+    default_metric: str
+    paper_title: str
+    paper_authors: List[str]
+    paper_link: str
+    link: str
 
 
 def get_dataset_info(dataset: str) -> DatasetInfo:
