@@ -73,8 +73,7 @@ def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np
         return transform, camera
 
     elif dataset_type == "forward-facing":
-        # 
-        ...
+        raise NotImplementedError("Forward-facing dataset type is not supported")
     elif dataset_type is None:
         # Unknown dataset type
         # We move all center the scene on the mean of the camera origins
@@ -156,7 +155,7 @@ METADATA_COLUMNS = ["exposure"]
 DatasetType = Literal["object-centric", "forward-facing"]
 
 
-def get_scene_scale(cameras: cameras.Cameras, dataset_type: DatasetType):
+def get_scene_scale(cameras: cameras.Cameras, dataset_type: Optional[DatasetType]):
     if dataset_type == "object-centric":
         return float(np.percentile(np.linalg.norm(cameras.poses[..., :3, 3] - cameras.poses[..., :3, 3].mean(), axis=-1), 90))
 

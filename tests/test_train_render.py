@@ -53,19 +53,19 @@ class _TestMethod(Method):
         _TestMethod._render_call_step = []
 
     @classmethod
-    def get_method_info(self):
-        return MethodInfo(
-            name="_test",
-            required_features=frozenset(("color",)),
-            supported_camera_models=frozenset((CameraModel.PINHOLE,)),
-        )
+    def get_method_info(cls):
+        return {
+            "name": "_test",
+            "required_features": frozenset(("color",)),
+            "supported_camera_models": frozenset((CameraModel.PINHOLE,)),
+        }
 
 
     def get_info(self) -> ModelInfo:
-        return ModelInfo(
-            name="_test",
-            loaded_step=None,
-            supported_camera_models=frozenset(
+        return {
+            "name": "_test",
+            "loaded_step": None,
+            "supported_camera_models": frozenset(
                 (
                     CameraModel.PINHOLE,
                     CameraModel.OPENCV,
@@ -73,8 +73,8 @@ class _TestMethod(Method):
                     CameraModel.FULL_OPENCV,
                 )
             ),
-            num_iterations=13,
-        )
+            "num_iterations": 13,
+        }
 
     def render(self, cameras: Cameras, progress_callback=None) -> Iterable[RenderOutput]:
         _TestMethod._render_call_step.append(_TestMethod._last_step)
@@ -276,8 +276,8 @@ def test_train_command_undistort(tmp_path, wandb_init_run):
 
     class _Method(_TestMethod):
         def get_info(self) -> MethodInfo:
-            info = super().get_info()
-            info.supported_camera_models = frozenset((CameraModel.PINHOLE,))
+            info = {**super().get_info()}
+            info["supported_camera_models"] = frozenset((CameraModel.PINHOLE,))
             return info
 
         def __init__(self, *args, train_dataset, **kwargs):

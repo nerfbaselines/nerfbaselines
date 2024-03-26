@@ -53,7 +53,7 @@ def conda_get_install_script(spec: CondaBackendSpec, package_path: Optional[str]
     if dependencies:
         install_dependencies_script = "pip install " + " ".join(f"'{x}'" for x in dependencies)
     if package_path is None:
-        package_path = Path(nerfbaselines.__file__).absolute().parent.parent
+        package_path = str(Path(nerfbaselines.__file__).absolute().parent.parent)
     script = "set -eo pipefail\n"
     if not custom_environment_path:
         script += f"""
@@ -127,6 +127,6 @@ class CondaBackend(RemoteProcessRPCBackend):
         assert environment_name is not None, "CondaBackend requires environment_name to be specified"
         env_path = os.path.join(environments_path, environment_name, conda_get_environment_hash(self._spec), environment_name)
         env = get_safe_environment()
-        env["PYTHONPATH"] = Path(nerfbaselines.__file__).absolute().parent.parent
+        env["PYTHONPATH"] = str(Path(nerfbaselines.__file__).absolute().parent.parent)
         args = [os.path.join(env_path, ".activate.sh")] + ["bash"]
         os.execvpe(args[0], args, env)

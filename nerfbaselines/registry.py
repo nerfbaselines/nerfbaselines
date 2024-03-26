@@ -8,10 +8,12 @@ import importlib
 from typing import Optional, Type, Any, Tuple, Dict, List, Iterable
 
 if sys.version_info < (3, 10):
+    import importlib_metadata
     from importlib_metadata import entry_points
 else:
+    from importlib import metadata as importlib_metadata
     from importlib.metadata import entry_points
-from .types import Method, TypedDict, Required, FrozenSet
+from .types import Method, TypedDict, Required, FrozenSet, NotRequired
 from .backends import BackendName
 from .backends import CondaBackendSpec, DockerBackendSpec, ApptainerBackendSpec
 from . import backends
@@ -151,9 +153,9 @@ def _make_entrypoint_absolute(entrypoint: str) -> str:
 class MethodSpec(TypedDict, total=False):
     name: Required[str]
     method: Required[str]
-    conda: CondaBackendSpec
-    docker: DockerBackendSpec
-    apptainer: ApptainerBackendSpec
+    conda: NotRequired[CondaBackendSpec]
+    docker: NotRequired[DockerBackendSpec]
+    apptainer: NotRequired[ApptainerBackendSpec]
     kwargs: Dict[str, Any]
     metadata: Dict[str, Any]
     backends_order: List[BackendName]
@@ -189,6 +191,7 @@ def supported_methods() -> FrozenSet[str]:
 
 def _build_method(method_name, spec: "MethodSpec") -> Type[Method]:
     package, name = spec["method"].split(":")
+    cls: Type[Method]
     cls = importlib.import_module(package)
     for p in name.split("."):
         cls = getattr(cls, p)

@@ -84,6 +84,7 @@ def apply_transform(transform, poses):
 
 
 def invert_transform(transform, has_scale=False):
+    scale = None
     if has_scale:
         transform, scale = get_transform_and_scale(transform)
     else:
@@ -91,7 +92,7 @@ def invert_transform(transform, has_scale=False):
     R = transform[..., :3, :3]
     t = transform[..., :3, 3]
     transform[..., :3, :] = np.concatenate([R.T, -R.T @ t[:, None]], axis=-2)
-    if has_scale:
+    if scale is not None:
         transform[..., :3, :] *= 1/scale
     return transform
 

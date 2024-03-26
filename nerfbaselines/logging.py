@@ -584,6 +584,7 @@ def _tensorboard_hparams(hparam_dict=None, metrics_list=None, hparam_domain_disc
     )
     from google.protobuf import struct_pb2
 
+    hparam_dict = hparam_dict or {}
     hparam_domain_discrete = hparam_domain_discrete or {}
     for k, v in hparam_domain_discrete.items():
         if (

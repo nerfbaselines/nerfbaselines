@@ -1,7 +1,7 @@
 import os
 import logging
 import json
-from typing import Any
+from typing import Any, Optional
 import typing
 
 import click
@@ -10,6 +10,7 @@ import numpy as np
 from ..datasets._colmap_utils import qvec2rotmat, rotmat2qvec
 from ..io import open_any_directory, deserialize_nb_info
 from ..utils import setup_logging, handle_cli_error
+from ..types import Method
 from .. import backends
 from .. import registry
 
@@ -81,7 +82,7 @@ def get_orientation_transform(poses):
 def main(checkpoint: str, data, verbose, backend, viewer="viser", port=6006):
     setup_logging(verbose)
 
-    def run_viewer(method=None, nb_info=None):
+    def run_viewer(method: Optional[Method] = None, nb_info=None):
         try:
             if viewer == "viser":
                 from .viser import run_viser_viewer

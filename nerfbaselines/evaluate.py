@@ -5,7 +5,7 @@ import struct
 import hashlib
 import base64
 import typing
-from typing import List, Dict, Union, Iterable
+from typing import List, Dict, Union, Iterable, TypeVar
 import numpy as np
 import json
 from pathlib import Path
@@ -14,12 +14,16 @@ import tempfile
 
 from tqdm import tqdm
 
+from .cameras import CameraModel
 from .utils import read_image, convert_image_dtype, run_on_host
 from .types import Optional, Literal, Dataset, ProgressCallback, RenderOutput, EvaluationProtocol, Cameras, MethodInfo
 from .render import image_to_srgb, Method, with_supported_camera_models
 from .io import open_any_directory, deserialize_nb_info, serialize_nb_info
 from .backends import get_backend
 from . import metrics
+
+
+T = TypeVar("T")
 
 
 @typing.overload
@@ -123,10 +127,10 @@ def evaluate(predictions: Union[str, Path],
 
         # Run the evaluation
         metrics_lists = {}
-        relpaths = [x.relative_to(predictions_path / "color") for x in (predictions_path / "color").glob("**/*") if x.is_file()]
+        relpaths = [str(x.relative_to(predictions_path / "color")) for x in (predictions_path / "color").glob("**/*") if x.is_file()]
         relpaths.sort()
 
-        def read_predictions():
+        def read_predictions() -> Iterable[RenderOutput]:
             # Load the prediction
             for relname in relpaths:
                 yield {
@@ -139,11 +143,11 @@ def evaluate(predictions: Union[str, Path],
         dataset = Dataset(
             cameras=typing.cast(Cameras, None),
             file_paths=relpaths,
-            file_paths_root=predictions_path / "color",
-            metadata=info.get("dataset_metadata"),
+            file_paths_root=str(predictions_path / "color"),
+            metadata=typing.cast(Dict, info.get("dataset_metadata", {})),
             images=gt_images)
 
-        def collect_metrics_lists(iterable):
+        def collect_metrics_lists(iterable: Iterable[Dict[str, T]]) -> Iterable[Dict[str, T]]:
             for data in iterable:
                 for k, v in data.items():
                     if k not in metrics_lists:
@@ -184,13 +188,15 @@ class DefaultEvaluationProtocol(EvaluationProtocol):
 
     def render(self, method: Method, dataset: Dataset, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
         info = method.get_info()
-        render = with_supported_camera_models(info.supported_camera_models)(method.render)
+        supported_camera_models = info.get("supported_camera_models", frozenset((CameraModel.PINHOLE,)))
+        render = with_supported_camera_models(supported_camera_models)(method.render)
         yield from render(dataset.cameras, progress_callback=progress_callback)
 
     def get_name(self):
         return "default"
 
     def evaluate(self, predictions: Iterable[RenderOutput], dataset: Dataset) -> Iterable[Dict[str, Union[float, int]]]:
+        assert dataset.images is not None, "dataset.images must be set"
         background_color = dataset.metadata.get("background_color")
         for i, prediction in enumerate(predictions):
             pred = prediction["color"]

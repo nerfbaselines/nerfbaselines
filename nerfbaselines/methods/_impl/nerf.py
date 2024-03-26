@@ -15,11 +15,12 @@ import tensorflow as tf
 import numpy as np
 import imageio
 import run_nerf
-from run_nerf import get_rays, render, get_rays_np
+from run_nerf_helpers import img2mse, mse2psnr, to8b
+from run_nerf import get_rays, render, get_rays_np, config_parser, create_nerf
 from load_llff import load_llff_data, spherify_poses, poses_avg
 from load_deepvoxels import load_dv_data
 from load_blender import load_blender_data
-from train import config_parser, create_nerf, img2mse, mse2psnr
+import tempfile
 from argparse import ArgumentParser
 
 from nerfbaselines.types import Dataset, CurrentProgress, RenderOutput, MethodInfo, ModelInfo, ProgressCallback
@@ -31,19 +32,24 @@ from nerfbaselines.pose_utils import pad_poses, apply_transform, unpad_poses, in
 
 
 tf.compat.v1.enable_eager_execution()
+def shlex_join(split_command):
+    """Return a shell-escaped string from *split_command*."""
+    return ' '.join(shlex.quote(arg) for arg in split_command)
 
 
 def load_dataset(args, dataset: Dataset, transform_args=None):
     poses = dataset.cameras.poses.copy()
-    imgs = np.stack(dataset.images, 0)
-    imgs = convert_image_dtype(imgs, np.float32)
+    imgs = None
+    if dataset.images is not None:
+        imgs = np.stack(dataset.images, 0)
+        imgs = convert_image_dtype(imgs, np.float32)
 
     # Convert from OpenCV to OpenGL coordinate system
     poses[..., 1:3] *= -1
     poses = poses.astype(np.float32)
+    W, H = dataset.cameras.image_sizes[0]
+    focal = dataset.cameras.intrinsics[0, 0]
     if args.dataset_type == "blender":
-        W, H = dataset.cameras.image_sizes[0]
-        focal = dataset.cameras.intrinsics[0, 0]
         assert (
             np.all(dataset.cameras.image_sizes[..., 0] == W) and
             np.all(dataset.cameras.image_sizes[..., 1] == H) and
@@ -59,16 +65,16 @@ def load_dataset(args, dataset: Dataset, transform_args=None):
         near = 2.
         far = 6.
 
-        if args.white_bkgd:
-            imgs = imgs[..., :3]*imgs[..., -1:] + (1.-imgs[..., -1:])
-        else:
-            imgs = imgs[..., :3]
+        if imgs is not None:
+            if args.white_bkgd:
+                imgs = imgs[..., :3]*imgs[..., -1:] + (1.-imgs[..., -1:])
+            else:
+                imgs = imgs[..., :3]
         transform_args = {
             "transform": np.eye(4, dtype=np.float32),
-            "hwfnearfar": (H, W, focal, near, far)
+            "hwfnearfarscale": (int(H), int(W), float(focal), near, far, 1.)
         }
         return imgs, poses[:, :3, :4], transform_args
-
     # Load data
     elif args.dataset_type == 'llff':
         if transform_args is None:
@@ -115,12 +121,13 @@ def load_dataset(args, dataset: Dataset, transform_args=None):
                 poses, _, _ = spherify_poses(poses, 1)
         transform_args = {
             "transform": transform,
-            "hwfnearfarscale": (H, W, focal, near, far, sc)
+            "hwfnearfarscale": (int(H), int(W), float(focal), near, far, float(sc))
         }
         print('Data:')
-        print(poses.shape, imgs.shape)
-        print('Loaded llff', imgs.shape,
-            render_poses.shape, (H, W, focal))
+        print(poses.shape)
+        if imgs is not None:
+            print(imgs.shape, imgs.min(), imgs.max())
+        print('Loaded llff', imgs.shape, (H, W, focal))
         print('DEFINING BOUNDS')
         print('NEAR FAR', near, far)
         return imgs, poses[:, :3, :4], transform_args
@@ -169,17 +176,17 @@ class NeRF(Method):
             num_iterations=N_iters,
             supported_camera_models=frozenset(CameraModel.__members__.values()),
             loaded_step=self.metadata.get("step"),
-            batch_size=self.args.batch_size,
-            eval_batch_size=self.args.batch_size,
+            batch_size=self.args.N_rand,
+            eval_batch_size=self.args.N_rand,
             hparams=vars(self.args) if self.args else {},
         )
 
     def save(self, path: Path):
         with open(str(path) + "/args.txt", "w") as f:
-            f.write(shlex.join(self._arg_list))
+            f.write(shlex_join(self._arg_list))
         # TODO: ...
         # self.tensorf.save(str(path / "tensorf.th"))
-        self.metadata["args"] = shlex.join(self._arg_list)
+        self.metadata["args"] = shlex_join(self._arg_list)
         self.metadata["step"] = self.step
         metadata = self.metadata.copy()
         metadata["transform_args"]["transform"] = metadata["transform_args"]["transform"].tolist()
@@ -187,7 +194,7 @@ class NeRF(Method):
             json.dump(metadata, f)
 
     def _setup(self, train_dataset: Dataset, *, config_overrides: Optional[Dict[str, Any]] = None):
-        if train_dataset is None:
+        if train_dataset is not None:
             config_overrides = (config_overrides or {}).copy()
 
             self.metadata["dataset_metadata"] = {
@@ -197,12 +204,12 @@ class NeRF(Method):
 
             # Load dataset-specific config
             dataset_name = train_dataset.metadata.get("name")
-            # TODO: ...
-            config_name = "your_own_data.txt"
             if dataset_name == "blender":
-                config_name = "lego.txt"
+                config_name = "blender_config.txt"
             elif dataset_name == "llff":
-                config_name = "flower.txt"
+                config_name = "llff_config.txt"
+            else:
+                raise RuntimeError(f"Unsupported dataset {dataset_name}")
             config_file = Path(run_nerf.__file__).absolute().parent.joinpath("paper_configs", config_name)
             logging.info(f"Loading config from {config_file}")
             with config_file.open("r", encoding="utf8") as f:
@@ -212,12 +219,15 @@ class NeRF(Method):
                 if isinstance(v, list):
                     for vs in v:
                         self._arg_list += (f"--{k}", str(vs))
+                elif v == "True":
+                    if v:
+                        self._arg_list += (f"--{k}",)
                 elif isinstance(v, str) and v.startswith("[") and v.endswith("]"):
                     for vs in v[1:-1].split(","):
                         self._arg_list += (f"--{k}", str(vs))
                 else:
                     self._arg_list += (f"--{k}", str(v))
-            logging.info("Using arguments: " + shlex.join(self._arg_list))
+            logging.info("Using arguments: " + shlex_join(self._arg_list))
         self._load_config()
 
         if self.args.random_seed is not None:
@@ -226,15 +236,19 @@ class NeRF(Method):
             tf.compat.v1.set_random_seed(self.args.random_seed)
 
         # Load data
-        images, poses, bds, render_poses, i_test, (H, W, focal, near, far) = load_dataset(self.args, train_dataset)
+        images, poses, self.metadata["transform_args"] = load_dataset(self.args, train_dataset, self.metadata.get("transform_args"))
+        (H, W, focal, near, far, sc) = self.metadata["transform_args"]["hwfnearfarscale"]
 
         # Cast intrinsics to right types
         H, W = int(H), int(W)
         self.focal = focal
 
         # Create nerf model
-        render_kwargs_train, render_kwargs_test, start, grad_vars, models = create_nerf(
-            self.args)
+        with tempfile.TemporaryDirectory() as basedir:
+            self.args.basedir, self.args.expname = os.path.split(basedir)
+            render_kwargs_train, render_kwargs_test, start, self.grad_vars, models = create_nerf(
+                self.args)
+            self.args.basedir = self.args.exp = None
 
         bds_dict = {
             'near': tf.cast(near, tf.float32),
@@ -259,8 +273,8 @@ class NeRF(Method):
         self.optimizer = tf.keras.optimizers.Adam(lrate)
         models['optimizer'] = self.optimizer
 
-        global_step = tf.compat.v1.train.get_or_create_global_step()
-        global_step.assign(start)
+        self.global_step = tf.compat.v1.train.get_or_create_global_step()
+        self.global_step.assign(start)
 
         # Prepare raybatch tensor if batching random rays
         use_batching = not self.args.no_batching
@@ -382,73 +396,28 @@ class NeRF(Method):
         }
 
     def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
-        assert self.metadata.get("dataset_metadata") is not None, "Missing dataset_metadata"
-        assert self.metadata.get("dataset_transform") is not None, "Missing dataset_transform"
-        poses, imgs = load_dataset(self.args,
+        _, poses, _ = load_dataset(self.args,
             Dataset(
                 cameras=cameras,
                 file_paths=[f"{i:06d}.png" for i in range(len(cameras))],
                 metadata=self.metadata["dataset_metadata"],
             ),
-            transform_args=self.metadata["dataset_transform"]
+            transform_args=self.metadata["transform_args"]
         )
         idx = 0
         if progress_callback is not None:
-            progress_callback(CurrentProgress(idx, len(test_dataset), idx, len(test_dataset)))
-        for idx, samples in enumerate(test_dataset.all_rays):
-            W, H = cameras.image_sizes[idx]
-            rays = samples.view(-1, samples.shape[-1])
-
-            rgb_map, _, depth_map, _, _ = self.renderer(rays, self.tensorf, chunk=4096, N_samples=-1, ndc_ray=self.args.ndc_ray, white_bg=self.white_bg, device=self.device)
-
-            rgb_map = rgb_map.clamp(0.0, 1.0)
-            rgb_map, depth_map = rgb_map.reshape(H, W, 3).cpu(), depth_map.reshape(H, W).cpu()
-            if progress_callback is not None:
-                progress_callback(CurrentProgress(idx + 1, len(test_dataset), idx + 1, len(test_dataset)))
-
+            progress_callback(CurrentProgress(idx, len(cameras), idx, len(cameras)))
+        for idx, pose in enumerate(poses):
             W, H = cameras.image_sizes[idx]
             focal, *_ = cameras.intrinsics[idx]
             pose = cameras.poses[idx, :3, :4]
             rgb, disp, acc, extras = render(
                 H, W, focal, chunk=self.args.chunk, c2w=pose, **self.render_kwargs_test)
-
-            # Save out the validation image for Tensorboard-free monitoring
-            testimgdir = os.path.join(basedir, expname, 'tboard_val_imgs')
-            if i==0:
-                os.makedirs(testimgdir, exist_ok=True)
-            imageio.imwrite(os.path.join(testimgdir, '{:06d}.png'.format(i)), to8b(rgb))
-
-            with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
-
-                tf.contrib.summary.image('rgb', to8b(rgb)[tf.newaxis])
-                tf.contrib.summary.image(
-                    'disp', disp[tf.newaxis, ..., tf.newaxis])
-                tf.contrib.summary.image(
-                    'acc', acc[tf.newaxis, ..., tf.newaxis])
-
-                tf.contrib.summary.scalar('psnr_holdout', psnr)
-                tf.contrib.summary.image('rgb_holdout', target[tf.newaxis])
-
-            if args.N_importance > 0:
-
-                with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
-                    tf.contrib.summary.image(
-                        'rgb0', to8b(extras['rgb0'])[tf.newaxis])
-                    tf.contrib.summary.image(
-                        'disp0', extras['disp0'][tf.newaxis, ..., tf.newaxis])
-                    tf.contrib.summary.image(
-                        'z_std', extras['z_std'][tf.newaxis, ..., tf.newaxis])
-
-
-
-
-
-
-
-
-
-
+            if progress_callback is not None:
+                progress_callback(CurrentProgress(idx + 1, len(cameras), idx + 1, len(cameras)))
+            rgb = np.clip(rgb.numpy(), 0.0, 1.0)
             yield {
-                "color": rgb_map.detach().numpy(),
-                "depth": depth_map.detach().numpy(),
+                "color": rgb,
+                "accumulation": acc.numpy(),
+                "depth": extras["depth"].numpy(),
             }

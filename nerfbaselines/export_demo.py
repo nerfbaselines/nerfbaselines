@@ -4,6 +4,7 @@ from typing import Any
 from pathlib import Path
 import os
 import json
+from .backends import ALL_BACKENDS
 from .utils import setup_logging
 from .io import open_any_directory, deserialize_nb_info
 from . import registry
@@ -14,7 +15,7 @@ from . import backends
 @click.option("--checkpoint", type=click.Path(file_okay=True, dir_okay=True, path_type=Path), required=True)
 @click.option("--output", "-o", type=click.Path(file_okay=True, dir_okay=False, path_type=Path), required=True)
 @click.option("--verbose", "-v", is_flag=True)
-@click.option("--backend", "backend_name", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
+@click.option("--backend", "backend_name", type=click.Choice(ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 def main(checkpoint, output, backend_name, verbose=False):
     checkpoint = str(checkpoint)
     setup_logging(verbose)

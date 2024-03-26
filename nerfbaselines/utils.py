@@ -528,7 +528,7 @@ def get_resources_utilization_info(pid: Optional[int] = None) -> ResourcesUtiliz
     try:
         mem = 0
         out = subprocess.check_output("ps -ax -o pid= -o ppid= -o rss=".split(), text=True).splitlines()
-        mem_used = {}
+        mem_used: Dict[int, int] = {}
         children = {}
         for line in out:
             cpid, ppid, used_memory = map(int, line.split())
@@ -678,11 +678,18 @@ class SetParamOptionType(click.ParamType):
 def get_package_dependencies(extra=None):
     if sys.version_info < (3, 10):
         from importlib_metadata import distribution
+        import importlib_metadata
     else:
+        from importlib import metadata as importlib_metadata
         from importlib.metadata import distribution
 
     requires = []
-    requires_with_conditions = distribution(__package__).requires
+    requires_with_conditions = []
+    try:
+        requires_with_conditions = distribution(__package__).requires
+    except importlib_metadata.PackageNotFoundError:
+        # Package not installed
+        pass
     for r in requires_with_conditions:
         if ";" in r:
             r, condition = r.split(";")

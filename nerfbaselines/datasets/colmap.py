@@ -319,7 +319,7 @@ def load_colmap_dataset(path: Path,
         points3D_xyz=points3D_xyz,
         points3D_rgb=points3D_rgb,
         sampling_mask_paths=sampling_mask_paths,
-        file_paths_root=images_path,
+        file_paths_root=str(images_path),
     )
 
     if split is not None:

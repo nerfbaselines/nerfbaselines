@@ -10,9 +10,9 @@ from pathlib import Path
 import subprocess
 from typing import Optional
 from typing import  Union, Set, Callable, TYPE_CHECKING
-from typing import get_args, Sequence
+from typing import Sequence
 from ..utils import CancellationToken, cancellable
-from ..types import Method, Literal
+from ..types import Method, Literal, get_args
 if TYPE_CHECKING:
     from ..types import MethodSpec
 
@@ -160,6 +160,8 @@ class _BackendMeta(type):
 
 
 class Backend(metaclass=_BackendMeta):
+    name = "unknown"
+
     def __enter__(self):
         tid = threading.get_ident()
         if tid not in _active_backend:
