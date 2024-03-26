@@ -171,11 +171,20 @@ class NeRF(Method):
 
     def get_info(self) -> ModelInfo:
         N_iters = 1000000
+
+        loaded_step = None
+        if self.checkpoint is not None:
+            ckpts = [os.path.join(self.checkpoint, f) for f in sorted(os.listdir(os.path.join(self.checkpoint))) if
+                        ('model_' in f and 'fine' not in f and 'optimizer' not in f)]
+            if len(ckpts) > 0:
+                ft_weights = ckpts[-1]
+                loaded_step = int(ft_weights[-10:-4]) + 1
+
         return ModelInfo(
             name=self._method_name,
             num_iterations=N_iters,
             supported_camera_models=frozenset(CameraModel.__members__.values()),
-            loaded_step=self.metadata.get("step"),
+            loaded_step=loaded_step,
             batch_size=self.args.N_rand,
             eval_batch_size=self.args.N_rand,
             hparams=vars(self.args) if self.args else {},
@@ -184,10 +193,14 @@ class NeRF(Method):
     def save(self, path: Path):
         with open(str(path) + "/args.txt", "w") as f:
             f.write(shlex_join(self._arg_list))
-        # TODO: ...
-        # self.tensorf.save(str(path / "tensorf.th"))
+        def save_weights(net, prefix, i):
+            mpath = os.path.join(path, '{}_{:06d}.npy'.format(prefix, i))
+            np.save(mpath, net.get_weights())
+            print('saved weights at', path)
+        for k in self.models:
+            save_weights(self.models[k], k, self.step)
+
         self.metadata["args"] = shlex_join(self._arg_list)
-        self.metadata["step"] = self.step
         metadata = self.metadata.copy()
         metadata["transform_args"]["transform"] = metadata["transform_args"]["transform"].tolist()
         with (path / "metadata.json").open("w") as f:
@@ -246,7 +259,11 @@ class NeRF(Method):
         # Create nerf model
         with tempfile.TemporaryDirectory() as basedir:
             self.args.basedir, self.args.expname = os.path.split(basedir)
-            render_kwargs_train, render_kwargs_test, start, self.grad_vars, models = create_nerf(
+            if self.checkpoint is not None:
+                step = self.get_info().get("loaded_step")
+                assert step is not None, f"Could not find valid checkpoint in path {self.checkpoint}"
+                self.args.ft_path = os.path.join(self.checkpoint, f"model_{step:06d}.npy")
+            render_kwargs_train, render_kwargs_test, start, self.grad_vars, self.models = create_nerf(
                 self.args)
             self.args.basedir = self.args.exp = None
 
@@ -271,10 +288,11 @@ class NeRF(Method):
                 decay_steps=self.args.lrate_decay * 1000, 
                 decay_rate=0.1)
         self.optimizer = tf.keras.optimizers.Adam(lrate)
-        models['optimizer'] = self.optimizer
+        self.models['optimizer'] = self.optimizer
 
+        self.step = start
         self.global_step = tf.compat.v1.train.get_or_create_global_step()
-        self.global_step.assign(start)
+        self.global_step.assign(self.step)
 
         # Prepare raybatch tensor if batching random rays
         use_batching = not self.args.no_batching
@@ -314,7 +332,8 @@ class NeRF(Method):
 
 
     def train_iteration(self, step: int):
-        self.global_step.assign(step)
+        self.step = step
+        self.global_step.assign(self.step)
         # Sample random ray batch
 
         use_batching = not self.args.no_batching
@@ -387,6 +406,7 @@ class NeRF(Method):
         gradients = tape.gradient(loss, self.grad_vars)
         self.optimizer.apply_gradients(zip(gradients, self.grad_vars))
         self.step = step + 1
+        self.global_step.assign(self.step)
         return {
             "loss": loss.numpy().item(),
             "psnr": psnr.numpy().item(),

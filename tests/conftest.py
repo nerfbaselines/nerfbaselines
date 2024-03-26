@@ -249,7 +249,7 @@ def mock_torch():
             else:
                 return self
 
-        def view(self, *shape):
+        def view(self, *shape):  # type: ignore
             return self.reshape(shape)
 
         def mul_(self, value):
@@ -266,7 +266,7 @@ def mock_torch():
         def bmm(self, other):
             return np.matmul(self, other)
 
-        def sum(self, dim=None, dtype=None, keepdim=False):
+        def sum(self, dim=None, dtype=None, keepdim=False):  # type: ignore
             self = np.ndarray.view(self, np.ndarray)
             if isinstance(dim, list):
                 dim = tuple(dim)
@@ -397,7 +397,7 @@ def mock_torch():
         def add_module(self, name, module):
             self.modules.append(module)
 
-        def forward(self, x):
+        def forward(self, x):  # type: ignore
             for m in self.modules:
                 x = m(x)
             return x

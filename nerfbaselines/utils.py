@@ -506,7 +506,7 @@ def run_on_host():
             if Backend.current is not None:
                 return Backend.current.wrap(fn)(*args, **kwargs)
             return fn(*args, **kwargs)
-        wrapped.__run_on_host_original__ = fn
+        wrapped.__run_on_host_original__ = fn  # type: ignore
         return wrapped
     return wrap
 
@@ -521,7 +521,7 @@ def get_resources_utilization_info(pid: Optional[int] = None) -> ResourcesUtiliz
     if pid is None:
         pid = os.getpid()
 
-    info = {}
+    info: ResourcesUtilizationInfo = {}
 
     # Get all cpu memory and running processes
     all_processes = set((pid,))
@@ -676,6 +676,7 @@ class SetParamOptionType(click.ParamType):
 
 
 def get_package_dependencies(extra=None):
+    assert __package__ is not None, "Package must be set"
     if sys.version_info < (3, 10):
         from importlib_metadata import distribution
         import importlib_metadata
@@ -684,13 +685,13 @@ def get_package_dependencies(extra=None):
         from importlib.metadata import distribution
 
     requires = []
-    requires_with_conditions = []
+    requires_with_conditions = None
     try:
         requires_with_conditions = distribution(__package__).requires
     except importlib_metadata.PackageNotFoundError:
         # Package not installed
         pass
-    for r in requires_with_conditions:
+    for r in (requires_with_conditions or ()):
         if ";" in r:
             r, condition = r.split(";")
             condition = condition.strip().replace(" ", "")

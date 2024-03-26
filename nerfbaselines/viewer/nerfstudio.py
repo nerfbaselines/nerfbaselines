@@ -4,7 +4,7 @@ import time
 import tempfile
 import torch
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
 
 from ..types import Method, Dataset
 from ..cameras import Cameras, CameraModel
@@ -290,7 +290,8 @@ def get_orientation_transform(poses):
     return transform
 
 
-def run_nerfstudio_viewer(method: Method, data: str, port=6006):
+def run_nerfstudio_viewer(method: Optional[Method], data: str, port=6006):
+    assert method is not None, "Method is required"
     if data is not None:
         features = frozenset({"color"})
         train_dataset = load_dataset(data, split="test", features=features)

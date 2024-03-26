@@ -204,10 +204,11 @@ class ApptainerBackend(RemoteProcessRPCBackend):
         # Run docker image
         env = apptainer_get_safe_environment()
         args = ["bash"]
-        if self._spec.get("conda_spec") is not None:
+        conda_spec = self._spec.get("conda_spec")
+        if conda_spec is not None:
             env_path = "/var/conda-envs"
-            env_name = self._spec["conda_spec"]["environment_name"]
-            env_path = os.path.join(env_path, env_name, conda_get_environment_hash(self._spec["conda_spec"]), env_name)
+            env_name = conda_spec["environment_name"]
+            env_path = os.path.join(env_path, env_name, conda_get_environment_hash(conda_spec), env_name)
             args = [os.path.join(env_path, ".activate.sh")] + args
         args, env = apptainer_run(
             self._spec, args, env, 

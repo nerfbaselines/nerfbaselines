@@ -8,10 +8,8 @@ import importlib
 from typing import Optional, Type, Any, Tuple, Dict, List, Iterable
 
 if sys.version_info < (3, 10):
-    import importlib_metadata
     from importlib_metadata import entry_points
 else:
-    from importlib import metadata as importlib_metadata
     from importlib.metadata import entry_points
 from .types import Method, TypedDict, Required, FrozenSet, NotRequired
 from .backends import BackendName
@@ -109,6 +107,7 @@ def _auto_register(force=False):
     from . import methods
 
     # TODO: do this more robustly
+    assert __package__ is not None, "Package must be set"
     _registration_fastpath = __package__ + ".methods"
     for package in os.listdir(os.path.dirname(methods.__file__)):
         if package.endswith(".py") and not package.startswith("_") and package != "__init__.py":
@@ -174,7 +173,7 @@ def register(spec: "MethodSpec", *, name: Optional[str] = None, metadata=None, k
     name = spec.get("name")
     assert name is not None, "Name must be provided"
     assert name not in registry, f"Method {name} already registered"
-    registry[spec["name"]] = spec
+    registry[name] = spec
 
 
 def get(name: str) -> MethodSpec:

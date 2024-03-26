@@ -73,7 +73,7 @@ echo "export PATH=\\"$CONDA_PREFIX/src/TRIPS/build:\\$PATH\\"" >> "$CONDA_PREFIX
 echo "export LD_LIBRARY_PATH=\\"$CONDA_PREFIX/lib:\\$LD_LIBRARY_PATH\\"" >> "$CONDA_PREFIX/etc/conda/activate.d/env_vars.sh"
 
 # Install PyTorch such that it can be used by NB
-conda install pytorch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 pytorch-cuda=11.7 -c pytorch -c nvidia
+pip install torch==1.13.1+cu117 torchvision==0.14.1+cu117 --extra-index-url https://download.pytorch.org/whl/cu117
 """,
     },
     "metadata": {

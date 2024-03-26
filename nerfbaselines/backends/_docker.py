@@ -188,11 +188,12 @@ def build_docker_image(spec: Optional['DockerBackendSpec'] = None, skip_if_exist
     if spec is None:
         name = BASE_IMAGE
         dockerfile = Path(__file__).absolute().parent.joinpath("Dockerfile").read_text()
-    elif spec.get("image") is None or spec.get("conda_spec") is not None:
+    elif spec is not None and spec.get("image") is None or spec.get("conda_spec") is not None:
         name = get_docker_image_name(spec)
         dockerfile = docker_get_dockerfile(spec)
     else:
-        raise ValueError(f"The docker image can only be pulled from {spec['image']}")
+        image = spec.get("image")
+        raise ValueError(f"The docker image can only be pulled from {image}")
     _build_docker_image(
         name,
         dockerfile,
@@ -242,7 +243,8 @@ def docker_run_image(spec: DockerBackendSpec,
     os.makedirs(os.path.expanduser("~/.conda/pkgs"), exist_ok=True)
     torch_home = os.path.expanduser(os.environ.get("TORCH_HOME", "~/.cache/torch/hub"))
     os.makedirs(torch_home, exist_ok=True)
-    replace_user = spec["replace_user"] if spec.get("replace_user") is not None else True
+    replace_user = spec.get("replace_user")
+    replace_user = replace_user if replace_user is not None else True
     package_path = str(Path(nerfbaselines.__file__).absolute().parent.parent)
     args = [
         "docker",
@@ -255,7 +257,7 @@ def docker_run_image(spec: DockerBackendSpec,
                 "-v=/etc/passwd:/etc/passwd:ro",
                 "-v=/etc/shadow:/etc/shadow:ro",
                 "--env",
-                f"HOME={shlex.quote(spec.get('home_path')) or '/root'}",
+                f"HOME={shlex.quote(spec.get('home_path') or '/root')}",
             )
             if replace_user
             else ()
@@ -341,7 +343,7 @@ class DockerBackend(RemoteProcessRPCBackend):
         mounts = get_mounts()
         forwarded_ports = get_forwarded_ports()
         forwarded_ports.append((self._port, self._port))
-        super()._launch_worker(*docker_run_image(
+        return super()._launch_worker(*docker_run_image(
             self._spec, args, env, 
             mounts=mounts, 
             ports=forwarded_ports,

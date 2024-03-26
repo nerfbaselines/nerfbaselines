@@ -4,12 +4,11 @@ import inspect
 import threading
 import types
 from functools import partial
-import contextlib
 import importlib
 from pathlib import Path
 import subprocess
 from typing import Optional
-from typing import  Union, Set, Callable, TYPE_CHECKING
+from typing import  Union, Set, Callable, TYPE_CHECKING, List, cast
 from typing import Sequence
 from ..utils import CancellationToken, cancellable
 from ..types import Method, Literal, get_args
@@ -52,7 +51,6 @@ def get_mounts():
     return out
 
 
-@contextlib.contextmanager
 def forward_port(ps: int, pd: int):
     tid = threading.get_ident()
     if _active_backend.get(tid):
@@ -90,7 +88,7 @@ def _get_implemented_backends(method_spec: 'MethodSpec') -> Sequence[BackendName
     if get_apptainer_spec(method_spec) is not None:
         backends.add("apptainer")
 
-    backends_order = ["conda", "docker", "apptainer", "python"]
+    backends_order: List[BackendName] = ["conda", "docker", "apptainer", "python"]
     if method_spec.get("backends_order") is not None:
         bo = method_spec.get("backends_order")
         backends_order = list(bo) + [x for x in backends_order if x not in bo]
@@ -219,7 +217,7 @@ class SimpleBackend(Backend):
         fn = importlib.import_module(fn)
         for part in fnname.split("."):
             fn = getattr(fn, part)
-        fn = getattr(fn, "__run_on_host_original__", fn)
+        fn = cast(Callable, getattr(fn, "__run_on_host_original__", fn))
         if CancellationToken.current is not None:
             fn = cancellable(fn, cancellation_token=CancellationToken.current)
         return fn(*args, **kwargs)
@@ -270,9 +268,9 @@ def wrap_with_backend(backend: 'Backend', cls, spec=None):
 
         for k, member in members.items():
             if isinstance(member, classmethod):
-                ns[k] = classmethod(partial(backend.static_getattr, f'{path}.{k}'))
+                ns[k] = classmethod(partial(backend.static_getattr, f'{path}.{k}'))  # type: ignore
             elif callable(member):
-                ns[k] = staticmethod(partial(backend.static_call, f'{path}.{k}'))
+                ns[k] = staticmethod(partial(backend.static_call, f'{path}.{k}'))  # type: ignore
             elif isinstance(member, property):
                 ns[k] = partialproperty(k)
         ns.pop("__init__", None)
