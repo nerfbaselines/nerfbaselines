@@ -133,11 +133,13 @@ class LPIPS(nn.Module):
                     response.raise_for_status()
                     with io.BytesIO(response.content) as f:
                         weights = torch.load(f, map_location='cpu')
+                    if(verbose):
+                        print('Loading model from: %s'%model_url)
                 else:
                     weights = torch.load(model_path, map_location='cpu')
+                    if(verbose):
+                        print('Loading model from: %s'%model_path)
 
-                if(verbose):
-                    print('Loading model from: %s'%model_url)
                 self.load_state_dict(weights, strict=False)          
 
         if(eval_mode):

@@ -10,7 +10,7 @@ class _TestMethod(Method):
         self.test = self._test
 
     @classmethod
-    def get_method_info(self):
+    def get_method_info(cls):
         raise NotImplementedError()
 
     def get_info(self):

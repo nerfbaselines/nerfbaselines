@@ -23,6 +23,7 @@ from .render import with_supported_camera_models
 from .utils import convert_image_dtype
 from .types import Method, CurrentProgress
 from .cameras import Cameras, CameraModel
+from .backends import ALL_BACKENDS
 
 from .io import open_any_directory, deserialize_nb_info
 from . import registry
@@ -199,7 +200,7 @@ class Trajectory:
 @click.option("--output", type=click.Path(path_type=Path), default=None, help="output a mp4/directory/tar.gz file")
 @click.option("--output-type", type=click.Choice(get_args(OutputType)), default="color", help="output type")
 @click.option("--verbose", "-v", is_flag=True)
-@click.option("--backend", "backend_name", type=click.Choice(registry.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
+@click.option("--backend", "backend_name", type=click.Choice(ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @handle_cli_error
 def main(checkpoint: Union[str, Path], trajectory: Path, output, output_type: OutputType, verbose, backend_name):
     checkpoint = str(checkpoint)

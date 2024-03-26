@@ -17,7 +17,7 @@ def test_render(use_remote_method):
         def get_method_info(cls) -> MethodInfo:
             return {"name": "_test", "required_features": frozenset(), "supported_camera_models": frozenset()}
 
-        def get_info(self):
+        def get_info(self) -> ModelInfo:
             return {**self.get_method_info()}
 
         def render(self, cameras, progress_callback=None) -> Iterable[RenderOutput]:
@@ -58,10 +58,10 @@ def use_remote_method():
 
                 @classmethod
                 def get_method_info(cls) -> MethodInfo:
-                    return MethodInfo(name="_test")
+                    return dict(name="_test")
 
                 def get_info(self):
-                    return ModelInfo(**self.get_method_info())
+                    return {**self.get_method_info()}
 
                 def render(self, cameras, progress_callback=None) -> Iterable[RenderOutput]:
                     for i in range(100):

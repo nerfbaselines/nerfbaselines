@@ -6,7 +6,7 @@ from typing import Optional
 import hashlib
 
 import nerfbaselines
-from ..types import NB_PREFIX, TypedDict
+from ..types import NB_PREFIX, TypedDict, Required
 from ..utils import get_package_dependencies
 from ._rpc import RemoteProcessRPCBackend, get_safe_environment
 
@@ -15,7 +15,7 @@ _DEFAULT_TORCH_INSTALL_COMMAND = "pytorch==2.2.0 torchvision==0.17.0 pytorch-cud
 
 
 class CondaBackendSpec(TypedDict, total=False):
-    environment_name: Optional[str]
+    environment_name: Required[str]
     python_version: Optional[str]
     install_script: Optional[str]
 
@@ -94,6 +94,10 @@ echo 'eval "$(conda shell.bash hook)"' >> {shlex.quote(os.path.join(env_path, ".
 echo 'conda activate {shlex.quote(env_path)};export NERFBASELINES_BACKEND=python' >> {shlex.quote(os.path.join(env_path, ".activate.sh"))}
 echo 'exec "$@"' >> {shlex.quote(os.path.join(env_path, ".activate.sh"))}
 chmod +x {shlex.quote(os.path.join(env_path, ".activate.sh"))}
+# If function nb-post-install is declared, run it
+if declare -f nb-post-install >/dev/null; then
+    nb-post-install
+fi
 touch {shlex.quote(env_path + ".ack.txt")}
 echo "0" > {shlex.quote(env_path + ".ack.txt")}
 fi

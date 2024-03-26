@@ -444,7 +444,7 @@ class Trainer:
             util = self._resources_utilization_info
         if update:
             logging.debug(f"computing resource utilization at step={self.step}")
-            new_util = get_resources_utilization_info()
+            new_util: Dict[str, int] = get_resources_utilization_info()
             for k, v in new_util.items():
                 if k not in util:
                     util[k] = 0

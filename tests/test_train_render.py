@@ -53,7 +53,7 @@ class _TestMethod(Method):
         _TestMethod._render_call_step = []
 
     @classmethod
-    def get_method_info(cls):
+    def get_method_info(cls) -> MethodInfo:
         return {
             "name": "_test",
             "required_features": frozenset(("color",)),
@@ -275,7 +275,7 @@ def test_train_command_undistort(tmp_path, wandb_init_run):
     setup_data_was_called = False
 
     class _Method(_TestMethod):
-        def get_info(self) -> MethodInfo:
+        def get_info(self) -> ModelInfo:
             info = {**super().get_info()}
             info["supported_camera_models"] = frozenset((CameraModel.PINHOLE,))
             return info

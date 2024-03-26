@@ -16,7 +16,7 @@ from threading import Event
 from time import sleep
 import pickle
 import socket
-from typing import Optional, List, Any, Dict
+from typing import Optional, List, Any, Dict, Callable, cast, Tuple
 import inspect
 import secrets
 import logging
@@ -252,6 +252,7 @@ class RPCWorker:
                 for x in fnname.split("."):
                     fn = getattr(fn, x)
                 fn = getattr(fn, "__run_on_host_original__", fn)
+                fn = cast(Callable, fn)
                 kwargs = inject_callables(msg["kwargs"], send_message, mid)
                 args = inject_callables(msg["args"], send_message, mid)
             elif message == "instance_call":
@@ -259,6 +260,7 @@ class RPCWorker:
                 fn = self._instances[msg["instance"]]
                 for x in msg["name"].split("."):
                     fn = getattr(fn, x)
+                fn = cast(Callable, fn)
                 kwargs = inject_callables(msg["kwargs"], send_message, mid)
                 args = inject_callables(msg["args"], send_message, mid)
             elif message == "static_getattr":
@@ -346,12 +348,12 @@ def run_worker(*, worker: Optional[RPCWorker] = None, address="localhost", port=
                 process_message_with_token, cancellation_token, msg, lambda m: out_queue.put({**m, "thread_id": mid}))
 
                 
-def _listener_accept_with_cancel(listener: Listener, cancel_token: Optional[CancellationToken], timeout=0):
+def _listener_accept_with_cancel(listener: Listener, cancel_token: Optional[CancellationToken], timeout: float = 0):
     if cancel_token is None and timeout <= 0:
         return listener.accept()
     elif cancel_token is None:
         try:
-            listener._listener._socket.settimeout(timeout)
+            listener._listener._socket.settimeout(timeout)  # type: ignore
             return listener.accept()
         except socket.timeout:
             raise TimeoutError("Timeout waiting for connection")
@@ -364,7 +366,7 @@ def _listener_accept_with_cancel(listener: Listener, cancel_token: Optional[Canc
             if cancel_token is not None:
                 cancel_token.raise_for_cancelled()
             try:
-                listener._listener._socket.settimeout(wtimeout)
+                listener._listener._socket.settimeout(wtimeout)  # type: ignore
                 return listener.accept()
             except socket.timeout:
                 pass
@@ -390,6 +392,7 @@ class RPCMasterEndpoint:
         cancellation_token = CancellationToken.current
         if self._conn is None or self._conn.closed:
             raise RuntimeError("There is no active connection.")
+        assert self._recv is not None, "Not in a context"
         global _MESSAGE_COUNTER
         _MESSAGE_COUNTER += 1
         mid = _MESSAGE_COUNTER
@@ -444,7 +447,7 @@ class RPCMasterEndpoint:
         return self
 
     @cancellable(mark_only=True)
-    def wait_for_connection(self, timeout=0):
+    def wait_for_connection(self, timeout: float = 0):
         logging.info("Waiting for connection")
         assert self._listener is not None, "Not in a context"
         if self._conn is not None and not self._conn.closed:
@@ -476,7 +479,7 @@ class RPCMasterEndpoint:
         self._conn, self._recv = conn, recv
 
     def close(self):
-        if self._conn is not None:
+        if self._conn is not None and self._recv is not None:
             if not self._conn.closed:
                 send(self._conn, {"message": "close"})
                 # Wait for close ack
@@ -505,7 +508,7 @@ class RPCBackend(Backend):
         # 1) Replace callables from the function call
         callables = []
         if message["message"] in {"static_call", "instance_call"}:
-            args, kwargs = replace_callables((args, kwargs), callables, depth=-2)
+            args, kwargs = cast(Tuple[Any, Any], replace_callables((args, kwargs), callables, depth=-2))
             message["args"] = args
             message["kwargs"] = kwargs
 
@@ -553,20 +556,20 @@ class RPCBackend(Backend):
                 else:
                     raise RuntimeError(f"Unknown message {message}")
 
-    def static_getattr(self, name: str):
+    def static_getattr(self, attr: str) -> Any:
         return self._handle_thread({
             "message": "static_getattr", 
-            "name": name, 
+            "name": attr, 
         })
 
-    def static_call(self, function: str, *args, **kwargs):
+    def static_call(self, function: str, *args, **kwargs) -> Any:
         return self._handle_thread({
             "message": "static_call", 
             "function": function, 
             "is_cancellable": CancellationToken.current is not None,
         }, *args, **kwargs)
 
-    def instance_call(self, instance: int, method: str, *args, **kwargs):
+    def instance_call(self, instance: int, method: str, *args, **kwargs) -> Any:
         return self._handle_thread({
             "message": "instance_call", 
             "instance": instance, 
@@ -574,7 +577,7 @@ class RPCBackend(Backend):
             "is_cancellable": CancellationToken.current is not None,
         }, *args, **kwargs)
 
-    def instance_getattr(self, instance: int, name: str):
+    def instance_getattr(self, instance: int, name: str) -> Any:
         return self._handle_thread({
             "message": "instance_getattr", 
             "instance": instance, 
@@ -708,22 +711,27 @@ rw(address="{self._address}", port={self._port}, authkey=authkey)
         self._worker_running = True
         logging.info("Backend worker started")
 
-    def static_getattr(self, name: str):
+    def static_getattr(self, attr: str):
         self._ensure_started()
-        return self._rpc_backend.static_getattr(name)
+        assert self._rpc_backend is not None, "Backend not started"
+        return self._rpc_backend.static_getattr(attr)
 
     def static_call(self, function: str, *args, **kwargs):
         self._ensure_started()
+        assert self._rpc_backend is not None, "Backend not started"
         return self._rpc_backend.static_call(function, *args, **kwargs)
 
     def instance_call(self, instance: int, method: str, *args, **kwargs):
         self._ensure_started()
+        assert self._rpc_backend is not None, "Backend not started"
         return self._rpc_backend.instance_call(instance, method, *args, **kwargs)
     
     def instance_getattr(self, instance: int, name: str):
         self._ensure_started()
+        assert self._rpc_backend is not None, "Backend not started"
         return self._rpc_backend.instance_getattr(instance, name)
     
     def instance_del(self, instance: int):
         self._ensure_started()
+        assert self._rpc_backend is not None, "Backend not started"
         return self._rpc_backend.instance_del(instance)

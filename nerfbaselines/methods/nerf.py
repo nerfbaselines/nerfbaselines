@@ -21,13 +21,16 @@ conda develop "$PWD"
 
 # Install requirements.
 conda install -y numpy \
-                 imageio \
                  configargparse \
                  imagemagick \
                  cudatoolkit=10.0
 conda install -y -c anaconda tensorflow-gpu==1.15 
 conda install -y pytorch==1.1.0 torchvision==0.3.0 -c pytorch
 python -m pip install --upgrade pip
+function nb-post-install () {
+    python -m pip uninstall -y pillow
+    python -m pip install imageio==2.9.0 "pillow<7"
+}
 """,
     },
     "metadata": {

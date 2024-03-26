@@ -170,7 +170,7 @@ class Method(Protocol):
         pass
 
     @classmethod
-    def install(self):
+    def install(cls):
         """
         Install the method.
         """

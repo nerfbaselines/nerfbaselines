@@ -22,6 +22,7 @@ def _test_function(a, b):
 
 def cc(*args):
     def w():
+        o = None
         for fn in args:
             o = fn()
         return o
@@ -273,6 +274,7 @@ def test_master_endpoint_run_worker():
     received_messages, result = [], []
     def process_message_cancel(msg, callback):
         current = EventCancellationToken.current
+        assert current is not None
         received_messages.append(msg)
         for _ in range(1000):
             try:
@@ -332,6 +334,7 @@ def test_master_endpoint_broken_connection():
         thread.start()
         endpoint.wait_for_connection()
         def break_connection():
+            assert endpoint._conn is not None
             endpoint._conn.close()
         threading.Thread(target=lambda: time.sleep(0.1) or break_connection(), daemon=True).start()
         with pytest.raises(ConnectionError):
@@ -388,8 +391,8 @@ def _test_iterable_stop_iteration():
     for i in range(10):
         yield i
         sleep(0.001)
-    _test_iterable_stop_iteration.val = True
-_test_iterable_stop_iteration.val = False
+    _test_iterable_stop_iteration.val = True  # type: ignore
+_test_iterable_stop_iteration.val = False  # type: ignore
 
 
 def test_rpc_backend_iterator_closed_propagate():
@@ -400,14 +403,14 @@ def test_rpc_backend_iterator_closed_propagate():
     with RPCMasterEndpoint(port=port, authkey=authkey) as endpoint, RPCBackend(endpoint=endpoint) as backend:
         endpoint.wait_for_connection()
 
-        _test_iterable_stop_iteration.val = False
+        _test_iterable_stop_iteration.val = False  # type: ignore
         next(iter(backend.static_call(_test_iterable_stop_iteration.__module__+":"+_test_iterable_stop_iteration.__name__)))
-        assert not _test_iterable_stop_iteration.val
+        assert not _test_iterable_stop_iteration.val  # type: ignore
 
-        _test_iterable_stop_iteration.val = False
+        _test_iterable_stop_iteration.val = False  # type: ignore
         for _ in backend.static_call(_test_iterable_stop_iteration.__module__+":"+_test_iterable_stop_iteration.__name__):
             pass
-        assert _test_iterable_stop_iteration.val
+        assert _test_iterable_stop_iteration.val  # type: ignore
 
     worker_thread.join()
     
