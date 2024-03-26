@@ -203,7 +203,7 @@ def mock_torch():
     torch = mock.MagicMock()
 
     class Tensor(np.ndarray):
-        def __new__(self, value):
+        def __new__(cls, value):
             if isinstance(value, np.ndarray):
                 return value.view(Tensor)
             return np.array(value).view(Tensor)
@@ -272,7 +272,7 @@ def mock_torch():
                 dim = tuple(dim)
             return Tensor(np.sum(self, axis=dim, dtype=dtype, keepdims=keepdim))
 
-        def mean(self, dim=None, dtype=None, keepdim=False):
+        def mean(self, dim=None, dtype=None, keepdim=False):  # type: ignore
             self = np.ndarray.view(self, np.ndarray)
             if isinstance(dim, list):
                 dim = tuple(dim)

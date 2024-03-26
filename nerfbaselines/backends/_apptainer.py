@@ -8,7 +8,7 @@ import nerfbaselines
 from ..utils import cached_property
 from ..types import NB_PREFIX, TypedDict
 from ._docker import BASE_IMAGE
-from ._conda import conda_get_install_script, conda_get_environment_hash
+from ._conda import conda_get_install_script, conda_get_environment_hash, CondaBackendSpec
 from ._rpc import RemoteProcessRPCBackend, get_safe_environment
 from ._common import get_mounts
 if TYPE_CHECKING:
@@ -21,6 +21,7 @@ class ApptainerBackendSpec(TypedDict, total=False):
     home_path: str
     python_path: str
     default_cuda_archs: str
+    conda_spec: Optional[CondaBackendSpec]
 
 
 def apptainer_get_safe_environment():
@@ -163,9 +164,10 @@ class ApptainerBackend(RemoteProcessRPCBackend):
     def install(self):
         # Build the docker image if needed
         if self._docker_image_name is None:
-            if self._spec.get("conda_spec") is not None:
+            conda_spec = self._spec.get("conda_spec")
+            if conda_spec is not None:
                 with with_environ({**os.environ, "NERFBASELINES_CONDA_ENVIRONMENTS": "/var/conda-envs"}) as env:
-                    args = ["bash", "-l", "-c", conda_get_install_script(self._spec["conda_spec"])]
+                    args = ["bash", "-l", "-c", conda_get_install_script(conda_spec)]
                 args, env = apptainer_run(
                     self._spec, 
                     args,
@@ -186,10 +188,11 @@ class ApptainerBackend(RemoteProcessRPCBackend):
 
     def _launch_worker(self, args, env):
         # Run docker image
-        if self._spec.get("conda_spec") is not None:
+        conda_spec = self._spec.get("conda_spec")
+        if conda_spec is not None:
             env_path = "/var/conda-envs"
-            env_name = self._spec["conda_spec"]["environment_name"]
-            env_path = os.path.join(env_path, env_name, conda_get_environment_hash(self._spec["conda_spec"]), env_name)
+            env_name = conda_spec["environment_name"]
+            env_path = os.path.join(env_path, env_name, conda_get_environment_hash(conda_spec), env_name)
             args = [os.path.join(env_path, ".activate.sh")] + args
         return super()._launch_worker(*apptainer_run(
             self._spec, args, env, 

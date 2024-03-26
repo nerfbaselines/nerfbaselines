@@ -65,11 +65,12 @@ def get_docker_spec(spec: 'MethodSpec') -> Optional[DockerBackendSpec]:
         return docker_spec
     conda_spec = spec.get("conda")
     if conda_spec is not None:
-        return {
+        docker_spec: DockerBackendSpec = {
             "image": None,
             "environment_name": conda_spec.get("environment_name"),
             "conda_spec": conda_spec
         }
+        return docker_spec
     return None
 
 
@@ -152,7 +153,7 @@ def docker_image_exists_remotely(name: str):
     parts = name.split("/")
     if len(parts) == 3 and parts[0] == "ghcr.io":
         hub, namespace, tag = parts
-        return requests.get(f'https://{hub}/token\?scope\="repository:{namespace}/{tag}:pull"').status_code == 200
+        return requests.get(rf'https://{hub}/token\?scope\="repository:{namespace}/{tag}:pull"').status_code == 200
 
     try:
         subprocess.check_call(["docker", "manifest", "inspect", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -171,7 +172,7 @@ def _build_docker_image(name, dockerfile, skip_if_exists_remotely: bool = False,
     with tempfile.NamedTemporaryFile("w", suffix=".Dockerfile") as f:
         f.write(dockerfile)
         f.seek(0)
-        package_path = Path(nerfbaselines.__file__).absolute().parent.parent
+        package_path = str(Path(nerfbaselines.__file__).absolute().parent.parent)
         subprocess.check_call([
             "docker", "build", package_path, "-f", f.name,
             "-t", name,
@@ -242,7 +243,7 @@ def docker_run_image(spec: DockerBackendSpec,
     torch_home = os.path.expanduser(os.environ.get("TORCH_HOME", "~/.cache/torch/hub"))
     os.makedirs(torch_home, exist_ok=True)
     replace_user = spec["replace_user"] if spec.get("replace_user") is not None else True
-    package_path = Path(nerfbaselines.__file__).absolute().parent.parent
+    package_path = str(Path(nerfbaselines.__file__).absolute().parent.parent)
     args = [
         "docker",
         "run",
@@ -289,7 +290,7 @@ def docker_run_image(spec: DockerBackendSpec,
         "--env",
         "NB_USE_GPU=" + ("1" if use_gpu else "0"),
         *(sum((["--env", name] for name in env), [])),
-        *(sum((["-p", f"{ps}:{pd}"] for ps, pd in ports), [])),
+        *(sum((["-p", f"{ps}:{pd}"] for ps, pd in ports or []), [])),
         *[f"-v={shlex.quote(src)}:{shlex.quote(dst)}" for src, dst in mounts or []],
         "--rm",
         ("-it" if interactive else "-i"),
@@ -310,7 +311,8 @@ class DockerBackend(RemoteProcessRPCBackend):
 
     def install(self):
         # Build the docker image if needed
-        if self._spec.get("image") is None or self._spec.get("conda_spec") is not None:
+        image = self._spec.get("image")
+        if image is None or self._spec.get("conda_spec") is not None:
             name = get_docker_image_name(self._spec)
             dockerfile = docker_get_dockerfile(self._spec)
             should_pull = False
@@ -331,7 +333,6 @@ class DockerBackend(RemoteProcessRPCBackend):
                 _build_docker_image(name, dockerfile, skip_if_exists_remotely=False, push=False)
                 _delete_old_docker_images(name)
         else:
-            image = self._spec.get("image")
             logging.info(f"Pulling image {image}")
             subprocess.check_call(["docker", "pull", image])
 

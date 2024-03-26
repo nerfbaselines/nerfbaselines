@@ -591,6 +591,7 @@ def winger_D_multiply_spherical_harmonics(D, y):
     Multiply a Wigner D matrix by a spherical harmonic coefficients.
     """
     output = np.zeros_like(y)
+    offset, ls, i = 0, 0, 0
     for i in range(int(math.sqrt(y.shape[-1]))):
         ls = 2*i+1
         offset = ((2*i-1)*i*(4*i+2))//6

@@ -48,7 +48,7 @@ class Dataset:
 
     file_paths: List[str]
     sampling_mask_paths: Optional[List[str]] = None
-    file_paths_root: Optional[Path] = None
+    file_paths_root: Optional[str] = None
 
     images: Optional[Union[np.ndarray, List[np.ndarray]]] = None  # [N][H, W, 3]
     sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = None  # [N][H, W]
@@ -59,7 +59,7 @@ class Dataset:
 
     def __post_init__(self):
         if self.file_paths_root is None:
-            self.file_paths_root = Path(os.path.commonpath(self.file_paths))
+            self.file_paths_root = os.path.commonpath(self.file_paths)
 
     def __len__(self):
         return len(self.file_paths)
@@ -141,24 +141,22 @@ class RenderOutput(TypedDict, total=False):
     accumulation: np.ndarray  # [h w]
 
 
-@dataclass
-class MethodInfo:
-    name: str
-    required_features: FrozenSet[DatasetFeature] = field(default_factory=frozenset)
-    supported_camera_models: FrozenSet = field(default_factory=lambda: frozenset((CameraModel.PINHOLE,)))
+class MethodInfo(TypedDict, total=False):
+    name: Required[str]
+    required_features: FrozenSet[DatasetFeature]
+    supported_camera_models: FrozenSet
 
 
-@dataclass
-class ModelInfo:
-    name: str
-    loaded_step: Optional[int] = None
-    loaded_checkpoint: Optional[str] = None
-    num_iterations: Optional[int] = None
-    batch_size: Optional[int] = None
-    eval_batch_size: Optional[int] = None
-    required_features: FrozenSet[DatasetFeature] = field(default_factory=frozenset)
-    supported_camera_models: FrozenSet = field(default_factory=lambda: frozenset((CameraModel.PINHOLE,)))
-    hparams: Dict[str, Any] = field(default_factory=dict)
+class ModelInfo(TypedDict, total=False):
+    name: Required[str]
+    num_iterations: Required[int]
+    loaded_step: Optional[int]
+    loaded_checkpoint: Optional[str]
+    batch_size: int
+    eval_batch_size: int
+    required_features: FrozenSet[DatasetFeature]
+    supported_camera_models: FrozenSet
+    hparams: Dict[str, Any]
 
 
 @runtime_checkable

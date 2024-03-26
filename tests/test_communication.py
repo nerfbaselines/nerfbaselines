@@ -14,11 +14,11 @@ def test_render(use_remote_method):
             pass
 
         @classmethod
-        def get_method_info(self) -> MethodInfo:
-            return MethodInfo(name="_test")
+        def get_method_info(cls) -> MethodInfo:
+            return {"name": "_test", "required_features": frozenset(), "supported_camera_models": frozenset()}
 
         def get_info(self):
-            return ModelInfo(**self.get_method_info())
+            return {**self.get_method_info()}
 
         def render(self, cameras, progress_callback=None) -> Iterable[RenderOutput]:
             yield {"color": np.full(tuple(), 23)}
@@ -57,7 +57,7 @@ def use_remote_method():
                     pass
 
                 @classmethod
-                def get_method_info(self) -> MethodInfo:
+                def get_method_info(cls) -> MethodInfo:
                     return MethodInfo(name="_test")
 
                 def get_info(self):
@@ -140,14 +140,14 @@ def test_render_cancellable(use_remote_method):
 
         @classmethod
         def get_method_info(cls) -> MethodInfo:
-            return MethodInfo(
-                name="_test",
-                required_features={"color"},
-                supported_camera_models={CameraModel.OPENCV}
-            )
+            return {
+                "name": "_test",
+                "required_features": frozenset(("color",)),
+                "supported_camera_models": frozenset((CameraModel.OPENCV,))
+            }
 
         def get_info(self):
-            return ModelInfo(**vars(self.get_method_info()))
+            return {**self.get_method_info()}
 
         @cancellable
         def render(self, cameras, progress_callback=None) -> Iterable[RenderOutput]:

@@ -43,7 +43,7 @@ def render_frames(
 ) -> None:
     assert cameras.image_sizes is not None, "cameras.image_sizes must be set"
     info = method.get_info()
-    render = with_supported_camera_models(info.supported_camera_models)(method.render)
+    render = with_supported_camera_models(info.get("supported_camera_models", frozenset((CameraModel.PINHOLE,))))(method.render)
     color_space = "srgb"
     background_color = nb_info.get("background_color") if nb_info is not None else None
     expected_scene_scale = nb_info.get("expected_scene_scale") if nb_info is not None else None

@@ -8,7 +8,7 @@ import os
 import math
 import logging
 from pathlib import Path
-from typing import Optional, Union, List, Any, Dict, Tuple
+from typing import Optional, Union, List, Any, Dict, Tuple, cast
 from tqdm import tqdm
 import numpy as np
 import click
@@ -18,6 +18,7 @@ from .utils import Indices, setup_logging, image_to_srgb, visualize_depth, handl
 from .utils import remap_error, get_resources_utilization_info, assert_not_none
 from .utils import IndicesClickType, SetParamOptionType
 from .utils import make_image_grid
+from .cameras import CameraModel
 from .types import Method, Literal, FrozenSet
 from .render import render_all_images, build_update_progress
 from .evaluate import EvaluationProtocol
@@ -61,8 +62,10 @@ def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, st
     # Pseudo-randomly select an image based on the step
     total_rays = 0
     with tqdm(desc=f"rendering single image at step={step}") as pbar:
+        predictions = None
         for predictions in evaluation_protocol.render(method, dataset_slice, progress_callback=build_update_progress(pbar, simple=True)):
             pass
+        assert predictions is not None, "render failed to compute predictions"
     elapsed = time.perf_counter() - start
 
     # Log to wandb
@@ -70,8 +73,9 @@ def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, st
         logging.debug(f"logging image to {logger}")
 
         # Log to wandb
-        for metrics in evaluation_protocol.evaluate([predictions], dataset_slice):
-            pass
+        metrics = {}
+        for _metrics in evaluation_protocol.evaluate([predictions], dataset_slice):
+            metrics = cast(Dict[str, Union[str, int, float]], _metrics)
 
         w, h = dataset_slice.cameras.image_sizes[0]
         gt = dataset_slice.images[0][:h, :w]
@@ -125,6 +129,7 @@ def eval_all(method: Method, logger: Logger, dataset: Dataset, *, output: Union[
     if prefix is None:
         prefix = Path(os.path.commonpath(dataset.file_paths))
 
+    output = Path(output)
     if split != "test":
         output_metrics = output / f"results-{step}-{split}.json"
         output = output / f"predictions-{step}-{split}.tar.gz"
@@ -262,10 +267,10 @@ class Trainer:
         self.model_info = self.method.get_info()
         self.test_dataset: Optional[Dataset] = test_dataset
 
-        self.step = self.model_info.loaded_step or 0
-        self.num_iterations = self.model_info.num_iterations
+        self.step = self.model_info.get("loaded_step") or 0
+        self.num_iterations = self.model_info["num_iterations"]
         if self.num_iterations is None:
-            raise RuntimeError(f"Method {self.model_info.name} must specify the default number of iterations")
+            raise RuntimeError(f"Method {self.model_info['name']} must specify the default number of iterations")
 
         self.output = output
         self.save_iters = save_iters
@@ -288,8 +293,9 @@ class Trainer:
         })
 
         # Restore checkpoint if specified
-        if self.model_info.loaded_checkpoint is not None:
-            with Path(self.model_info.loaded_checkpoint).joinpath("nb-info.json").open("r", encoding="utf8") as f:
+        loaded_checkpoint = self.model_info.get("loaded_checkpoint")
+        if loaded_checkpoint is not None:
+            with Path(loaded_checkpoint).joinpath("nb-info.json").open("r", encoding="utf8") as f:
                 info = json.load(f)
                 info = deserialize_nb_info(info)
                 self._total_train_time = info["total_train_time"]
@@ -366,14 +372,15 @@ class Trainer:
                 self.generate_output_artifact = True
 
     def _get_nb_info(self):
+        assert self._dataset_metadata is not None, "dataset_metadata must be set"
         dataset_metadata = self._dataset_metadata.copy()
         expected_scene_scale = self._dataset_metadata.get("expected_scene_scale", None)
         dataset_metadata["expected_scene_scale"] = round(expected_scene_scale, 5) if expected_scene_scale is not None else None
         dataset_metadata["background_color"] = dataset_metadata["background_color"].tolist() if dataset_metadata.get("background_color") is not None else None
         return {
-            "method": self.model_info.name,
+            "method": self.model_info["name"],
             "nb_version": __version__,
-            "num_iterations": self.model_info.num_iterations,
+            "num_iterations": self.model_info["num_iterations"],
             "total_train_time": round(self._total_train_time, 5),
             "resources_utilization": self._resources_utilization_info,
             # Date time in ISO format
@@ -429,7 +436,7 @@ class Trainer:
 
     def _update_resource_utilization_info(self):
         update = False
-        util = {}
+        util: Dict[str, Union[int, float]] = {}
         if self._resources_utilization_info is None:
             update = True
         elif self.step % 1000 == 11:
@@ -447,8 +454,7 @@ class Trainer:
     @remap_error
     def train(self):
         assert self.num_iterations is not None, "num_iterations must be set"
-        if self._average_image_size is None:
-            self.setup_data()
+        assert self._average_image_size is not None, "dataset not set"
         if self.step == 0 and self.step in self.save_iters:
             self.save()
 
@@ -505,6 +511,9 @@ class Trainer:
             )
 
     def eval_all(self):
+        if self.test_dataset is None:
+            logging.warning("skipping eval_all on test dataset - no test dataset")
+            return
         logger = self.get_logger()
         nb_info = self._get_nb_info()
         eval_all(self.method, logger, self.test_dataset, 
@@ -596,21 +605,22 @@ def train_command(
             # change working directory to output
             os.chdir(str(output_path))
 
-            method_cls: Method
             with registry.build_method(method_name, backend_name) as method_cls:
 
                 # Load train dataset
                 logging.info("loading train dataset")
                 method_info = method_cls.get_method_info()
-                train_dataset = load_dataset(_data, split="train", features=method_info.required_features)
-                train_dataset.load_features(method_info.required_features, method_info.supported_camera_models)
+                required_features = method_info.get("required_features", frozenset())
+                supported_camera_models = method_info.get("supported_camera_models", frozenset((CameraModel.PINHOLE,)))
+                train_dataset = load_dataset(_data, split="train", features=required_features)
+                train_dataset.load_features(required_features, supported_camera_models)
                 assert train_dataset.cameras.image_sizes is not None, "image sizes must be specified"
 
                 # Load eval dataset
                 logging.info("loading eval dataset")
-                test_dataset = load_dataset(_data, split="test", features=method_info.required_features)
+                test_dataset = load_dataset(_data, split="test", features=required_features)
                 test_dataset.metadata["expected_scene_scale"] = train_dataset.metadata.get("expected_scene_scale")
-                test_dataset.load_features(method_info.required_features.union({"color"}))
+                test_dataset.load_features(required_features.union({"color"}))
 
                 # Build the method
                 method = method_cls(

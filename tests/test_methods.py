@@ -22,6 +22,7 @@ def test_supported_methods():
 def test_method_docker(method_name):
     spec = registry.get(method_name)
     with registry.build_method(spec, backend="docker") as method_cls:
+        assert Backend.current is not None
         assert Backend.current.name == "docker"
         assert method_cls.get_method_info().name == method_name
         method = method_cls()
@@ -33,6 +34,7 @@ def test_method_docker(method_name):
 def test_method_apptainer(method_name):
     spec = registry.get(method_name)
     with registry.build_method(spec, backend="apptainer") as method_cls:
+        assert Backend.current is not None
         assert Backend.current.name == "apptainer"
         assert method_cls.get_method_info().name == method_name
         method = method_cls()

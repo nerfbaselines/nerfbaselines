@@ -456,7 +456,7 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
         cameras=cameras,
         file_paths=image_filenames,
         sampling_mask_paths=mask_filenames if len(mask_filenames) > 0 else None,
-        file_paths_root=images_root,
+        file_paths_root=str(images_root),
         points3D_xyz=points3D_xyz,
         points3D_rgb=points3D_rgb,
         metadata={

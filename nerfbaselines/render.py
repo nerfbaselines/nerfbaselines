@@ -253,8 +253,8 @@ def render_command(checkpoint: Union[str, Path], data, output, split, verbose, b
         with registry.build_method(method_name, backend=backend_name) as method_cls:
             method: Method = method_cls(checkpoint=checkpoint_path)
             method_info = method.get_info()
-            dataset = load_dataset(data, split=split, features=method_info.required_features)
-            dataset.load_features(method_info.required_features)
+            dataset = load_dataset(data, split=split, features=method_info.get("required_features", frozenset()))
+            dataset.load_features(method_info.get("required_features", frozenset()))
             if dataset.color_space != nb_info["color_space"]:
                 raise RuntimeError(f"Dataset color space {dataset.color_space} != method color space {nb_info['color_space']}")
             for _ in render_all_images(method, dataset, output=Path(output), nb_info=nb_info):

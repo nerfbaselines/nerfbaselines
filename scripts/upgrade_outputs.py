@@ -12,7 +12,7 @@ def upgrade_outputs(path: Path):
     assert path.exists()
 
     with zipfile.ZipFile(str(path), "w") as zf:
-        for member in zf:
+        for member in zf.infolist():
             print(member)
 
 
