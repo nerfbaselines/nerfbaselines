@@ -1,3 +1,4 @@
+import sys
 import shutil
 import json
 from typing import Iterable, cast
@@ -7,6 +8,7 @@ import numpy as np
 from nerfbaselines import Method, MethodInfo, Cameras, RenderOutput, CurrentProgress, Indices, ModelInfo
 from nerfbaselines.datasets import _colmap_utils as colmap_utils
 from nerfbaselines.cameras import CameraModel
+from nerfbaselines import metrics
 from unittest import mock
 import tarfile
 import pytest
@@ -102,8 +104,18 @@ class _TestMethod(Method):
         self._save_paths.append(str(path))
 
 
+def _patch_wandb_for_py37():
+    try:
+        from typing import Literal
+    except ImportError:
+        import typing
+        from typing_extensions import Literal
+        typing.Literal = Literal
+
+
 @pytest.fixture
 def wandb_init_run():
+    _patch_wandb_for_py37()
     import wandb.sdk.wandb_run
 
     mock_run = mock.Mock(wandb.sdk.wandb_run.Run)
@@ -113,6 +125,10 @@ def wandb_init_run():
 
 @pytest.mark.parametrize("vis", ["none", "wandb", "tensorboard", "wandb+tensorboard"])
 def test_train_command(mock_extras, tmp_path, wandb_init_run, vis):
+    metrics._LPIPS_CACHE.clear()
+    metrics._LPIPS_GPU_AVAILABLE = None
+    sys.modules.pop("nerfbaselines._metrics_lpips", None)
+    _patch_wandb_for_py37()
     from nerfbaselines.train import train_command
     from nerfbaselines.registry import registry, MethodSpec
     import wandb
@@ -121,7 +137,6 @@ def test_train_command(mock_extras, tmp_path, wandb_init_run, vis):
     try:
         os.environ["NS_PREFIX"] = str(tmp_path / "prefix")
         spec: MethodSpec = {
-            "name": "_test",
             "method": _TestMethod.__module__ + ":_TestMethod",
             "conda": {
                 "environment_name": "_test",
@@ -199,6 +214,9 @@ def test_train_command(mock_extras, tmp_path, wandb_init_run, vis):
 
 @pytest.mark.extras
 def test_train_command_extras(tmp_path):
+    metrics._LPIPS_CACHE.clear()
+    metrics._LPIPS_GPU_AVAILABLE = None
+    sys.modules.pop("nerfbaselines._metrics_lpips", None)
     from nerfbaselines.train import train_command
     from nerfbaselines.registry import registry, MethodSpec
 
@@ -206,7 +224,6 @@ def test_train_command_extras(tmp_path):
 
     try:
         spec: MethodSpec = {
-            "name": "test",
             "method": _TestMethod.__module__ + ":_TestMethod",
             "conda": {
                 "environment_name": "_test",
@@ -267,6 +284,9 @@ def test_train_command_extras(tmp_path):
 
 
 def test_train_command_undistort(tmp_path, wandb_init_run):
+    metrics._LPIPS_CACHE.clear()
+    metrics._LPIPS_GPU_AVAILABLE = None
+    sys.modules.pop("nerfbaselines._metrics_lpips", None)
     from nerfbaselines.train import train_command
     from nerfbaselines.registry import registry, MethodSpec
 
@@ -276,7 +296,7 @@ def test_train_command_undistort(tmp_path, wandb_init_run):
 
     class _Method(_TestMethod):
         def get_info(self) -> ModelInfo:
-            info = {**super().get_info()}
+            info: ModelInfo = {**super().get_info()}
             info["supported_camera_models"] = frozenset((CameraModel.PINHOLE,))
             return info
 
@@ -292,13 +312,12 @@ def test_train_command_undistort(tmp_path, wandb_init_run):
             assert all(cameras.camera_types == 0)
             return super().render(cameras, *args, **kwargs)
 
-    test_train_command_undistort._TestMethod = _Method
+    test_train_command_undistort._TestMethod = _Method  # type: ignore
 
     _ns_prefix_backup = os.environ.get("NS_PREFIX", None)
     try:
         os.environ["NS_PREFIX"] = str(tmp_path / "prefix")
         spec: MethodSpec = {
-            "name": "_test",
             "method": _TestMethod.__module__ + ":test_train_command_undistort._TestMethod",
             "conda": {
                 "environment_name": "_test",
@@ -324,6 +343,35 @@ def test_train_command_undistort(tmp_path, wandb_init_run):
 
 @pytest.mark.parametrize("output_type", ["folder", "tar"])
 def test_render_command(tmp_path, output_type):
+    metrics._LPIPS_CACHE.clear()
+    metrics._LPIPS_GPU_AVAILABLE = None
+    sys.modules.pop("nerfbaselines._metrics_lpips", None)
+    from nerfbaselines.train import train_command
+    from nerfbaselines.registry import registry, MethodSpec
+
+    assert train_command.callback is not None
+    render_was_called = False
+    setup_data_was_called = False
+
+    class _Method(_TestMethod):
+        def get_info(self) -> ModelInfo:
+            info: ModelInfo = {**super().get_info()}
+            info["supported_camera_models"] = frozenset((CameraModel.PINHOLE,))
+            return info
+
+        def __init__(self, *args, train_dataset, **kwargs):
+            nonlocal setup_data_was_called
+            setup_data_was_called = True
+            assert all(train_dataset.cameras.camera_types == 0)
+            super().__init__(*args, train_dataset=train_dataset, **kwargs)
+
+        def render(self, cameras, *args, **kwargs):
+            nonlocal render_was_called
+            render_was_called = True
+            assert all(cameras.camera_types == 0)
+            return super().render(cameras, *args, **kwargs)
+
+    
     from nerfbaselines.train import train_command
     from nerfbaselines.render import render_command
     from nerfbaselines.registry import registry, MethodSpec
@@ -332,7 +380,6 @@ def test_render_command(tmp_path, output_type):
     try:
         os.environ["NS_PREFIX"] = str(tmp_path / "prefix")
         spec: MethodSpec = {
-            "name": "_test",
             "method": _TestMethod.__module__ + ":_TestMethod",
             "conda": {
                 "environment_name": "_test",

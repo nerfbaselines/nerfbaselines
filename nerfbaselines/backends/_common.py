@@ -13,7 +13,7 @@ from typing import Sequence
 from ..utils import CancellationToken, cancellable
 from ..types import Method, Literal, get_args
 if TYPE_CHECKING:
-    from ..types import MethodSpec
+    from ..registry import MethodSpec
 
 
 BackendName = Literal["conda", "docker", "apptainer", "python"]
@@ -89,8 +89,8 @@ def _get_implemented_backends(method_spec: 'MethodSpec') -> Sequence[BackendName
         backends.add("apptainer")
 
     backends_order: List[BackendName] = ["conda", "docker", "apptainer", "python"]
-    if method_spec.get("backends_order") is not None:
-        bo = method_spec.get("backends_order")
+    bo = method_spec.get("backends_order")
+    if bo is not None:
         backends_order = list(bo) + [x for x in backends_order if x not in bo]
     return [x for x in backends_order if x in backends]
 

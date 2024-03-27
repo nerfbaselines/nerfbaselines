@@ -266,7 +266,7 @@ class MultiNeRF(Method):
             loaded_step=self._loaded_step,
             loaded_checkpoint=self.checkpoint,
             hparams=gin_config_to_dict(self._config_str or ""),
-            **vars(self.get_method_info())
+            **self.get_method_info()
         )
 
     def _setup_eval(self):

@@ -1,6 +1,6 @@
 import sys
 from dataclasses import dataclass
-from typing import Literal, Union, Dict, IO, Optional, Any
+from typing import Union, Dict, IO, Optional, Any
 import time
 import io
 import os
@@ -21,7 +21,7 @@ except ImportError:
 from .utils import setup_logging, image_to_srgb, save_image, visualize_depth, handle_cli_error
 from .render import with_supported_camera_models
 from .utils import convert_image_dtype
-from .types import Method, CurrentProgress
+from .types import Method, CurrentProgress, Literal
 from .cameras import Cameras, CameraModel
 from .backends import ALL_BACKENDS
 
@@ -223,9 +223,8 @@ def main(checkpoint: Union[str, Path], trajectory: Path, output, output_type: Ou
         nb_info = deserialize_nb_info(nb_info)
 
         method_name = nb_info["method"]
-        method_spec = registry.get(method_name)
         backends.mount(checkpoint_path, checkpoint_path)
-        with registry.build_method(method_spec, backend=backend_name) as method_cls:
-            method = method_cls(checkpoint=checkpoint_path)
+        with registry.build_method(method_name, backend=backend_name) as method_cls:
+            method = method_cls(checkpoint=str(checkpoint_path))
             render_frames(method, _trajectory.cameras, output, output_type=output_type, nb_info=nb_info, fps=_trajectory.fps)
             logging.info(f"Output saved to {output}")

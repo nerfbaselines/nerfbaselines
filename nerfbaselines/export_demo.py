@@ -31,9 +31,12 @@ def main(checkpoint, output, backend_name, verbose=False):
         method_name = nb_info["method"]
         backends.mount(checkpoint_path, checkpoint_path)
         with registry.build_method(method_name, backend=backend_name) as method_cls:
-            method = method_cls(checkpoint=checkpoint_path)
+            method = method_cls(checkpoint=str(checkpoint_path))
             dataset_info = nb_info["dataset_metadata"]
-            method.export_demo(
+            method_export_demo = getattr(method, "export_demo", None)
+            if method_export_demo is None:
+                raise NotImplementedError(f"Method {method_name} does not support export_demo")
+            method_export_demo(
                 path=Path(output),
                 viewer_transform=dataset_info["viewer_transform"], 
                 viewer_initial_pose=dataset_info["viewer_initial_pose"])

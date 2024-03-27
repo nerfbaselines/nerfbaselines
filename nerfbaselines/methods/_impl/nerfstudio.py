@@ -9,7 +9,7 @@ from pathlib import Path
 import copy
 import tempfile
 from collections import defaultdict
-from typing import Iterable, Optional, TypeVar, List, Tuple, Any
+from typing import Iterable, Optional, TypeVar, List, Tuple, Any, cast
 import numpy as np
 from ...types import Method, ProgressCallback, CurrentProgress, MethodInfo, ModelInfo
 from ...types import Dataset, RenderOutput
@@ -248,7 +248,7 @@ class NerfStudio(Method):
     _require_points3D: bool = False
 
     def __init__(self, *,
-                 checkpoint: Optional[Path] = None,
+                 checkpoint: Optional[str] = None,
                  train_dataset: Optional[Dataset] = None, 
                  config_overrides: Optional[dict] = None):
         assert self._nerfstudio_name is not None, "nerfstudio_name must be set in the subclass"
@@ -351,17 +351,18 @@ class NerfStudio(Method):
     def get_info(self) -> ModelInfo:
         info = ModelInfo(
             loaded_step=None,
+            loaded_checkpoint=str(self.checkpoint) if self.checkpoint is not None else None,
             num_iterations=self.config.max_num_iterations,
-            batch_size=self.config.pipeline.datamanager.train_num_rays_per_batch,
-            eval_batch_size=self.config.pipeline.model.eval_num_rays_per_chunk,
+            batch_size=int(self.config.pipeline.datamanager.train_num_rays_per_batch),
+            eval_batch_size=int(self.config.pipeline.model.eval_num_rays_per_chunk),
             hparams=flatten_hparams(self.config, separator="."),
-            **vars(self.get_method_info())
+            **self.get_method_info()
         )
         if self.checkpoint is not None:
             model_path = os.path.join(self.checkpoint, self.config.relative_model_dir)
             if not os.path.exists(model_path):
                 raise RuntimeError(f"Model directory {model_path} does not exist")
-            info.loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(model_path))[-1]
+            info["loaded_step"] = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(model_path))[-1]
         return info
 
     @torch.no_grad()

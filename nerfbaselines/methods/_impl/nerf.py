@@ -139,10 +139,10 @@ class NeRF(Method):
     _method_name: str = "nerf"
 
     def __init__(self, *,
-                 checkpoint: Optional[Path] = None, 
+                 checkpoint: Optional[str] = None, 
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
-        self.checkpoint = checkpoint
+        self.checkpoint = str(checkpoint) if checkpoint is not None else None
         self.args = None
         self.metadata = {}
         self._arg_list = ()
@@ -185,6 +185,7 @@ class NeRF(Method):
             num_iterations=N_iters,
             supported_camera_models=frozenset(CameraModel.__members__.values()),
             loaded_step=loaded_step,
+            loaded_checkpoint=self.checkpoint,
             batch_size=self.args.N_rand,
             eval_batch_size=self.args.N_rand,
             hparams=vars(self.args) if self.args else {},

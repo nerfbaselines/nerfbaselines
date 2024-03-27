@@ -218,10 +218,10 @@ class GaussianSplatting(Method):
 
     def __init__(self, 
                  *,
-                 checkpoint: Optional[Path] = None,
+                 checkpoint: Optional[str] = None,
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
-        self.checkpoint = checkpoint
+        self.checkpoint = str(checkpoint) if checkpoint is not None else None
         self.gaussians = None
         self.background = None
         self.step = 0
@@ -286,7 +286,8 @@ class GaussianSplatting(Method):
         self.gaussians.training_setup(self.opt)
         if self.checkpoint:
             info = self.get_info()
-            (model_params, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{info.loaded_step}.pth")
+            loaded_step = info["loaded_step"]
+            (model_params, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{loaded_step}.pth")
             self.gaussians.restore(model_params, self.opt)
 
         bg_color = [1, 1, 1] if self.dataset.white_background else [0, 0, 0]
@@ -302,7 +303,8 @@ class GaussianSplatting(Method):
         self.gaussians = GaussianModel(self.dataset.sh_degree)
         self.scene = self._build_scene(None)
         info = self.get_info()
-        (model_params, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{info.loaded_step}.pth")
+        loaded_step = info["loaded_step"]
+        (model_params, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{loaded_step}.pth")
         self.gaussians.restore(model_params, self.opt)
 
         bg_color = [1, 1, 1] if self.dataset.white_background else [0, 0, 0]
@@ -334,7 +336,7 @@ class GaussianSplatting(Method):
             hparams=(
                 flatten_hparams(dict(itertools.chain(vars(self.dataset).items(), vars(self.opt).items(), vars(self.pipe).items()))) 
                 if self.dataset is not None else {}),
-            **vars(self.get_method_info()),
+            **self.get_method_info(),
         )
 
     def _build_scene(self, dataset):
@@ -349,7 +351,7 @@ class GaussianSplatting(Method):
                 def colmap_loader(*args, **kwargs):
                     return _convert_dataset_to_gaussian_splatting(dataset, td, white_background=self.dataset.white_background, scale_coords=self.dataset.scale_coords)
                 sceneLoadTypeCallbacks["Colmap"] = colmap_loader
-                scene =  Scene(opt, self.gaussians, load_iteration=info.loaded_step if dataset is None else None)
+                scene =  Scene(opt, self.gaussians, load_iteration=info["loaded_step"] if dataset is None else None)
                 # NOTE: This is a hack to match the RNG state of GS on 360 scenes
                 _tmp = list(range((len(next(iter(scene.train_cameras.values()))) + 6) // 7))
                 random.shuffle(_tmp)

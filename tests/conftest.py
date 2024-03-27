@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 from nerfbaselines.train import Trainer
+from nerfbaselines import metrics
 
 
 class _nullcontext(contextlib.nullcontext):
@@ -92,6 +93,9 @@ def patch_prefix(tmp_path):
 
 
 def run_test_train(tmp_path, dataset_path, method_name, backend="python"):
+    metrics._LPIPS_CACHE.clear()
+    metrics._LPIPS_GPU_AVAILABLE = None
+    sys.modules.pop("nerfbaselines._metrics_lpips", None)
     from nerfbaselines.train import train_command
     from nerfbaselines.render import get_checkpoint_sha, render_command
     from nerfbaselines.utils import Indices, remap_error

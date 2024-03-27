@@ -60,12 +60,12 @@ BASE_IMAGE = f"{DOCKER_REPOSITORY}:base-{docker_get_environment_hash({ 'default_
 
 
 def get_docker_spec(spec: 'MethodSpec') -> Optional[DockerBackendSpec]:
-    docker_spec = spec.get("docker")
+    docker_spec: Optional[DockerBackendSpec] = spec.get("docker")
     if docker_spec is not None:
         return docker_spec
     conda_spec = spec.get("conda")
     if conda_spec is not None:
-        docker_spec: DockerBackendSpec = {
+        docker_spec: Optional[DockerBackendSpec] = {
             "image": None,
             "environment_name": conda_spec.get("environment_name"),
             "conda_spec": conda_spec

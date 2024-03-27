@@ -164,7 +164,7 @@ class ModelInfo(TypedDict, total=False):
 class Method(Protocol):
     def __init__(self, 
                  *,
-                 checkpoint: Union[Path, None] = None,
+                 checkpoint: Union[str, None] = None,
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[Dict[str, Any]] = None):
         pass

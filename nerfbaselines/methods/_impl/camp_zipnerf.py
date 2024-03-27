@@ -399,7 +399,7 @@ class CamP_ZipNeRF(Method):
             loaded_step=self._loaded_step,
             loaded_checkpoint=str(self.checkpoint) if self.checkpoint is not None else None,
             hparams=gin_config_to_dict(self._config_str or ""),
-            **vars(self.get_method_info())
+            **self.get_method_info()
         )
 
     def _setup_eval(self):

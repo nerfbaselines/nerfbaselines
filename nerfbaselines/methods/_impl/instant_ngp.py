@@ -168,7 +168,7 @@ class InstantNGP(Method):
     _method_name: str = "instant-ngp"
 
     def __init__(self, *,
-                 checkpoint: Optional[Path] = None, 
+                 checkpoint: Optional[str] = None, 
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
         self.checkpoint = Path(checkpoint) if checkpoint is not None else None
@@ -183,6 +183,7 @@ class InstantNGP(Method):
         self._eval_setup_step = None
         self._config = None
         self._is_render_mode = False
+        self._loaded_step = None
 
         if train_dataset is not None:
             self._setup_train(train_dataset, config_overrides)
@@ -201,9 +202,10 @@ class InstantNGP(Method):
     def get_info(self) -> ModelInfo:
         return ModelInfo(
             num_iterations=self.num_iterations, 
+            loaded_step=self._loaded_step,
             loaded_checkpoint=str(self.checkpoint) if self.checkpoint is not None else None,
             hparams=flatten_hparams(self._config or {}),
-            **vars(self.get_method_info()),
+            **self.get_method_info(),
         )
 
     def _setup(self, train_transforms):
@@ -320,6 +322,7 @@ class InstantNGP(Method):
                 meta = json.load(f)
                 self.dataparser_params = meta["dataparser_params"]
                 current_step = meta["step"]
+                self._loaded_step = current_step
                 self.dataparser_params["dataparser_transform"] = np.array(self.dataparser_params["dataparser_transform"], dtype=np.float32)
         else:
             loader = train_dataset.metadata.get("name")
@@ -356,6 +359,7 @@ class InstantNGP(Method):
                 meta = json.load(f)
                 self.dataparser_params = meta["dataparser_params"]
                 current_step = meta["step"]
+                self._loaded_step = current_step
                 self.dataparser_params["dataparser_transform"] = np.array(self.dataparser_params["dataparser_transform"], dtype=np.float32)
             with (Path(tmpdir) / "transforms.json").open("w") as f:
                 json.dump(self._train_transforms, f)
