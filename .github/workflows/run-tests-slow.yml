@@ -46,6 +46,11 @@ jobs:
           pip install pytest typeguard pyright
       - name: Run pyright, pytests
         run: |
+          if [[ "${{ matrix.python }}" == "3.7" ]]; then
+            export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+            pip install tensorboard==2.11.2
+            pip install protobuf==4.22 
+          fi
           pytest -rA
       - name: Test if README results are up to date
         run: |
@@ -58,7 +63,7 @@ jobs:
         run: |
           pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
           pip install 'jax[cpu]'
-          pip install -e ".[extras]"
+          pip install -e ".[extras,dev]"
       - name: Run dev-extras tests
         run: |
           pyright

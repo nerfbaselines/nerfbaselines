@@ -281,20 +281,17 @@ def docker_run_image(spec: DockerBackendSpec,
         "-v",
         shlex.quote(torch_home) + ":/var/nb-torch",
         *[f"-v={shlex.quote(src)}:{shlex.quote(dst)}" for src, dst in mounts or []],
-        "--env",
-        "CONDA_PKGS_DIRS=/var/nb-conda-pkgs",
-        "--env",
-        "PIP_CACHE_DIR=/var/nb-pip-cache",
-        "--env",
-        "TORCH_HOME=/var/nb-torch",
-        "--env",
-        "NERFBASELINES_PREFIX=/var/nb-prefix",
-        "--env",
-        "NB_USE_GPU=" + ("1" if use_gpu else "0"),
+        "--env", "CONDA_PKGS_DIRS=/var/nb-conda-pkgs",
+        "--env", "PIP_CACHE_DIR=/var/nb-pip-cache",
+        "--env", "TORCH_HOME=/var/nb-torch",
+        "--env", "NERFBASELINES_PREFIX=/var/nb-prefix",
+        "--env", "PYTHONPATH=/var/nb-package",
+        "--env", "NB_USE_GPU=" + ("1" if use_gpu else "0"),
         *(sum((["--env", name] for name in env), [])),
         *(sum((["-p", f"{ps}:{pd}"] for ps, pd in ports or []), [])),
         *[f"-v={shlex.quote(src)}:{shlex.quote(dst)}" for src, dst in mounts or []],
         "--rm",
+        "--network=host",
         ("-it" if interactive else "-i"),
         image,
     ] + args
@@ -341,12 +338,13 @@ class DockerBackend(RemoteProcessRPCBackend):
     def _launch_worker(self, args, env):
         # Run docker image
         mounts = get_mounts()
-        forwarded_ports = get_forwarded_ports()
-        forwarded_ports.append((self._port, self._port))
+        # Using network=host
+        # forwarded_ports = get_forwarded_ports()
+        # forwarded_ports.append((self._port, self._port))
         return super()._launch_worker(*docker_run_image(
             self._spec, args, env, 
             mounts=mounts, 
-            ports=forwarded_ports,
+            ports=[],
             interactive=False,
             use_gpu=os.getenv("GITHUB_ACTIONS") != "true"))
 
@@ -354,10 +352,11 @@ class DockerBackend(RemoteProcessRPCBackend):
         # Run docker image
         env = get_safe_environment()
         mounts = get_mounts()
-        forwarded_ports = get_forwarded_ports()
+        # Using network=host
+        # forwarded_ports = get_forwarded_ports()
         args, env = docker_run_image(
             self._spec, ["/bin/bash"], env, 
             mounts=mounts,
-            ports=forwarded_ports,
+            ports=[],
             interactive=True)
         os.execvpe(args[0], args, env)
