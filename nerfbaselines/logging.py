@@ -253,11 +253,10 @@ class WandbLogger(BaseLogger):
     def __init__(self, output: Union[str, Path], **kwargs):
         # wandb does not support python 3.7, therefore, we patch it
         try:
-            import typing
             from typing import Literal
         except ImportError:
             from typing_extensions import Literal
-            typing.Literal = Literal
+            typing.Literal = Literal  # type: ignore
                     
         import wandb
         wandb_run: "wandb.sdk.wandb_run.Run" = typing.cast(
