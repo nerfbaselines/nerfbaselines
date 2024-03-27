@@ -9,7 +9,7 @@ import contextlib
 
 from pathlib import Path
 import typing
-from typing import Optional, Union, List, Dict, Sequence, Any
+from typing import Optional, Union, List, Dict, Sequence, Any, cast
 from typing import TYPE_CHECKING
 from .utils import convert_image_dtype
 from .types import runtime_checkable, Protocol
@@ -196,17 +196,20 @@ class WandbLoggerEvent(BaseLoggerEvent):
         import wandb
         self._commit[tag] = [wandb.Image(image, caption=description)]
 
+    def add_histogram(self, tag: str, values: np.ndarray) -> None:
+        import wandb
+        self._commit[tag] = wandb.Histogram(cast(Any, values))
+
     def add_embedding(self, tag: str, embeddings: np.ndarray, *, 
                       images: Optional[List[np.ndarray]] = None, 
                       labels: Union[None, List[Dict[str, str]], List[str]] = None) -> None:
-                    
         import wandb
         table = wandb.Table([])
         table.add_column("embedding", embeddings)
         if labels is not None:
             if isinstance(labels[0], dict):
                 for key in labels[0].keys():
-                    table.add_column(key, [label[key] for label in labels])
+                    table.add_column(key, [cast(dict, label)[key] for label in labels])
             else:
                 table.add_column("label", labels)
         if images is not None:
@@ -248,8 +251,18 @@ class WandbLoggerEvent(BaseLoggerEvent):
 
 class WandbLogger(BaseLogger):
     def __init__(self, output: Union[str, Path], **kwargs):
+        # wandb does not support python 3.7, therefore, we patch it
+        try:
+            import typing
+            from typing import Literal
+        except ImportError:
+            from typing_extensions import Literal
+            typing.Literal = Literal
+                    
         import wandb
-        wandb_run: "wandb.sdk.wandb_run.Run" = wandb.init(dir=str(output), **kwargs)
+        wandb_run: "wandb.sdk.wandb_run.Run" = typing.cast(
+            "wandb.sdk.wandb_run.Run", 
+            wandb.init(dir=str(output), **kwargs))
         self._wandb_run = wandb_run
         self._wandb = wandb
 
@@ -266,7 +279,13 @@ class WandbLogger(BaseLogger):
         return "wandb"
 
 
-class ConcatLoggerEvent:
+if TYPE_CHECKING:
+    _ConcatLoggerEventBase = LoggerEvent
+else:
+    _ConcatLoggerEventBase = object
+
+
+class ConcatLoggerEvent(_ConcatLoggerEventBase):
     def __init__(self, events):
         self.events = events
 
@@ -294,7 +313,7 @@ class ConcatLogger(BaseLogger):
                 with loggers[0].add_event(step) as event:
                     yield from enter_event(loggers[1:], [event] + events)
             else:
-                yield ConcatLoggerEvent(events)
+                yield ConcatLoggerEvent(events)  # type: ignore
         yield from enter_event(self.loggers, [])
 
     def add_hparams(self, hparams: Dict[str, Any], **kwargs):
@@ -338,6 +357,7 @@ class TensorboardLoggerEvent(BaseLoggerEvent):
         image: np.ndarray,
         display_name: Optional[str] = None,
         description: Optional[str] = None,
+        **kwargs,
     ) -> None:
         from tensorboard.compat.proto.summary_pb2 import Summary
         from tensorboard.plugins.image.metadata import create_summary_metadata
@@ -352,10 +372,10 @@ class TensorboardLoggerEvent(BaseLoggerEvent):
             image = convert_image_dtype(image, np.uint8)
             Image.fromarray(image).save(simg, format="png")
             self._summaries.append(
-                Summary.Value(
+                Summary.Value(  # type: ignore
                     tag=tag,
                     metadata=metadata,
-                    image=Summary.Image(
+                    image=Summary.Image(  # type: ignore
                         encoded_image_string=simg.getvalue(),
                         height=image.shape[0],
                         width=image.shape[1],
@@ -369,22 +389,22 @@ class TensorboardLoggerEvent(BaseLoggerEvent):
         from tensorboard.compat.proto.tensor_shape_pb2 import TensorShapeProto
         from tensorboard.plugins.text.plugin_data_pb2 import TextPluginData
 
-        plugin_data = SummaryMetadata.PluginData(
-            plugin_name="text", content=TextPluginData(version=0).SerializeToString()
-        )
-        smd = SummaryMetadata(plugin_data=plugin_data)
+        plugin_data = SummaryMetadata.PluginData(  # type: ignore
+            plugin_name="text", content=TextPluginData(version=0).SerializeToString()  # type: ignore
+        )  # type: ignore
+        smd = SummaryMetadata(plugin_data=plugin_data)  # type: ignore
         tensor = TensorProto(
             dtype="DT_STRING",
             string_val=[text.encode("utf8")],
-            tensor_shape=TensorShapeProto(dim=[TensorShapeProto.Dim(size=1)]),
-        )
-        self._summaries.append(Summary.Value(tag=tag, metadata=smd, tensor=tensor))
+            tensor_shape=TensorShapeProto(dim=[TensorShapeProto.Dim(size=1)]),  # type: ignore
+        )  # type: ignore
+        self._summaries.append(Summary.Value(tag=tag, metadata=smd, tensor=tensor))  # type: ignore
 
     def add_scalar(self, tag: str, value: Union[float, int]) -> None:
         from tensorboard.compat.proto.summary_pb2 import Summary
 
         assert isinstance(value, (float, int))
-        self._summaries.append(Summary.Value(tag=tag, simple_value=value))
+        self._summaries.append(Summary.Value(tag=tag, simple_value=value))  # type: ignore
 
     def add_embedding(self, tag: str, embeddings: np.ndarray, *, 
                       images: Optional[List[np.ndarray]] = None, 
@@ -442,7 +462,7 @@ class TensorboardLoggerEvent(BaseLoggerEvent):
             if len(labels) > 0:
                 if isinstance(labels[0], dict):
                     metadata_header = list(labels[0].keys())
-                    metadata = [metadata_header] + [[str(x.get(k, "")) for k in metadata_header] for x in labels]
+                    metadata = [metadata_header] + [[str(cast(Dict, x).get(k, "")) for k in metadata_header] for x in labels]
                     tsv = ["\t".join(str(e) for e in ln) for ln in metadata]
                 else:
                     metadata = labels
@@ -451,6 +471,7 @@ class TensorboardLoggerEvent(BaseLoggerEvent):
             with (save_path / "metadata.tsv").open("wb") as f:
                 f.write(metadata_bytes)
 
+        label_img_size = None
         if images is not None:
             assert (
                 len(images) == embeddings.shape[0]
@@ -465,17 +486,18 @@ class TensorboardLoggerEvent(BaseLoggerEvent):
                 x = [str(i.item()) for i in x]
                 f.write(tf.compat.as_bytes("\t".join(x) + "\n"))
 
-        projector_config = ProjectorConfig()
+        projector_config: Any = ProjectorConfig()
         if (Path(self._logdir) / "projector_config.pbtxt").exists():
             message_bytes = (Path(self._logdir) / "projector_config.pbtxt").read_bytes()
             projector_config = text_format.Parse(message_bytes, projector_config)
 
-        embedding_info = EmbeddingInfo()
+        embedding_info: Any = EmbeddingInfo()  # type: ignore
         embedding_info.tensor_name = f"{tag}:{str(self._step).zfill(5)}"
         embedding_info.tensor_path = str(subdir / "tensors.tsv")
         if labels is not None:
             embedding_info.metadata_path = str(subdir / "metadata.tsv")
         if images is not None:
+            assert label_img_size is not None, "label_img_size should not be None"
             embedding_info.sprite.image_path = str(subdir / "sprite.png")
             embedding_info.sprite.single_image_dim.extend(label_img_size)
         projector_config.embeddings.extend([embedding_info])
@@ -543,7 +565,7 @@ class TensorboardLoggerEvent(BaseLoggerEvent):
                 raise ValueError("The histogram is empty, please file a bug report.")
 
             sum_sq = values.dot(values)
-            return HistogramProto(
+            return HistogramProto(  # type: ignore
                 min=values.min(),
                 max=values.max(),
                 num=len(values),
@@ -554,18 +576,18 @@ class TensorboardLoggerEvent(BaseLoggerEvent):
             )
 
         hist = make_histogram(values, bins, max_bins)
-        self._summaries.append(Summary.Value(tag=tag, histo=hist))
+        self._summaries.append(Summary.Value(tag=tag, histo=hist))  # type: ignore
 
 
 def _tensorboard_hparams(hparam_dict=None, metrics_list=None, hparam_domain_discrete=None):
-    from tensorboard.plugins.hparams.api_pb2 import (
+    from tensorboard.plugins.hparams.api_pb2 import ( # type: ignore
         DataType,
         Experiment,
-        HParamInfo,
+        HParamInfo, # type: ignore
         MetricInfo,
         MetricName,
         Status,
-    )
+    ) # type: ignore
     from tensorboard.plugins.hparams.metadata import (
         EXPERIMENT_TAG,
         PLUGIN_DATA_VERSION,
@@ -597,7 +619,7 @@ def _tensorboard_hparams(hparam_dict=None, metrics_list=None, hparam_domain_disc
             )
     hps = []
 
-    ssi = SessionStartInfo()
+    ssi: Any = SessionStartInfo()
     for k, v in hparam_dict.items():
         if v is None:
             continue
@@ -615,7 +637,7 @@ def _tensorboard_hparams(hparam_dict=None, metrics_list=None, hparam_domain_disc
                 domain_discrete = None
 
             hps.append(
-                HParamInfo(
+                HParamInfo(  # type: ignore
                     name=k,
                     type=DataType.Value("DATA_TYPE_FLOAT64"),
                     domain_discrete=domain_discrete,
@@ -637,7 +659,7 @@ def _tensorboard_hparams(hparam_dict=None, metrics_list=None, hparam_domain_disc
                 domain_discrete = None
 
             hps.append(
-                HParamInfo(
+                HParamInfo(  # type: ignore
                     name=k,
                     type=DataType.Value("DATA_TYPE_STRING"),
                     domain_discrete=domain_discrete,
@@ -649,9 +671,9 @@ def _tensorboard_hparams(hparam_dict=None, metrics_list=None, hparam_domain_disc
             ssi.hparams[k].bool_value = v
 
             if k in hparam_domain_discrete:
-                domain_discrete = struct_pb2.ListValue(
+                domain_discrete = struct_pb2.ListValue(  # type: ignore
                     values=[
-                        struct_pb2.Value(bool_value=d)
+                        struct_pb2.Value(bool_value=d)  # type: ignore
                         for d in hparam_domain_discrete[k]
                     ]
                 )
@@ -659,7 +681,7 @@ def _tensorboard_hparams(hparam_dict=None, metrics_list=None, hparam_domain_disc
                 domain_discrete = None
 
             hps.append(
-                HParamInfo(
+                HParamInfo(  # type: ignore
                     name=k,
                     type=DataType.Value("DATA_TYPE_BOOL"),
                     domain_discrete=domain_discrete,
@@ -669,40 +691,40 @@ def _tensorboard_hparams(hparam_dict=None, metrics_list=None, hparam_domain_disc
 
         if isinstance(v, np.ndarray):
             ssi.hparams[k].number_value = v.item()
-            hps.append(HParamInfo(name=k, type=DataType.Value("DATA_TYPE_FLOAT64")))
+            hps.append(HParamInfo(name=k, type=DataType.Value("DATA_TYPE_FLOAT64")))  # type: ignore
             continue
         raise ValueError(
             "value should be one of int, float, str, bool, or np.ndarray"
         )
 
-    content = HParamsPluginData(session_start_info=ssi, version=PLUGIN_DATA_VERSION)
+    content = HParamsPluginData(session_start_info=ssi, version=PLUGIN_DATA_VERSION)  # type: ignore
     smd = SummaryMetadata(
-        plugin_data=SummaryMetadata.PluginData(
-            plugin_name=PLUGIN_NAME, content=content.SerializeToString()
+        plugin_data=SummaryMetadata.PluginData(  # type: ignore
+            plugin_name=PLUGIN_NAME, content=content.SerializeToString()  # type: ignore
+        )  # type: ignore
+    )
+    ssi = Summary(value=[Summary.Value(tag=SESSION_START_INFO_TAG, metadata=smd)])  # type: ignore
+
+    mts = [MetricInfo(name=MetricName(tag=k)) for k in metrics_list]  # type: ignore
+
+    exp = Experiment(hparam_infos=hps, metric_infos=mts)  # type: ignore
+
+    content = HParamsPluginData(experiment=exp, version=PLUGIN_DATA_VERSION)  # type: ignore
+    smd = SummaryMetadata(
+        plugin_data=SummaryMetadata.PluginData(  # type: ignore
+            plugin_name=PLUGIN_NAME, content=content.SerializeToString()  # type: ignore
+        )
+    )  # type: ignore
+    exp = Summary(value=[Summary.Value(tag=EXPERIMENT_TAG, metadata=smd)])  # type: ignore
+
+    sei = SessionEndInfo(status=Status.Value("STATUS_SUCCESS"))  # type: ignore
+    content = HParamsPluginData(session_end_info=sei, version=PLUGIN_DATA_VERSION)  # type: ignore
+    smd = SummaryMetadata(
+        plugin_data=SummaryMetadata.PluginData(  # type: ignore
+            plugin_name=PLUGIN_NAME, content=content.SerializeToString()  # type: ignore
         )
     )
-    ssi = Summary(value=[Summary.Value(tag=SESSION_START_INFO_TAG, metadata=smd)])
-
-    mts = [MetricInfo(name=MetricName(tag=k)) for k in metrics_list]
-
-    exp = Experiment(hparam_infos=hps, metric_infos=mts)
-
-    content = HParamsPluginData(experiment=exp, version=PLUGIN_DATA_VERSION)
-    smd = SummaryMetadata(
-        plugin_data=SummaryMetadata.PluginData(
-            plugin_name=PLUGIN_NAME, content=content.SerializeToString()
-        )
-    )
-    exp = Summary(value=[Summary.Value(tag=EXPERIMENT_TAG, metadata=smd)])
-
-    sei = SessionEndInfo(status=Status.Value("STATUS_SUCCESS"))
-    content = HParamsPluginData(session_end_info=sei, version=PLUGIN_DATA_VERSION)
-    smd = SummaryMetadata(
-        plugin_data=SummaryMetadata.PluginData(
-            plugin_name=PLUGIN_NAME, content=content.SerializeToString()
-        )
-    )
-    sei = Summary(value=[Summary.Value(tag=SESSION_END_INFO_TAG, metadata=smd)])
+    sei = Summary(value=[Summary.Value(tag=SESSION_END_INFO_TAG, metadata=smd)])  # type: ignore
 
     return exp, ssi, sei
 
@@ -721,8 +743,8 @@ class TensorboardLogger(BaseLogger):
 
         summaries = []
         yield TensorboardLoggerEvent(self._writer.get_logdir(), summaries, step=step)
-        summary = Summary(value=summaries)
-        self._writer.add_event(Event(summary=summary, step=step))
+        summary = Summary(value=summaries)  # type: ignore
+        self._writer.add_event(Event(summary=summary, step=step))  # type: ignore
 
     def add_hparams(self, hparams: Dict[str, Any]):
         from tensorboard.compat.proto.event_pb2 import Event
@@ -731,9 +753,9 @@ class TensorboardLogger(BaseLogger):
         hparam_domain_discrete = {}
         hparams = _flatten_simplify_hparams(hparams)
         exp, ssi, sei = _tensorboard_hparams(hparams, self._hparam_plugin_metrics or [], hparam_domain_discrete)
-        self._writer.add_event(Event(summary=exp, step=0))
-        self._writer.add_event(Event(summary=ssi, step=0))
-        self._writer.add_event(Event(summary=sei, step=0))
+        self._writer.add_event(Event(summary=exp, step=0))  # type: ignore
+        self._writer.add_event(Event(summary=ssi, step=0))  # type: ignore
+        self._writer.add_event(Event(summary=sei, step=0))  # type: ignore
 
     def __str__(self):
         return "tensorboard"

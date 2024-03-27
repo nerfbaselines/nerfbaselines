@@ -5,7 +5,7 @@ import logging
 import inspect
 import os
 import importlib
-from typing import Optional, Type, Any, Tuple, Dict, List, Iterable
+from typing import Optional, Type, Any, Tuple, Dict, List, cast
 
 if sys.version_info < (3, 10):
     from importlib_metadata import entry_points
@@ -21,7 +21,7 @@ from .utils import assert_not_none
 registry: Dict[str, 'MethodSpec'] = {}
 
 
-def _discover_methods() -> List[Tuple[Optional[str], "MethodSpec"]]:
+def _discover_methods() -> List[Tuple[str, "MethodSpec"]]:
     """
     Discovers all methods registered using the `nerfbaselines.method_configs` entrypoint.
     And also methods in the NERFBASELINES_METHODS environment variable.
@@ -50,6 +50,11 @@ def _discover_methods() -> List[Tuple[Optional[str], "MethodSpec"]]:
                 if qualname_separator:
                     for attr in qualname.split("."):
                         spec = getattr(spec, attr)
+                _name: Optional[str] = spec.pop("name")
+                if name is None and _name is not None:
+                    name = _name
+                if name is None:
+                    raise ValueError(f"Could not find name for method {spec}")
 
                 # check for valid instance type
                 if not isinstance(spec, dict):
@@ -150,7 +155,6 @@ def _make_entrypoint_absolute(entrypoint: str) -> str:
 
 
 class MethodSpec(TypedDict, total=False):
-    name: Required[str]
     method: Required[str]
     conda: NotRequired[CondaBackendSpec]
     docker: NotRequired[DockerBackendSpec]
@@ -160,7 +164,7 @@ class MethodSpec(TypedDict, total=False):
     backends_order: List[BackendName]
 
 
-def register(spec: "MethodSpec", *, name: Optional[str] = None, metadata=None, kwargs=None) -> None:
+def register(spec: "MethodSpec", *, name: str, metadata=None, kwargs=None) -> None:
     assert spec.get("conda") is not None or spec.get("docker") is not None, "MethodSpec requires at least conda or docker backend"
     if metadata is None:
         metadata = {}
@@ -168,10 +172,7 @@ def register(spec: "MethodSpec", *, name: Optional[str] = None, metadata=None, k
     spec["method"] = _make_entrypoint_absolute(spec["method"])
     spec.update(
         kwargs={**(spec.get("kwargs") or {}), **(kwargs or {})}, 
-        metadata={**(spec.get("metadata") or {}), **(metadata or {})},
-        **({"name": name} if name is not None else {}))
-    name = spec.get("name")
-    assert name is not None, "Name must be provided"
+        metadata={**(spec.get("metadata") or {}), **(metadata or {})})
     assert name not in registry, f"Method {name} already registered"
     registry[name] = spec
 
@@ -190,10 +191,9 @@ def supported_methods() -> FrozenSet[str]:
 
 def _build_method(method_name, spec: "MethodSpec") -> Type[Method]:
     package, name = spec["method"].split(":")
-    cls: Type[Method]
-    cls = importlib.import_module(package)
+    cls = cast(Type[Method], importlib.import_module(package))
     for p in name.split("."):
-        cls = getattr(cls, p)
+        cls = cast(Type[Method], getattr(cls, p))
 
     # Apply kwargs to the class
     ns = {}
@@ -218,10 +218,12 @@ def _build_method(method_name, spec: "MethodSpec") -> Type[Method]:
 
 
 @contextlib.contextmanager
-def build_method(method: str, backend: Optional[BackendName] = None) -> Iterable[Type[Method]]:
+def build_method(method: str, backend: Optional[BackendName] = None):
     method_spec = registry.get(method)
+    if method_spec is None:
+        raise RuntimeError(f"Could not find method {method} in registry. Supported methods: {','.join(registry.keys())}")
     backend_impl = backends.get_backend(method_spec, backend)
     logging.info(f"Using method: {method}, backend: {backend_impl.name}")
     with backend_impl as _backend_imple_active:
         backend_impl.install()
-        yield backend_impl.wrap(_build_method)(method, method_spec)
+        yield cast(Type[Method], backend_impl.wrap(_build_method)(method, method_spec))

@@ -444,7 +444,7 @@ class Trainer:
             util = self._resources_utilization_info
         if update:
             logging.debug(f"computing resource utilization at step={self.step}")
-            new_util: Dict[str, int] = get_resources_utilization_info()
+            new_util = cast(Dict[str, int], get_resources_utilization_info())
             for k, v in new_util.items():
                 if k not in util:
                     util[k] = 0
@@ -624,7 +624,7 @@ def train_command(
 
                 # Build the method
                 method = method_cls(
-                    checkpoint=Path(os.path.abspath(checkpoint_path)) if checkpoint_path else None,
+                    checkpoint=os.path.abspath(checkpoint_path) if checkpoint_path else None,
                     train_dataset=train_dataset,
                     config_overrides=config_overrides,
                 )

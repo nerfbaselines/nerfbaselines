@@ -148,6 +148,9 @@ class ViserViewer:
             handle.on_click(_set_view_to_camera)
 
     def _update(self):
+        if self.method is None:
+            # No need to render anything
+            return
         for client in self.server.get_clients().values():
             render_state = self._render_state.get(client.client_id, 0)
             if render_state < 2:
@@ -192,6 +195,7 @@ class ViserViewer:
                     image_sizes=np.array([[w, h]], dtype=np.int32),
                     nears_fars=None,
                 )
+                outputs = None
                 try:
                     with self._cancellation_token or contextlib.nullcontext():
                         for outputs in self.method.render(camera):
@@ -200,6 +204,7 @@ class ViserViewer:
                     # if we got interrupted, don't send the output to the viewer
                     self._render_state[client.client_id] = 0
                     continue
+                assert outputs is not None, "Method did not return any outputs"
                 interval = perf_counter() - start
                 image = outputs["color"]
                 client.set_background_image(image, format="jpeg")

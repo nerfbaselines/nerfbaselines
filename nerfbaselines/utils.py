@@ -12,7 +12,7 @@ import inspect
 import struct
 from pathlib import Path
 from functools import wraps
-from typing import Any, Optional, Dict, TYPE_CHECKING, Union, List, TypeVar, Iterable
+from typing import Any, Optional, Dict, TYPE_CHECKING, Union, List, TypeVar, Iterable, overload, Callable
 from typing import BinaryIO
 import logging
 import types
@@ -57,6 +57,7 @@ else:
 
 
 T = TypeVar("T")
+TCallable = TypeVar("TCallable", bound=Callable)
 _generate_interface_types = []
 
 
@@ -198,8 +199,16 @@ class CancellationToken(metaclass=_CancellationTokenMeta):
         type(self)._pop_token(self)
 
 
+@overload
+def cancellable(fn: TCallable, *, mark_only: bool =..., cancellation_token: Optional[CancellationToken] = ...) -> TCallable:
+    ...
+
+@overload
+def cancellable(*, mark_only: bool =..., cancellation_token: Optional[CancellationToken] = ...) -> Callable[[TCallable], TCallable]:
+    ...
+
 # TODO: fix signature of wrapped function
-def cancellable(fn=None, mark_only=False, cancellation_token: Optional[CancellationToken] = None):
+def cancellable(fn=None, *, mark_only: bool = False, cancellation_token: Optional[CancellationToken] = None):
     def wrap(fn):
         if mark_only:
             fn.__cancellable__ = True

@@ -1,3 +1,4 @@
+import sys
 from typing import cast
 import numpy as np
 import pytest
@@ -124,6 +125,9 @@ def test_psnr():
 @pytest.mark.filterwarnings("ignore:Importing `spectral_angle_mapper` from `torchmetrics.functional` was deprecated")
 @pytest.mark.parametrize("metric", ["lpips_vgg", "lpips_alex"])
 def test_lpips(metric):
+    metrics._LPIPS_CACHE.clear()
+    metrics._LPIPS_GPU_AVAILABLE = None
+    sys.modules.pop("nerfbaselines._metrics_lpips", None)
     np.random.seed(42)
     batch_shapes = [
         (3,),

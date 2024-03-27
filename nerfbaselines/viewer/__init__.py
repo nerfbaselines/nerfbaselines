@@ -111,7 +111,7 @@ def main(checkpoint: str, data, verbose, backend, viewer="viser", port=6006):
             method_name = nb_info["method"]
             backends.mount(checkpoint_path, checkpoint_path)
             with registry.build_method(method_name, backend=backend) as method_cls:
-                method = method_cls(checkpoint=checkpoint_path)
+                method = method_cls(checkpoint=str(checkpoint_path))
                 run_viewer(method, nb_info=nb_info)
     else:
         logging.info("Starting viewer without method")

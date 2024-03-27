@@ -234,7 +234,7 @@ def run_inside_eval_container():
 
     logging.warning("PyTorch is not available in the current environment, we will create a new environment to compute extra metrics (lpips)")
     backend = get_backend({
-        "method": None,
+        "method": "base",
         "conda": {
             "environment_name": "_metrics", 
             "install_script": ""

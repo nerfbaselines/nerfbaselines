@@ -23,7 +23,7 @@ def test_method_docker(method_name):
     with registry.build_method(method_name, backend="docker") as method_cls:
         assert Backend.current is not None
         assert Backend.current.name == "docker"
-        assert method_cls.get_method_info().name == method_name
+        assert method_cls.get_method_info()["name"] == method_name
         method = method_cls()
         assert isinstance(method, Method)  # type: ignore
 
@@ -34,6 +34,6 @@ def test_method_apptainer(method_name):
     with registry.build_method(method_name, backend="apptainer") as method_cls:
         assert Backend.current is not None
         assert Backend.current.name == "apptainer"
-        assert method_cls.get_method_info().name == method_name
+        assert method_cls.get_method_info()["name"] == method_name
         method = method_cls()
         assert isinstance(method, Method)  # type: ignore

@@ -35,11 +35,11 @@ function nb-post-install () {
     },
     "metadata": {
         "name": "NeRF",
-        "description": "",
-        "paper_title": "",
-        "paper_authors": [],
-        "paper_link": "",
-        "link": "",
+        "description": "sdf",
+        "paper_title": "sdf",
+        "paper_authors": ["sdf"],
+        "paper_link": "sdf",
+        "link": "sdf",
     },
 }
 

@@ -84,7 +84,7 @@ defineConstant = { DEBUG = true }
 reportMissingImports = "warning"
 reportMissingTypeStubs = false
 reportPrivateImportUsage = false
-pythonVersion = "3.8"
+pythonVersion = "3.11"
 pythonPlatform = "Linux"
 
 [tool.ruff]

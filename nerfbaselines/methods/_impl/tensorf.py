@@ -181,7 +181,7 @@ class TensoRF(Method):
     _method_name: str = "tensorf"
 
     def __init__(self, *,
-                 checkpoint: Optional[Path] = None, 
+                 checkpoint: Optional[str] = None, 
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
         self.checkpoint = checkpoint
@@ -224,6 +224,7 @@ class TensoRF(Method):
             num_iterations=self.args.n_iters,
             supported_camera_models=frozenset(CameraModel.__members__.values()),
             loaded_step=self.metadata.get("step"),
+            loaded_checkpoint=str(self.checkpoint) if self.checkpoint is not None else None,
             batch_size=self.args.batch_size,
             eval_batch_size=self.args.batch_size,
             hparams=vars(self.args) if self.args else {},

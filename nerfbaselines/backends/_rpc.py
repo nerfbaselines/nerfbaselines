@@ -299,6 +299,7 @@ class RPCWorker:
                 traceback.print_exc()
             send_message({"message": "error", "thread_end": True, "thread_id": mid, "error": _remap_error(e), "is_generator": is_generator})
 
+
 def generate_authkey():
     return secrets.token_hex(64).encode("ascii")
 
@@ -479,17 +480,16 @@ class RPCMasterEndpoint:
         self._conn, self._recv = conn, recv
 
     def close(self):
-        if self._conn is not None and self._recv is not None:
-            if not self._conn.closed:
+        if self._conn is not None and self._recv is not None and not self._conn.closed:
+            try:
                 send(self._conn, {"message": "close"})
                 # Wait for close ack
                 while self._conn is not None and not self._conn.closed:
-                    try:
-                        self._recv()
-                    except (EOFError, BrokenPipeError):
-                        break
+                    self._recv()
+            except (EOFError, BrokenPipeError):
+                pass
             self._conn.close()
-            self._conn = None
+        self._conn = None
         self._recv = None
         if self._listener is not None:
             self._listener.close()
@@ -577,11 +577,11 @@ class RPCBackend(Backend):
             "is_cancellable": CancellationToken.current is not None,
         }, *args, **kwargs)
 
-    def instance_getattr(self, instance: int, name: str) -> Any:
+    def instance_getattr(self, instance: int, attr: str) -> Any:
         return self._handle_thread({
             "message": "instance_getattr", 
             "instance": instance, 
-            "name": name})
+            "name": attr})
 
     def instance_del(self, instance: int):
         try:
@@ -726,10 +726,10 @@ rw(address="{self._address}", port={self._port}, authkey=authkey)
         assert self._rpc_backend is not None, "Backend not started"
         return self._rpc_backend.instance_call(instance, method, *args, **kwargs)
     
-    def instance_getattr(self, instance: int, name: str):
+    def instance_getattr(self, instance: int, attr: str):
         self._ensure_started()
         assert self._rpc_backend is not None, "Backend not started"
-        return self._rpc_backend.instance_getattr(instance, name)
+        return self._rpc_backend.instance_getattr(instance, attr)
     
     def instance_del(self, instance: int):
         self._ensure_started()

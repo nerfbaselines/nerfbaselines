@@ -55,6 +55,9 @@ class _TestObject:
         for i in range(5):
             yield i
 
+    def test_raise(self):
+        raise ValueError("Test error")
+
     def test_cancel(self):
         for _ in range(1000):
             assert EventCancellationToken.current is not None
@@ -73,12 +76,18 @@ def stream_callback_calls(fn):
     def wrapped(*args, **kwargs):
         q = Queue(maxsize=1)
         def job(token, *args, **kwargs):
-            with token or contextlib.nullcontext():
-                try:
-                    fn(lambda m: q.put(m), *args, **kwargs)
-                    q.put(_dummy)
-                except Exception as e:
-                    q.put(e)
+            try:
+                with token or contextlib.nullcontext():
+                    try:
+                        fn(lambda m: q.put(m), *args, **kwargs)
+                    except Exception as e:
+                        q.put(e)
+            finally:
+                q.put(_dummy)
+        if args[0]["message"] == "instance_del":
+            fn(lambda m: q.put(m), *args, **kwargs)
+            return
+
         thread = threading.Thread(target=job, args=(EventCancellationToken.current,) + args, kwargs=kwargs, daemon=True)
         thread.start()
 
@@ -112,6 +121,7 @@ def stream_messages(fn):
     return stream_callback_calls(run)
 
 
+@typeguard_ignore
 def test_rpc_backend_static_function():
     with RPCWorker() as worker:
         endpoint = mock.MagicMock(spec=RPCMasterEndpoint)
@@ -135,6 +145,7 @@ def test_rpc_backend_static_function():
 @typeguard_ignore
 def test_rpc_backend_instance():
     with RPCWorker() as worker:
+
         endpoint = mock.MagicMock(spec=RPCMasterEndpoint)
         endpoint.send_message = mock.MagicMock(side_effect=stream_messages(worker.process_message))
         backend = RPCBackend(endpoint=endpoint)
@@ -161,6 +172,11 @@ def test_rpc_backend_instance():
         endpoint.send_message.assert_called_once()
         endpoint.send_message.reset_mock()
 
+        # Test raise error
+        with pytest.raises(ValueError) as e:
+            out.test_raise()
+            e.match("Test error")
+
         # Test instance was deleted
         del out
         gc.collect()
@@ -176,19 +192,23 @@ def test_rpc_backend_cancel():
         inst = backend.wrap(_TestObject)(1)
 
         # Test cancel
-        start = time.perf_counter()
+        start = time.time()
         with EventCancellationToken() as token:
-            threading.Thread(target=lambda: sleep(0.001) or token.cancel(), daemon=True).start()
+            thread = threading.Thread(target=lambda: sleep(0.001) or token.cancel(), daemon=True)
+            thread.start()
             with pytest.raises(CancelledException):
                 inst.test_cancel()
-        assert time.perf_counter() - start < 0.1
+            thread.join()
+            assert time.time() - start < 0.1
 
         # Test cancel iterable
         start = time.perf_counter()
         with EventCancellationToken() as token:
-            threading.Thread(target=lambda: sleep(0.001) or token.cancel(), daemon=True).start()
+            thread = threading.Thread(target=lambda: sleep(0.001) or token.cancel(), daemon=True)
+            thread.start()
             with pytest.raises(CancelledException):
                 list(inst.test_cancel_iter())
+            thread.join()
         assert time.perf_counter() - start < 0.1
 
 
@@ -308,6 +328,7 @@ def test_master_endpoint_run_worker():
     thread.join()
 
 
+@typeguard_ignore
 def test_master_endpoint_broken_connection():
     worker = mock.MagicMock(spec=RPCWorker)
     received_messages = []
@@ -372,6 +393,7 @@ def test_simple_backend_instance():
     assert out.attr == 6
 
 
+@typeguard_ignore
 def test_remote_process_rpc_backend():
     with RemoteProcessRPCBackend() as backend:
         # Test simple call
@@ -395,13 +417,19 @@ def _test_iterable_stop_iteration():
 _test_iterable_stop_iteration.val = False  # type: ignore
 
 
+@typeguard_ignore
 def test_rpc_backend_iterator_closed_propagate():
     port = random.randint(10000, 20000)
     authkey = generate_authkey()
-    worker_thread = threading.Thread(target=run_worker, kwargs={"port": port, "authkey": authkey}, daemon=True)
+
+    def rt(port, authkey):
+        sleep(0.1)
+        run_worker(port=port, authkey=authkey)
+    worker_thread = threading.Thread(target=rt, kwargs={"port": port, "authkey": authkey}, daemon=True)
     worker_thread.start()
+
     with RPCMasterEndpoint(port=port, authkey=authkey) as endpoint, RPCBackend(endpoint=endpoint) as backend:
-        endpoint.wait_for_connection()
+        endpoint.wait_for_connection(timeout=1.0)
 
         _test_iterable_stop_iteration.val = False  # type: ignore
         next(iter(backend.static_call(_test_iterable_stop_iteration.__module__+":"+_test_iterable_stop_iteration.__name__)))

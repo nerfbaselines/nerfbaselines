@@ -28,11 +28,8 @@ class _TestMethod(Method):
 
 def test_registry_build_method():
     from nerfbaselines.registry import build_method, MethodSpec, registry
-    from nerfbaselines.backends._conda import CondaBackend
-    from nerfbaselines.backends import SimpleBackend
 
     spec_dict: MethodSpec = {
-        "name": "test",
         "method": _TestMethod.__module__ + ":_TestMethod",
         "conda": {
             "environment_name": "test",
@@ -49,7 +46,6 @@ def test_registry_build_method():
             assert method.test == 2
     
     spec_dict: MethodSpec = {
-        "name": "test",
         "method": _TestMethod.__module__ + ":_TestMethod",
         "conda": {
             "environment_name": "test",
@@ -80,7 +76,6 @@ def test_register_spec():
 
     with mock.patch.object(registry, "registry", {}):
         register({
-            "name": "test",
             "method": test_register_spec.__module__ + ":_TestMethod",
             "conda": {
                 "environment_name": "test",

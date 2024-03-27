@@ -222,7 +222,7 @@ class MipSplatting(Method):
     _method_name: str = "mip-splatting"
 
     def __init__(self, *,
-                 checkpoint: Optional[Path] = None, 
+                 checkpoint: Optional[str] = None, 
                  config_overrides: Optional[dict] = None,
                  train_dataset: Optional[Dataset] = None):
         self.checkpoint = checkpoint
@@ -293,7 +293,7 @@ class MipSplatting(Method):
         self.gaussians.training_setup(self.opt)
         if self.checkpoint:
             info = self.get_info()
-            (model_params, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{info.loaded_step}.pth")
+            (model_params, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{info.get('loaded_step')}.pth")
             self.gaussians.restore(model_params, self.opt)
 
         bg_color = [1, 1, 1] if self.dataset.white_background else [0, 0, 0]
@@ -321,7 +321,7 @@ class MipSplatting(Method):
         self.gaussians = GaussianModel(self.dataset.sh_degree)
         self.scene = self._build_scene(None)
         info = self.get_info()
-        (model_params, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{info.loaded_step}.pth")
+        (model_params, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{info.get('loaded_step')}.pth")
         self.gaussians.restore(model_params, self.opt)
 
         bg_color = [1, 1, 1] if self.dataset.white_background else [0, 0, 0]
@@ -353,7 +353,7 @@ class MipSplatting(Method):
             hparams=(
                 flatten_hparams(dict(itertools.chain(vars(self.dataset).items(), vars(self.opt).items(), vars(self.pipe).items())))
                 if self.dataset is not None else {}),
-            **vars(self.get_method_info()),
+            **self.get_method_info(),
         )
         return info
 
@@ -367,7 +367,7 @@ class MipSplatting(Method):
             try:
                 info = self.get_info()
                 sceneLoadTypeCallbacks["Colmap"] = lambda *args, **kwargs: _convert_dataset_to_gaussian_splatting(dataset, td, white_background=self.dataset.white_background)
-                scene =  Scene(opt, self.gaussians, load_iteration=info.loaded_step if dataset is None else None)
+                scene =  Scene(opt, self.gaussians, load_iteration=info.get('loaded_step') if dataset is None else None)
                 # NOTE: This is a hack to match the RNG state of GS on 360 scenes
                 _tmp = list(range((len(next(iter(scene.train_cameras.values()))) + 6) // 7))
                 random.shuffle(_tmp)
