@@ -61,7 +61,7 @@ def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, st
     start = time.perf_counter()
     # Pseudo-randomly select an image based on the step
     total_rays = 0
-    with tqdm(desc=f"rendering single image at step={step}") as pbar:
+    with tqdm(desc=f"rendering single image at step={step}", dynamic_ncols=True) as pbar:
         predictions = None
         for predictions in evaluation_protocol.render(method, dataset_slice, progress_callback=build_update_progress(pbar, simple=True)):
             pass

@@ -220,7 +220,7 @@ def render_all_images(
     nb_info["checkpoint_sha256"] = get_method_sha(method)
     nb_info["evaluation_protocol"] = evaluation_protocol.get_name()
 
-    with tqdm(desc=description, total=len(dataset)) as pbar:
+    with tqdm(desc=description, total=len(dataset), dynamic_ncols=True) as pbar:
         yield from store_predictions(
             output,
             evaluation_protocol.render(method, dataset, progress_callback=build_update_progress(pbar)),

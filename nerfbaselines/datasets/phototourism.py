@@ -136,7 +136,8 @@ def download_phototourism_dataset(path: str, output: Path):
         total=total_size_in_bytes,
         unit="iB",
         unit_scale=True,
-        desc=f"Downloading {url.split('/')[-1]}",
+        desc=f"Downloading {url.split('/')[-1]}", 
+        dynamic_ncols=True,
     )
     with tempfile.TemporaryFile("rb+") as file:
         for data in response.iter_content(block_size):

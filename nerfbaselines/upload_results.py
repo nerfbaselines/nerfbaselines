@@ -50,7 +50,7 @@ def _upload_fileio(path: Path):
         return _upload_fileio_single(path)
     parts = []
     nparts = (total_size + limit - 1) // limit
-    with open(path, "rb", buffering=0) as f, tempfile.TemporaryDirectory() as td, tqdm(total=nparts, desc="Uploading") as pbar:
+    with open(path, "rb", buffering=0) as f, tempfile.TemporaryDirectory() as td, tqdm(total=nparts, desc="Uploading", dynamic_ncols=True) as pbar:
         for i in range(nparts):
             with open(Path(td) / (f"part_{i}" + path.suffix), "wb") as fp:
                 current_size = 0

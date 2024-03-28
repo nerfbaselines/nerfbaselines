@@ -51,7 +51,7 @@ def render_frames(
     allow_transparency = True
 
     def _predict_all():
-        with tqdm(desc=description) as pbar:
+        with tqdm(desc=description, dynamic_ncols=True) as pbar:
 
             def update_progress(progress: CurrentProgress):
                 if pbar.total != progress.total:

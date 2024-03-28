@@ -272,7 +272,7 @@ class InstantNGP(Method):
     def _write_images(self, dataset: Dataset, tmpdir: str):
         from tqdm import tqdm
 
-        for i, impath_source in enumerate(tqdm(dataset.file_paths, desc="caching images")):
+        for i, impath_source in enumerate(tqdm(dataset.file_paths, desc="caching images", dynamic_ncols=True)):
             impath_source = Path(impath_source)
             impath_target = Path(tmpdir) / str(impath_source.relative_to(dataset.file_paths_root)).replace("/", "__")
             dataset.file_paths[i] = impath_target
