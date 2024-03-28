@@ -79,10 +79,13 @@ def get_forwarded_ports():
 
 def _get_implemented_backends(method_spec: 'MethodSpec') -> Sequence[BackendName]:
     from ._apptainer import get_apptainer_spec
+    from ._docker import get_docker_spec
 
     backends: Set[BackendName] = set(("python",))
     if method_spec.get("conda") is not None:
         backends.add("conda")
+
+    if get_docker_spec(method_spec) is not None:
         backends.add("docker")
 
     if get_apptainer_spec(method_spec) is not None:

@@ -90,7 +90,7 @@ def download_mipnerf360_dataset(path: str, output: Path):
         response.raise_for_status()
         total_size_in_bytes = int(response.headers.get("content-length", 0))
         block_size = 1024  # 1 Kibibyte
-        progress_bar = tqdm(total=total_size_in_bytes, unit="iB", unit_scale=True, desc=f"Downloading {url.split('/')[-1]}")
+        progress_bar = tqdm(total=total_size_in_bytes, unit="iB", unit_scale=True, desc=f"Downloading {url.split('/')[-1]}", dynamic_ncols=True)
         with tempfile.TemporaryFile("rb+") as file:
             for data in response.iter_content(block_size):
                 progress_bar.update(len(data))

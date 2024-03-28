@@ -82,7 +82,7 @@ def get_predictions_hashes(predictions: Path, description: str = "hashing predic
     gt_sha = hashlib.sha256()
     relpaths = [x.relative_to(predictions / "color") for x in (predictions / "color").glob("**/*") if x.is_file()]
     relpaths.sort()
-    for relname in tqdm(relpaths, desc=description):
+    for relname in tqdm(relpaths, desc=description, dynamic_ncols=True):
         sha256_update(predictions_sha, predictions / "color" / relname)
         sha256_update(gt_sha, predictions / "gt-color" / relname)
     return (
@@ -158,7 +158,7 @@ def evaluate(predictions: Union[str, Path],
         # Evaluate the prediction
         metrics = evaluation_protocol.accumulate_metrics(
             collect_metrics_lists(
-                tqdm(evaluation_protocol.evaluate(read_predictions(), dataset), desc=description)
+                tqdm(evaluation_protocol.evaluate(read_predictions(), dataset), desc=description, dynamic_ncols=True)
             )
         )
 

@@ -121,7 +121,7 @@ def _dataset_undistort_unsupported(dataset: Dataset, supported_camera_models):
     # Release memory here
     gc.collect()
 
-    for i, camera in tqdm(undistort_tasks, desc="undistorting images"):
+    for i, camera in tqdm(undistort_tasks, desc="undistorting images", dynamic_ncols=True):
         undistorted_camera = cameras.undistort_camera(camera)
         ow, oh = camera.image_sizes
         if dataset.file_paths is not None:
@@ -197,7 +197,7 @@ def dataset_load_features(
     images = []
     image_sizes = []
     all_metadata = []
-    for p in tqdm(dataset.file_paths, desc="loading images"):
+    for p in tqdm(dataset.file_paths, desc="loading images", dynamic_ncols=True):
         if str(p).endswith(".bin"):
             assert dataset.color_space == "linear"
             with open(p, "rb") as f:
@@ -225,7 +225,7 @@ def dataset_load_features(
 
     if dataset.sampling_mask_paths is not None:
         sampling_masks = []
-        for p in tqdm(dataset.sampling_mask_paths, desc="loading sampling masks"):
+        for p in tqdm(dataset.sampling_mask_paths, desc="loading sampling masks", dynamic_ncols=True):
             sampling_mask = PIL.Image.open(p).convert("L")
             sampling_masks.append(np.array(sampling_mask, dtype=np.uint8).astype(bool))
         dataset.sampling_masks = sampling_masks  # padded_stack(sampling_masks)
