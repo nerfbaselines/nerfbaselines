@@ -1,3 +1,6 @@
+from pathlib import Path
+
+
 def test_open_any(tmp_path):
     from nerfbaselines.io import open_any
 
@@ -24,7 +27,8 @@ def test_open_any(tmp_path):
 def test_open_any_directory(tmp_path):
     from nerfbaselines.io import open_any_directory, open_any
 
-    with open_any_directory(tmp_path / "data.zip/obj.tar.gz/test/test.zip/ok/pass.zip", "w") as path:
+    with open_any_directory(tmp_path / "data.zip/obj.tar.gz/test/test.zip/ok/pass.zip", "w") as _path:
+        path = Path(_path)
         (path / "data.txt").write_text("Hello world2")
         (path / "test" / "ok").mkdir(parents=True, exist_ok=True)
         (path / "test" / "ok2").mkdir(parents=True, exist_ok=True)
@@ -34,7 +38,8 @@ def test_open_any_directory(tmp_path):
     assert not (tmp_path / "data.zip/obj.tar.gz").exists()
     assert (tmp_path / "data.zip").is_file()
 
-    with open_any_directory(tmp_path / "data.zip/obj.tar.gz/test/test.zip/ok/pass.zip", "r") as path:
+    with open_any_directory(tmp_path / "data.zip/obj.tar.gz/test/test.zip/ok/pass.zip", "r") as _path:
+        path = Path(_path)
         assert (path / "data.txt").read_text() == "Hello world2"
         assert (path / "test" / "ok" / "data.txt").read_text() == "Hello world"
         assert (path / "test" / "ok2").exists()

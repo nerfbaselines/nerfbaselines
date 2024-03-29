@@ -1,5 +1,5 @@
 import math
-from typing import List, Dict, Any, cast
+from typing import List, Dict, Any, cast, Union
 import base64
 import os
 import struct
@@ -85,10 +85,11 @@ def load_metrics_from_results(results: Dict) -> Dict[str, List[float]]:
     return out
 
 
-def compile_dataset_results(results_path: Path, dataset: str) -> Dict[str, Any]:
+def compile_dataset_results(results_path: Union[Path, str], dataset: str) -> Dict[str, Any]:
     """
     Compile the results.json file from the results repository.
     """
+    results_path = Path(results_path)
     from . import registry
 
     dataset_info = cast(Dict[str, Any], get_dataset_info(dataset))

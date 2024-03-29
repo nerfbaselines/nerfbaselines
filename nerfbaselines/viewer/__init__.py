@@ -1,3 +1,4 @@
+from pathlib import Path
 import os
 import logging
 import json
@@ -101,7 +102,8 @@ def main(checkpoint: str, data, verbose, backend, viewer="viser", port=6006):
     # Read method nb-info
     if checkpoint is not None:
         logging.info(f"Loading checkpoint {checkpoint}")
-        with open_any_directory(checkpoint) as checkpoint_path:
+        with open_any_directory(checkpoint) as _checkpoint_path:
+            checkpoint_path = Path(_checkpoint_path)
             assert checkpoint_path.exists(), f"checkpoint path {checkpoint} does not exist"
             assert (checkpoint_path / "nb-info.json").exists(), f"checkpoint path {checkpoint} does not contain nb-info.json"
             with (checkpoint_path / "nb-info.json").open("r") as f:

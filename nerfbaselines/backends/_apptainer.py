@@ -1,3 +1,4 @@
+import tempfile
 import contextlib
 from pathlib import Path
 import subprocess
@@ -9,7 +10,7 @@ from ..utils import cached_property
 from ..types import NB_PREFIX, TypedDict
 from ._docker import BASE_IMAGE
 from ._conda import conda_get_install_script, conda_get_environment_hash, CondaBackendSpec
-from ._rpc import RemoteProcessRPCBackend, get_safe_environment
+from ._rpc import RemoteProcessRPCBackend, get_safe_environment, customize_wrapper_separated_fs
 from ._common import get_mounts
 if TYPE_CHECKING:
     from ..registry import MethodSpec
@@ -37,7 +38,7 @@ def get_apptainer_spec(spec: 'MethodSpec') -> Optional[ApptainerBackendSpec]:
         return apptainer_spec
 
     docker_spec = spec.get("docker")
-    if docker_spec is not None and docker_spec.get("image") is not None:
+    if docker_spec is not None and docker_spec.get("image") is not None and not docker_spec.get("should_build", True):
         return {
             **docker_spec,
             "image": f"docker://{docker_spec.get('image')}"
@@ -155,7 +156,26 @@ class ApptainerBackend(RemoteProcessRPCBackend):
                  address: str = "0.0.0.0", 
                  port: Optional[int] = None):
         self._spec = spec
+        self._tmpdir = None
+        self._applied_mounts = None
         super().__init__(address=address, port=port)
+
+    def __enter__(self):
+        super().__enter__()
+        self._tmpdir = tempfile.TemporaryDirectory()
+        return self
+
+    def __exit__(self, *args):
+        if self._tmpdir is not None:
+            self._tmpdir.cleanup()
+            self._tmpdir = None
+        self._applied_mounts = None
+        super().__exit__(*args)
+
+    def _customize_wrapper(self, ns):
+        ns = super()._customize_wrapper(ns)
+        customize_wrapper_separated_fs(self._tmpdir.name, "/var/nb-tmp", self._applied_mounts, ns)
+        return ns
 
     @cached_property
     def _docker_image_name(self):
@@ -194,9 +214,10 @@ class ApptainerBackend(RemoteProcessRPCBackend):
             env_name = conda_spec["environment_name"]
             env_path = os.path.join(env_path, env_name, conda_get_environment_hash(conda_spec), env_name)
             args = [os.path.join(env_path, ".activate.sh")] + args
+        self._applied_mounts = get_mounts()
         return super()._launch_worker(*apptainer_run(
             self._spec, args, env, 
-            mounts=get_mounts(), 
+            mounts=self._applied_mounts + [(self._tmpdir.name, "/var/nb-tmp")], 
             interactive=False,
             use_gpu=os.getenv("GITHUB_ACTIONS") != "true"))
 

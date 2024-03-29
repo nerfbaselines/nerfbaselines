@@ -67,10 +67,10 @@ class Dataset:
     def __getitem__(self, i) -> "Dataset":
         assert isinstance(i, (slice, int, np.ndarray))
 
-        def index(obj):
+        def index(key, obj):
             if obj is None:
                 return None
-            if isinstance(obj, Cameras):
+            if key == "cameras":
                 if len(obj) == 1:
                     return obj if isinstance(i, int) else obj
                 return obj[i]
@@ -84,9 +84,9 @@ class Dataset:
                 if indices.ndim == 0:
                     return obj[indices]
                 return [obj[i] for i in indices]
-            raise ValueError(f"Cannot index object of type {type(obj)}")
+            raise ValueError(f"Cannot index object of type {type(obj)} at key {key}")
 
-        return dataclasses.replace(self, **{k: index(v) for k, v in self.__dict__.items() if k not in {"file_paths_root", "points3D_xyz", "points3D_rgb", "metadata"}})
+        return dataclasses.replace(self, **{k: index(k, v) for k, v in self.__dict__.items() if k not in {"file_paths_root", "points3D_xyz", "points3D_rgb", "metadata"}})
 
     @mark_host
     def load_features(self, required_features, supported_camera_models=None):
@@ -219,7 +219,7 @@ class Method(Protocol):
         raise NotImplementedError()
 
     @abstractmethod
-    def save(self, path: Path):
+    def save(self, path: str):
         """
         Save model.
 

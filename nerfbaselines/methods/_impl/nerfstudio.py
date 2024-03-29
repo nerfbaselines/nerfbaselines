@@ -15,7 +15,7 @@ from ...types import Method, ProgressCallback, CurrentProgress, MethodInfo, Mode
 from ...types import Dataset, RenderOutput
 from ...cameras import CameraModel, Cameras
 from ...utils import convert_image_dtype
-from ...utils import cast_value
+from ...utils import cast_value, remap_error
 
 import yaml
 import torch
@@ -247,6 +247,7 @@ class NerfStudio(Method):
     _nerfstudio_name: Optional[str] = None
     _require_points3D: bool = False
 
+    @remap_error
     def __init__(self, *,
                  checkpoint: Optional[str] = None,
                  train_dataset: Optional[Dataset] = None, 
@@ -590,23 +591,22 @@ class NerfStudio(Method):
         self.step = step + 1
         return {k: detach(v) for k, v in metrics.items()}
 
-    def save(self, path: Path):
+    def save(self, path: str):
         """
         Save model.
 
         Args:
             path: Path to save.
         """
-        path = Path(path)
         assert isinstance(self._trainer, Trainer)
         bckp = self._trainer.checkpoint_dir
         self._trainer.checkpoint_dir = path
-        config_yaml_path = path / "config.yml"
+        config_yaml_path = Path(path) / "config.yml"
         config_yaml_path.write_text(yaml.dump(self._original_config), "utf8")
-        self._trainer.checkpoint_dir = path / self._original_config.relative_model_dir
+        self._trainer.checkpoint_dir = Path(path) / self._original_config.relative_model_dir
         self._trainer.save_checkpoint(self.step)
         self._trainer.checkpoint_dir = bckp
-        torch.save({k: v.cpu() if hasattr(v, "cpu") else v for k, v in self.dataparser_params.items()}, str(path / "dataparser_params.pth"))
+        torch.save({k: v.cpu() if hasattr(v, "cpu") else v for k, v in self.dataparser_params.items()}, str(Path(path) / "dataparser_params.pth"))
 
     def close(self):
         self._tmpdir.cleanup()

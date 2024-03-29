@@ -92,7 +92,7 @@ def patch_prefix(tmp_path):
             os.environ.pop("NS_PREFIX", None)
 
 
-def run_test_train(tmp_path, dataset_path, method_name, backend="python"):
+def run_test_train(tmp_path, dataset_path, method_name, backend="python", config_overrides=None):
     metrics._LPIPS_CACHE.clear()
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
@@ -116,7 +116,7 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python"):
                 if isinstance(v, Indices):
                     v.total = self.num_iterations + 1
         with mock.patch.object(Trainer, '__init__', __init__):
-            train_cmd(method_name, None, str(dataset_path), str(tmp_path / "output"), False, backend, Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), vis="none")
+            train_cmd(method_name, None, str(dataset_path), str(tmp_path / "output"), False, backend, Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), vis="none", config_overrides=config_overrides)
     except NoGPUError:
         pytest.skip("no GPU available")
 
@@ -137,7 +137,7 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python"):
         (tmp_path / "tmp-renders").mkdir(parents=True)
         tar.extractall(tmp_path / "tmp-renders")
     assert info["checkpoint_sha256"] is not None, "checkpoint sha not saved in info.json"
-    assert get_checkpoint_sha(tmp_path / "output" / "checkpoint-13") == info["checkpoint_sha256"], "checkpoint sha mismatch"
+    assert get_checkpoint_sha(str(tmp_path / "output" / "checkpoint-13")) == info["checkpoint_sha256"], "checkpoint sha mismatch"
 
     # Test restore checkpoint and render
     render_cmd = remap_error(render_command.callback)
@@ -194,9 +194,9 @@ def run_test_train_fixture(tmp_path_factory, request: pytest.FixtureRequest):
     if method_marker is not None:
         default_method_name = method_marker.args[0]
 
-    def run(method_name=default_method_name, backend=backend):
+    def run(method_name=default_method_name, backend=backend, **kwargs):
         with tmp_path_factory.mktemp("output") as tmp_path:
-            run_test_train(tmp_path, dataset_path, method_name, backend=backend)
+            run_test_train(tmp_path, dataset_path, method_name, backend=backend, **kwargs)
 
     run.dataset_name = dataset_name  # type: ignore
     return run

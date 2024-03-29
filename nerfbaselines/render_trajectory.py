@@ -36,12 +36,13 @@ OutputType = Literal["color", "depth"]
 def render_frames(
     method: Method,
     cameras: Cameras,
-    output: Path,
+    output: Union[str, Path],
     fps: float,
     description: str = "rendering frames",
     output_type: OutputType = "color",
     nb_info: Optional[dict] = None,
 ) -> None:
+    output = Path(output)
     assert cameras.image_sizes is not None, "cameras.image_sizes must be set"
     info = method.get_info()
     render = with_supported_camera_models(info.get("supported_camera_models", frozenset((CameraModel.PINHOLE,))))(method.render)
@@ -197,12 +198,12 @@ class Trajectory:
 @click.command("render-trajectory")
 @click.option("--checkpoint", type=str, required=True)
 @click.option("--trajectory", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
-@click.option("--output", type=click.Path(path_type=Path), default=None, help="output a mp4/directory/tar.gz file")
+@click.option("--output", type=click.Path(path_type=str), default=None, help="output a mp4/directory/tar.gz file")
 @click.option("--output-type", type=click.Choice(get_args(OutputType)), default="color", help="output type")
 @click.option("--verbose", "-v", is_flag=True)
 @click.option("--backend", "backend_name", type=click.Choice(ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @handle_cli_error
-def main(checkpoint: Union[str, Path], trajectory: Path, output, output_type: OutputType, verbose, backend_name):
+def main(checkpoint: Union[str, Path], trajectory: Path, output: Union[str, Path], output_type: OutputType, verbose, backend_name):
     checkpoint = str(checkpoint)
     setup_logging(verbose)
 
@@ -215,7 +216,8 @@ def main(checkpoint: Union[str, Path], trajectory: Path, output, output_type: Ou
 
     # Read method nb-info
     logging.info(f"Loading checkpoint {checkpoint}")
-    with open_any_directory(checkpoint, mode="r") as checkpoint_path:
+    with open_any_directory(checkpoint, mode="r") as _checkpoint_path:
+        checkpoint_path = Path(_checkpoint_path)
         assert checkpoint_path.exists(), f"checkpoint path {checkpoint} does not exist"
         assert (checkpoint_path / "nb-info.json").exists(), f"checkpoint path {checkpoint} does not contain nb-info.json"
         with (checkpoint_path / "nb-info.json").open("r") as f:

@@ -85,8 +85,8 @@ if ! python -c 'import cv2' >/dev/null 2>&1; then pip install opencv-python-head
 if [ -e {shlex.quote(str(package_path))} ]; then
     conda develop {shlex.quote(str(package_path))}
 fi
-if [ ! nerfbaselines >/dev/null 2>&1 ]; then
-    echo -e '#!/usr/bin/env python3\nif __name__ == "__main__":\nfrom nerfbaselines.__main__ import main\nmain()\n'>"$CONDA_PREFIX/bin/nerfbaselines"
+if ! nerfbaselines >/dev/null 2>&1; then
+    echo -e '#!/usr/bin/env python3\nfrom nerfbaselines.__main__ import main\nif __name__ == "__main__":\n  main()\n'>"$CONDA_PREFIX/bin/nerfbaselines"
     chmod +x "$CONDA_PREFIX/bin/nerfbaselines"
 fi
 echo '#!/bin/bash' > {shlex.quote(os.path.join(env_path, ".activate.sh"))}

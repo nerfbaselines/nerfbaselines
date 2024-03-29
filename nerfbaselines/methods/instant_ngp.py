@@ -47,6 +47,7 @@ echo "export PATH=\\"$CONDA_PREFIX/src/instant-ngp/build:\\$PATH\\"" >> "$CONDA_
         "image": "kulhanek/ingp:latest",
         "python_path": "python3",
         "home_path": "/root",
+        "should_build": True,
     },
     "metadata": {
         "name": "Instant NGP",

@@ -389,7 +389,7 @@ class MultiNeRF(Method):
             out["loss_threshold"] = float(fstats["loss_threshold"])
         return out
 
-    def save(self, path):
+    def save(self, path: str):
         path = os.path.abspath(str(path))
         if self.render_eval_pfn is None:
             self._setup_eval()

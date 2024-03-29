@@ -230,17 +230,17 @@ class TensoRF(Method):
             hparams=vars(self.args) if self.args else {},
         )
 
-    def save(self, path: Path):
+    def save(self, path: str):
         if self.tensorf is None:
             self._setup_eval()
         with open(str(path) + "/args.txt", "w") as f:
             f.write(shlex.join(self._arg_list))
-        self.tensorf.save(str(path / "tensorf.th"))
+        self.tensorf.save(str(Path(path) / "tensorf.th"))
         self.metadata["args"] = shlex.join(self._arg_list)
         self.metadata["step"] = self.step
         metadata = self.metadata.copy()
         metadata["dataset_transform"] = metadata["dataset_transform"].tolist()
-        with (path / "metadata.json").open("w") as f:
+        with (Path(path) / "metadata.json").open("w") as f:
             json.dump(metadata, f)
 
     @property

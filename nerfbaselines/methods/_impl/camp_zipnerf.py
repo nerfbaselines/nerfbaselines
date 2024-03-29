@@ -362,6 +362,7 @@ class CamP_ZipNeRF(Method):
         import train
 
         configs_path = str(Path(train.__file__).absolute().parent)
+        gin.config.clear_config(clear_constants=True)
         gin.add_config_file_search_path(configs_path)
 
         # Fix a bug in gin
@@ -389,7 +390,7 @@ class CamP_ZipNeRF(Method):
         assert cls._method_name is not None, "Method was not properly registered"
         return MethodInfo(
             name=cls._method_name,
-            required_features=frozenset(("color")),
+            required_features=frozenset(("color",)),
             supported_camera_models=frozenset((CameraModel.PINHOLE, CameraModel.OPENCV, CameraModel.OPENCV_FISHEYE)),
         )
 
@@ -521,7 +522,7 @@ class CamP_ZipNeRF(Method):
                 out[x[7:]] = float(fstats[x])
         return out
 
-    def save(self, path: Path):
+    def save(self, path: str):
         path = os.path.abspath(str(path))
         if self.render_eval_pfn is None:
             self._setup_eval()

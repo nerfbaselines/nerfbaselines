@@ -17,7 +17,7 @@ conda install -y -c conda-forge \
     xorg-libxrandr=1.5.2 xorg-libxinerama=1.1.5 xorg-libxext=1.3.4 xorg-libxi=1.7.10 \
     glew=2.1.0 openexr=3.2.2 zlib=1.2 ocl-icd-system jsoncpp=1.9.5 \
     gcc_linux-64=11.4 gxx_linux-64=11.4 git=2.34.1 \
-    openmp=8.0.1 minizip=1 \
+    openmp=8.0.1 minizip=1 "unzip=6.0" \
     mesalib=24.0.2 mesa-libgl-cos7-x86_64=18.3.4 mesa-libgl-devel-cos7-x86_64=18.3.4
 conda install -y -c intel mkl=2024.0.0 mkl-static=2024.0.0
 conda remove -y protobuf libprotobuf

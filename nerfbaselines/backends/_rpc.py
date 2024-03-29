@@ -1,3 +1,6 @@
+import shutil
+import tempfile
+import functools
 import contextlib
 from itertools import chain
 import traceback
@@ -16,7 +19,7 @@ from threading import Event
 from time import sleep
 import pickle
 import socket
-from typing import Optional, List, Any, Dict, Callable, cast, Tuple
+from typing import Optional, List, Any, Dict, Callable, cast, Tuple, Type
 import inspect
 import secrets
 import logging
@@ -43,10 +46,10 @@ def _remap_error(e: Exception):
 
 
 def send(connection: Connection, message):
-    # msgo = message.copy()
-    # msgo.pop("kwargs", None)
-    # msgo.pop("args", None)
-    # print("send", msgo)
+    msgo = message.copy()
+    msgo.pop("kwargs", None)
+    msgo.pop("args", None)
+    print("send", msgo)
     message_bytes = pickle.dumps(message)
     for i in range(0, len(message_bytes), MESSAGE_SIZE):
         connection.send_bytes(message_bytes[i : i + MESSAGE_SIZE])
@@ -61,12 +64,65 @@ def build_recv(connection: Connection):
             new_message = connection.recv_bytes()
             message_len = len(new_message)
             message_bytes += new_message
-        # msgo = pickle.loads(message_bytes)
-        # msgo.pop("kwargs", None)
-        # msgo.pop("args", None)
-        # print("recv", msgo)
+        msgo = pickle.loads(message_bytes)
+        msgo.pop("kwargs", None)
+        msgo.pop("args", None)
+        print("recv", msgo)
         return pickle.loads(message_bytes)
     return recv
+
+
+def customize_wrapper_separated_fs(local_shared_path, backend_shared_path, mounts, ns):
+    def _translate_mounted_path(path):
+        path = os.path.abspath(path)
+        for local, remote in mounts:
+            if path.startswith(local):
+                return path.replace(local, remote)
+        return None
+    # Customize the wrapper for Method.
+    # We check for simplified protocol
+    if "save" in ns and "train_iteration" in ns and "render" in ns:
+        # We replace the save with a custom save
+        old_save = ns["save"]
+        @staticmethod
+        @functools.wraps(old_save)
+        def save(path: str):
+            translated = _translate_mounted_path(path)
+            if translated is not None:
+                return old_save(path)
+
+            with tempfile.TemporaryDirectory(prefix=local_shared_path + "/") as tmpdir:
+                shutil.rmtree(tmpdir)
+                shutil.copytree(path, tmpdir)
+                remote_tmpdir = os.path.join(backend_shared_path, os.path.basename(tmpdir))
+                out = old_save(remote_tmpdir)
+
+                # Copy the files
+                shutil.rmtree(path)
+                shutil.copytree(tmpdir, path)
+            return out
+        ns["save"] = save
+
+        # We replace the __call__ with a custom init
+        old_init = ns["__call__"]
+        @staticmethod
+        @functools.wraps(old_init)
+        def __call__(*args, **kwargs):
+            checkpoint = kwargs.get("checkpoint")
+            if checkpoint is None:
+                return old_init(*args, **kwargs)
+            translated = _translate_mounted_path(checkpoint)
+            if translated is not None:
+                kwargs["checkpoint"] = translated
+                return old_init(*args, **kwargs)
+            with tempfile.TemporaryDirectory(prefix=local_shared_path + "/") as tmpdir:
+                shutil.rmtree(tmpdir)
+                shutil.copytree(checkpoint, tmpdir)
+                remote_tmpdir = os.path.join(backend_shared_path, os.path.basename(tmpdir))
+                kwargs["checkpoint"] = remote_tmpdir
+                return old_init(*args, **kwargs)
+        ns["__call__"] = __call__
+    return ns
 
 
 @dataclass(eq=True, frozen=True)
@@ -83,7 +139,6 @@ class VirtualInstance:
         ignore_members = {
             "__new__", "__init__", 
             "__getattribute__", "__getattr__", "__setattr__"}
-        obj_cls = obj
         members = {}
         members.update({k:v for k, v in inspect.getmembers(obj_cls) if k not in ignore_members})
         if not isinstance(obj, type):
@@ -100,7 +155,7 @@ class VirtualInstance:
                                methods=methods, 
                                attrs=attrs)
 
-    def build_wrapper(self, backend: Backend):
+    def build_wrapper(self, backend: Backend, customize=None):
         instance_id = self.id
         ns = {}
         class classproperty(object):
@@ -117,6 +172,9 @@ class VirtualInstance:
         ns["__repr__"] = lambda x: f"<VirtualInstance {instance_id}>"
         ns["__str__"] = lambda x: f"<VirtualInstance {instance_id}>"
         ns["__del__"] = staticmethod(partial(backend.instance_del, instance_id))
+        ns["__class__"] = object
+        if customize is not None:
+            customize(ns)
         return types.new_class("VirtualInstanceRPC", (), {}, exec_body=lambda _ns: _ns.update(ns))()
 
 
@@ -149,21 +207,21 @@ def replace_instances(registry, obj):
     return VirtualInstance.get_virtual_instance(obj)
 
 
-def replace_instances_back(registry, backend, obj):
+def replace_instances_back(registry, backend, obj, customize):
     if isinstance(obj, VirtualInstance):
         if obj.id in registry:
             return registry[obj.id]
-        return obj.build_wrapper(backend)
+        return obj.build_wrapper(backend, customize=customize)
     if obj is None:
         return obj
     if isinstance(obj, (str, int, float, bool, bytes)):
         return obj
     if isinstance(obj, tuple):
-        return tuple(replace_instances_back(registry, backend, o) for o in obj)
+        return tuple(replace_instances_back(registry, backend, o, customize) for o in obj)
     if isinstance(obj, list):
-        return [replace_instances_back(registry, backend, o) for o in obj]
+        return [replace_instances_back(registry, backend, o, customize) for o in obj]
     if isinstance(obj, dict):
-        return {k: replace_instances_back(registry, backend, v) for k, v in obj.items()}
+        return {k: replace_instances_back(registry, backend, v, customize) for k, v in obj.items()}
     return obj
 
 
@@ -401,10 +459,10 @@ class RPCMasterEndpoint:
 
         send(self._conn, {**message, "thread_id": mid})
 
-        has_ended = False
+        has_ended = message.get("thread_end", False)
         cancel_send = False
         try:
-            while True:
+            while not has_ended:
                 if self._conn is None or self._conn.closed:
                     raise ConnectionError("Connection closed unexpectedly")
                 if cancellation_token is not None and cancellation_token.cancelled:
@@ -431,8 +489,6 @@ class RPCMasterEndpoint:
                     continue
                 has_ended = has_ended or msg.get("thread_end", False)
                 yield msg
-                if has_ended:
-                    break
         finally:
             # If not finished, end the thread
             self._other_queues.pop(mid, None)
@@ -449,7 +505,6 @@ class RPCMasterEndpoint:
 
     @cancellable(mark_only=True)
     def wait_for_connection(self, timeout: float = 0):
-        logging.info("Waiting for connection")
         assert self._listener is not None, "Not in a context"
         if self._conn is not None and not self._conn.closed:
             return
@@ -500,8 +555,9 @@ class RPCMasterEndpoint:
 
 
 class RPCBackend(Backend):
-    def __init__(self, endpoint: RPCMasterEndpoint):
+    def __init__(self, endpoint: RPCMasterEndpoint, customize_wrapper=None):
         self._endpoint = endpoint
+        self._customize_wrapper = customize_wrapper
 
     def _handle_thread(self, message, *args, **kwargs):
 
@@ -552,7 +608,7 @@ class RPCBackend(Backend):
                     # Reset qpointer
                     out = message["result"]
                     # Replace instances
-                    return replace_instances_back({}, self, out)
+                    return replace_instances_back({}, self, out, self._customize_wrapper)
                 else:
                     raise RuntimeError(f"Unknown message {message}")
 
@@ -587,6 +643,7 @@ class RPCBackend(Backend):
         try:
             return self._handle_thread({
                 "message": "instance_del", 
+                "thread_end": True,
                 "instance": instance})
         except Exception as _:
             # The instance might have already been removed
@@ -672,6 +729,9 @@ class RemoteProcessRPCBackend(Backend):
     def _launch_worker(self, args, env):
         return subprocess.Popen(args, env=env, stdin=subprocess.DEVNULL)
 
+    def _customize_wrapper(self, ns):
+        return ns
+
     def _ensure_started(self):
         if self._worker_running:
             return
@@ -696,10 +756,18 @@ rw(address="{self._address}", port={self._port}, authkey=authkey)
         args = ["python", "-c", code]
 
         if self._endpoint is None:
-            self._endpoint = RPCMasterEndpoint(address=self._address, port=self._port, authkey=authkey).__enter__()
+            self._endpoint = RPCMasterEndpoint(
+                address=self._address, 
+                port=self._port, 
+                authkey=authkey,
+            ).__enter__()
         if self._rpc_backend is None:
-            self._rpc_backend = RPCBackend(self._endpoint)
+            self._rpc_backend = RPCBackend(
+                self._endpoint,
+                customize_wrapper=self._customize_wrapper,
+            )
         self._worker_process = self._launch_worker(args, env)
+        logging.info("Waiting for connection")
         while True:
             try:
                 if self._worker_process.poll() is not None:

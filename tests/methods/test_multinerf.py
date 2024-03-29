@@ -1,3 +1,4 @@
+from pathlib import Path
 import functools
 from typing import cast
 import os
@@ -141,7 +142,7 @@ def mock_multinerf():
 
             def new_save(self, path):
                 old_save(self, path)
-                os.makedirs(path / f"checkpoint_{self.step}")
+                os.makedirs(Path(path) / f"checkpoint_{self.step}")
 
             with mock.patch.object(MultiNeRF, "_setup_train", new_setup_train), mock.patch.object(MultiNeRF, "save", new_save):
                 yield None
@@ -161,11 +162,15 @@ def test_train_multinerf_mocked(run_test_train, method_name, mock_torch):
 @pytest.mark.method("mipnerf360")
 @_enable_gc
 def test_train_multinerf_apptainer(run_test_train):
-    run_test_train()
+    run_test_train(config_overrides=[
+        ("Config.batch_size", "128")
+    ])
 
 
 @pytest.mark.docker
 @pytest.mark.method("mipnerf360")
 @_enable_gc
 def test_train_multinerf_docker(run_test_train):
-    run_test_train()
+    run_test_train(config_overrides=[
+        ("Config.batch_size", "128")
+    ])

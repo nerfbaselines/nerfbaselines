@@ -119,10 +119,10 @@ jobs:
           export TCNN_CUDA_ARCHITECTURES="80"
           export TORCH_CUDA_ARCH_LIST="8.0"
           export CUDAARCHS="80"
-          method_name="$(python -c 'import re;print(re.escape("${{ matrix.method }}"))').*"
-          pytest -s --run-docker --method-regex "$method_name" -rA
+          method_regex="^$(python -c 'import re;print(re.escape("${{ matrix.method }}"))')(?:\\:.*|)\$"
+          pytest -s --run-docker --method-regex "$method_regex" -rA -x
           # Second run will use the cached env
-          pytest -s --run-docker --method-regex "$method_name" -rA
+          pytest -s --run-docker --method-regex "$method_regex" -rA -x
 
   apptainer-tests:
     runs-on: ubuntu-latest
@@ -154,14 +154,14 @@ jobs:
           export TCNN_CUDA_ARCHITECTURES="80"
           export TORCH_CUDA_ARCH_LIST="8.0"
           export CUDAARCHS="80"
-          method_name="$(python -c 'import re;print(re.escape("${{ matrix.method }}"))').*"
+          method_regex="^$(python -c 'import re;print(re.escape("${{ matrix.method }}"))')(?:\\:.*|)\$"
           if [[ "${{matrix.method}}" = tetra-nerf* ]]; then
             # Tetra-NeRF currently uses too much disk space, so we skip it
             :
           else
-            pytest -s --run-apptainer --method-regex "$method_name" -rA
+            pytest -s --run-apptainer --method-regex "$method_regex" -rA -x
             # Second run will use the cached env
-            pytest -s --run-apptainer --method-regex "$method_name" -rA
+            pytest -s --run-apptainer --method-regex "$method_regex" -rA -x
           fi
 
   dataset-tests:

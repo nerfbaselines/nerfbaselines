@@ -100,8 +100,8 @@ class _TestMethod(Method):
         _TestMethod._last_step = step
         return {"loss": 0.1}
 
-    def save(self, path: Path):
-        self._save_paths.append(str(path))
+    def save(self, path: str):
+        self._save_paths.append(path)
 
 
 def _patch_wandb_for_py37():

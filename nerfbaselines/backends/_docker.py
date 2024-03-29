@@ -1,3 +1,4 @@
+import shutil
 import requests
 from pathlib import Path
 import json
@@ -14,7 +15,7 @@ import nerfbaselines
 from ._conda import CondaBackendSpec, conda_get_environment_hash, conda_get_install_script
 from ..types import NB_PREFIX, TypedDict
 from ..utils import get_package_dependencies
-from ._rpc import RemoteProcessRPCBackend, get_safe_environment
+from ._rpc import RemoteProcessRPCBackend, get_safe_environment, customize_wrapper_separated_fs
 from .._constants import DOCKER_REPOSITORY
 from ._common import get_mounts, get_forwarded_ports
 from .. import __version__
@@ -35,6 +36,7 @@ class DockerBackendSpec(TypedDict, total=False):
     default_cuda_archs: str
     conda_spec: CondaBackendSpec
     replace_user: bool
+    should_build: bool
     
 
 def docker_get_environment_hash(spec: DockerBackendSpec):
@@ -99,29 +101,43 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
         environment_path = f"/var/conda-envs/{environment_name}"
         script += "ENV NERFBASELINES_CONDA_ENVIRONMENTS=/var/conda-envs\n"
 
-        shell_args = [os.path.join(environment_path, ".activate.sh")] + ["bash", "-c"]
+        shell_args = [os.path.join(environment_path, ".activate.sh")]
 
         # Add install conda script
         default_cuda_archs = spec.get("default_cuda_archs") or DEFAULT_CUDA_ARCHS
         install_conda = conda_get_install_script(conda_spec, package_path, environment_path=environment_path)
-        run_command = f'export TORCH_CUDA_ARCH_LIST="{default_cuda_archs}" && {install_conda.rstrip()}'
-        run_command = shlex.quote(run_command).replace("\n", " \\n\\\n")
+        tcnn_cuda_archs = default_cuda_archs.replace(".", "").replace("+PTX", "").replace(" ", ",")
+        run_command = f'export TORCH_CUDA_ARCH_LIST="{default_cuda_archs}" && export TCNN_CUDA_ARCHITECTURES="{tcnn_cuda_archs}" && {install_conda.rstrip()}'
+        run_command = shlex.quote(run_command)
+        out = ""
+        end = ""
+        # run_command = run_command.replace("\n", " \\n\\\n")
+        for line in run_command.splitlines():
+            out += end + line
+            if line.endswith("\\"):
+                end = "\\\\n\\\n"
+            else:
+                end = "\\n\\\n"
+        #     if line.endswith("\\"):
+        #         out = out[:-1]
+        #         end = "'" + '"\\\\"' + f"'{end}"
+        # run_command = out + "\n"
+        run_command = out
 
         script += f'RUN /bin/bash -c "$(echo {run_command})" && \\\n'
-        script += shlex.join(shell_args) + " 'conda clean -afy && rm -Rf /root/.cache/pip'\n"
+        script += shlex.join(shell_args) + " bash -c 'conda clean -afy && rm -Rf /root/.cache/pip'\n"
         script += "ENTRYPOINT " + json.dumps(shell_args) + "\n"
-        script += "SHELL " + json.dumps(shell_args + ["bash", "-c"]) + "\n"
+        script += "SHELL " + json.dumps(shell_args) + "\n"
 
     else:
         # If not inside conda env, we install the dependencies
-        script += "RUN if ! python -c 'import torch' >/dev/null 2>&1; then python -m pip install --no-cache-dir " + shlex.join(_DEFAULT_TORCH_INSTALL_COMMAND.split()) + "; fi && \\\n"
+        python_path = spec.get("python_path") or "python"
+        script += f"RUN if ! {python_path} -c 'import torch' >/dev/null 2>&1; then {python_path} -m pip install --no-cache-dir " + shlex.join(_DEFAULT_TORCH_INSTALL_COMMAND.split()) + "; fi && \\\n"
         package_dependencies = get_package_dependencies()
         if package_dependencies:
-            script += "    " + shlex.join(["python", "-m", "pip", "--no-cache-dir", "install"] + package_dependencies)+ " && \\\n"
-        script += "    if ! python -c 'import cv2' >/dev/null 2>&1; then pip install opencv-python-headless; fi\n"
-        python_path = spec.get("python_path")
-        if python_path:
-            script += f'RUN ln -s "$(which {python_path})" "/usr/bin/python"' + "\n"
+            script += "    " + shlex.join([python_path, "-m", "pip", "--no-cache-dir", "install"] + package_dependencies)+ " && \\\n"
+        script += f"    if ! {python_path} -c 'import cv2' >/dev/null 2>&1; then {python_path} -m pip install opencv-python-headless; fi\n"
+        script += f'RUN if ! nerfbaselines >/dev/null 2>&1; then echo -e \'#!/usr/bin/env {python_path}\\nfrom nerfbaselines.__main__ import main\\nif __name__ == "__main__":\\n  main()\\n\'>"/usr/bin/nerfbaselines" && chmod +x "/usr/bin/nerfbaselines"; fi\n'
 
     script += "ENV NERFBASELINES_BACKEND=python\n"
     def is_method_allowed(method_spec: "MethodSpec"):
@@ -130,10 +146,10 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
     allowed_methods = ",".join((k for k, v in registry.registry.items() if is_method_allowed(v)))
     script += f"ENV NERFBASELINES_ALLOWED_METHODS={allowed_methods}\n"
     script += f'ENV PYTHONPATH="{package_path}:$PYTHONPATH"\n'
+    # Add nerfbaselines to the path
     script += 'CMD ["nerfbaselines"]\n'
 
     script += "COPY . " + package_path + "\n"
-    script += "RUN " + shlex.join("pip install --no-dependencies --no-cache-dir -e".split(" ") + [package_path]) + "\n"
     return script
 
 
@@ -163,20 +179,20 @@ def docker_image_exists_remotely(name: str):
 
 
 def _build_docker_image(name, dockerfile, skip_if_exists_remotely: bool = False, push: bool = False):
-    print(dockerfile)
     if skip_if_exists_remotely:
         if docker_image_exists_remotely(name):
             logging.info("Image already exists remotely, skipping build")
             return
 
-    with tempfile.NamedTemporaryFile("w", suffix=".Dockerfile") as f:
-        f.write(dockerfile)
-        f.seek(0)
+    with tempfile.TemporaryDirectory() as tmpdir:
         package_path = str(Path(nerfbaselines.__file__).absolute().parent.parent)
+        shutil.copytree(os.path.join(package_path, "nerfbaselines"), os.path.join(tmpdir, "nerfbaselines"))
+        with open(os.path.join(tmpdir, "Dockerfile"), "w") as f:
+            f.write(dockerfile)
         subprocess.check_call([
-            "docker", "build", package_path, "-f", f.name,
+            "docker", "build", tmpdir, "-f", os.path.join(tmpdir, "Dockerfile"),
             "-t", name,
-        ], stdin=f)
+        ])
     logging.info(f'Created image "{name}"')
 
     if push:
@@ -188,7 +204,7 @@ def build_docker_image(spec: Optional['DockerBackendSpec'] = None, skip_if_exist
     if spec is None:
         name = BASE_IMAGE
         dockerfile = Path(__file__).absolute().parent.joinpath("Dockerfile").read_text()
-    elif spec is not None and spec.get("image") is None or spec.get("conda_spec") is not None:
+    elif spec is not None and spec.get("image") is None or spec.get("conda_spec") is not None or spec.get("should_build", False):
         name = get_docker_image_name(spec)
         dockerfile = docker_get_dockerfile(spec)
     else:
@@ -204,7 +220,8 @@ def build_docker_image(spec: Optional['DockerBackendSpec'] = None, skip_if_exist
 
 
 def get_docker_image_name(spec: DockerBackendSpec):
-    if spec.get("conda_spec") is None:
+    force_build = spec.get("should_build", True)
+    if spec.get("conda_spec") is None and not force_build:
         image = spec.get("image")
         if image is None:
             return BASE_IMAGE
@@ -239,6 +256,10 @@ def docker_run_image(spec: DockerBackendSpec,
                      use_gpu: bool = True,
                      interactive: bool = True):
     image = get_docker_image_name(spec)
+    # if spec.get("conda_spec") is None:
+    #     # For external images nerfbaselines may not be in the path.
+    #     # To make sure we will add it to the path manually
+    #     env["PYTHONPATH"] = f"/var/nb-package:{env.get('PYTHONPATH', '')}"
 
     os.makedirs(os.path.expanduser("~/.conda/pkgs"), exist_ok=True)
     torch_home = os.path.expanduser(os.environ.get("TORCH_HOME", "~/.cache/torch/hub"))
@@ -285,11 +306,9 @@ def docker_run_image(spec: DockerBackendSpec,
         "--env", "PIP_CACHE_DIR=/var/nb-pip-cache",
         "--env", "TORCH_HOME=/var/nb-torch",
         "--env", "NERFBASELINES_PREFIX=/var/nb-prefix",
-        "--env", "PYTHONPATH=/var/nb-package",
         "--env", "NB_USE_GPU=" + ("1" if use_gpu else "0"),
-        *(sum((["--env", name] for name in env), [])),
+        *(sum((["--env", name] for name in env if name in EXPORT_ENVS), [])),
         *(sum((["-p", f"{ps}:{pd}"] for ps, pd in ports or []), [])),
-        *[f"-v={shlex.quote(src)}:{shlex.quote(dst)}" for src, dst in mounts or []],
         "--rm",
         "--network=host",
         ("-it" if interactive else "-i"),
@@ -306,12 +325,32 @@ class DockerBackend(RemoteProcessRPCBackend):
                  address: str = "0.0.0.0", 
                  port: Optional[int] = None):
         self._spec = spec
+        self._tmpdir = None
+        self._applied_mounts = None
         super().__init__(address=address, port=port)
+
+    def __enter__(self):
+        super().__enter__()
+        self._tmpdir = tempfile.TemporaryDirectory()
+        return self
+
+    def __exit__(self, *args):
+        if self._tmpdir is not None:
+            self._tmpdir.cleanup()
+            self._tmpdir = None
+        self._applied_mounts = None
+        super().__exit__(*args)
+
+    def _customize_wrapper(self, ns):
+        ns = super()._customize_wrapper(ns)
+        customize_wrapper_separated_fs(self._tmpdir.name, "/var/nb-tmp", self._applied_mounts, ns)
+        return ns
 
     def install(self):
         # Build the docker image if needed
         image = self._spec.get("image")
-        if image is None or self._spec.get("conda_spec") is not None:
+        force_build = self._spec.get("should_build", True)
+        if image is None or self._spec.get("conda_spec") is not None or force_build:
             name = get_docker_image_name(self._spec)
             dockerfile = docker_get_dockerfile(self._spec)
             should_pull = False
@@ -337,13 +376,15 @@ class DockerBackend(RemoteProcessRPCBackend):
 
     def _launch_worker(self, args, env):
         # Run docker image
-        mounts = get_mounts()
+        self._applied_mounts = get_mounts()
         # Using network=host
         # forwarded_ports = get_forwarded_ports()
         # forwarded_ports.append((self._port, self._port))
+        if args[0] == "python":
+            args[0] = self._spec.get("python_path") or "python"
         return super()._launch_worker(*docker_run_image(
             self._spec, args, env, 
-            mounts=mounts, 
+            mounts=self._applied_mounts + [(self._tmpdir.name, "/var/nb-tmp")], 
             ports=[],
             interactive=False,
             use_gpu=os.getenv("GITHUB_ACTIONS") != "true"))
