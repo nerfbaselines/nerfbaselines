@@ -703,6 +703,7 @@ def get_package_dependencies(extra=None):
     for r in (requires_with_conditions or ()):
         if ";" in r:
             r, condition = r.split(";")
+            r = r.strip().replace(" ", "")
             condition = condition.strip().replace(" ", "")
             if condition.startswith("extra=="):
                 extracond = condition.split("==")[1][1:-1]
@@ -714,7 +715,7 @@ def get_package_dependencies(extra=None):
                 continue
             else:
                 raise ValueError(f"Unknown condition {condition}")
-        r = r.strip()
+        r = r.strip().replace(" ", "")
         requires.append(r)
     requires.sort()
     return requires

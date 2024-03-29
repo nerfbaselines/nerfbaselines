@@ -40,6 +40,7 @@ GaussianSplattingSpec: MethodSpec = {
     "method": "._impl.gaussian_splatting:GaussianSplatting",
     "conda": {
         "environment_name": os.path.split(__file__[:-3])[-1].replace("_", "-"),
+        "python_version": "3.9",
         "install_script": """git clone https://github.com/graphdeco-inria/gaussian-splatting --recursive
 cd gaussian-splatting
 git checkout 2eee0e26d2d5fd00ec462df47752223952f6bf4e

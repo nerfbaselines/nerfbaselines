@@ -151,6 +151,7 @@ class NeRF(Method):
                 self.metadata = json.load(f)
                 self.metadata["transform_args"]["transform"] = np.array(self.metadata["transform_args"]["transform"], dtype=np.float32)
             self._arg_list = shlex.split(self.metadata["args"])
+        print(train_dataset, checkpoint)
         self.step = 0
 
         self._load_config()
@@ -178,7 +179,7 @@ class NeRF(Method):
                         ('model_' in f and 'fine' not in f and 'optimizer' not in f)]
             if len(ckpts) > 0:
                 ft_weights = ckpts[-1]
-                loaded_step = int(ft_weights[-10:-4]) + 1
+                loaded_step = int(ft_weights[-10:-4])
 
         return ModelInfo(
             name=self._method_name,
@@ -191,7 +192,7 @@ class NeRF(Method):
             hparams=vars(self.args) if self.args else {},
         )
 
-    def save(self, path: Path):
+    def save(self, path: str):
         with open(str(path) + "/args.txt", "w") as f:
             f.write(shlex_join(self._arg_list))
         def save_weights(net, prefix, i):
@@ -204,7 +205,7 @@ class NeRF(Method):
         self.metadata["args"] = shlex_join(self._arg_list)
         metadata = self.metadata.copy()
         metadata["transform_args"]["transform"] = metadata["transform_args"]["transform"].tolist()
-        with (path / "metadata.json").open("w") as f:
+        with (Path(path) / "metadata.json").open("w") as f:
             json.dump(metadata, f)
 
     def _setup(self, train_dataset: Dataset, *, config_overrides: Optional[Dict[str, Any]] = None):
@@ -250,7 +251,8 @@ class NeRF(Method):
             tf.compat.v1.set_random_seed(self.args.random_seed)
 
         # Load data
-        images, poses, self.metadata["transform_args"] = load_dataset(self.args, train_dataset, self.metadata.get("transform_args"))
+        if train_dataset is not None:
+            images, poses, self.metadata["transform_args"] = load_dataset(self.args, train_dataset, self.metadata.get("transform_args"))
         (H, W, focal, near, far, sc) = self.metadata["transform_args"]["hwfnearfarscale"]
 
         # Cast intrinsics to right types
@@ -277,10 +279,6 @@ class NeRF(Method):
         self.render_kwargs_train = render_kwargs_train
         self.render_kwargs_test = render_kwargs_test
 
-        # Short circuit if only rendering out from trained model
-        if train_dataset is None:
-            return
-
         # Create optimizer
         lrate = self.args.lrate
         if self.args.lrate_decay > 0:
@@ -297,40 +295,40 @@ class NeRF(Method):
 
         # Prepare raybatch tensor if batching random rays
         use_batching = not self.args.no_batching
-        self.images = images
-        self.poses = poses
-        self.rays_rgb = None
-        self.i_batch = None
-        if use_batching:
-            # For random ray batching.
-            #
-            # Constructs an array 'rays_rgb' of shape [N*H*W, 3, 3] where axis=1 is
-            # interpreted as,
-            #   axis=0: ray origin in world space
-            #   axis=1: ray direction in world space
-            #   axis=2: observed RGB color of pixel
-            logging.debug('get rays')
-            # get_rays_np() returns rays_origin=[H, W, 3], rays_direction=[H, W, 3]
-            # for each pixel in the image. This stack() adds a new dimension.
-            rays = [get_rays_np(H, W, focal, p) for p in poses[:, :3, :4]]
-            rays = np.stack(rays, axis=0)  # [N, ro+rd, H, W, 3]
-            logging.debug('done, concats')
-            # [N, ro+rd+rgb, H, W, 3]
-            rays_rgb = np.concatenate([rays, images[:, None, ...]], 1)
-            # [N, H, W, ro+rd+rgb, 3]
-            rays_rgb = np.transpose(rays_rgb, [0, 2, 3, 1, 4])
-            rays_rgb = np.stack(rays_rgb, axis=0)  # train images only
-            # [(N-1)*H*W, ro+rd+rgb, 3]
-            rays_rgb = np.reshape(rays_rgb, [-1, 3, 3])
-            rays_rgb = rays_rgb.astype(np.float32)
-            logging.debug('shuffle rays')
-            np.random.shuffle(rays_rgb)
-            logging.debug('done')
+        if train_dataset is not None:
+            self.images = images
+            self.poses = poses
+            self.rays_rgb = None
+            self.i_batch = None
+            if use_batching:
+                # For random ray batching.
+                #
+                # Constructs an array 'rays_rgb' of shape [N*H*W, 3, 3] where axis=1 is
+                # interpreted as,
+                #   axis=0: ray origin in world space
+                #   axis=1: ray direction in world space
+                #   axis=2: observed RGB color of pixel
+                logging.debug('get rays')
+                # get_rays_np() returns rays_origin=[H, W, 3], rays_direction=[H, W, 3]
+                # for each pixel in the image. This stack() adds a new dimension.
+                rays = [get_rays_np(H, W, focal, p) for p in poses[:, :3, :4]]
+                rays = np.stack(rays, axis=0)  # [N, ro+rd, H, W, 3]
+                logging.debug('done, concats')
+                # [N, ro+rd+rgb, H, W, 3]
+                rays_rgb = np.concatenate([rays, images[:, None, ...]], 1)
+                # [N, H, W, ro+rd+rgb, 3]
+                rays_rgb = np.transpose(rays_rgb, [0, 2, 3, 1, 4])
+                rays_rgb = np.stack(rays_rgb, axis=0)  # train images only
+                # [(N-1)*H*W, ro+rd+rgb, 3]
+                rays_rgb = np.reshape(rays_rgb, [-1, 3, 3])
+                rays_rgb = rays_rgb.astype(np.float32)
+                logging.debug('shuffle rays')
+                np.random.shuffle(rays_rgb)
+                logging.debug('done')
 
-            self.i_batch = 0
-            self.rays_rgb = rays_rgb
+                self.i_batch = 0
+                self.rays_rgb = rays_rgb
         logging.debug('Begin')
-
 
     def train_iteration(self, step: int):
         self.step = step

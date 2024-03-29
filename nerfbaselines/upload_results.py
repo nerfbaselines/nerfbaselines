@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Union
 import zipfile
 import urllib.parse
 from tqdm import tqdm
@@ -100,7 +100,7 @@ def _zip_add_dir(zip: zipfile.ZipFile, dirpath: Path, arcname: Optional[str] = N
             raise ValueError(f"unknown file type: {name}")
 
 
-def prepare_results_for_upload(model_path: Path, predictions_path: Path, metrics_path: Path, tensorboard_path: Path, output_path: Path, validate: bool = True):
+def prepare_results_for_upload(model_path: Union[str, Path], predictions_path: Union[str, Path], metrics_path: Union[str, Path], tensorboard_path: Union[str, Path], output_path: Union[str, Path], validate: bool = True):
     """Prepares artifacts for upload to the NeRF benchmark.
 
     Args:
@@ -114,6 +114,7 @@ def prepare_results_for_upload(model_path: Path, predictions_path: Path, metrics
     predictions_path = Path(predictions_path)
     metrics_path = Path(metrics_path)
     tensorboard_path = Path(tensorboard_path)
+    output_path = Path(output_path)
     assert model_path.exists(), f"{model_path} does not exist"
     assert predictions_path.exists(), f"{predictions_path} does not exist"
     assert metrics_path.exists(), f"{metrics_path} does not exist"
@@ -141,8 +142,8 @@ def prepare_results_for_upload(model_path: Path, predictions_path: Path, metrics
 
         # Verify all signatures
         if validate:
-            checkpoint_sha = get_checkpoint_sha(model_path)
-            predictions_sha, ground_truth_sha = get_predictions_hashes(predictions_path)
+            checkpoint_sha = get_checkpoint_sha(str(model_path))
+            predictions_sha, ground_truth_sha = get_predictions_hashes(str(predictions_path))
             if metrics["predictions_sha256"] != predictions_sha:
                 raise ValueError("Predictions SHA mismatch")
             if metrics["ground_truth_sha256"] != ground_truth_sha:

@@ -15,7 +15,7 @@ from .utils import setup_logging
 from .datasets import download_dataset
 from .evaluate import evaluate, run_inside_eval_container
 from .results import MethodLink
-from .types import get_args, NB_PREFIX
+from .types import Optional, get_args, NB_PREFIX
 from . import backends
 
 
@@ -80,31 +80,31 @@ def shell_command(method, backend, verbose):
 
 @main.command("download-dataset")
 @click.argument("dataset", type=str, required=True)
-@click.option("--output", "-o", type=click.Path(file_okay=False, dir_okay=True, path_type=Path), required=False, default=None)
+@click.option("--output", "-o", type=click.Path(file_okay=False, dir_okay=True, path_type=str), required=False, default=None)
 @click.option("--verbose", "-v", is_flag=True)
-def download_dataset_command(dataset, output, verbose):
+def download_dataset_command(dataset: str, output: str, verbose: bool):
     logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)
     if output is None:
-        output = Path(NB_PREFIX) / "datasets" / dataset
+        output = str(Path(NB_PREFIX) / "datasets" / dataset)
     download_dataset(dataset, output)
 
 
 @main.command("evaluate")
-@click.argument("predictions", type=click.Path(file_okay=True, dir_okay=True, path_type=Path), required=True)
-@click.option("--output", "-o", type=click.Path(file_okay=True, dir_okay=False, path_type=Path), required=True)
-def evaluate_command(predictions, output):
+@click.argument("predictions", type=click.Path(file_okay=True, dir_okay=True, path_type=str), required=True)
+@click.option("--output", "-o", type=click.Path(file_okay=True, dir_okay=False, path_type=str), required=True)
+def evaluate_command(predictions: str, output: str):
     with run_inside_eval_container():
         evaluate(predictions, output)
 
 
 @main.command("render-dataset-results")
-@click.option("--results", type=click.Path(file_okay=True, exists=True, dir_okay=True, path_type=Path), required=False)
+@click.option("--results", type=click.Path(file_okay=True, exists=True, dir_okay=True, path_type=str), required=False)
 @click.option("--dataset", type=str, required=False)
 @click.option("--output-type", type=click.Choice(["markdown", "json"]), default="markdown")
 @click.option("--method-links", type=click.Choice(get_args(MethodLink)), default="none")
-@click.option("--output", type=click.Path(file_okay=True, exists=False, dir_okay=False, path_type=Path), default=None)
-def render_dataset_results_command(results: Path, dataset, output_type, output, method_links: MethodLink = "none"):
+@click.option("--output", type=click.Path(file_okay=True, exists=False, dir_okay=False, path_type=str), default=None)
+def render_dataset_results_command(results: Optional[str], dataset: str, output_type="markdown", output: Optional[str] = None, method_links: MethodLink = "none"):
     from .results import compile_dataset_results, render_markdown_dataset_results_table
     from .utils import setup_logging
 
@@ -119,7 +119,7 @@ def render_dataset_results_command(results: Path, dataset, output_type, output, 
         if output is None:
             print(output_str, end="")
         else:
-            with output.open("w", encoding="utf8") as f:
+            with open(output, "w", encoding="utf8") as f:
                 print(output_str, end="", file=f)
 
     setup_logging(False)
@@ -130,13 +130,13 @@ def render_dataset_results_command(results: Path, dataset, output_type, output, 
                 logging.fatal("--dataset must be provided")
             dataset_info = compile_dataset_results(Path(tmpdir) / "results", dataset)
             render_output(dataset_info)
-    elif results.is_dir():
+    elif os.path.isdir(results):
         if dataset is None:
             logging.fatal("If --results is a directory, --dataset must be provided")
         dataset_info = compile_dataset_results(results, dataset)
         render_output(dataset_info)
     else:
-        with results.open("r", encoding="utf8") as f:
+        with open(results, "r", encoding="utf8") as f:
             dataset_info = json.load(f)
         render_output(dataset_info)
 

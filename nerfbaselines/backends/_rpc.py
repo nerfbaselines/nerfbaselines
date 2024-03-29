@@ -43,10 +43,10 @@ def _remap_error(e: Exception):
 
 
 def send(connection: Connection, message):
-    # msgo = message.copy()
-    # msgo.pop("kwargs", None)
-    # msgo.pop("args", None)
-    # print("send", msgo)
+    msgo = message.copy()
+    msgo.pop("kwargs", None)
+    msgo.pop("args", None)
+    print("send", msgo)
     message_bytes = pickle.dumps(message)
     for i in range(0, len(message_bytes), MESSAGE_SIZE):
         connection.send_bytes(message_bytes[i : i + MESSAGE_SIZE])
@@ -61,10 +61,10 @@ def build_recv(connection: Connection):
             new_message = connection.recv_bytes()
             message_len = len(new_message)
             message_bytes += new_message
-        # msgo = pickle.loads(message_bytes)
-        # msgo.pop("kwargs", None)
-        # msgo.pop("args", None)
-        # print("recv", msgo)
+        msgo = pickle.loads(message_bytes)
+        msgo.pop("kwargs", None)
+        msgo.pop("args", None)
+        print("recv", msgo)
         return pickle.loads(message_bytes)
     return recv
 
@@ -117,6 +117,7 @@ class VirtualInstance:
         ns["__repr__"] = lambda x: f"<VirtualInstance {instance_id}>"
         ns["__str__"] = lambda x: f"<VirtualInstance {instance_id}>"
         ns["__del__"] = staticmethod(partial(backend.instance_del, instance_id))
+        ns["__class__"] = object
         return types.new_class("VirtualInstanceRPC", (), {}, exec_body=lambda _ns: _ns.update(ns))()
 
 
@@ -401,10 +402,10 @@ class RPCMasterEndpoint:
 
         send(self._conn, {**message, "thread_id": mid})
 
-        has_ended = False
+        has_ended = message.get("thread_end", False)
         cancel_send = False
         try:
-            while True:
+            while not has_ended:
                 if self._conn is None or self._conn.closed:
                     raise ConnectionError("Connection closed unexpectedly")
                 if cancellation_token is not None and cancellation_token.cancelled:
@@ -431,8 +432,6 @@ class RPCMasterEndpoint:
                     continue
                 has_ended = has_ended or msg.get("thread_end", False)
                 yield msg
-                if has_ended:
-                    break
         finally:
             # If not finished, end the thread
             self._other_queues.pop(mid, None)
@@ -587,6 +586,7 @@ class RPCBackend(Backend):
         try:
             return self._handle_thread({
                 "message": "instance_del", 
+                "thread_end": True,
                 "instance": instance})
         except Exception as _:
             # The instance might have already been removed

@@ -65,7 +65,7 @@ def _encode_values(values: List[float]) -> str:
     return base64.b64encode(b"".join(struct.pack("f", v) for v in values)).decode("ascii")
 
 
-def get_predictions_hashes(predictions: Path, description: str = "hashing predictions"):
+def get_predictions_hashes(predictions: str, description: str = "hashing predictions"):
     b = bytearray(128 * 1024)
     mv = memoryview(b)
 
@@ -74,17 +74,17 @@ def get_predictions_hashes(predictions: Path, description: str = "hashing predic
             for n in iter(lambda: f.readinto(mv), 0):
                 sha.update(mv[:n])
 
-    if str(predictions).endswith(".tar.gz"):
+    if predictions.endswith(".tar.gz"):
         with tarfile.open(predictions, "r:gz") as tar, tempfile.TemporaryDirectory() as tmpdir:
             tar.extractall(tmpdir)
-            return get_predictions_hashes(Path(tmpdir))
+            return get_predictions_hashes(tmpdir)
     predictions_sha = hashlib.sha256()
     gt_sha = hashlib.sha256()
-    relpaths = [x.relative_to(predictions / "color") for x in (predictions / "color").glob("**/*") if x.is_file()]
+    relpaths = [x.relative_to(Path(predictions) / "color") for x in (Path(predictions) / "color").glob("**/*") if x.is_file()]
     relpaths.sort()
     for relname in tqdm(relpaths, desc=description, dynamic_ncols=True):
-        sha256_update(predictions_sha, predictions / "color" / relname)
-        sha256_update(gt_sha, predictions / "gt-color" / relname)
+        sha256_update(predictions_sha, Path(predictions) / "color" / relname)
+        sha256_update(gt_sha, Path(predictions) / "gt-color" / relname)
     return (
         predictions_sha.hexdigest(),
         gt_sha.hexdigest(),
@@ -101,8 +101,8 @@ def _get_metrics_hash(metrics_lists):
     return metrics_sha.hexdigest()
 
 
-def evaluate(predictions: Union[str, Path], 
-             output: Path, 
+def evaluate(predictions: str, 
+             output: str, 
              description: str = "evaluating", 
              evaluation_protocol: Optional[EvaluationProtocol] = None):
     """
@@ -117,8 +117,9 @@ def evaluate(predictions: Union[str, Path],
         A dictionary containing the results.
     """
 
-    with open_any_directory(str(predictions), "r") as predictions_path:
-        with open(str(predictions_path / "info.json"), "r", encoding="utf8") as f:
+    with open_any_directory(predictions, "r") as _predictions_path:
+        predictions_path = Path(_predictions_path)
+        with open(predictions_path / "info.json", "r", encoding="utf8") as f:
             info = json.load(f)
         info = deserialize_nb_info(info)
 
@@ -162,7 +163,7 @@ def evaluate(predictions: Union[str, Path],
             )
         )
 
-        predictions_sha, ground_truth_sha = get_predictions_hashes(predictions_path)
+        predictions_sha, ground_truth_sha = get_predictions_hashes(str(predictions_path))
         precision = 5
         out = {
             "info": serialize_nb_info(info),

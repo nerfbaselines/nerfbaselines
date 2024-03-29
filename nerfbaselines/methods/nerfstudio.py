@@ -13,7 +13,7 @@ NerfStudioSpec: MethodSpec = {
         "python_version": "3.10",
         "install_script": """
 pip install torch==2.1.2+cu118 torchvision==0.16.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
-conda install -y -c "nvidia/label/cuda-11.8.0" cuda-toolkit
+conda install -y -c "nvidia/label/cuda-11.8.0" cuda-toolkit cuda
 if ! pip install open3d>=0.16.0; then
     wget -O open3d-0.18.0-py3-none-any.whl https://files.pythonhosted.org/packages/5c/ba/a4c5986951344f804b5cbd86f0a87d9ea5969e8d13f1e8913e2d8276e0d8/open3d-0.18.0-cp311-cp311-manylinux_2_27_x86_64.whl;
     pip install open3d-0.18.0-py3-none-any.whl;

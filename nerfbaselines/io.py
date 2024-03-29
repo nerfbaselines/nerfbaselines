@@ -117,7 +117,7 @@ def open_any(
 
 
 @contextlib.contextmanager
-def open_any_directory(path: Union[str, Path], mode: OpenMode = "r") -> Iterator[Path]:
+def open_any_directory(path: Union[str, Path], mode: OpenMode = "r") -> Iterator[str]:
     path = str(path)
 
     components = path.split("/")
@@ -143,11 +143,11 @@ def open_any_directory(path: Union[str, Path], mode: OpenMode = "r") -> Iterator
                                 )
                             else:
                                 tar.extract(member, tmpdir)
-                        yield Path(tmpdir) / rest
+                        yield os.path.join(tmpdir, rest)
                     elif mode == "w":
                         tmp_path = Path(tmpdir) / rest
                         tmp_path.mkdir(parents=True, exist_ok=True)
-                        yield Path(tmpdir) / rest
+                        yield os.path.join(tmpdir, rest)
 
                         for root, dirs, files in os.walk(tmp_path):
                             for dir in dirs:
@@ -179,11 +179,11 @@ def open_any_directory(path: Union[str, Path], mode: OpenMode = "r") -> Iterator
                                 )
                             else:
                                 zip.extract(member, tmpdir)
-                        yield Path(tmpdir) / rest
+                        yield os.path.join(tmpdir, rest)
                     elif mode == "w":
                         tmp_path = Path(tmpdir) / rest
                         tmp_path.mkdir(parents=True, exist_ok=True)
-                        yield Path(tmpdir) / rest
+                        yield os.path.join(tmpdir, rest)
 
                         for root, dirs, files in os.walk(tmp_path):
                             for dir in dirs:
@@ -211,7 +211,7 @@ def open_any_directory(path: Union[str, Path], mode: OpenMode = "r") -> Iterator
 
     # Normal file
     Path(path).mkdir(parents=True, exist_ok=True)
-    yield Path(path).absolute()
+    yield str(Path(path).absolute())
     return
 
 

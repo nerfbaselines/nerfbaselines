@@ -38,7 +38,7 @@ import torch
 from ...types import Method, MethodInfo, CurrentProgress, ProgressCallback, RenderOutput, ModelInfo
 from ...datasets import Dataset
 from ...cameras import CameraModel, Cameras
-from ...utils import cached_property, flatten_hparams
+from ...utils import cached_property, flatten_hparams, remap_error
 from ...pose_utils import get_transform_and_scale
 from ...math_utils import rotate_spherical_harmonics, rotation_matrix_to_quaternion
 from ...io import wget
@@ -221,6 +221,7 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
 class MipSplatting(Method):
     _method_name: str = "mip-splatting"
 
+    @remap_error
     def __init__(self, *,
                  checkpoint: Optional[str] = None, 
                  config_overrides: Optional[dict] = None,
@@ -487,7 +488,7 @@ class MipSplatting(Method):
         self.step = self.step + 1
         return metrics
 
-    def save(self, path):
+    def save(self, path: str):
         if self.scene is None:
             self._eval_setup()
         self.gaussians.save_ply(os.path.join(str(path), f"point_cloud/iteration_{self.step}", "point_cloud.ply"))
@@ -495,7 +496,7 @@ class MipSplatting(Method):
         with open(str(path) + "/args.txt", "w", encoding="utf8") as f:
             f.write(shlex_join(self._args_list))
 
-    def export_demo(self, path: Path, *, viewer_transform, viewer_initial_pose):
+    def export_demo(self, path: str, *, viewer_transform, viewer_initial_pose):
         model: GaussianModel = self.gaussians
         transform, scale = get_transform_and_scale(viewer_transform)
         R, t = transform[..., :3, :3], transform[..., :3, 3]

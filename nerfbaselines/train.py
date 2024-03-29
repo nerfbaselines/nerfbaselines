@@ -118,7 +118,7 @@ def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, st
                 )
 
 
-def eval_all(method: Method, logger: Logger, dataset: Dataset, *, output: Union[str, Path], step: int, evaluation_protocol: EvaluationProtocol, split: str, nb_info):
+def eval_all(method: Method, logger: Logger, dataset: Dataset, *, output: str, step: int, evaluation_protocol: EvaluationProtocol, split: str, nb_info):
     assert dataset.images is not None, "test dataset must have images loaded"
     total_rays = 0
     metrics: Optional[Dict[str, float]] = {} if logger else None
@@ -129,23 +129,22 @@ def eval_all(method: Method, logger: Logger, dataset: Dataset, *, output: Union[
     if prefix is None:
         prefix = Path(os.path.commonpath(dataset.file_paths))
 
-    output = Path(output)
     if split != "test":
-        output_metrics = output / f"results-{step}-{split}.json"
-        output = output / f"predictions-{step}-{split}.tar.gz"
+        output_metrics = os.path.join(output, f"results-{step}-{split}.json")
+        output = os.path.join(output, f"predictions-{step}-{split}.tar.gz")
     else:
-        output_metrics = output / f"results-{step}.json"
-        output = output / f"predictions-{step}.tar.gz"
+        output_metrics = os.path.join(output, f"results-{step}.json")
+        output = os.path.join(output, f"predictions-{step}.tar.gz")
 
-    if output.exists():
-        if output.is_file():
-            os.unlink(str(output))
+    if os.path.exists(output):
+        if os.path.isfile(output):
+            os.unlink(output)
         else:
-            shutil.rmtree(str(output))
+            shutil.rmtree(output)
         logging.warning(f"removed existing predictions at {output}")
 
-    if output_metrics.exists():
-        os.unlink(str(output_metrics))
+    if os.path.exists(output_metrics):
+        os.unlink(output_metrics)
         logging.warning(f"removed existing results at {output_metrics}")
 
     start = time.perf_counter()
@@ -249,13 +248,14 @@ Visualization = Literal["none", "wandb", "tensorboard"]
 
 
 class Trainer:
+    @remap_error
     def __init__(
         self,
         *,
         train_dataset: Dataset,
         test_dataset: Optional[Dataset] = None,
         method: Method,
-        output: Path = Path("."),
+        output: str = ".",
         save_iters: Indices = Indices.every_iters(10_000, zero=True),
         eval_few_iters: Indices = Indices.every_iters(2_000),
         eval_all_iters: Indices = Indices([-1]),
@@ -395,9 +395,9 @@ class Trainer:
         }
 
     def save(self):
-        path = os.path.join(str(self.output), f"checkpoint-{self.step}")  # pyright: ignore[reportCallIssue]
-        os.makedirs(os.path.join(str(self.output), f"checkpoint-{self.step}"), exist_ok=True)
-        self.method.save(Path(path))
+        path = os.path.join(self.output, f"checkpoint-{self.step}")  # pyright: ignore[reportCallIssue]
+        os.makedirs(os.path.join(self.output, f"checkpoint-{self.step}"), exist_ok=True)
+        self.method.save(str(path))
         with open(os.path.join(path, "nb-info.json"), mode="w+", encoding="utf8") as f:
             json.dump(serialize_nb_info(self._get_nb_info()), f)
         logging.info(f"checkpoint saved at step={self.step}")
@@ -425,9 +425,9 @@ class Trainer:
             loggers = []
             for logger in self.loggers:
                 if "tensorboard" == logger:
-                    loggers.append(TensorboardLogger(str(self.output / "tensorboard")))
+                    loggers.append(TensorboardLogger(os.path.join(self.output, "tensorboard")))
                 elif "wandb" == logger:
-                    loggers.append(WandbLogger(str(self.output)))
+                    loggers.append(WandbLogger(self.output))
                 else:
                     raise ValueError(f"Unknown logger {logger}")
             self._logger = ConcatLogger(loggers)
@@ -502,11 +502,11 @@ class Trainer:
         # Generate output artifact if enabled
         if self.generate_output_artifact:
             prepare_results_for_upload(
-                self.output / f"checkpoint-{self.step}",
-                self.output / f"predictions-{self.step}.tar.gz",
-                self.output / f"results-{self.step}.json",
-                self.output / "tensorboard",
-                self.output / "output.zip",
+                Path(self.output) / f"checkpoint-{self.step}",
+                Path(self.output) / f"predictions-{self.step}.tar.gz",
+                Path(self.output) / f"results-{self.step}.json",
+                Path(self.output) / "tensorboard",
+                Path(self.output) / "output.zip",
                 validate=False,
             )
 
@@ -542,7 +542,7 @@ class Trainer:
 
 @click.command("train")
 @click.option("--method", "method_name", type=click.Choice(sorted(registry.supported_methods())), required=True, help="Method to use")
-@click.option("--checkpoint", type=click.Path(exists=True, path_type=Path), default=None)
+@click.option("--checkpoint", type=click.Path(exists=True, path_type=str), default=None)
 @click.option("--data", type=str, required=True)
 @click.option("--output", type=str, default=".")
 @click.option("--vis", type=click.Choice(["none", "wandb", "tensorboard", "wandb+tensorboard"]), default="tensorboard", help="Logger to use. Defaults to tensorboard.")
@@ -633,7 +633,7 @@ def train_command(
                     train_dataset=train_dataset,
                     test_dataset=test_dataset,
                     method=method,
-                    output=Path(output),
+                    output=output,
                     save_iters=save_iters,
                     eval_all_iters=eval_all_iters,
                     eval_few_iters=eval_few_iters,

@@ -12,7 +12,7 @@ import numpy as np
 from PIL import Image, ImageOps
 from ...types import Dataset, Method, MethodInfo, ModelInfo, ProgressCallback, CurrentProgress, RenderOutput
 from ...cameras import CameraModel, Cameras
-from ...utils import cast_value, flatten_hparams
+from ...utils import cast_value, flatten_hparams, remap_error
 from ...pose_utils import pad_poses, unpad_poses
 
 
@@ -167,6 +167,7 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
 class InstantNGP(Method):
     _method_name: str = "instant-ngp"
 
+    @remap_error
     def __init__(self, *,
                  checkpoint: Optional[str] = None, 
                  train_dataset: Optional[Dataset] = None,
@@ -386,8 +387,8 @@ class InstantNGP(Method):
             "loss": self.testbed.loss,
         }
 
-    def save(self, path: Path):
-        path = Path(path)
+    def save(self, path: str):
+        path: Path = Path(path)
         path.mkdir(parents=True, exist_ok=True)
         with (path / "meta.json").open("w") as f:
             out = self.dataparser_params.copy()

@@ -35,6 +35,7 @@ class DockerBackendSpec(TypedDict, total=False):
     default_cuda_archs: str
     conda_spec: CondaBackendSpec
     replace_user: bool
+    should_build: bool
     
 
 def docker_get_environment_hash(spec: DockerBackendSpec):
@@ -121,7 +122,7 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
         script += "    if ! python -c 'import cv2' >/dev/null 2>&1; then pip install opencv-python-headless; fi\n"
         python_path = spec.get("python_path")
         if python_path:
-            script += f'RUN ln -s "$(which {python_path})" "/usr/bin/python"' + "\n"
+            script += f'RUN rm -rf "/usr/bin/python" && ln -s "$(which {python_path})" "/usr/bin/python"' + "\n"
 
     script += "ENV NERFBASELINES_BACKEND=python\n"
     def is_method_allowed(method_spec: "MethodSpec"):
@@ -163,7 +164,6 @@ def docker_image_exists_remotely(name: str):
 
 
 def _build_docker_image(name, dockerfile, skip_if_exists_remotely: bool = False, push: bool = False):
-    print(dockerfile)
     if skip_if_exists_remotely:
         if docker_image_exists_remotely(name):
             logging.info("Image already exists remotely, skipping build")
@@ -188,7 +188,7 @@ def build_docker_image(spec: Optional['DockerBackendSpec'] = None, skip_if_exist
     if spec is None:
         name = BASE_IMAGE
         dockerfile = Path(__file__).absolute().parent.joinpath("Dockerfile").read_text()
-    elif spec is not None and spec.get("image") is None or spec.get("conda_spec") is not None:
+    elif spec is not None and spec.get("image") is None or spec.get("conda_spec") is not None or spec.get("should_build", False):
         name = get_docker_image_name(spec)
         dockerfile = docker_get_dockerfile(spec)
     else:
@@ -204,7 +204,8 @@ def build_docker_image(spec: Optional['DockerBackendSpec'] = None, skip_if_exist
 
 
 def get_docker_image_name(spec: DockerBackendSpec):
-    if spec.get("conda_spec") is None:
+    force_build = spec.get("should_build", True)
+    if spec.get("conda_spec") is None and not force_build:
         image = spec.get("image")
         if image is None:
             return BASE_IMAGE
@@ -239,6 +240,10 @@ def docker_run_image(spec: DockerBackendSpec,
                      use_gpu: bool = True,
                      interactive: bool = True):
     image = get_docker_image_name(spec)
+    # if spec.get("conda_spec") is None:
+    #     # For external images nerfbaselines may not be in the path.
+    #     # To make sure we will add it to the path manually
+    #     env["PYTHONPATH"] = f"/var/nb-package:{env.get('PYTHONPATH', '')}"
 
     os.makedirs(os.path.expanduser("~/.conda/pkgs"), exist_ok=True)
     torch_home = os.path.expanduser(os.environ.get("TORCH_HOME", "~/.cache/torch/hub"))
@@ -285,9 +290,8 @@ def docker_run_image(spec: DockerBackendSpec,
         "--env", "PIP_CACHE_DIR=/var/nb-pip-cache",
         "--env", "TORCH_HOME=/var/nb-torch",
         "--env", "NERFBASELINES_PREFIX=/var/nb-prefix",
-        "--env", "PYTHONPATH=/var/nb-package",
         "--env", "NB_USE_GPU=" + ("1" if use_gpu else "0"),
-        *(sum((["--env", name] for name in env), [])),
+        *(sum((["--env", name] for name in env if name in EXPORT_ENVS), [])),
         *(sum((["-p", f"{ps}:{pd}"] for ps, pd in ports or []), [])),
         *[f"-v={shlex.quote(src)}:{shlex.quote(dst)}" for src, dst in mounts or []],
         "--rm",
@@ -311,7 +315,8 @@ class DockerBackend(RemoteProcessRPCBackend):
     def install(self):
         # Build the docker image if needed
         image = self._spec.get("image")
-        if image is None or self._spec.get("conda_spec") is not None:
+        force_build = self._spec.get("should_build", True)
+        if image is None or self._spec.get("conda_spec") is not None or force_build:
             name = get_docker_image_name(self._spec)
             dockerfile = docker_get_dockerfile(self._spec)
             should_pull = False

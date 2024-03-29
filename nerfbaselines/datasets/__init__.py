@@ -17,7 +17,7 @@ SUPPORTED_DATASETS = [
 ]
 
 
-def download_dataset(path: str, output: Path):
+def download_dataset(path: str, output: Union[str, Path]):
     output = Path(output)
     errors = {}
     for name in SUPPORTED_DATASETS:

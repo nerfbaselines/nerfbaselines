@@ -51,17 +51,16 @@ def build_update_progress(pbar: tqdm, simple=False):
     return update_progress
 
 
-def get_checkpoint_sha(path: Path) -> str:
-    path = Path(path)
-    if str(path).endswith(".tar.gz"):
+def get_checkpoint_sha(path: str) -> str:
+    if path.endswith(".tar.gz"):
         with tarfile.open(path, "r:gz") as tar, tempfile.TemporaryDirectory() as tmpdir:
             tar.extractall(tmpdir)
-            return get_checkpoint_sha(Path(tmpdir))
+            return get_checkpoint_sha(tmpdir)
 
     b = bytearray(128 * 1024)
     mv = memoryview(b)
 
-    files = list(f for f in path.glob("**/*") if f.is_file())
+    files = list(f for f in Path(path).glob("**/*") if f.is_file())
     files.sort()
     sha = hashlib.sha256()
     for f in files:
@@ -76,8 +75,8 @@ def get_checkpoint_sha(path: Path) -> str:
 
 def get_method_sha(method: Method) -> str:
     with tempfile.TemporaryDirectory() as tmpdir:
-        method.save(Path(tmpdir))
-        return get_checkpoint_sha(Path(tmpdir))
+        method.save(tmpdir)
+        return get_checkpoint_sha(tmpdir)
 
 
 def with_supported_camera_models(supported_camera_models):
@@ -107,7 +106,7 @@ def with_supported_camera_models(supported_camera_models):
     return decorator
 
 
-def store_predictions(output: Path, predictions: Iterable[RenderOutput], dataset: Dataset, *, nb_info=None) -> Iterable[RenderOutput]:
+def store_predictions(output: str, predictions: Iterable[RenderOutput], dataset: Dataset, *, nb_info=None) -> Iterable[RenderOutput]:
     background_color =  dataset.metadata.get("background_color", None)
     assert background_color is None or background_color.dtype == np.uint8, "background_color must be None or uint8"
     color_space = dataset.color_space
@@ -167,7 +166,7 @@ def store_predictions(output: Path, predictions: Iterable[RenderOutput], dataset
             @contextlib.contextmanager
             def open_fn_tar(path):
                 rel_path = path
-                path = output / path
+                path = os.path.join(output, path)
                 tarinfo = tarfile.TarInfo(name=rel_path)
                 tarinfo.mtime = int(time.time())
                 with io.BytesIO() as f:
@@ -182,7 +181,7 @@ def store_predictions(output: Path, predictions: Iterable[RenderOutput], dataset
     else:
 
         def open_fn_fs(path):
-            path = output / path
+            path = os.path.join(output, path)
             Path(path).parent.mkdir(parents=True, exist_ok=True)
             return open(path, "wb")
 
@@ -193,7 +192,7 @@ def store_predictions(output: Path, predictions: Iterable[RenderOutput], dataset
 def render_all_images(
     method: Method,
     dataset: Dataset,
-    output: Path,
+    output: str,
     description: str = "rendering all images",
     nb_info: Optional[dict] = None,
     evaluation_protocol: Optional[EvaluationProtocol] = None,
@@ -231,17 +230,18 @@ def render_all_images(
 @click.command("render")
 @click.option("--checkpoint", type=str, default=None, required=True)
 @click.option("--data", type=str, default=None, required=True)
-@click.option("--output", type=Path, default="predictions", help="output directory or tar.gz file")
+@click.option("--output", type=str, default="predictions", help="output directory or tar.gz file")
 @click.option("--split", type=str, default="test")
 @click.option("--verbose", "-v", is_flag=True)
 @click.option("--backend", "backend_name", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @handle_cli_error
-def render_command(checkpoint: Union[str, Path], data, output, split, verbose, backend_name):
+def render_command(checkpoint: str, data: str, output: str, split: str, verbose: bool, backend_name):
     checkpoint = str(checkpoint)
     setup_logging(verbose)
 
     # Read method nb-info
-    with open_any_directory(checkpoint, mode="r") as checkpoint_path:
+    with open_any_directory(checkpoint, mode="r") as _checkpoint_path:
+        checkpoint_path = Path(_checkpoint_path)
         assert checkpoint_path.exists(), f"checkpoint path {checkpoint} does not exist"
         assert (checkpoint_path / "nb-info.json").exists(), f"checkpoint path {checkpoint} does not contain nb-info.json"
         with (checkpoint_path / "nb-info.json").open("r") as f:
@@ -257,5 +257,5 @@ def render_command(checkpoint: Union[str, Path], data, output, split, verbose, b
             dataset.load_features(method_info.get("required_features", frozenset()))
             if dataset.color_space != nb_info["color_space"]:
                 raise RuntimeError(f"Dataset color space {dataset.color_space} != method color space {nb_info['color_space']}")
-            for _ in render_all_images(method, dataset, output=Path(output), nb_info=nb_info):
+            for _ in render_all_images(method, dataset, output=output, nb_info=nb_info):
                 pass

@@ -1,3 +1,4 @@
+from pathlib import Path
 import os
 from dataclasses import dataclass, field
 from typing import Any, cast
@@ -165,7 +166,7 @@ def mock_nerfstudio(mock_torch):
 
         def new_save(self, path):
             old_save(self, path)
-            os.makedirs(path / "test" / f"ckpt-{self.step-1}.pth")
+            os.makedirs(Path(path) / "test" / f"ckpt-{self.step-1}.pth")
 
         with mock.patch.object(NerfStudio, "save", new_save):
             yield None

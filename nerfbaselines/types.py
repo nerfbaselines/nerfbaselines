@@ -219,7 +219,7 @@ class Method(Protocol):
         raise NotImplementedError()
 
     @abstractmethod
-    def save(self, path: Path):
+    def save(self, path: str):
         """
         Save model.
 
