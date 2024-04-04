@@ -1,10 +1,11 @@
-from typing import Optional, Sequence, Tuple, cast
+from typing import Optional, Sequence, Tuple, cast, TYPE_CHECKING
 from enum import Enum
 from dataclasses import dataclass
 import dataclasses
 import numpy as np
 from .utils import cached_property, padded_stack, is_broadcastable, convert_image_dtype
 from .types import Protocol, runtime_checkable
+from . import _xnp_utils as xnp_utils
 
 
 class CameraModel(Enum):
@@ -33,7 +34,7 @@ def _iterative_undistortion(distortion: _DistortionFunction, uv: np.ndarray, par
     new_uv_shape = tuple(map(max, uv.shape[:-1], params.shape[:-1])) + (2,)
     if uv.shape != new_uv_shape:
         uv = xnp.broadcast_to(uv, new_uv_shape)
-    x = xnp.copy(uv)
+    x = xnp_utils.copy(uv, xnp=xnp)
     # xout, mask = x, None
 
     for i in range(num_iterations):
@@ -338,7 +339,7 @@ def _distort(camera_types, distortion_params, uv, xnp=np):
                 return uv + distortion(distortion_params, uv, xnp=xnp)
             else:
                 if out is None:
-                    out = xnp.copy(uv)
+                    out = xnp_utils.copy(uv, xnp=xnp)
                 out[mask] = uv[mask] + distortion(distortion_params[mask], uv[mask], xnp=xnp)
     if out is None:
         out = uv
@@ -357,7 +358,7 @@ def _undistort(camera_types: np.ndarray, distortion_params: np.ndarray, uv: np.n
                 return _iterative_undistortion(distortion, uv, distortion_params, xnp=xnp, **kwargs)
             else:
                 if out is None:
-                    out = xnp.copy(uv)
+                    out = xnp_utils.copy(uv, xnp=xnp)
                 out[mask] = _iterative_undistortion(distortion, uv[mask], distortion_params[mask], xnp=xnp, **kwargs)
     if out is None:
         out = uv
@@ -376,6 +377,12 @@ class Cameras:
     image_sizes: Optional[np.ndarray]  # [N, 2]
     nears_fars: Optional[np.ndarray]  # [N, 2]
     metadata: Optional[np.ndarray] = None
+
+    @property
+    def xnp(self):
+        if TYPE_CHECKING:
+            return np
+        return xnp_utils.getbackend(self.poses)
 
     def __len__(self):
         if len(self.poses.shape) == 2:
@@ -400,6 +407,7 @@ class Cameras:
         )
 
     def __setitem__(self, index, value):
+        xnp_utils.assert_same_xnp(value, xnp=self.xnp)
         assert (self.image_sizes is None) == (value.image_sizes is None), "Either both or none of the cameras must have image sizes"
         assert (self.nears_fars is None) == (value.nears_fars is None), "Either both or none of the cameras must have nears and fars"
         self.poses[index] = value.poses
@@ -418,21 +426,26 @@ class Cameras:
             yield self[i]
 
     @staticmethod
-    def get_image_pixels(image_sizes: np.ndarray, xnp=np) -> np.ndarray:
+    def get_image_pixels(image_sizes: np.ndarray) -> np.ndarray:
+        xnp = xnp_utils.getbackend(image_sizes)
         if len(image_sizes.shape) == 1:
             w, h = image_sizes
-            return np.stack(np.meshgrid(np.arange(w), np.flip(np.arange(h)), indexing="xy"), -1).reshape(-1, 2)
-        return np.concatenate([Cameras.get_image_pixels(s, xnp=xnp) for s in image_sizes])
+            return xnp.stack(xnp.meshgrid(xnp.arange(w), np.flip(np.arange(h), (0,)), indexing="xy"), -1).reshape(-1, 2)
+        return xnp.concatenate([Cameras.get_image_pixels(s, xnp=xnp) for s in image_sizes])
 
-    def get_rays(self, xy: np.ndarray, xnp=np) -> Tuple[np.ndarray, np.ndarray]:
+    def get_rays(self, xy: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        xnp = self.xnp
+        xnp_utils.assert_same_xnp(xy, xnp=self.xnp)
         assert xy.shape[-1] == 2
         assert xy.shape[0] == len(self)
         assert xy.dtype.kind in {"i", "u"}, "xy must be integer"
 
-        xy = xy.astype(xnp.float32) + 0.5
+        xy = xnp_utils.astype(xy, xnp.float32) + 0.5
         return self.unproject(xy, xnp=xnp)
 
-    def unproject(self, xy: np.ndarray, xnp=np) -> Tuple[np.ndarray, np.ndarray]:
+    def unproject(self, xy: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        xnp = self.xnp
+        xnp_utils.assert_same_xnp(xy, xnp=self.xnp)
         assert xy.shape[-1] == 2
         assert is_broadcastable(xy.shape[:-1], self.poses.shape[:-2]), "xy must be broadcastable with poses, shapes: {}, {}".format(xy.shape[:-1], self.poses.shape[:-2])
         assert xy.dtype.kind == "f"
@@ -455,7 +468,9 @@ class Cameras:
         origins = xnp.broadcast_to(self.poses[..., :3, 3], directions.shape)
         return origins, directions
 
-    def project(self, xyz: np.ndarray, xnp=np) -> np.ndarray:
+    def project(self, xyz: np.ndarray) -> np.ndarray:
+        xnp = self.xnp
+        xnp_utils.assert_same_xnp(xyz, xnp=self.xnp)
         eps = xnp.finfo(xyz.dtype).eps
         assert xyz.shape[-1] == 3
         assert is_broadcastable(xyz.shape[:-1], self.poses.shape[:-2]), "xyz must be broadcastable with poses, shapes: {}, {}".format(xyz.shape[:-1], self.poses.shape[:-2])
@@ -468,6 +483,7 @@ class Cameras:
         uvw = (rotation * uvw[..., :, None]).sum(-2)
 
         # Camera -> Camera distorted
+        # TODO: handle multibackend
         uv = xnp.divide(uvw[..., :2], uvw[..., 2:], out=xnp.zeros_like(uvw[..., :2]), where=xnp.abs(uvw[..., 2:]) > eps)
 
         uv = _distort(self.camera_types, self.distortion_parameters, uv, xnp=xnp)
@@ -482,47 +498,59 @@ class Cameras:
 
     @classmethod
     def cat(cls, values: Sequence["Cameras"]) -> "Cameras":
+        assert len(values) > 0, "At least one camera must be provided"
         image_sizes = None
         nears_fars = None
         metadata = None
+        xnp = xnp_utils.getbackend(values[0].poses)
+        xnp_utils.assert_same_xnp(*[x.poses for x in values], xnp=xnp)
         if any(v.image_sizes is not None for v in values):
             assert all(v.image_sizes is not None for v in values), "Either all or none of the cameras must have image sizes"
-            image_sizes = np.concatenate([cast(np.ndarray, v.image_sizes) for v in values])
+            image_sizes = xnp.concatenate([cast(np.ndarray, v.image_sizes) for v in values])
         if any(v.nears_fars is not None for v in values):
             assert all(v.nears_fars is not None for v in values), "Either all or none of the cameras must have nears and fars"
-            nears_fars = np.concatenate([cast(np.ndarray, v.nears_fars) for v in values])
+            nears_fars = xnp.concatenate([cast(np.ndarray, v.nears_fars) for v in values])
         if any(v.metadata is not None for v in values):
             assert all(v.metadata is not None for v in values), "Either all or none of the cameras must have metadata"
-            metadata = np.concatenate([cast(np.ndarray, v.metadata) for v in values])
+            metadata = xnp.concatenate([cast(np.ndarray, v.metadata) for v in values])
         return cls(
-            poses=np.concatenate([v.poses for v in values]),
-            intrinsics=np.concatenate([v.intrinsics for v in values]),
-            camera_types=np.concatenate([v.camera_types for v in values]),
-            distortion_parameters=np.concatenate([v.distortion_parameters for v in values]),
+            poses=xnp.concatenate([v.poses for v in values]),
+            intrinsics=xnp.concatenate([v.intrinsics for v in values]),
+            camera_types=xnp.concatenate([v.camera_types for v in values]),
+            distortion_parameters=xnp.concatenate([v.distortion_parameters for v in values]),
             image_sizes=image_sizes,
             nears_fars=nears_fars,
             metadata=metadata,
         )
 
     def with_image_sizes(self, image_sizes: np.ndarray) -> "Cameras":
-        multipliers = image_sizes.astype(self.intrinsics.dtype) / self.image_sizes 
-        multipliers = np.concatenate([multipliers, multipliers], -1)
+        xnp = self.xnp
+        xnp_utils.assert_same_xnp(image_sizes, xnp=xnp)
+        multipliers = xnp_utils.astype(image_sizes, self.intrinsics.dtype, xnp=xnp) / self.image_sizes 
+        multipliers = xnp.concatenate([multipliers, multipliers], -1)
         intrinsics = self.intrinsics * multipliers
         return dataclasses.replace(self, image_sizes=image_sizes, intrinsics=intrinsics)
 
     def with_metadata(self, metadata: np.ndarray) -> "Cameras":
         return dataclasses.replace(self, metadata=metadata)
 
-    def clone(self) -> "Cameras":
+    def _apply(self, func):
         return dataclasses.replace(
             self,
-            poses=np.copy(self.poses),
-            intrinsics=np.copy(self.intrinsics),
-            camera_types=np.copy(self.camera_types),
-            distortion_parameters=np.copy(self.distortion_parameters),
-            image_sizes=np.copy(self.image_sizes) if self.image_sizes is not None else None,
-            nears_fars=np.copy(self.nears_fars) if self.nears_fars is not None else None,
-            metadata=np.copy(self.metadata) if self.metadata is not None else None)
+            poses=func(self.poses),
+            intrinsics=func(self.intrinsics),
+            camera_types=func(self.camera_types),
+            distortion_parameters=func(self.distortion_parameters),
+            image_sizes=func(self.image_sizes) if self.image_sizes is not None else None,
+            nears_fars=func(self.nears_fars) if self.nears_fars is not None else None,
+            metadata=func(self.metadata) if self.metadata is not None else None)
+
+    def clone(self) -> "Cameras":
+        xnp = self.xnp
+        return self._apply(lambda x: xnp_utils.copy(x, xnp=xnp))
+
+    def to_xnp(self, xnp) -> "Cameras":
+        return self._apply(lambda x: xnp_utils.astensor(x, xnp=xnp))
 
 
 # def undistort_images(cameras: Cameras, images: np.ndarray) -> np.ndarray:
@@ -597,7 +625,8 @@ def interpolate_bilinear(image: np.ndarray, xy: np.ndarray, xnp=np) -> np.ndarra
 
 
 def warp_image_between_cameras(cameras1: Cameras, cameras2: Cameras, images: np.ndarray):
-    xnp = np
+    xnp_utils.assert_same_xnp(cameras1.poses, cameras1.poses, images, xnp=cameras1.xnp)
+    xnp = cameras1.xnp
     assert cameras1.image_sizes is not None, "cameras1 must have image sizes"
     assert cameras2.image_sizes is not None, "cameras2 must have image sizes"
     assert cameras1.image_sizes.shape == cameras2.image_sizes.shape, "Camera shapes must be the same"

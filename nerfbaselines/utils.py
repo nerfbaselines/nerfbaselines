@@ -36,6 +36,9 @@ except ImportError:
     from typing_extensions import TypedDict
 
 if TYPE_CHECKING:
+    import torch
+    import jax.numpy as jnp
+if TYPE_CHECKING:
     cached_property = property
 else:
     try:
@@ -55,10 +58,51 @@ else:
 
             return property(fn_cached)
 
-
+if TYPE_CHECKING:
+    XTensor = Union[np.ndarray, 'torch.Tensor', 'jnp.ndarray']
+else:
+    XTensor = np.ndarray
 T = TypeVar("T")
 TCallable = TypeVar("TCallable", bound=Callable)
 _generate_interface_types = []
+
+
+def astensor(x: Any, xnp=np) -> XTensor:
+    source_module = getattr(x, '__class__', None)
+    if source_module is not None:
+        source_module = getattr(source_module, '__module__', None)
+    if xnp is np or xnp.__name__ == "jax.numpy":
+        if source_module is not None and source_module.startswith("torch"):
+            x = x.detach().cpu().numpy()
+        return xnp.asarray(x)
+    elif xnp.__name__ == "torch":
+        if TYPE_CHECKING:
+            xnp = torch
+        if isinstance(x, xnp.Tensor):
+            return x
+        else:
+            return xnp.from_numpy(astensor(x, np))
+    else:
+        raise ValueError(f"Unknown numpy-like library {xnp}")
+
+
+if TYPE_CHECKING:
+    def getbackend(x: XTensor):
+        return np
+else:
+    def getbackend(x: XTensor):
+        if isinstance(x, np.ndarray):
+            return np
+        source_module = getattr(x, '__class__', None)
+        if source_module is not None:
+            source_module = getattr(source_module, '__module__', None)
+        if source_module is not None:
+            if source_module.startswith("jax"):
+                import jax.numpy as jnp
+                return jnp
+            return sys.modules[source_module]
+        else:
+            raise RuntimeError("Unknown backend for tensor: ", x)
 
 
 def generate_interface(cls):
