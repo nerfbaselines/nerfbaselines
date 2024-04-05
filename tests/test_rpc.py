@@ -240,7 +240,7 @@ def test_master_endpoint_cancel_waiting_for_connection():
         start = time.time()
         with pytest.raises(TimeoutError):
             with EventCancellationToken() as token:
-                threading.Thread(target=lambda: token.cancel(*[sleep(0.01)][:0]), daemon=True).start()
+                threading.Thread(target=lambda: token.cancel(*[sleep(0.015)][:0]), daemon=True).start()
                 endpoint.wait_for_connection(0.01)
         assert time.time() - start < 0.1
 

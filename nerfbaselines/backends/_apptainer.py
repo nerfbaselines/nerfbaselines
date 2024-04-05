@@ -174,6 +174,7 @@ class ApptainerBackend(RemoteProcessRPCBackend):
 
     def _customize_wrapper(self, ns):
         ns = super()._customize_wrapper(ns)
+        assert self._tmpdir is not None, "Temporary directory is not initialized"
         customize_wrapper_separated_fs(self._tmpdir.name, "/var/nb-tmp", self._applied_mounts, ns)
         return ns
 
@@ -208,6 +209,7 @@ class ApptainerBackend(RemoteProcessRPCBackend):
 
     def _launch_worker(self, args, env):
         # Run docker image
+        assert self._tmpdir is not None, "Temporary directory is not initialized"
         conda_spec = self._spec.get("conda_spec")
         if conda_spec is not None:
             env_path = "/var/conda-envs"

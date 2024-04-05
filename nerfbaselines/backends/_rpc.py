@@ -23,6 +23,7 @@ from typing import Optional, List, Any, Dict, Callable, cast, Tuple, Type
 import inspect
 import secrets
 import logging
+from multiprocessing import connection as mp_connection
 from multiprocessing.connection import Listener, Client, Connection
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue, Empty
@@ -83,7 +84,7 @@ def customize_wrapper_separated_fs(local_shared_path, backend_shared_path, mount
     # We check for simplified protocol
     if "save" in ns and "train_iteration" in ns and "render" in ns:
         # We replace the save with a custom save
-        old_save = ns["save"]
+        old_save = ns["save"].__func__
         @staticmethod
         @functools.wraps(old_save)
         def save(path: str):
@@ -104,7 +105,7 @@ def customize_wrapper_separated_fs(local_shared_path, backend_shared_path, mount
         ns["save"] = save
 
         # We replace the __call__ with a custom init
-        old_init = ns["__call__"]
+        old_init = ns["__call__"].__func__
         @staticmethod
         @functools.wraps(old_init)
         def __call__(*args, **kwargs):
@@ -370,41 +371,43 @@ def run_worker(*, worker: Optional[RPCWorker] = None, address="localhost", port=
         assert port is not None, "Port must be provided"
         assert authkey is not None, "Authkey must be provided"
 
-    with Client((address, port), authkey=authkey) as client, \
+    with Listener((address, port), authkey=authkey) as listener, \
                         ThreadPoolExecutor(max_workers=8) as pool:
-        recv = build_recv(client)
-        send(client, {"message": "ready", "thread_end": True, "thread_id": -1})
         cancellation_tokens: Dict[int, CancellationToken] = {}
         out_queue = Queue()
-        while not client.closed:
-            try:
-                outmsg = out_queue.get_nowait()
-                if outmsg.get("thread_end", False):
-                    cancellation_tokens.pop(outmsg["thread_id"], None)
-                send(client, outmsg)
-            except Empty:
-                pass
-            if not client.poll(0.0001):
-                continue
-            msg = recv()
-            if msg["message"] == "close":
-                send(client, {"message": "close_ack"})
-                break
-            mid = msg["thread_id"]
-            if msg["message"] == "cancel":
-                # Cancel without the current thread (perhaps a late message)
-                if mid in cancellation_tokens:
-                    cancellation_tokens.pop(mid).cancel()
-                continue
-            cancellation_token = cancellation_tokens.get(mid)
-            if cancellation_token is None:
-                cancellation_token = EventCancellationToken()
-            cancellation_tokens[mid] = cancellation_token
-            def process_message_with_token(token, *args, **kwargs):
-                with (token or contextlib.nullcontext()):
-                    worker.process_message(*args, **kwargs)
-            pool.submit(
-                process_message_with_token, cancellation_token, msg, lambda m: out_queue.put({**m, "thread_id": mid}))
+        with listener.accept() as conn:
+            logging.info(f"Connection accepted from {listener.last_accepted}")
+            recv = build_recv(conn)
+            send(conn, {"message": "ready", "thread_end": True, "thread_id": -1})
+            while not conn.closed:
+                try:
+                    outmsg = out_queue.get_nowait()
+                    if outmsg.get("thread_end", False):
+                        cancellation_tokens.pop(outmsg["thread_id"], None)
+                    send(conn, outmsg)
+                except Empty:
+                    pass
+                if not conn.poll(0.0001):
+                    continue
+                msg = recv()
+                if msg["message"] == "close":
+                    send(conn, {"message": "close_ack"})
+                    break
+                mid = msg["thread_id"]
+                if msg["message"] == "cancel":
+                    # Cancel without the current thread (perhaps a late message)
+                    if mid in cancellation_tokens:
+                        cancellation_tokens.pop(mid).cancel()
+                    continue
+                cancellation_token = cancellation_tokens.get(mid)
+                if cancellation_token is None:
+                    cancellation_token = EventCancellationToken()
+                cancellation_tokens[mid] = cancellation_token
+                def process_message_with_token(token, *args, **kwargs):
+                    with (token or contextlib.nullcontext()):
+                        worker.process_message(*args, **kwargs)
+                pool.submit(
+                    process_message_with_token, cancellation_token, msg, lambda m: out_queue.put({**m, "thread_id": mid}))
 
                 
 def _listener_accept_with_cancel(listener: Listener, cancel_token: Optional[CancellationToken], timeout: float = 0):
@@ -434,13 +437,57 @@ def _listener_accept_with_cancel(listener: Listener, cancel_token: Optional[Canc
     assert False, "Unreachable"
 
 
+def _client_connect_with_cancel(address, authkey, cancel_token: Optional[CancellationToken], timeout: float = 0):
+    def connect(timeout=None):
+        family = mp_connection.address_type(address)  # type: ignore
+        with socket.socket(getattr(socket, family)) as s:
+            if timeout is not None:
+                s.settimeout(timeout)
+            s.setblocking(True)
+            s.connect(address)
+            if timeout is not None:
+                s.settimeout(None)
+            c = Connection(s.detach())
+        mp_connection.answer_challenge(c, authkey)
+        mp_connection.deliver_challenge(c, authkey)
+        return c
+
+    if cancel_token is None:
+        start = time.time()
+        while True:
+            if timeout > 0 and time.time() - start > timeout:
+                raise TimeoutError("Timeout waiting for connection")
+            try:
+                return connect(timeout)
+            except ConnectionRefusedError:
+                continue
+            except socket.timeout:
+                raise TimeoutError("Timeout waiting for connection")
+    elif cancel_token is not None:
+        start = time.time()
+        wtimeout = 0.1
+        if timeout > 0:
+            wtimeout = min(wtimeout, timeout)
+        while True:
+            if cancel_token is not None:
+                cancel_token.raise_for_cancelled()
+            try:
+                return connect(wtimeout)
+            except ConnectionRefusedError:
+                pass
+            except socket.timeout:
+                pass
+            if timeout > 0 and time.time() - start > timeout:
+                raise TimeoutError("Timeout waiting for connection")
+    assert False, "Unreachable"
+
+
 class RPCMasterEndpoint:
     def __init__(self, *, address="localhost", port, authkey):
         self.address = address
         self.port = port
         self.authkey = authkey
 
-        self._listener = None
         self._conn = None
         self._recv = None
         self._other_queues = {}
@@ -497,39 +544,16 @@ class RPCMasterEndpoint:
                     raise ConnectionError("Connection closed unexpectedly")
                 send(self._conn, {"message": "cancel", "thread_id": mid})
 
-    @cancellable(mark_only=True)
     def __enter__(self):
-        assert self._listener is None, "Already in a context"
-        self._listener = Listener((self.address, self.port), authkey=self.authkey)
         return self
 
     @cancellable(mark_only=True)
     def wait_for_connection(self, timeout: float = 0):
-        assert self._listener is not None, "Not in a context"
         if self._conn is not None and not self._conn.closed:
             return
 
-        start = time.time()
-        conn = _listener_accept_with_cancel(self._listener, CancellationToken.current, timeout)
-        logging.info(f"Connection accepted from {self._listener.last_accepted}")
-
+        conn = _client_connect_with_cancel((self.address, self.port), self.authkey, CancellationToken.current, timeout)
         recv = build_recv(conn)
-        if CancellationToken.current is not None:
-            while True:
-                if CancellationToken.current is not None:
-                    CancellationToken.current.raise_for_cancelled()
-                wait_for = 0.001
-                if timeout > 0:
-                    wait_for = min(0.001, start + timeout - time.time())
-                    if wait_for <= 0:
-                        raise TimeoutError("Timeout waiting for connection")
-                if conn.poll(wait_for):
-                    break
-                sleep(wait_for)
-        elif timeout > 0:
-            wait_for = start + timeout - time.time()
-            if wait_for <= 0 or not conn.poll(wait_for):
-                raise TimeoutError("Timeout waiting for connection")
         msg = recv()
         assert msg["message"] == "ready", f"Unexpected message {msg['message']}"
         self._conn, self._recv = conn, recv
@@ -546,9 +570,6 @@ class RPCMasterEndpoint:
             self._conn.close()
         self._conn = None
         self._recv = None
-        if self._listener is not None:
-            self._listener.close()
-            self._listener = None
         
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
@@ -742,6 +763,12 @@ class RemoteProcessRPCBackend(Backend):
         nb = nerfbaselines.__name__
         code = f"""
 import os
+# Hack for now to fix the cv2 failed import inside a thread.
+# We should move to a fully sync model.
+try:
+    import cv2
+except Exception:
+    pass
 from {nb}.utils import setup_logging
 from {run_worker.__module__} import {run_worker.__name__} as rw
 setup_logging(verbose={is_verbose})

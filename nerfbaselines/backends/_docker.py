@@ -17,7 +17,7 @@ from ..types import NB_PREFIX, TypedDict
 from ..utils import get_package_dependencies
 from ._rpc import RemoteProcessRPCBackend, get_safe_environment, customize_wrapper_separated_fs
 from .._constants import DOCKER_REPOSITORY
-from ._common import get_mounts, get_forwarded_ports
+from ._common import get_mounts
 from .. import __version__
 if TYPE_CHECKING:
     from ..registry import MethodSpec
@@ -111,17 +111,12 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
         run_command = shlex.quote(run_command)
         out = ""
         end = ""
-        # run_command = run_command.replace("\n", " \\n\\\n")
         for line in run_command.splitlines():
             out += end + line
             if line.endswith("\\"):
                 end = "\\\\n\\\n"
             else:
                 end = "\\n\\\n"
-        #     if line.endswith("\\"):
-        #         out = out[:-1]
-        #         end = "'" + '"\\\\"' + f"'{end}"
-        # run_command = out + "\n"
         run_command = out
 
         script += f'RUN /bin/bash -c "$(echo {run_command})" && \\\n'
@@ -137,7 +132,7 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
         if package_dependencies:
             script += "    " + shlex.join([python_path, "-m", "pip", "--no-cache-dir", "install"] + package_dependencies)+ " && \\\n"
         script += f"    if ! {python_path} -c 'import cv2' >/dev/null 2>&1; then {python_path} -m pip install opencv-python-headless; fi\n"
-        script += f'RUN if ! nerfbaselines >/dev/null 2>&1; then echo -e \'#!/usr/bin/env {python_path}\\nfrom nerfbaselines.__main__ import main\\nif __name__ == "__main__":\\n  main()\\n\'>"/usr/bin/nerfbaselines" && chmod +x "/usr/bin/nerfbaselines"; fi\n'
+        script += f'RUN if ! nerfbaselines >/dev/null 2>&1; then echo -e \'#!/usr/bin/env {python_path}\\nfrom nerfbaselines.__main__ import main\\nif __name__ == "__main__":\\n  main()\\n\'>"/usr/bin/nerfbaselines" && chmod +x "/usr/bin/nerfbaselines" || echo "Failed to create nerfbaselines in the bin folder"; fi\n'
 
     script += "ENV NERFBASELINES_BACKEND=python\n"
     def is_method_allowed(method_spec: "MethodSpec"):
@@ -148,7 +143,6 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
     script += f'ENV PYTHONPATH="{package_path}:$PYTHONPATH"\n'
     # Add nerfbaselines to the path
     script += 'CMD ["nerfbaselines"]\n'
-
     script += "COPY . " + package_path + "\n"
     return script
 
@@ -256,11 +250,6 @@ def docker_run_image(spec: DockerBackendSpec,
                      use_gpu: bool = True,
                      interactive: bool = True):
     image = get_docker_image_name(spec)
-    # if spec.get("conda_spec") is None:
-    #     # For external images nerfbaselines may not be in the path.
-    #     # To make sure we will add it to the path manually
-    #     env["PYTHONPATH"] = f"/var/nb-package:{env.get('PYTHONPATH', '')}"
-
     os.makedirs(os.path.expanduser("~/.conda/pkgs"), exist_ok=True)
     torch_home = os.path.expanduser(os.environ.get("TORCH_HOME", "~/.cache/torch/hub"))
     os.makedirs(torch_home, exist_ok=True)
@@ -343,6 +332,7 @@ class DockerBackend(RemoteProcessRPCBackend):
 
     def _customize_wrapper(self, ns):
         ns = super()._customize_wrapper(ns)
+        assert self._tmpdir is not None, "Temporary directory is not initialized"
         customize_wrapper_separated_fs(self._tmpdir.name, "/var/nb-tmp", self._applied_mounts, ns)
         return ns
 
@@ -375,6 +365,7 @@ class DockerBackend(RemoteProcessRPCBackend):
             subprocess.check_call(["docker", "pull", image])
 
     def _launch_worker(self, args, env):
+        assert self._tmpdir is not None, "Temporary directory is not initialized"
         # Run docker image
         self._applied_mounts = get_mounts()
         # Using network=host
