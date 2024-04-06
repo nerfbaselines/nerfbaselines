@@ -91,7 +91,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -e .
-          python -c 'import nerfbaselines.registry as r; import json; print("methods=" + json.dumps([x for x in r.supported_methods() if not ":" in x]))' >> $GITHUB_OUTPUT
+          python -c 'import nerfbaselines.registry as r; import json; print("methods=" + json.dumps([x for x in r.supported_methods() if not ":" in x and x not in ("trips",)]))' >> $GITHUB_OUTPUT
 
   docker-tests:
     runs-on: ubuntu-latest

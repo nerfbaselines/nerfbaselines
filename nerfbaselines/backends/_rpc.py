@@ -1,3 +1,6 @@
+import collections.abc
+import threading
+import io
 import shutil
 import tempfile
 import functools
@@ -15,11 +18,11 @@ import types
 from dataclasses import dataclass, is_dataclass
 import time
 import importlib
-from threading import Event
+from threading import Event, Lock, Condition
 from time import sleep
 import pickle
 import socket
-from typing import Optional, List, Any, Dict, Callable, cast, Tuple, Type
+from typing import Optional, List, Any, Dict, Callable, cast, Tuple, Type, Set
 import inspect
 import secrets
 import logging
@@ -36,6 +39,10 @@ _MESSAGE_COUNTER = 0
 MESSAGE_SIZE = 128 * 1024 * 1024  # 128 MB
 
 
+def generate_authkey():
+    return secrets.token_hex(64).encode("ascii")
+
+
 def _remap_error(e: Exception):
     if e.__class__.__module__ == "builtins":
         return e
@@ -50,7 +57,7 @@ def send(connection: Connection, message):
     msgo = message.copy()
     msgo.pop("kwargs", None)
     msgo.pop("args", None)
-    print("send", msgo)
+    print("send", time.monotonic(), msgo)
     message_bytes = pickle.dumps(message)
     for i in range(0, len(message_bytes), MESSAGE_SIZE):
         connection.send_bytes(message_bytes[i : i + MESSAGE_SIZE])
@@ -68,7 +75,7 @@ def build_recv(connection: Connection):
         msgo = pickle.loads(message_bytes)
         msgo.pop("kwargs", None)
         msgo.pop("args", None)
-        print("recv", msgo)
+        print("recv", time.monotonic(), msgo)
         return pickle.loads(message_bytes)
     return recv
 
@@ -179,8 +186,8 @@ class VirtualInstance:
         return types.new_class("VirtualInstanceRPC", (), {}, exec_body=lambda _ns: _ns.update(ns))()
 
 
-def replace_instances(registry, obj):
-    a = registry,
+def replace_instances(registry, used_instances, obj):
+    a = registry, used_instances,
     if obj is None:
         return obj
     if isinstance(obj, (str, int, float, bool, bytes)):
@@ -193,18 +200,25 @@ def replace_instances(registry, obj):
         return {k: replace_instances(*a, v) for k, v in obj.items()}
     if dataclasses.is_dataclass(obj):
         return obj
-    module = getattr(obj, "__module__", None)
-    if module is None:
-        module_cls = getattr(obj, "__class__", None)
-        module = getattr(module_cls, "__module__", None)
-    if module is not None:
-        if module.startswith("jaxlib."):
-            return obj
-        if module in ("builtins", "torch", "numpy"):
-            return obj
     if isinstance(obj, VirtualInstance):
-        return registry[obj.id]
-    registry[id(obj)] = obj
+        return registry[obj.id][0]
+    if not isinstance(obj, collections.abc.Iterator):
+        module = getattr(obj, "__module__", None)
+        if module is None:
+            module_cls = getattr(obj, "__class__", None)
+            module = getattr(module_cls, "__module__", None)
+        if module is not None:
+            if module.startswith("jaxlib."):
+                return obj
+            if module in ("builtins", "torch", "numpy"):
+                return obj
+    if id(obj) not in registry:
+        registry[id(obj)] = (obj, 1, set())
+    else:
+        obj, count, deps = registry[id(obj)]
+        count += 1
+        registry[id(obj)] = (obj, count, deps)
+    used_instances.add(id(obj))
     return VirtualInstance.get_virtual_instance(obj)
 
 
@@ -236,8 +250,8 @@ def replace_callables(obj, callables, depth=0):
     if callable(obj):
         is_host = getattr(obj, "__host__", depth <= 0)
         if is_host:
-            callables.append(obj)
-            return _RemoteCallable(len(callables) - 1)
+            callables[id(obj)] = obj
+            return _RemoteCallable(id(obj))
         else:
             return obj
     if isinstance(obj, dict):
@@ -249,10 +263,10 @@ def replace_callables(obj, callables, depth=0):
     return obj
 
 
-def inject_callables(obj: Any, send_message, my_id) -> Any:
+def inject_callables(obj: Any, send_message, my_id=None) -> Any:
     if isinstance(obj, _RemoteCallable):
         def callback(*args, **kwargs):
-            send_message({"message": "callback", "thread_id": my_id, "callback": obj.id, "args": args, "kwargs": kwargs})
+            send_message({"message": "callback", "callback": obj.id, "args": args, "kwargs": kwargs})
 
         return callback
     if isinstance(obj, dict):
@@ -280,164 +294,188 @@ class EventCancellationToken(CancellationToken):
 
 class RPCWorker:
     def __init__(self):
-        self._thread_executor = None
-
         self._instances = {}
+        self._client_instances = {}
 
-    def __enter__(self):
-        self._thread_executor = ThreadPoolExecutor(max_workers=8).__enter__()
-        return self
+    def _process_del(self, *, instance, **_):
+        """
+        ----del---->
+        """
+        logging.debug(f"Deleting instance {instance}")
+        freed_instances = set()
+        if instance in self._instances:
+            instance_obj, count, deps = self._instances[instance]
+            count -= 1
+            if count <= 0:
+                self._instances.pop(instance, None)
+                for dep in deps:
+                    if dep in self._client_instances:
+                        self._client_instances[dep] -= 1
+                        if self._client_instances[dep] <= 0:
+                            self._client_instances.pop(dep)
+                            freed_instances.add(dep)
+            else:
+                self._instances[instance] = (instance_obj, count, deps)
+        return {
+            "message": "del_ack",
+            "thread_end": True,
+            "freed_instances": list(freed_instances),
+        }
 
-    def __exit__(self, exc_type, exc_value, traceback):
-        if self._thread_executor is not None:
-            self._thread_executor.__exit__(exc_type, exc_value, traceback)
-            self._thread_executor = None
-        self._instances = {}
-
-    def process_message(self, msg, send_message):
-        mid = msg["thread_id"]
-        message = msg["message"]
-        if message == "instance_del":
-            logging.debug(f"Deleting instance {msg['instance']}")
-            self._instances.pop(msg["instance"], None)
-            return
-
-        is_generator = False
+    def _process_getattr(self, *, instance=None, name: str, **_):
+        """
+        ----getattr---->
+        <---result------
+        """
         try:
-            if message == "static_call":
-                logging.debug(f"Calling function {msg['function']}")
-                package, fnname = msg["function"].split(":", 1)
+            if instance is None:
+                logging.debug(f"Obtaining property {name}")
+                package, fnname = name.split(":", 1)
+                obj = importlib.import_module(package)
+                for x in fnname.split("."):
+                    obj = getattr(obj, x)
+                return {"message": "result", "thread_end": True, "result": obj}
+            else:
+                logging.debug(f"Obtaining property {name} on instance {instance}")
+                obj = self._instances[instance][0]
+                for x in name.split("."):
+                    obj = getattr(obj, x)
+                return {"message": "result", "thread_end": True, "result": obj}
+        except Exception as e:
+            if not isinstance(e, CancelledException):
+                traceback.print_exc()
+            return {"message": "error", "thread_end": True, "error": _remap_error(e)}
+
+    def _process_call(self, *, instance=None, name: str, kwargs, args, allocated_instances, cancellation_token_id=None, send_message, **_):
+        """
+        ----call---->
+        <---result---
+        """
+        freed_instances = allocated_instances
+        try:
+            if instance is None:
+                logging.debug(f"Calling function {name}")
+                package, fnname = name.split(":", 1)
                 fn = importlib.import_module(package)
                 for x in fnname.split("."):
                     fn = getattr(fn, x)
                 fn = getattr(fn, "__run_on_host_original__", fn)
                 fn = cast(Callable, fn)
-                kwargs = inject_callables(msg["kwargs"], send_message, mid)
-                args = inject_callables(msg["args"], send_message, mid)
-            elif message == "instance_call":
-                logging.debug(f"Calling method {msg['name']} on instance {msg['instance']}")
-                fn = self._instances[msg["instance"]]
-                for x in msg["name"].split("."):
+                kwargs = inject_callables(kwargs, send_message)
+                args = inject_callables(args, send_message)
+            else:
+                logging.debug(f"Calling method {name} on instance {instance}")
+                fn = self._instances[instance][0]
+                for x in name.split("."):
                     fn = getattr(fn, x)
                 fn = cast(Callable, fn)
-                kwargs = inject_callables(msg["kwargs"], send_message, mid)
-                args = inject_callables(msg["args"], send_message, mid)
-            elif message == "static_getattr":
-                logging.debug(f"Obtaining property {msg['name']}")
-                package, fnname = msg["name"].split(":", 1)
-                obj = importlib.import_module(package)
-                for x in fnname.split("."):
-                    obj = getattr(obj, x)
-                send_message({"message": "result", "thread_end": True, "thread_id": mid, "result": obj})
-                return
-            elif message == "instance_getattr":
-                logging.debug(f"Obtaining property {msg['name']} on instance {msg['instance']}")
-                obj = self._instances[msg["instance"]]
-                for x in msg["name"].split("."):
-                    obj = getattr(obj, x)
-                send_message({"message": "result", "thread_end": True, "thread_id": mid, "result": obj})
-                return
-            else:
-                raise RuntimeError(f"Unknown message {message}")
+                kwargs = inject_callables(kwargs, send_message)
+                args = inject_callables(args, send_message)
 
-            if CancellationToken.current is not None:
-                fn = cancellable(fn, cancellation_token=CancellationToken.current)
+            if cancellation_token_id is not None:
+                cancellation_token = None
+                if cancellation_token_id is not None:
+                    cancellation_token, *_ = self._instances.get(cancellation_token_id, (None, None))
+                    if cancellation_token is None:
+                        cancellation_token = EventCancellationToken()
+                        self._instances[cancellation_token_id] = (cancellation_token, 1, set())
+                fn = cancellable(fn, cancellation_token=cancellation_token)
             result: Any = fn(*args, **kwargs)
-            if inspect.isgeneratorfunction(fn):
-                is_generator = True
-                for r in result:
-                    if CancellationToken.current is not None:
-                        CancellationToken.current.raise_for_cancelled()
-                    send_message({"message": "yield", "thread_id": mid, "yield": r, "is_generator": is_generator})
-                result = None
-            # We will register possible new instance and return the virtual instance
-            result = replace_instances(self._instances, result)
-            send_message({"message": "result", "thread_end": True, "thread_id": mid, "result": result, "is_generator": is_generator})
+            used_caller_instances = set()
+            result = replace_instances(self._instances, used_caller_instances, result)
+            if used_caller_instances:
+                freed_instances = []
+                # Add dependency between the returned object and the caller's instances
+                for inst in used_caller_instances:
+                    current_deps: Set[int] = self._instances[inst][2]
+                    for dep in (set(allocated_instances) - current_deps):
+                        current_deps.add(dep)
+                        self._client_instances[dep] = self._client_instances.get(dep, 0) + 1
+            return {"message": "result", "thread_end": True, "result": result, "freed_instances": freed_instances}
         except Exception as e:
             if not isinstance(e, CancelledException):
                 traceback.print_exc()
-            send_message({"message": "error", "thread_end": True, "thread_id": mid, "error": _remap_error(e), "is_generator": is_generator})
+            return {"message": "error", "thread_end": True, "error": _remap_error(e), "freed_instances": freed_instances}
 
+    def cancel(self, cancellation_token_id):
+        cancellation_token, *_ = self._instances.pop(cancellation_token_id, (None, None))
+        if cancellation_token is not None:
+            cancellation_token.cancel()
 
-def generate_authkey():
-    return secrets.token_hex(64).encode("ascii")
+    def process_message(self, message, send_message):
+        logging.debug(f"Processing message {message}")
+        msg_type = message["message"]
+        if msg_type == "del":
+            outmsg = self._process_del(**message)
+            send_message(outmsg)
+        elif msg_type == "cancel":
+            self.cancel(message["cancellation_token_id"])
+        elif msg_type == "getattr":
+            outmsg = self._process_getattr(**message)
+            send_message(outmsg)
+        elif msg_type == "call":
+            outmsg = self._process_call(**message, send_message=send_message)
+            send_message(outmsg)
+        else:
+            raise ValueError(f"Unknown message type {msg_type}")
 
 
 def run_worker(*, worker: Optional[RPCWorker] = None, address="localhost", port=None, authkey=None):
     if worker is None:
-        with RPCWorker() as worker:
-            return run_worker(worker=worker, address=address, port=port, authkey=authkey)
-    else:
-        assert port is not None, "Port must be provided"
-        assert authkey is not None, "Authkey must be provided"
+        worker = RPCWorker()
 
-    with Listener((address, port), authkey=authkey) as listener, \
-                        ThreadPoolExecutor(max_workers=8) as pool:
-        cancellation_tokens: Dict[int, CancellationToken] = {}
-        out_queue = Queue()
-        with listener.accept() as conn:
-            logging.info(f"Connection accepted from {listener.last_accepted}")
-            recv = build_recv(conn)
-            send(conn, {"message": "ready", "thread_end": True, "thread_id": -1})
-            while not conn.closed:
-                try:
-                    outmsg = out_queue.get_nowait()
-                    if outmsg.get("thread_end", False):
-                        cancellation_tokens.pop(outmsg["thread_id"], None)
-                    send(conn, outmsg)
-                except Empty:
-                    pass
-                if not conn.poll(0.0001):
-                    continue
-                msg = recv()
-                if msg["message"] == "close":
-                    send(conn, {"message": "close_ack"})
-                    break
-                mid = msg["thread_id"]
-                if msg["message"] == "cancel":
-                    # Cancel without the current thread (perhaps a late message)
-                    if mid in cancellation_tokens:
-                        cancellation_tokens.pop(mid).cancel()
-                    continue
-                cancellation_token = cancellation_tokens.get(mid)
-                if cancellation_token is None:
-                    cancellation_token = EventCancellationToken()
-                cancellation_tokens[mid] = cancellation_token
-                def process_message_with_token(token, *args, **kwargs):
-                    with (token or contextlib.nullcontext()):
-                        worker.process_message(*args, **kwargs)
-                pool.submit(
-                    process_message_with_token, cancellation_token, msg, lambda m: out_queue.put({**m, "thread_id": mid}))
+    assert port is not None, "Port must be provided"
+    assert authkey is not None, "Authkey must be provided"
 
-                
-def _listener_accept_with_cancel(listener: Listener, cancel_token: Optional[CancellationToken], timeout: float = 0):
-    if cancel_token is None and timeout <= 0:
-        return listener.accept()
-    elif cancel_token is None:
-        try:
-            listener._listener._socket.settimeout(timeout)  # type: ignore
-            return listener.accept()
-        except socket.timeout:
-            raise TimeoutError("Timeout waiting for connection")
-    elif cancel_token is not None:
-        start = time.time()
-        wtimeout = 0.1
-        if timeout > 0:
-            wtimeout = min(wtimeout, timeout)
-        while True:
-            if cancel_token is not None:
-                cancel_token.raise_for_cancelled()
+    try:
+        lock = threading.Lock()
+        queue = Queue()
+
+        def get_messages(queue, lock, conn: Connection, worker):
             try:
-                listener._listener._socket.settimeout(wtimeout)  # type: ignore
-                return listener.accept()
-            except socket.timeout:
-                pass
-            if timeout > 0 and time.time() - start > timeout:
-                raise TimeoutError("Timeout waiting for connection")
-    assert False, "Unreachable"
+                _recv = build_recv(conn)
+                while not conn.closed:
+                    conn.poll(None)
+                    with lock:
+                        msg = _recv()
+                    if msg["message"] == "close":
+                        break
+                    if msg["message"] == "cancel":
+                        # Cancel without the current thread (perhaps a late message)
+                        worker.cancel(msg["cancellation_token_id"])
+                        continue
+                    queue.put(msg)
+            finally:
+                queue.put({"message": "close"})
+            
+        with Listener((address, port), authkey=authkey) as listener:
+            def recv():
+                msg = queue.get()
+                if msg["message"] == "close":
+                    raise SystemExit
+                return msg
+
+            def send_callback(msg, callback=None):
+                with lock:
+                    send(conn, msg)
+                if callback is not None:
+                    submsg = recv()
+                    while callback(submsg):
+                        submsg = recv()
+
+            with listener.accept() as conn:
+                thread = threading.Thread(target=get_messages, daemon=True, args=(queue, lock, conn, worker))
+                logging.info(f"Connection accepted from {listener.last_accepted}")
+                send(conn, {"message": "ready", "thread_end": True})
+                thread.start()
+                while True:
+                    worker.process_message(recv(), send_callback)
+    except SystemExit:
+        pass
+    logging.info("Backend worker finished")
 
 
-def _client_connect_with_cancel(address, authkey, cancel_token: Optional[CancellationToken], timeout: float = 0):
+def _client_connect_with_cancel(address, authkey, cancel_token: Optional[CancellationToken], timeout: float = 0) -> Connection:
     def connect(timeout=None):
         family = mp_connection.address_type(address)  # type: ignore
         with socket.socket(getattr(socket, family)) as s:
@@ -482,6 +520,36 @@ def _client_connect_with_cancel(address, authkey, cancel_token: Optional[Cancell
     assert False, "Unreachable"
 
 
+
+class _PipeCondition(threading.Condition):
+    def __init__(self):
+        super().__init__()
+        self._condition = threading.Condition()
+        self._read_fd, self._write_fd = os.pipe()
+
+    def _consume(self):
+        # while os.read(16):
+        #     pass
+        pass
+
+    def fileno(self) -> int:
+        return self._read_fd
+
+    def notify(self, n=1):
+        self._consume()
+        os.write(self._write_fd, b"1")
+        super().notify(n)
+
+    def __del__(self):
+        # Close the file descriptors
+        if hasattr(self, "_read_fd"):
+            os.close(self._read_fd)
+            del self._read_fd
+        if hasattr(self, "_write_fd"):
+            os.close(self._write_fd)
+            del self._write_fd
+
+
 class RPCMasterEndpoint:
     def __init__(self, *, address="localhost", port, authkey):
         self.address = address
@@ -490,59 +558,41 @@ class RPCMasterEndpoint:
 
         self._conn = None
         self._recv = None
-        self._other_queues = {}
+        self._other_threads_queue = Queue()
+        self._other_threads_condition = _PipeCondition()
+        self._main_thread = threading.get_ident()
 
-    @cancellable(mark_only=True)
-    def send_message(self, message):
+    def __call__(self, message, callback=None):
         # Start a thread
-        cancellation_token = CancellationToken.current
         if self._conn is None or self._conn.closed:
-            raise RuntimeError("There is no active connection.")
+            raise ConnectionError("There is no active connection.")
         assert self._recv is not None, "Not in a context"
-        global _MESSAGE_COUNTER
-        _MESSAGE_COUNTER += 1
-        mid = _MESSAGE_COUNTER
-        self._other_queues[mid] = Queue()
 
-        send(self._conn, {**message, "thread_id": mid})
+        if threading.get_ident() != self._main_thread:
+            assert callback is None, "callback must be None in threads other than main"
+            with self._other_threads_condition:
+                self._other_threads_queue.put(message)
+                self._other_threads_condition.notify_all()
+            return
 
-        has_ended = message.get("thread_end", False)
-        cancel_send = False
-        try:
-            while not has_ended:
+        send(self._conn, {**message})
+        if callback is not None:
+            while True:
                 if self._conn is None or self._conn.closed:
                     raise ConnectionError("Connection closed unexpectedly")
-                if cancellation_token is not None and cancellation_token.cancelled:
-                    if not cancel_send:
-                        cancel_send = True
-                        send(self._conn, {"message": "cancel", "thread_id": mid})
-                msg = None
-                if self._conn.poll(0.0001):
-                    msg = self._recv()
-                elif mid in self._other_queues:
-                    try:
-                        msg = self._other_queues[mid].get_nowait()
-                    except Empty:
-                        continue
-                else:
+                readable = mp_connection.wait(
+                    [self._conn] + [self._other_threads_condition.fileno()] if self._other_threads_condition is not None else []
+                )
+                try:
+                    while True:
+                        send(self._conn, self._other_threads_queue.get_nowait())
+                except Empty:
+                    pass
+                if self._conn not in readable:
                     continue
-
-                _thread_id = msg.get("thread_id")
-                if _thread_id != mid:
-                    # If the message does not belong to this thread,
-                    # create a queue for it and place it to the other thread queue
-                    if mid in self._other_queues:
-                        self._other_queues[mid].put(msg)
-                    continue
-                has_ended = has_ended or msg.get("thread_end", False)
-                yield msg
-        finally:
-            # If not finished, end the thread
-            self._other_queues.pop(mid, None)
-            if not has_ended and not cancel_send:
-                if self._conn is None or self._conn.closed:
-                    raise ConnectionError("Connection closed unexpectedly")
-                send(self._conn, {"message": "cancel", "thread_id": mid})
+                msg = self._recv()
+                if not callback(msg):
+                    break
 
     def __enter__(self):
         return self
@@ -575,102 +625,6 @@ class RPCMasterEndpoint:
         self.close()
 
 
-class RPCBackend(Backend):
-    def __init__(self, endpoint: RPCMasterEndpoint, customize_wrapper=None):
-        self._endpoint = endpoint
-        self._customize_wrapper = customize_wrapper
-
-    def _handle_thread(self, message, *args, **kwargs):
-
-        # 1) Replace callables from the function call
-        callables = []
-        if message["message"] in {"static_call", "instance_call"}:
-            args, kwargs = cast(Tuple[Any, Any], replace_callables((args, kwargs), callables, depth=-2))
-            message["args"] = args
-            message["kwargs"] = kwargs
-
-        with EventCancellationToken(CancellationToken.current) as token:
-            thread_iter = iter(self._endpoint.send_message(message))
-            for message in thread_iter:
-                if message.get("is_generator"):
-                    original_message = message
-
-                    def yield_fn():
-                        try:
-                            for message in chain([original_message], thread_iter):
-                                if message["message"] == "error":
-                                    raise message["error"]
-                                if message["message"] == "callback":
-                                    callback = callables[message["callback"]]
-                                    callback(*message["args"], **message["kwargs"])
-                                    continue
-                                if message["message"] == "result":
-                                    return
-                                if message["message"] == "yield":
-                                    yield message["yield"]
-                        except GeneratorExit:
-                            # Cancel and wait for the thread to finish here
-                            logging.debug("Generator closed before completion. Cancelling.")
-                            token.cancel()
-
-                            # Finish the thread
-                            for message in thread_iter:
-                                pass
-
-                    return yield_fn()
-                elif message["message"] == "error":
-                    # Reset qpointer
-                    raise message["error"]
-                elif message["message"] == "callback":
-                    callback = callables[message["callback"]]
-                    callback(*message["args"], **message["kwargs"])
-                    continue
-                elif message["message"] == "result":
-                    # Reset qpointer
-                    out = message["result"]
-                    # Replace instances
-                    return replace_instances_back({}, self, out, self._customize_wrapper)
-                else:
-                    raise RuntimeError(f"Unknown message {message}")
-
-    def static_getattr(self, attr: str) -> Any:
-        return self._handle_thread({
-            "message": "static_getattr", 
-            "name": attr, 
-        })
-
-    def static_call(self, function: str, *args, **kwargs) -> Any:
-        return self._handle_thread({
-            "message": "static_call", 
-            "function": function, 
-            "is_cancellable": CancellationToken.current is not None,
-        }, *args, **kwargs)
-
-    def instance_call(self, instance: int, method: str, *args, **kwargs) -> Any:
-        return self._handle_thread({
-            "message": "instance_call", 
-            "instance": instance, 
-            "name": method, 
-            "is_cancellable": CancellationToken.current is not None,
-        }, *args, **kwargs)
-
-    def instance_getattr(self, instance: int, attr: str) -> Any:
-        return self._handle_thread({
-            "message": "instance_getattr", 
-            "instance": instance, 
-            "name": attr})
-
-    def instance_del(self, instance: int):
-        try:
-            return self._handle_thread({
-                "message": "instance_del", 
-                "thread_end": True,
-                "instance": instance})
-        except Exception as _:
-            # The instance might have already been removed
-            pass
-
-
 _SAFE_ENV = (
     "_NB_IS_DOCKERFILE",
     "PATH",
@@ -696,6 +650,127 @@ _SAFE_ENV = (
 def get_safe_environment():
     return os.environ.copy()
     # return {k: v for k, v in os.environ.items() if k.upper() in _SAFE_ENV}
+
+
+class RPCBackend(Backend):
+    def __init__(self, endpoint, customize_wrapper=None):
+        self._customize_wrapper = customize_wrapper
+        self._worker_instances = {}
+        self._send = endpoint
+
+    def _getattr(self, attr: str, instance):
+        result_or_error = cast(Optional[Tuple[bool, Any]], None)
+        def callback(msg):
+            nonlocal result_or_error
+            self._handle_free_instances(msg)
+            if msg["message"] == "result":
+                result_or_error = (False, msg["result"])
+                return False
+            elif msg["message"] == "error":
+                result_or_error = (True, msg["error"])
+                return False
+            else:
+                raise RuntimeError(f"Unexpected message {msg['message']}")
+        self._send({
+            "message": "getattr", 
+            "instance": instance,
+            "name": attr}, callback=callback)
+        assert result_or_error is not None, "No result received"
+        is_error, result = result_or_error
+        if is_error:
+            assert isinstance(result, BaseException)
+            raise result
+        else:
+            return replace_instances_back({}, self, result, self._customize_wrapper)
+
+    def static_getattr(self, attr: str) -> Any:
+        return self._getattr(attr, None)
+
+    def instance_getattr(self, instance: int, attr: str) -> Any:
+        return self._getattr(attr, instance)
+
+    def instance_del(self, instance: int):
+        try:
+            def callback(msg):
+                self._handle_free_instances(msg)
+                if msg["message"] != "del_ack":
+                    raise RuntimeError(f"Unexpected message {msg['message']}")
+            return self._send({
+                "message": "del", 
+                "instance": instance}, callback=callback)
+        except ConnectionError:
+            pass
+        except Exception as _:
+            traceback.print_exc()
+            # The instance might have already been removed
+            pass
+
+    def _handle_free_instances(self, msg):
+        freed_instances = msg.get("freed_instances", [])
+        if freed_instances:
+            for instance in freed_instances:
+                self._worker_instances.pop(instance, None)
+
+    def _call(self, function: str, instance, *args, **kwargs) -> Any:
+        result_or_error = cast(Optional[Tuple[bool, Any]], None)
+        def callback(msg):
+            nonlocal result_or_error
+            self._handle_free_instances(msg)
+            if msg["message"] == "result":
+                result_or_error = (False, msg["result"])
+                return False
+            elif msg["message"] == "error":
+                result_or_error = (True, msg["error"])
+                return False
+            elif msg["message"] == "callback":
+                callback = self._worker_instances[msg["callback"]]
+                callback(*msg["args"], **msg["kwargs"])
+                return True
+            else:
+                raise RuntimeError(f"Unexpected message {msg['message']}")
+
+        # 1) Replace callables from the function call
+        callables = {}
+        args, kwargs = cast(Tuple[Any, Any], replace_callables((args, kwargs), callables, depth=-2))
+        self._worker_instances.update(callables)
+
+        # 2) Add hook to the cancellation token
+        cancellation_token_id = None
+        cancellation_token = CancellationToken.current
+        if cancellation_token is not None:
+            cancellation_token_id = id(cancellation_token)
+            cancellation_token.register_callback(
+                lambda: self._send({
+                    "message": "cancel", 
+                    "cancellation_token_id": cancellation_token_id}))
+            
+            def del_hook(token):
+                self._send({
+                    "message": "del", 
+                    "instance": id(token)})
+            cancellation_token.del_hooks.append(del_hook)
+        message = {
+            "message": "call", 
+            "instance": instance, 
+            "name": function, 
+            "args": args,
+            "kwargs": kwargs,
+            "allocated_instances": list(callables.keys()),
+            "cancellation_token_id": id(cancellation_token) if cancellation_token is not None else None,
+        }
+        self._send(message, callback=callback)
+        assert result_or_error is not None, "No result received"
+        is_error, result = result_or_error
+        if is_error:
+            assert isinstance(result, BaseException)
+            raise result
+        return replace_instances_back({}, self, result, self._customize_wrapper)
+
+    def static_call(self, function: str, *args, **kwargs) -> Any:
+        return self._call(function, None, *args, **kwargs)
+
+    def instance_call(self, instance: int, method: str, *args, **kwargs) -> Any:
+        return self._call(method, instance, *args, **kwargs)
 
 
 class RemoteProcessRPCBackend(Backend):

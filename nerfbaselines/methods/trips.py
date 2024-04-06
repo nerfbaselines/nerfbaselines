@@ -65,7 +65,7 @@ cmake -DCMAKE_PREFIX_PATH="$CONDA_PREFIX/src/libtorch" \
     -DCMAKE_CXX_FLAGS='-D_GLIBCXX_USE_CXX11_ABI=0' \
     -DCMAKE_CUDA_FLAGS='-D_GLIBCXX_USE_CXX11_ABI=0' \
     -B "build" .
-cmake --build "$CONDA_PREFIX/src/TRIPS/build"
+cmake --build "$CONDA_PREFIX/src/TRIPS/build" --verbose
 
 mkdir -p "$CONDA_PREFIX/etc/conda/activate.d"
 echo "export PYTHONPATH=\\"$CONDA_PREFIX/src/TRIPS/build:\\$PYTHONPATH\\"" >> "$CONDA_PREFIX/etc/conda/activate.d/env_vars.sh"

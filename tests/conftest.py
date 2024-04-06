@@ -13,6 +13,9 @@ import numpy as np
 from PIL import Image
 from nerfbaselines.train import Trainer
 from nerfbaselines import metrics
+from nerfbaselines.utils import setup_logging
+
+setup_logging(True)
 
 
 class _nullcontext(contextlib.nullcontext):

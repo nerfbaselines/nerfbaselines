@@ -146,8 +146,14 @@ class CancellationToken(metaclass=_CancellationTokenMeta):
         self.parent = parent_token
         self._callbacks = []
         self._cancelled = False
+        self.del_hooks = []
         if parent_token is not None:
             parent_token.register_callback(self.cancel)
+
+    def __del__(self):
+        for hook in self.del_hooks:
+            hook(self)
+        self.del_hooks.clear()
 
     def cancel(self):
         self._cancelled = True
@@ -161,7 +167,11 @@ class CancellationToken(metaclass=_CancellationTokenMeta):
         return self._cancelled
 
     def register_callback(self, callback):
-        self._callbacks.append(callback)
+        if callback not in self._callbacks:
+            self._callbacks.append(callback)
+    
+    def unregister_callback(self, callback):
+        self._callbacks.remove(callback)
 
     def _trace(self, frame, event, arg):
         if event == "line":

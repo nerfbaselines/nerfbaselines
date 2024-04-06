@@ -12,14 +12,21 @@ NerfStudioSpec: MethodSpec = {
         "environment_name": os.path.split(__file__[:-3])[-1].replace("_", "-"),
         "python_version": "3.10",
         "install_script": """
+conda install -y cuda -c "nvidia/label/cuda-11.8.0"
+conda install -y \\
+    make=4.3 cmake=3.28.3 \\
+    openexr=3.2.2 zlib=1.2 jsoncpp=1.9.5 \\
+    gcc_linux-64=11 gxx_linux-64=11 binutils=2.40 \\
+    -c conda-forge
+_prefix="$CONDA_PREFIX"
+conda deactivate; conda activate "$_prefix"
 pip install torch==2.1.2+cu118 torchvision==0.16.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
-conda install -y -c "nvidia/label/cuda-11.8.0" cuda-toolkit cuda
+LIBRARY_PATH="$CONDA_PREFIX/lib/stubs" pip install ninja git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
 if ! pip install open3d>=0.16.0; then
     wget -O open3d-0.18.0-py3-none-any.whl https://files.pythonhosted.org/packages/5c/ba/a4c5986951344f804b5cbd86f0a87d9ea5969e8d13f1e8913e2d8276e0d8/open3d-0.18.0-cp311-cp311-manylinux_2_27_x86_64.whl;
     pip install open3d-0.18.0-py3-none-any.whl;
     rm -rf open3d-0.18.0-py3-none-any.whl;
 fi
-pip install ninja git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
 pip install nerfstudio==0.3.4
 git clone https://github.com/nerfstudio-project/nerfstudio.git
 cd nerfstudio

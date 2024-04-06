@@ -28,7 +28,7 @@ TensoRFSpec: MethodSpec = {
     "method": "._impl.tensorf:TensoRF",
     "conda": {
         "environment_name": os.path.split(__file__[:-3])[-1].replace("_", "-"),
-        "python_version": "3.8",
+        "python_version": "3.11",
         "install_script": """# Install TensoRF
 git clone https://github.com/apchenstu/TensoRF.git tensorf
 cd tensorf
@@ -37,8 +37,7 @@ git checkout 9370a87c88bf41b309da694833c81845cc960d50
 conda install -y conda-build
 conda develop .
 
-conda install -y pytorch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 pytorch-cuda=11.7 -c pytorch -c nvidia
-conda install -y cudatoolkit-dev=11.7 -c conda-forge
+conda install -y pytorch==2.2.0 torchvision==0.17.0 pytorch-cuda=11.8 -c pytorch -c nvidia
 pip install tqdm scikit-image opencv-python configargparse lpips imageio-ffmpeg kornia lpips tensorboard
 pip install plyfile six
 """,

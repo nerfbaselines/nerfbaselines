@@ -237,6 +237,8 @@ class MultiNeRF(Method):
             config_path = f"{configs_path}/360.gin"
             if dataset_name == "blender":
                 config_path = f"{configs_path}/blender_256.gin"
+            gin.unlock_config()
+            gin.config.clear_config(clear_constants=True)
             gin.parse_config_file(config_path, skip_unknown=True)
             config_overrides, _config_overrides = (self._config_overrides or {}).copy(), (config_overrides or {})
             config_overrides.update(_config_overrides)
@@ -246,6 +248,8 @@ class MultiNeRF(Method):
             # gin.bind_parameter("Config.max_steps", num_iterations)
         else:
             assert self._config_str is not None, "Config string must be set when loading from checkpoint"
+            gin.unlock_config()
+            gin.config.clear_config(clear_constants=True)
             gin.parse_config(self._config_str, skip_unknown=False)
         gin.finalize()
         config = configs.Config()

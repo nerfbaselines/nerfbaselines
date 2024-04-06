@@ -106,7 +106,7 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
         # Add install conda script
         default_cuda_archs = spec.get("default_cuda_archs") or DEFAULT_CUDA_ARCHS
         install_conda = conda_get_install_script(conda_spec, package_path, environment_path=environment_path)
-        tcnn_cuda_archs = default_cuda_archs.replace(".", "").replace("+PTX", "").replace(" ", ",")
+        tcnn_cuda_archs = default_cuda_archs.replace(".", "").replace("+PTX", "").replace(" ", ";")
         run_command = f'export TORCH_CUDA_ARCH_LIST="{default_cuda_archs}" && export TCNN_CUDA_ARCHITECTURES="{tcnn_cuda_archs}" && {install_conda.rstrip()}'
         run_command = shlex.quote(run_command)
         out = ""
@@ -121,6 +121,8 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
 
         script += f'RUN /bin/bash -c "$(echo {run_command})" && \\\n'
         script += shlex.join(shell_args) + " bash -c 'conda clean -afy && rm -Rf /root/.cache/pip'\n"
+        # Fix permissions when changing the user inside the container
+        script += "RUN chmod -R og=u /var/conda-envs\n"
         script += "ENTRYPOINT " + json.dumps(shell_args) + "\n"
         script += "SHELL " + json.dumps(shell_args) + "\n"
 
