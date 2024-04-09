@@ -79,8 +79,8 @@ conda install -y pip conda-build
 mkdir -p {shlex.quote(os.path.join(env_path, "src"))}
 cd {shlex.quote(os.path.join(env_path, "src"))}
 {spec.get('install_script') or ''}
-if ! python -c 'import torch' >/dev/null 2>&1; then conda install -y {shlex.join(_DEFAULT_TORCH_INSTALL_COMMAND.split())}; fi
-if ! python -c 'import cv2' >/dev/null 2>&1; then pip install opencv-python-headless; fi
+if ! python -c 'import torch'; then conda install -y {shlex.join(_DEFAULT_TORCH_INSTALL_COMMAND.split())}; fi
+if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
 {install_dependencies_script}
 if [ -e {shlex.quote(str(package_path))} ]; then
     conda develop {shlex.quote(str(package_path))}

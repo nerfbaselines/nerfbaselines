@@ -16,6 +16,7 @@ from ._colmap_utils import read_points3D_binary, read_points3D_text
 from ._common import DatasetNotFoundError, get_scene_scale, get_default_viewer_transform
 from ..cameras import CameraModel, Cameras
 from ..types import Dataset, FrozenSet, DatasetFeature
+from ..io import wget
 
 
 MAX_AUTO_RESOLUTION = 1600
@@ -511,7 +512,7 @@ def download_capture_name(output: Path, file_id_or_zip_url):
         pass
     # if file_id_or_zip_url.endswith(".zip"):
     url = file_id_or_zip_url  # zip url
-    subprocess.check_call(f"wget {url} -O {download_path}")
+    wget(url, download_path)
     # else:
     #     try:
     #         import gdown

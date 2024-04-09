@@ -36,7 +36,7 @@ cmake . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build --config RelWithDebInfo -j
 
 # NOTE: torch is needed for nerfbaselines
-conda install -y pytorch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 pytorch-cuda=11.7 -c pytorch -c nvidia
+conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 -c pytorch -c nvidia
 mkdir -p "$CONDA_PREFIX/etc/conda/activate.d"
 echo "export PYTHONPATH=\\"$CONDA_PREFIX/src/instant-ngp/build:\\$PYTHONPATH\\"" >> "$CONDA_PREFIX/etc/conda/activate.d/env_vars.sh"
 echo "export PATH=\\"$CONDA_PREFIX/src/instant-ngp/build:\\$PATH\\"" >> "$CONDA_PREFIX/etc/conda/activate.d/env_vars.sh"

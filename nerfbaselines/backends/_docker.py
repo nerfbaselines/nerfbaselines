@@ -129,11 +129,11 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
     else:
         # If not inside conda env, we install the dependencies
         python_path = spec.get("python_path") or "python"
-        script += f"RUN if ! {python_path} -c 'import torch' >/dev/null 2>&1; then {python_path} -m pip install --no-cache-dir " + shlex.join(_DEFAULT_TORCH_INSTALL_COMMAND.split()) + "; fi && \\\n"
+        script += f"RUN if ! {python_path} -c 'import torch'; then {python_path} -m pip install --no-cache-dir " + shlex.join(_DEFAULT_TORCH_INSTALL_COMMAND.split()) + "; fi && \\\n"
         package_dependencies = get_package_dependencies()
         if package_dependencies:
             script += "    " + shlex.join([python_path, "-m", "pip", "--no-cache-dir", "install"] + package_dependencies)+ " && \\\n"
-        script += f"    if ! {python_path} -c 'import cv2' >/dev/null 2>&1; then {python_path} -m pip install opencv-python-headless; fi\n"
+        script += f"    if ! {python_path} -c 'import cv2'; then {python_path} -m pip install opencv-python-headless; fi\n"
         script += f'RUN if ! nerfbaselines >/dev/null 2>&1; then echo -e \'#!/usr/bin/env {python_path}\\nfrom nerfbaselines.__main__ import main\\nif __name__ == "__main__":\\n  main()\\n\'>"/usr/bin/nerfbaselines" && chmod +x "/usr/bin/nerfbaselines" || echo "Failed to create nerfbaselines in the bin folder"; fi\n'
 
     script += "ENV NERFBASELINES_BACKEND=python\n"
