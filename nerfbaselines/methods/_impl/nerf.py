@@ -23,7 +23,7 @@ from load_blender import load_blender_data
 import tempfile
 from argparse import ArgumentParser
 
-from nerfbaselines.types import Dataset, CurrentProgress, RenderOutput, MethodInfo, ModelInfo, ProgressCallback
+from nerfbaselines.types import Dataset, OptimizeEmbeddingsOutput, RenderOutput, MethodInfo, ModelInfo
 from nerfbaselines import Cameras, CameraModel
 from nerfbaselines import Method
 from nerfbaselines.types import Optional
@@ -414,7 +414,9 @@ class NeRF(Method):
             "mse0": img_loss0.numpy().item(),
         }
 
-    def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
+    def render(self, cameras: Cameras, embeddings=None) -> Iterable[RenderOutput]:
+        if embeddings is not None:
+            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
         _, poses, _ = load_dataset(self.args,
             Dataset(
                 cameras=cameras,
@@ -424,19 +426,29 @@ class NeRF(Method):
             transform_args=self.metadata["transform_args"]
         )
         idx = 0
-        if progress_callback is not None:
-            progress_callback(CurrentProgress(idx, len(cameras), idx, len(cameras)))
         for idx, pose in enumerate(poses):
             W, H = cameras.image_sizes[idx]
             focal, *_ = cameras.intrinsics[idx]
             pose = cameras.poses[idx, :3, :4]
             rgb, disp, acc, extras = render(
                 H, W, focal, chunk=self.args.chunk, c2w=pose, **self.render_kwargs_test)
-            if progress_callback is not None:
-                progress_callback(CurrentProgress(idx + 1, len(cameras), idx + 1, len(cameras)))
             rgb = np.clip(rgb.numpy(), 0.0, 1.0)
             yield {
                 "color": rgb,
                 "accumulation": acc.numpy(),
                 "depth": extras["depth"].numpy(),
             }
+
+    def optimize_embeddings(
+        self, 
+        dataset: Dataset,
+        embeddings: Optional[np.ndarray] = None
+    ) -> Iterable[OptimizeEmbeddingsOutput]:
+        """
+        Optimize embeddings for each image in the dataset.
+
+        Args:
+            dataset: Dataset.
+            embeddings: Optional initial embeddings.
+        """
+        raise NotImplementedError()

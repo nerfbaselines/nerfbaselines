@@ -5,12 +5,12 @@ from collections import namedtuple
 import json
 import logging
 import os
-from typing import Optional
+from typing import Optional, Iterable
 from pathlib import Path
 import numpy as np
 import functools
 import gc
-from ...types import Method, MethodInfo, ModelInfo, Dataset, CurrentProgress
+from ...types import Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput
 from ...cameras import Cameras, CameraModel
 try:
     # We need to import torch before jax to load correct CUDA libraries
@@ -548,9 +548,11 @@ class CamP_ZipNeRF(Method):
             with (Path(path) / "config.gin").open("w+") as f:
                 f.write(self._config_str)
 
-    def render(self, cameras: Cameras, progress_callback=None):
+    def render(self, cameras: Cameras, embeddings=None):
         if self.render_eval_pfn is None:
             self._setup_eval()
+        if embeddings is not None:
+            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
         # Test-set evaluation.
         # We reuse the same random number generator from the optimization step
         # here on purpose so that the visualization matches what happened in
@@ -576,9 +578,6 @@ class CamP_ZipNeRF(Method):
         cameras = jax.tree_util.tree_map(np_to_jax, test_dataset.cameras)
         cameras_replicated = flax.jax_utils.replicate(cameras)
 
-        if progress_callback:
-            progress_callback(CurrentProgress(0, len(poses), 0, len(poses)))
-
         for i in range(len(poses)):
             rays = test_dataset.generate_ray_batch(i).rays
             rendering = models.render_image(
@@ -592,8 +591,6 @@ class CamP_ZipNeRF(Method):
                 rng=self.rngs[0],
                 config=self.config,
             )
-            if progress_callback:
-                progress_callback(CurrentProgress(i + 1, len(poses), i + 1, len(poses)))
 
             # TODO: handle rawnerf color space
             # if config.rawnerf_mode:
@@ -619,3 +616,17 @@ class CamP_ZipNeRF(Method):
                 "depth": np.array(depth, dtype=np.float32),
                 "accumulation": np.array(accumulation, dtype=np.float32),
             }
+
+    def optimize_embeddings(
+        self, 
+        dataset: Dataset,
+        embeddings: Optional[np.ndarray] = None
+    ) -> Iterable[OptimizeEmbeddingsOutput]:
+        """
+        Optimize embeddings for each image in the dataset.
+
+        Args:
+            dataset: Dataset.
+            embeddings: Optional initial embeddings.
+        """
+        raise NotImplementedError()

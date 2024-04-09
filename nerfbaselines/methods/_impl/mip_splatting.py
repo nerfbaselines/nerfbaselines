@@ -35,7 +35,7 @@ except ImportError:
 
 import torch
 
-from ...types import Method, MethodInfo, CurrentProgress, ProgressCallback, RenderOutput, ModelInfo
+from ...types import Method, MethodInfo, OptimizeEmbeddingsOutput, RenderOutput, ModelInfo
 from ...datasets import Dataset
 from ...cameras import CameraModel, Cameras
 from ...utils import cached_property, flatten_hparams, remap_error
@@ -376,23 +376,19 @@ class MipSplatting(Method):
             finally:
                 sceneLoadTypeCallbacks["Colmap"] = backup
 
-    def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
-        if self.scene is None:
-            self._eval_setup()
+    def render(self, cameras: Cameras, embeddings=None) -> Iterable[RenderOutput]:
+        if embeddings is not None:
+            raise NotImplementedError("Optimizing embeddings is not supported")
         assert np.all(cameras.camera_types == CameraModel.PINHOLE.value), "Only pinhole cameras supported"
         sizes = cameras.image_sizes
         poses = cameras.poses
         intrinsics = cameras.intrinsics
 
         with torch.no_grad():
-            if progress_callback:
-                progress_callback(CurrentProgress(0, len(poses), 0, len(poses)))
             for i, pose in enumerate(poses):
                 viewpoint_cam = _load_caminfo(i, pose, intrinsics[i], f"{i:06d}.png", sizes[i])
                 viewpoint = loadCam(self.dataset, i, viewpoint_cam, 1.0)
                 image = torch.clamp(render(viewpoint, self.gaussians, self.pipe, self.background, kernel_size=self.dataset.kernel_size)["render"], 0.0, 1.0)
-                if progress_callback:
-                    progress_callback(CurrentProgress(i+1, len(poses), i + 1, len(poses)))
                 color = image.detach().permute(1, 2, 0).cpu().numpy()
                 yield {
                     "color": color,
@@ -489,8 +485,6 @@ class MipSplatting(Method):
         return metrics
 
     def save(self, path: str):
-        if self.scene is None:
-            self._eval_setup()
         self.gaussians.save_ply(os.path.join(str(path), f"point_cloud/iteration_{self.step}", "point_cloud.ply"))
         torch.save((self.gaussians.capture(), self.step), str(path) + f"/chkpnt-{self.step}.pth")
         with open(str(path) + "/args.txt", "w", encoding="utf8") as f:
@@ -561,3 +555,17 @@ node /tmp/gaussian-splats-3d/util/create-ksplat.js {shlex.quote(ply_file)} {shle
             with (output / "index.html").open("w", encoding="utf8") as f, \
                 open(Path(__file__).parent / "gaussian_splatting_demo.html", "r", encoding="utf8") as template:
                 f.write(template.read().replace("{up}", format_vector(viewer_initial_pose.reshape(-1))))
+
+    def optimize_embeddings(
+        self, 
+        dataset: Dataset,
+        embeddings: Optional[np.ndarray] = None
+    ) -> Iterable[OptimizeEmbeddingsOutput]:
+        """
+        Optimize embeddings for each image in the dataset.
+
+        Args:
+            dataset: Dataset.
+            embeddings: Optional initial embeddings.
+        """
+        raise NotImplementedError()

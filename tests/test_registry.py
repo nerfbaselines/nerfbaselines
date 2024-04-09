@@ -9,6 +9,9 @@ class _TestMethod(Method):
         assert self._method_name is not None, "Method name not set"
         self.test = self._test
 
+    def optimize_embeddings(self, *args, **kwargs):
+        raise NotImplementedError()
+
     @classmethod
     def get_method_info(cls):
         raise NotImplementedError()

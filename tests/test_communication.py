@@ -5,6 +5,7 @@ from typing import Iterable
 import numpy as np
 from time import sleep
 from nerfbaselines import Method, MethodInfo, Cameras, RenderOutput, ModelInfo, CameraModel
+from nerfbaselines.types import Dataset, OptimizeEmbeddingsOutput
 from nerfbaselines.utils import CancellationToken, CancelledException
 
 
@@ -18,10 +19,13 @@ def test_render(use_remote_method):
             out: MethodInfo = {"name": "_test", "required_features": frozenset(), "supported_camera_models": frozenset()}
             return out
 
+        def optimize_embeddings(self, *args, **kwargs):
+            raise NotImplementedError()
+
         def get_info(self) -> ModelInfo:
             return {**self.get_method_info(), "num_iterations": 13}
 
-        def render(self, cameras, progress_callback=None) -> Iterable[RenderOutput]:
+        def render(self, cameras, embeddings=None) -> Iterable[RenderOutput]:
             yield {"color": np.full(tuple(), 23)}
             yield {"color": np.full(tuple(), 26)}
 
@@ -65,7 +69,10 @@ def use_remote_method():
                 def get_info(self) -> ModelInfo:
                     return {**self.get_method_info(), "num_iterations": 13}
 
-                def render(self, cameras, progress_callback=None) -> Iterable[RenderOutput]:
+                def optimize_embeddings(self, *args, **kwargs):
+                    raise NotImplementedError()
+
+                def render(self, cameras, embeddings=None) -> Iterable[RenderOutput]:
                     for i in range(100):
                         sleep(0.001)
                         yield {"color": np.full(tuple(), i)}
@@ -140,6 +147,9 @@ def test_render_cancellable(use_remote_method):
         def __init__(self):
             pass
 
+        def optimize_embeddings(self, *args, **kwargs):
+            raise NotImplementedError()
+
         @classmethod
         def get_method_info(cls) -> MethodInfo:
             out: MethodInfo = {
@@ -153,7 +163,7 @@ def test_render_cancellable(use_remote_method):
             return {**self.get_method_info(), "num_iterations": 13}
 
         @cancellable
-        def render(self, cameras, progress_callback=None) -> Iterable[RenderOutput]:
+        def render(self, cameras, embeddings=None) -> Iterable[RenderOutput]:
             for i in range(400):
                 sleep(0.001)
                 yield {"color": np.full(tuple(), i)}

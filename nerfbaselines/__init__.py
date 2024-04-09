@@ -1,8 +1,11 @@
-from .types import Method, MethodInfo, RayMethod, ProgressCallback, CurrentProgress, RenderOutput  # noqa
+from .types import Method as Method
 from .types import ModelInfo as ModelInfo
 from .types import MethodInfo as MethodInfo
-from .cameras import CameraModel, Cameras  # noqa
-from .utils import Indices  # noqa
+from .types import RenderOutput as RenderOutput
+from .types import OptimizeEmbeddingsOutput as OptimizeEmbeddingsOutput
+from .cameras import Cameras as Cameras
+from .cameras import CameraModel  # noqa
+from .utils import Indices as Indices
 
 try:
     from ._version import __version__  # noqa

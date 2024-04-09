@@ -8,10 +8,9 @@ from dataclasses import fields
 from pathlib import Path
 import copy
 import tempfile
-from collections import defaultdict
-from typing import Iterable, Optional, TypeVar, List, Tuple, Any, cast
+from typing import Iterable, Optional, TypeVar, List, Tuple, Any
 import numpy as np
-from ...types import Method, ProgressCallback, CurrentProgress, MethodInfo, ModelInfo
+from ...types import Method, OptimizeEmbeddingsOutput, MethodInfo, ModelInfo
 from ...types import Dataset, RenderOutput
 from ...cameras import CameraModel, Cameras
 from ...utils import convert_image_dtype
@@ -32,34 +31,6 @@ from nerfstudio.utils.colors import COLORS_DICT
 
 
 T = TypeVar("T")
-
-
-# Hack to add progress to existing models
-@torch.no_grad()
-def _hacked_get_outputs_for_camera_ray_bundle(self, camera_ray_bundle, update_callback: Optional[callable] = None):
-    input_device = camera_ray_bundle.directions.device
-    num_rays_per_chunk = self.config.eval_num_rays_per_chunk
-    image_height, image_width = camera_ray_bundle.origins.shape[:2]
-    num_rays = len(camera_ray_bundle)
-    outputs_lists = defaultdict(list)
-    for i in range(0, num_rays, num_rays_per_chunk):
-        start_idx = i
-        end_idx = i + num_rays_per_chunk
-        ray_bundle = camera_ray_bundle.get_row_major_sliced_ray_bundle(start_idx, end_idx)
-        # move the chunk inputs to the model device
-        ray_bundle = ray_bundle.to(self.device)
-        outputs = self.forward(ray_bundle=ray_bundle)
-        for output_name, output in outputs.items():  # type: ignore
-            if not isinstance(output, torch.Tensor):
-                continue
-            # move the chunk outputs from the model device back to the device of the inputs.
-            outputs_lists[output_name].append(output.to(input_device))
-        if update_callback:
-            update_callback(min(num_rays, i + num_rays_per_chunk), num_rays)
-    outputs = {}
-    for output_name, outputs_list in outputs_lists.items():
-        outputs[output_name] = torch.cat(outputs_list).view(image_height, image_width, -1)  # type: ignore
-    return outputs
 
 
 def _map_distortion_parameters(distortion_parameters):
@@ -367,7 +338,9 @@ class NerfStudio(Method):
         return info
 
     @torch.no_grad()
-    def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
+    def render(self, cameras: Cameras, embeddings=None) -> Iterable[RenderOutput]:
+        if embeddings is not None:
+            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
         poses = cameras.poses.copy()
 
         # Convert from Opencv to OpenGL coordinate system
@@ -397,24 +370,12 @@ class NerfStudio(Method):
             camera_type=torch.tensor(camera_types, dtype=torch.long),
         ).to(self._trainer.pipeline.device)
         self._trainer.pipeline.eval()
-        global_total = int(sizes.prod(-1).sum())
         global_i = 0
-        if progress_callback:
-            progress_callback(CurrentProgress(global_i, global_total, 0, len(poses)))
         for i in range(len(poses)):
             ray_bundle = ns_cameras.generate_rays(camera_indices=i, keep_shape=True)
             get_outputs = self._trainer.pipeline.model.get_outputs_for_camera_ray_bundle
-            if progress_callback and self._trainer.pipeline.model.__class__.get_outputs_for_camera_ray_bundle == Model.get_outputs_for_camera_ray_bundle:
-
-                def local_progress(i, num_rays):
-                    progress_callback(CurrentProgress(global_i + i, global_total, i, len(poses)))
-
-                get_outputs = partial(_hacked_get_outputs_for_camera_ray_bundle, self._trainer.pipeline.model, update_callback=local_progress)
-
             outputs = get_outputs(ray_bundle)
             global_i += int(sizes[i].prod(-1))
-            if progress_callback:
-                progress_callback(CurrentProgress(global_i, global_total, i + 1, len(poses)))
             color = self._trainer.pipeline.model.get_rgba_image(outputs)
             color = color.detach().cpu().numpy()
             out = {
@@ -611,3 +572,17 @@ class NerfStudio(Method):
     def close(self):
         self._tmpdir.cleanup()
         self._tmpdir = None
+
+    def optimize_embeddings(
+        self, 
+        dataset: Dataset,
+        embeddings: Optional[np.ndarray] = None
+    ) -> Iterable[OptimizeEmbeddingsOutput]:
+        """
+        Optimize embeddings for each image in the dataset.
+
+        Args:
+            dataset: Dataset.
+            embeddings: Optional initial embeddings.
+        """
+        raise NotImplementedError()

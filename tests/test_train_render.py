@@ -5,7 +5,7 @@ from typing import Iterable, cast
 from pathlib import Path
 import os
 import numpy as np
-from nerfbaselines import Method, MethodInfo, Cameras, RenderOutput, CurrentProgress, Indices, ModelInfo
+from nerfbaselines import Method, MethodInfo, Cameras, RenderOutput, Indices, ModelInfo
 from nerfbaselines.datasets import _colmap_utils as colmap_utils
 from nerfbaselines.cameras import CameraModel
 from nerfbaselines import metrics
@@ -78,7 +78,11 @@ class _TestMethod(Method):
             "num_iterations": 13,
         }
 
-    def render(self, cameras: Cameras, progress_callback=None) -> Iterable[RenderOutput]:
+    def optimize_embeddings(self, *args, **kwargs):
+        raise NotImplementedError()
+
+    def render(self, cameras: Cameras, embeddings=None) -> Iterable[RenderOutput]:
+        assert embeddings is None
         _TestMethod._render_call_step.append(_TestMethod._last_step)
         for i in range(len(cameras)):
             cam = cameras[i]
@@ -86,15 +90,6 @@ class _TestMethod(Method):
             yield {
                 "color": np.zeros([cam.image_sizes[1], cam.image_sizes[0], 3], dtype=np.float32),
             }
-            if progress_callback is not None:
-                progress_callback(
-                    CurrentProgress(
-                        i=i + 1,
-                        total=len(cameras),
-                        image_i=i + 1,
-                        image_total=len(cameras),
-                    )
-                )
 
     def train_iteration(self, step: int):
         _TestMethod._last_step = step

@@ -14,7 +14,7 @@ try:
 except ImportError:
     from typing_extensions import Optional
 
-from nerfbaselines.types import Dataset, CurrentProgress, RenderOutput, MethodInfo, ModelInfo, ProgressCallback
+from nerfbaselines.types import Dataset, OptimizeEmbeddingsOutput, RenderOutput, MethodInfo, ModelInfo
 from nerfbaselines import Cameras, CameraModel
 from nerfbaselines import Method
 
@@ -453,7 +453,9 @@ class TensoRF(Method):
         return output
 
     @torch.no_grad()
-    def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
+    def render(self, cameras: Cameras, embeddings=None) -> Iterable[RenderOutput]:
+        if embeddings is not None:
+            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
         assert self.metadata.get("dataset_metadata") is not None, "Missing dataset_metadata"
         assert self.metadata.get("dataset_transform") is not None, "Missing dataset_transform"
         test_dataset = TensoRFDataset(
@@ -466,8 +468,6 @@ class TensoRF(Method):
             is_stack=True,
         )
         idx = 0
-        if progress_callback is not None:
-            progress_callback(CurrentProgress(idx, len(test_dataset), idx, len(test_dataset)))
         for idx, samples in enumerate(test_dataset.all_rays):
             W, H = cameras.image_sizes[idx]
             rays = samples.view(-1, samples.shape[-1])
@@ -476,10 +476,22 @@ class TensoRF(Method):
 
             rgb_map = rgb_map.clamp(0.0, 1.0)
             rgb_map, depth_map = rgb_map.reshape(H, W, 3).cpu(), depth_map.reshape(H, W).cpu()
-            if progress_callback is not None:
-                progress_callback(CurrentProgress(idx + 1, len(test_dataset), idx + 1, len(test_dataset)))
 
             yield {
                 "color": rgb_map.detach().numpy(),
                 "depth": depth_map.detach().numpy(),
             }
+
+    def optimize_embeddings(
+        self, 
+        dataset: Dataset,
+        embeddings: Optional[np.ndarray] = None
+    ) -> Iterable[OptimizeEmbeddingsOutput]:
+        """
+        Optimize embeddings for each image in the dataset.
+
+        Args:
+            dataset: Dataset.
+            embeddings: Optional initial embeddings.
+        """
+        raise NotImplementedError()

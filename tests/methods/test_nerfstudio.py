@@ -1,4 +1,5 @@
 from pathlib import Path
+from collections import defaultdict
 import os
 from dataclasses import dataclass, field
 from typing import Any, cast
@@ -39,8 +40,30 @@ def mock_nerfstudio(mock_torch):
         FISHEYE = 2
 
     class Model(mock.MagicMock):
-        def get_outputs_for_camera_ray_bundle(*args, **kwargs):
-            return super().get_outputs_for_camera_ray_bundle(*args, **kwargs)
+        def get_outputs_for_camera_ray_bundle(self, camera_ray_bundle):
+            input_device = camera_ray_bundle.directions.device
+            num_rays_per_chunk = self.config.eval_num_rays_per_chunk
+            image_height, image_width = camera_ray_bundle.origins.shape[:2]
+            ray_bundle = camera_ray_bundle.get_row_major_sliced_ray_bundle(0, num_rays_per_chunk)
+            # move the chunk inputs to the model device
+            outputs_lists = defaultdict(list)
+            num_rays = len(camera_ray_bundle)
+            for i in range(0, num_rays, num_rays_per_chunk):
+                start_idx = i
+                end_idx = i + num_rays_per_chunk
+                ray_bundle = camera_ray_bundle.get_row_major_sliced_ray_bundle(start_idx, end_idx)
+                # move the chunk inputs to the model device
+                ray_bundle = ray_bundle.to(self.device)
+                outputs = self.forward(ray_bundle=ray_bundle)
+                for output_name, output in outputs.items():  # type: ignore
+                    if not isinstance(output, torch.Tensor):
+                        continue
+                    # move the chunk outputs from the model device back to the device of the inputs.
+                    outputs_lists[output_name].append(output.to(input_device))
+            outputs = {}
+            for output_name, outputs_list in outputs_lists.items():
+                outputs[output_name] = torch.cat(outputs_list).view(image_height, image_width, -1)  # type: ignore
+            return outputs
 
         def get_rgba_image(self, outputs):
             return outputs["color"]

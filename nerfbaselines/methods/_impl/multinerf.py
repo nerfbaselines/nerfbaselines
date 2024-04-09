@@ -1,11 +1,11 @@
 import warnings
 import os
-from typing import Optional
+from typing import Optional, Iterable
 from pathlib import Path
 import numpy as np
 import functools
 import gc
-from ...types import Method, MethodInfo, ModelInfo, Dataset, CurrentProgress
+from ...types import Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput
 from ...cameras import Cameras, CameraModel
 from ...utils import padded_stack
 
@@ -395,8 +395,6 @@ class MultiNeRF(Method):
 
     def save(self, path: str):
         path = os.path.abspath(str(path))
-        if self.render_eval_pfn is None:
-            self._setup_eval()
         if jax.process_index() == 0:
             state_to_save = jax.device_get(flax.jax_utils.unreplicate(self.state))
             checkpoints.save_checkpoint(path, state_to_save, int(self.step), keep=100)
@@ -404,9 +402,9 @@ class MultiNeRF(Method):
             with (Path(path) / "config.gin").open("w+") as f:
                 f.write(self._config_str)
 
-    def render(self, cameras: Cameras, progress_callback=None):
-        if self.render_eval_pfn is None:
-            self._setup_eval()
+    def render(self, cameras: Cameras, embeddings=None):
+        if embeddings is not None:
+            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
         # Test-set evaluation.
         # We reuse the same random number generator from the optimization step
         # here on purpose so that the visualization matches what happened in
@@ -427,13 +425,9 @@ class MultiNeRF(Method):
             eval=True,
             dataparser_transform=self._dataparser_transform,
         )
-        if progress_callback:
-            progress_callback(CurrentProgress(0, len(poses), 0, len(poses)))
 
         for i, test_case in enumerate(test_dataset):
             rendering = models.render_image(functools.partial(self.render_eval_pfn, eval_variables, self.train_frac), test_case.rays, self.rngs[0], self.config, verbose=False)
-            if progress_callback:
-                progress_callback(CurrentProgress(i + 1, len(poses), i + 1, len(poses)))
 
             # TODO: handle rawnerf color space
             # if config.rawnerf_mode:
@@ -459,3 +453,17 @@ class MultiNeRF(Method):
                 "depth": np.array(depth, dtype=np.float32),
                 "accumulation": np.array(accumulation, dtype=np.float32),
             }
+
+    def optimize_embeddings(
+        self, 
+        dataset: Dataset,
+        embeddings: Optional[np.ndarray] = None
+    ) -> Iterable[OptimizeEmbeddingsOutput]:
+        """
+        Optimize embeddings for each image in the dataset.
+
+        Args:
+            dataset: Dataset.
+            embeddings: Optional initial embeddings.
+        """
+        raise NotImplementedError()

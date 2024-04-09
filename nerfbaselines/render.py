@@ -17,7 +17,7 @@ import typing
 from typing import Any, Iterable, cast
 from .datasets import load_dataset, Dataset
 from .utils import setup_logging, image_to_srgb, save_image, save_depth, visualize_depth, handle_cli_error, convert_image_dtype, assert_not_none
-from .types import Method, CurrentProgress, RenderOutput, EvaluationProtocol
+from .types import Method, RenderOutput, EvaluationProtocol
 from .io import open_any_directory, serialize_nb_info, deserialize_nb_info
 from . import backends
 from . import cameras as _cameras
@@ -26,29 +26,6 @@ from . import __version__
 
 
 TRender = TypeVar("TRender", bound=typing.Callable[..., Iterable[RenderOutput]])
-
-
-def build_update_progress(pbar: tqdm, simple=False):
-    old_image_i = -1
-
-    def update_progress(progress: CurrentProgress):
-        nonlocal old_image_i
-
-        report_update = False
-        if pbar.total != progress.total:
-            pbar.reset(total=progress.total)
-            report_update = True
-        if progress.image_i != old_image_i:
-            report_update = True
-            old_image_i = progress.image_i
-        elif progress.i % 10 == 0:
-            report_update = True
-
-        if report_update:
-            if not simple:
-                pbar.set_postfix({"image": f"{min(progress.image_i+1, progress.image_total)}/{progress.image_total}"})
-            pbar.update(progress.i - pbar.n)
-    return update_progress
 
 
 def get_checkpoint_sha(path: str) -> str:
@@ -219,13 +196,12 @@ def render_all_images(
     nb_info["checkpoint_sha256"] = get_method_sha(method)
     nb_info["evaluation_protocol"] = evaluation_protocol.get_name()
 
-    with tqdm(desc=description, total=len(dataset), dynamic_ncols=True) as pbar:
-        yield from store_predictions(
-            output,
-            evaluation_protocol.render(method, dataset, progress_callback=build_update_progress(pbar)),
-            dataset=dataset,
-            nb_info=nb_info)
-
+    iterator = store_predictions(
+        output,
+        evaluation_protocol.render(method, dataset),
+        dataset=dataset,
+        nb_info=nb_info)
+    yield from tqdm(iterator, desc=description, total=len(dataset), dynamic_ncols=True)
 
 @click.command("render")
 @click.option("--checkpoint", type=str, default=None, required=True)

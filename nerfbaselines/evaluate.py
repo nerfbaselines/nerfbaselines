@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from .cameras import CameraModel
 from .utils import read_image, convert_image_dtype, run_on_host
-from .types import Optional, Literal, Dataset, ProgressCallback, RenderOutput, EvaluationProtocol, Cameras, MethodInfo
+from .types import Optional, Literal, Dataset, RenderOutput, EvaluationProtocol, Cameras
 from .render import image_to_srgb, Method, with_supported_camera_models
 from .io import open_any_directory, deserialize_nb_info, serialize_nb_info
 from .backends import get_backend
@@ -187,11 +187,11 @@ class DefaultEvaluationProtocol(EvaluationProtocol):
     def __init__(self, **kwargs):
         pass
 
-    def render(self, method: Method, dataset: Dataset, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
+    def render(self, method: Method, dataset: Dataset) -> Iterable[RenderOutput]:
         info = method.get_info()
         supported_camera_models = info.get("supported_camera_models", frozenset((CameraModel.PINHOLE,)))
         render = with_supported_camera_models(supported_camera_models)(method.render)
-        yield from render(dataset.cameras, progress_callback=progress_callback)
+        yield from render(dataset.cameras)
 
     def get_name(self):
         return "default"

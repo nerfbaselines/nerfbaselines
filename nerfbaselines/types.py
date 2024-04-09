@@ -1,9 +1,8 @@
 from abc import abstractmethod
-from typing import Optional, Callable, Iterable, List, Dict, Any, cast, Union
+from typing import Optional, Callable, Iterable, List, Dict, Any, cast, Union, Sequence
 from dataclasses import dataclass, field
 import dataclasses
 import os
-from pathlib import Path
 import numpy as np
 
 try:
@@ -34,7 +33,7 @@ try:
     from typing import FrozenSet
 except ImportError:
     from typing_extensions import FrozenSet  # type: ignore
-from .cameras import Cameras, CameraModel
+from .cameras import Cameras, CameraModel  # noqa: F401
 from .utils import mark_host, padded_stack, generate_interface
 
 
@@ -116,17 +115,6 @@ class Dataset:
             sampling_masks=self.sampling_masks.copy() if self.sampling_masks is not None else None)
 
 
-@dataclass(frozen=True)
-class CurrentProgress:
-    i: int
-    total: int
-    image_i: int
-    image_total: int
-
-
-ProgressCallback = Callable[[CurrentProgress], None]
-
-
 def batched(array, batch_size):
     for i in range(0, len(array), batch_size):
         yield array[i : i + batch_size]
@@ -139,6 +127,12 @@ class RenderOutput(TypedDict, total=False):
     color: Required[np.ndarray]  # [h w 3]
     depth: np.ndarray  # [h w]
     accumulation: np.ndarray  # [h w]
+
+
+class OptimizeEmbeddingsOutput(TypedDict):
+    embedding: np.ndarray
+    render_output: RenderOutput
+    metrics: NotRequired[Dict[str, Sequence[float]]]
 
 
 class MethodInfo(TypedDict, total=False):
@@ -198,13 +192,28 @@ class Method(Protocol):
         raise NotImplementedError()
 
     @abstractmethod
-    def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:  # [h w c]
+    def optimize_embeddings(
+        self, 
+        dataset: Dataset,
+        embeddings: Optional[np.ndarray] = None
+    ) -> Iterable[OptimizeEmbeddingsOutput]:
+        """
+        Optimize embeddings for each image in the dataset.
+
+        Args:
+            dataset: Dataset.
+            embeddings: Optional initial embeddings.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def render(self, cameras: Cameras, embeddings: Optional[np.ndarray] = None) -> Iterable[RenderOutput]:  # [h w c]
         """
         Render images.
 
         Args:
             cameras: Cameras.
-            progress_callback: Callback for progress.
+            embeddings: Optional image embeddings.
         """
         raise NotImplementedError()
 
@@ -246,7 +255,7 @@ class RayMethod(Method):
         return self.name
 
     @abstractmethod
-    def render_rays(self, origins: np.ndarray, directions: np.ndarray, nears_fars: Optional[np.ndarray]) -> RenderOutput:  # batch 3  # batch 3  # batch 3
+    def render_rays(self, origins: np.ndarray, directions: np.ndarray, nears_fars: Optional[np.ndarray], embeddings: Optional[np.ndarray] = None) -> RenderOutput:  # batch 3  # batch 3  # batch 3
         """
         Render rays.
 
@@ -254,6 +263,7 @@ class RayMethod(Method):
             origins: Ray origins.
             directions: Ray directions.
             nears_fars: Near and far planes.
+            embeddings: Optional image embeddings.
         """
         raise NotImplementedError()
 
@@ -269,6 +279,9 @@ class RayMethod(Method):
             nears_fars: Near and far planes.
             colors: Colors.
         """
+        raise NotImplementedError()
+
+    def optimize_embeddings(self, dataset: Dataset, embeddings: Optional[np.ndarray] = None) -> Iterable[OptimizeEmbeddingsOutput]:
         raise NotImplementedError()
 
     def setup_train(self, train_dataset: Dataset, *, num_iterations: Optional[int] = None, config_overrides: Optional[Dict[str, Any]] = None):
@@ -295,15 +308,12 @@ class RayMethod(Method):
         colors = self.train_images[camera_indices, xy[..., 1], xy[..., 0]]
         return self.train_iteration_rays(step=step, origins=origins, directions=directions, nears_fars=cameras.nears_fars, colors=colors)
 
-    def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
+    def render(self, cameras: Cameras, embeddings: Optional[np.ndarray] = None) -> Iterable[RenderOutput]:
         assert cameras.image_sizes is not None, "cameras must have image_sizes"
         xnp = self.xnp
         batch_size = self.batch_size
         sizes = cameras.image_sizes
-        total_batches = ((sizes.prod(-1) + batch_size - 1) // batch_size).sum().item()
         global_i = 0
-        if progress_callback:
-            progress_callback(CurrentProgress(i=global_i, total=total_batches, image_i=0, image_total=len(sizes)))
         for i, image_size in enumerate(sizes.tolist()):
             w, h = image_size
             local_cameras = cameras[i : i + 1, None]
@@ -311,11 +321,10 @@ class RayMethod(Method):
             outputs: List[RenderOutput] = []
             for xy in batched(xy, batch_size):
                 origins, directions = local_cameras.get_rays(xy[None], xnp=cast(Any, xnp))
-                _outputs = self.render_rays(origins=origins[0], directions=directions[0], nears_fars=local_cameras[0].nears_fars)
+                local_embedding = embeddings[i:i+1] if embeddings is not None else None
+                _outputs = self.render_rays(origins=origins[0], directions=directions[0], nears_fars=local_cameras[0].nears_fars, embeddings=local_embedding)
                 outputs.append(_outputs)
                 global_i += 1
-                if progress_callback:
-                    progress_callback(CurrentProgress(i=global_i, total=total_batches, image_i=i, image_total=len(sizes)))
             # The following is not supported by mypy yet.
             yield {  # type: ignore
                 k: np.concatenate([x[k] for x in outputs], 0).reshape((h, w, -1)) for k in outputs[0].keys()  # type: ignore
@@ -328,7 +337,7 @@ class EvaluationProtocol(Protocol):
     def get_name(self) -> str:
         ...
         
-    def render(self, method: Method, dataset: Dataset, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
+    def render(self, method: Method, dataset: Dataset) -> Iterable[RenderOutput]:
         ...
 
     def evaluate(self, predictions: Iterable[RenderOutput], dataset: Dataset) -> Iterable[Dict[str, Union[float, int]]]:

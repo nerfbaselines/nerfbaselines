@@ -21,7 +21,7 @@ except ImportError:
 from .utils import setup_logging, image_to_srgb, save_image, visualize_depth, handle_cli_error
 from .render import with_supported_camera_models
 from .utils import convert_image_dtype
-from .types import Method, CurrentProgress, Literal
+from .types import Method, Literal
 from .cameras import Cameras, CameraModel
 from .backends import ALL_BACKENDS
 
@@ -52,25 +52,17 @@ def render_frames(
     allow_transparency = True
 
     def _predict_all():
-        with tqdm(desc=description, dynamic_ncols=True) as pbar:
-
-            def update_progress(progress: CurrentProgress):
-                if pbar.total != progress.total:
-                    pbar.reset(total=progress.total)
-                pbar.set_postfix({"image": f"{min(progress.image_i+1, progress.image_total)}/{progress.image_total}"})
-                pbar.update(progress.i - pbar.n)
-
-            predictions = render(cameras, progress_callback=update_progress)
-            for i, pred in enumerate(predictions):
-                pred_image = image_to_srgb(pred["color"], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
-                if output_type == "color":
-                    yield pred_image
-                elif output_type == "depth":
-                    assert "depth" in pred, "Method does not output depth"
-                    depth_rgb = visualize_depth(pred["depth"], near_far=cameras.nears_fars[i] if cameras.nears_fars is not None else None, expected_scale=expected_scene_scale)
-                    yield convert_image_dtype(depth_rgb, np.uint8)
-                else:
-                    raise RuntimeError(f"Output type {output_type} is not supported.")
+        predictions = render(cameras)
+        for i, pred in enumerate(tqdm(predictions, desc=description, total=len(cameras), dynamic_ncols=True)):
+            pred_image = image_to_srgb(pred["color"], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
+            if output_type == "color":
+                yield pred_image
+            elif output_type == "depth":
+                assert "depth" in pred, "Method does not output depth"
+                depth_rgb = visualize_depth(pred["depth"], near_far=cameras.nears_fars[i] if cameras.nears_fars is not None else None, expected_scale=expected_scene_scale)
+                yield convert_image_dtype(depth_rgb, np.uint8)
+            else:
+                raise RuntimeError(f"Output type {output_type} is not supported.")
 
     if str(output).endswith(".tar.gz"):
         with tarfile.open(output, "w:gz") as tar:

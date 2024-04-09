@@ -10,7 +10,7 @@ from typing import Optional, Iterable
 import tempfile
 import numpy as np
 from PIL import Image, ImageOps
-from ...types import Dataset, Method, MethodInfo, ModelInfo, ProgressCallback, CurrentProgress, RenderOutput
+from ...types import Dataset, Method, MethodInfo, ModelInfo, OptimizeEmbeddingsOutput, RenderOutput
 from ...cameras import CameraModel, Cameras
 from ...utils import cast_value, flatten_hparams, remap_error
 from ...pose_utils import pad_poses, unpad_poses
@@ -462,11 +462,11 @@ class InstantNGP(Method):
                         self.testbed.load_training_data(str(Path(self._tempdir.name) / "transforms.json"))
                     self._is_render_mode = False
 
-    def render(self, cameras: Cameras, progress_callback: Optional[ProgressCallback] = None) -> Iterable[RenderOutput]:
+    def render(self, cameras: Cameras, embeddings=None) -> Iterable[RenderOutput]:
+        if embeddings is not None:
+            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
         with self._with_eval_setup(cameras) as testbed:
             spp = 8
-            if progress_callback:
-                progress_callback(CurrentProgress(0, len(cameras), 0, len(cameras)))
             for i in range(testbed.nerf.training.dataset.n_images):
                 resolution = testbed.nerf.training.dataset.metadata[i].resolution
                 testbed.set_camera_to_training_view(i)
@@ -493,10 +493,22 @@ class InstantNGP(Method):
                     ## "depth": depth,
                     "accumulation": image[..., 3],
                 }
-                if progress_callback:
-                    progress_callback(CurrentProgress(i + 1, len(cameras), i + 1, len(cameras)))
 
     def close(self):
         if self._tempdir is not None:
             self._tempdir.cleanup()
             self._tempdir = None
+
+    def optimize_embeddings(
+        self, 
+        dataset: Dataset,
+        embeddings: Optional[np.ndarray] = None
+    ) -> Iterable[OptimizeEmbeddingsOutput]:
+        """
+        Optimize embeddings for each image in the dataset.
+
+        Args:
+            dataset: Dataset.
+            embeddings: Optional initial embeddings.
+        """
+        raise NotImplementedError()
