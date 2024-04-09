@@ -477,23 +477,24 @@ def grab_file_id(zip_url: str) -> str:
 
 nerfstudio_file_ids = {
     "bww_entrance": grab_file_id("https://drive.google.com/file/d/1ylkRHtfB3n3IRLf2wplpfxzPTq7nES9I/view?usp=sharing"),
-    "campanile": grab_file_id("https://drive.google.com/file/d/13aOfGJRRH05pOOk9ikYGTwqFc2L1xskU/view?usp=sharing"),
-    "desolation": grab_file_id("https://drive.google.com/file/d/14IzOOQm9KBJ3kPbunQbUTHPnXnmZus-f/view?usp=sharing"),
-    "library": grab_file_id("https://drive.google.com/file/d/1Hjbh_-BuaWETQExn2x2qGD74UwrFugHx/view?usp=sharing"),
-    "poster": grab_file_id("https://drive.google.com/file/d/1dmjWGXlJnUxwosN6MVooCDQe970PkD-1/view?usp=sharing"),
-    "redwoods2": grab_file_id("https://drive.google.com/file/d/1rg-4NoXT8p6vkmbWxMOY6PSG4j3rfcJ8/view?usp=sharing"),
-    "storefront": grab_file_id("https://drive.google.com/file/d/16b792AguPZWDA_YC4igKCwXJqW0Tb21o/view?usp=sharing"),
-    "vegetation": grab_file_id("https://drive.google.com/file/d/1wBhLQ2odycrtU39y2akVurXEAt9SsVI3/view?usp=sharing"),
-    "Egypt": grab_file_id("https://drive.google.com/file/d/1YktD85afw7uitC3nPamusk0vcBdAfjlF/view?view?usp=sharing"),
-    "person": grab_file_id("https://drive.google.com/file/d/1HsGMwkPu-R7oU7ySMdoo6Eppq8pKhHF3/view?view?usp=sharing"),
-    "kitchen": grab_file_id("https://drive.google.com/file/d/1IRmNyNZSNFidyj93Tt5DtaEU9h6eJdi1/view?view?usp=sharing"),
-    "plane": grab_file_id("https://drive.google.com/file/d/1tnv2NC2Iwz4XRYNtziUWvLJjObkZNo2D/view?view?usp=sharing"),
-    "dozer": grab_file_id("https://drive.google.com/file/d/1jQJPz5PhzTH--LOcCxvfzV_SDLEp1de3/view?view?usp=sharing"),
-    "floating-tree": grab_file_id("https://drive.google.com/file/d/1mVEHcO2ep13WPx92IPDvdQg66vLQwFSy/view?view?usp=sharing"),
-    "aspen": grab_file_id("https://drive.google.com/file/d/1X1PQcji_QpxGfMxbETKMeK8aOnWCkuSB/view?view?usp=sharing"),
-    "stump": grab_file_id("https://drive.google.com/file/d/1yZFAAEvtw2hs4MXrrkvhVAzEliLLXPB7/view?view?usp=sharing"),
-    "sculpture": grab_file_id("https://drive.google.com/file/d/1CUU_k0Et2gysuBn_R5qenDMfYXEhNsd1/view?view?usp=sharing"),
-    "Giannini-Hall": grab_file_id("https://drive.google.com/file/d/1UkjWXLN4qybq_a-j81FsTKghiXw39O8E/view?view?usp=sharing"),
+    "campanelle":    grab_file_id("https://drive.google.com/file/d/13aOfGJRRH05pOOk9ikYGTwqFc2L1xskU/view?usp=sharing"),
+    "desolation":   grab_file_id("https://drive.google.com/file/d/14IzOOQm9KBJ3kPbunQbUTHPnXnmZus-f/view?usp=sharing"),
+    "library":      grab_file_id("https://drive.google.com/file/d/1Hjbh_-BuaWETQExn2x2qGD74UwrFugHx/view?usp=sharing"),
+    # Poster is no longer available for download
+    # "poster":       grab_file_id("https://drive.google.com/file/d/1dmjWGXlJnUxwosN6MVooCDQe970PkD-1/view?usp=sharing"),
+    "redwoods2":    grab_file_id("https://drive.google.com/file/d/1rg-4NoXT8p6vkmbWxMOY6PSG4j3rfcJ8/view?usp=sharing"),
+    "storefront":   grab_file_id("https://drive.google.com/file/d/16b792AguPZWDA_YC4igKCwXJqW0Tb21o/view?usp=sharing"),
+    "vegetation":   grab_file_id("https://drive.google.com/file/d/1wBhLQ2odycrtU39y2akVurXEAt9SsVI3/view?usp=sharing"),
+    "Egypt":        grab_file_id("https://drive.google.com/file/d/1YktD85afw7uitC3nPamusk0vcBdAfjlF/view?usp=sharing"),
+    "person":       grab_file_id("https://drive.google.com/file/d/1HsGMwkPu-R7oU7ySMdoo6Eppq8pKhHF3/view?usp=sharing"),
+    "kitchen":      grab_file_id("https://drive.google.com/file/d/1IRmNyNZSNFidyj93Tt5DtaEU9h6eJdi1/view?usp=sharing"),
+    "plane":        grab_file_id("https://drive.google.com/file/d/1tnv2NC2Iwz4XRYNtziUWvLJjObkZNo2D/view?usp=sharing"),
+    "dozer":        grab_file_id("https://drive.google.com/file/d/1jQJPz5PhzTH--LOcCxvfzV_SDLEp1de3/view?usp=sharing"),
+    "floating-tree":grab_file_id("https://drive.google.com/file/d/1mVEHcO2ep13WPx92IPDvdQg66vLQwFSy/view?usp=sharing"),
+    "aspen":        grab_file_id("https://drive.google.com/file/d/1X1PQcji_QpxGfMxbETKMeK8aOnWCkuSB/view?usp=sharing"),
+    "stump":        grab_file_id("https://drive.google.com/file/d/1yZFAAEvtw2hs4MXrrkvhVAzEliLLXPB7/view?usp=sharing"),
+    "sculpture":    grab_file_id("https://drive.google.com/file/d/1CUU_k0Et2gysuBn_R5qenDMfYXEhNsd1/view?usp=sharing"),
+    "Giannini-Hall":grab_file_id("https://drive.google.com/file/d/1UkjWXLN4qybq_a-j81FsTKghiXw39O8E/view?usp=sharing"),
 }
 
 
@@ -508,21 +509,21 @@ def download_capture_name(output: Path, file_id_or_zip_url):
         os.remove(download_path)
     except OSError:
         pass
-    if file_id_or_zip_url.endswith(".zip"):
-        url = file_id_or_zip_url  # zip url
-        subprocess.check_call(f"wget {url} -O {download_path}")
-    else:
-        try:
-            import gdown
-        except ImportError:
-            logging.fatal("Please install gdown: pip install gdown")
-            sys.exit(2)
-        url = f"https://drive.google.com/uc?id={file_id_or_zip_url}"  # file id
-        try:
-            os.remove(download_path)
-        except OSError:
-            pass
-        gdown.download(url, output=str(download_path))
+    # if file_id_or_zip_url.endswith(".zip"):
+    url = file_id_or_zip_url  # zip url
+    subprocess.check_call(f"wget {url} -O {download_path}")
+    # else:
+    #     try:
+    #         import gdown
+    #     except ImportError:
+    #         logging.fatal("Please install gdown: pip install gdown")
+    #         sys.exit(2)
+    #     url = f"https://drive.google.com/uc?id={file_id_or_zip_url}"  # file id
+    #     try:
+    #         os.remove(download_path)
+    #     except OSError:
+    #         pass
+    #     gdown.download(url, output=str(download_path))
     with zipfile.ZipFile(download_path, "r") as zip_ref:
         zip_ref.extractall(tmp_path)
     inner_folders = os.listdir(tmp_path)
@@ -549,5 +550,8 @@ def download_nerfstudio_dataset(path: str, output: Path):
             download_nerfstudio_dataset(f"nerfstudio/{x}", output / x)
         return
     capture_name = path[len("nerfstudio/") :]
-    download_capture_name(output, nerfstudio_file_ids[capture_name])
+    if capture_name not in nerfstudio_file_ids:
+        raise DatasetNotFoundError(f"Capture '{capture_name}' not a valid nerfstudio scene.")
+    capture_url = f"https://huggingface.co/datasets/jkulhanek/nerfbaselines-data/resolve/main/nerfstudio/{capture_name}.zip?download=true"
+    download_capture_name(output, capture_url)
     logging.info(f"Downloaded {path} to {output}")

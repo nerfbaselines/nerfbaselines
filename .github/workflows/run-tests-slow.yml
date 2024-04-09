@@ -170,7 +170,7 @@ jobs:
     needs: setup
     strategy:
       matrix:
-        dataset: ["blender/lego", "mipnerf360/garden", "nerfstudio/poster", "tanksandtemples/truck"]
+        dataset: ["blender/lego", "mipnerf360/garden", "nerfstudio/bww_entrance", "tanksandtemples/truck"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
