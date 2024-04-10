@@ -37,7 +37,7 @@ def mock_instant_ngp():
     testbed.nerf.training = mock.Mock()
     testbed.nerf.training.dataset = mock.MagicMock()
     testbed.nerf.training.dataset.n_images = 10
-    testbed.nerf.training.dataset.metadata.__getitem__.return_value = metadata_mock = mock.Mock()
+    testbed.nerf.training.dataset["metadata"].__getitem__.return_value = metadata_mock = mock.Mock()
     metadata_mock.resolution = (w, h)
     image_sizes = None
     test_view = 0
@@ -65,8 +65,8 @@ def mock_instant_ngp():
 
         def new_setup_train(self, train_dataset, *args, **kwargs):
             nonlocal image_sizes
-            image_sizes = train_dataset.cameras.image_sizes
-            testbed.nerf.training.dataset.n_images = len(train_dataset.cameras)
+            image_sizes = train_dataset["cameras"].image_sizes
+            testbed.nerf.training.dataset.n_images = len(train_dataset["cameras"])
             return old_setup_train(self, train_dataset, *args, **kwargs)
 
         old_render = instant_ngp.InstantNGP.render

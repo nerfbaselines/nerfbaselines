@@ -8,8 +8,9 @@ import sys
 import json
 from pathlib import Path
 import numpy as np
-from ..types import Dataset, Cameras, CameraModel
-from ._common import DatasetNotFoundError, get_default_viewer_transform
+from ..types import camera_model_to_int
+from .. import cameras
+from ._common import DatasetNotFoundError, get_default_viewer_transform, construct_dataset
 
 
 BLENDER_SCENES = {"lego", "ship", "drums", "hotdog", "materials", "mic", "chair", "ficus"}
@@ -52,11 +53,11 @@ def load_blender_dataset(path: Path, split: str, **kwargs):
 
     viewer_transform, viewer_pose = get_default_viewer_transform(c2w, "object-centric")
 
-    return Dataset(
-        cameras=Cameras(
+    return construct_dataset(
+        cameras=cameras.Cameras[np.ndarray](
             poses=c2w,
             intrinsics=intrinsics,
-            camera_types=np.full(len(cams), CameraModel.PINHOLE.value, dtype=np.int32),
+            camera_types=np.full(len(cams), camera_model_to_int("pinhole"), dtype=np.int32),
             distortion_parameters=np.zeros((len(cams), 0), dtype=np.float32),
             image_sizes=image_sizes,
             nears_fars=nears_fars,

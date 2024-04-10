@@ -15,7 +15,7 @@ except ImportError:
     from typing_extensions import Optional
 
 from nerfbaselines.types import Dataset, OptimizeEmbeddingsOutput, RenderOutput, MethodInfo, ModelInfo
-from nerfbaselines import Cameras, CameraModel
+from nerfbaselines.types import Cameras, CameraModel
 from nerfbaselines import Method
 
 import configargparse
@@ -94,24 +94,24 @@ class TensoRFDataset:
 
         self.transform = np.eye(4)
 
-        poses = dataset.cameras.poses.copy()
+        poses = dataset["cameras"].poses.copy()
 
-        if dataset.metadata.get("name") == "blender":
+        if dataset["metadata"].get("name") == "blender":
             self.white_bg = True
             self.near_far = [2.0, 6.0]
-        elif dataset.metadata.get("name") == "llff":
+        elif dataset["metadata"].get("name") == "llff":
             self.white_bg = False
-            assert dataset.metadata.get("type") == "forward-facing"
-            assert dataset.cameras.nears_fars is not None
+            assert dataset["metadata"].get("type") == "forward-facing"
+            assert dataset["cameras"].nears_fars is not None
 
             if transform is None:
-                transform = get_llff_transform(poses, dataset.cameras.nears_fars)
+                transform = get_llff_transform(poses, dataset["cameras"].nears_fars)
             poses = apply_transform(transform, poses)
 
             dataset = dataclasses.replace(
                 dataset,
                 cameras=dataclasses.replace(
-                    dataset.cameras,
+                    dataset["cameras"],
                     poses=poses,
                     nears_fars=np.array([[0.0, 1.0]] * len(poses), dtype=np.float32),
                 ),
@@ -134,8 +134,8 @@ class TensoRFDataset:
         self.all_rays = []
         self.all_rgbs = []
 
-        for i, cam in enumerate(dataset.cameras):
-            if dataset.metadata.get("type") == "forward-facing":
+        for i, cam in enumerate(dataset["cameras"]):
+            if dataset["metadata"].get("type") == "forward-facing":
                 origins, directions, xy = get_rays_and_indices(cam)
                 origins = origins.copy()
                 directions = directions.copy()
@@ -155,8 +155,8 @@ class TensoRFDataset:
                 directions = torch.nn.functional.normalize(directions, 2, dim=-1)
             self.all_rays.append(torch.cat([origins, directions], -1).float())
 
-            if dataset.images is not None:
-                rgbs = dataset.images[i][xy[..., 1], xy[..., 0]]
+            if dataset["images"] is not None:
+                rgbs = dataset["images"][i][xy[..., 1], xy[..., 0]]
                 if rgbs.dtype == np.uint8:
                     rgbs = rgbs.astype(np.float32) / 255.0
 
@@ -268,12 +268,12 @@ class TensoRF(Method):
             raise NotImplementedError("Loading from checkpoint is not supported for TensoRF")
 
         self.metadata["dataset_metadata"] = {
-            "type": train_dataset.metadata.get("type"),
-            "name": train_dataset.metadata.get("name"),
+            "type": train_dataset["metadata"].get("type"),
+            "name": train_dataset["metadata"].get("name"),
         }
 
         # Load dataset-specific config
-        dataset_name = train_dataset.metadata.get("name")
+        dataset_name = train_dataset["metadata"].get("name")
         config_name = "your_own_data.txt"
         if dataset_name == "blender":
             config_name = "lego.txt"
@@ -459,7 +459,7 @@ class TensoRF(Method):
         assert self.metadata.get("dataset_metadata") is not None, "Missing dataset_metadata"
         assert self.metadata.get("dataset_transform") is not None, "Missing dataset_transform"
         test_dataset = TensoRFDataset(
-            Dataset(
+            dict(
                 cameras=cameras,
                 file_paths=[f"{i:06d}.png" for i in range(len(cameras))],
                 metadata=self.metadata["dataset_metadata"],

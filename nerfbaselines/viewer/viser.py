@@ -8,12 +8,14 @@ import numpy as np
 import viser
 
 from ..types import Method, Dataset, FrozenSet, DatasetFeature, Literal
-from ..cameras import Cameras
+from ..types import Cameras
+from ..datasets import dataset_load_features, dataset_index_select
 from ..datasets._colmap_utils import qvec2rotmat, rotmat2qvec
-from ..utils import CancellationToken, CancelledException, cancellable, assert_not_none
+from ..utils import CancelledException, assert_not_none
 from ..pose_utils import apply_transform, get_transform_and_scale, invert_transform
 from ..datasets import load_dataset
 from ..backends._rpc import EventCancellationToken
+from .. import cameras
 
 
 def get_c2w(camera):
@@ -123,15 +125,16 @@ class ViserViewer:
             self._reset_render()
 
         downsample_factor = 2
-        for i, (cam, path) in enumerate(zip(dataset.cameras, dataset.file_paths)):
+        cam: Cameras
+        for i, (cam, path) in enumerate(zip(dataset["cameras"], dataset["file_paths"])):
             assert cam.image_sizes is not None, "dataset.image_sizes must be set"
             image = None
-            if dataset.images is not None:
-                image = dataset.images[i]
+            if dataset["images"] is not None:
+                image = dataset["images"][i]
             if str(path).startswith("/undistorted/"):
                 path = str(path)[len("/undistorted/") :]
             else:
-                path = str(Path(path).relative_to(Path(dataset.file_paths_root or "")))
+                path = str(Path(path).relative_to(Path(dataset.get("file_paths_root") or "")))
             c2w = apply_transform(self.transform, cam.poses)
             pos, quat = get_position_quaternion(c2w)
             W, H = cam.image_sizes.tolist()
@@ -187,7 +190,7 @@ class ViserViewer:
 
                 c2w = get_c2w(camera)
                 c2w = self._inv_transform @ c2w
-                camera = Cameras(
+                nb_camera: Cameras = cameras.Cameras[np.ndarray](
                     poses=c2w[None, :3, :4],
                     intrinsics=np.array([[focal, focal, w_total / 2, h_total / 2]], dtype=np.float32),
                     camera_types=np.array([0], dtype=np.int32),
@@ -198,7 +201,7 @@ class ViserViewer:
                 outputs = None
                 try:
                     with self._cancellation_token or contextlib.nullcontext():
-                        for outputs in self.method.render(camera):
+                        for outputs in self.method.render(nb_camera):
                             pass
                 except CancelledException:
                     # if we got interrupted, don't send the output to the viewer
@@ -283,22 +286,22 @@ def run_viser_viewer(method: Optional[Method] = None,
 
     if data is not None:
         features: FrozenSet[DatasetFeature] = frozenset({"color", "points3D_xyz"})
-        train_dataset = load_dataset(data, split="test", features=features)
-        server = build_server(dataset_metadata=train_dataset.metadata)
+        train_dataset = load_dataset(data, split="test", features=features, load_features=False)
+        server = build_server(dataset_metadata=train_dataset["metadata"])
 
         if max_num_views is not None and len(train_dataset) > max_num_views:
-            train_dataset = train_dataset[np.random.choice(len(train_dataset), 100)]
+            train_dataset = dataset_index_select(train_dataset, np.random.choice(len(train_dataset), 100))
 
-        server.add_initial_point_cloud(train_dataset.points3D_xyz, train_dataset.points3D_rgb)
+        server.add_initial_point_cloud(train_dataset["points3D_xyz"], train_dataset["points3D_rgb"])
 
-        test_dataset = load_dataset(data, split="train", features=features)
+        test_dataset = load_dataset(data, split="train", features=features, load_features=False)
         if max_num_views is not None and len(test_dataset) > max_num_views:
-            test_dataset = test_dataset[np.random.choice(len(test_dataset), 100)]
+            test_dataset = dataset_index_select(test_dataset, np.random.choice(len(test_dataset), 100))
 
-        train_dataset.load_features(features)
+        train_dataset = dataset_load_features(train_dataset, features)
         server.add_dataset_views(train_dataset, "train")
 
-        test_dataset.load_features(features)
+        test_dataset = dataset_load_features(test_dataset, features)
         server.add_dataset_views(test_dataset, "test")
 
     elif nb_info is not None:

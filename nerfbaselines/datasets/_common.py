@@ -1,4 +1,3 @@
-from pathlib import Path
 import gc
 import logging
 import os
@@ -7,8 +6,9 @@ import numpy as np
 import PIL.Image
 import PIL.ExifTags
 from tqdm import tqdm
-from typing import Optional, Tuple
-from ..types import Dataset, Literal
+from typing import Optional, Tuple, Union, List, Sequence, Dict, cast
+from ..cameras import camera_model_to_int
+from ..types import Dataset, Literal, Cameras
 from .. import cameras
 from ..utils import padded_stack
 from ..pose_utils import rotation_matrix, pad_poses, unpad_poses, viewmatrix, apply_transform
@@ -101,21 +101,24 @@ def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np
 
 
 def _dataset_undistort_unsupported(dataset: Dataset, supported_camera_models):
-    assert dataset.images is not None, "Images must be loaded"
-    supported_models_int = set(x.value for x in supported_camera_models)
+    assert dataset["images"] is not None, "Images must be loaded"
+    supported_models_int = set(camera_model_to_int(x) for x in supported_camera_models)
     undistort_tasks = []
-    for i, camera in enumerate(dataset.cameras):
+    for i, camera in enumerate(dataset["cameras"]):
         if camera.camera_types.item() in supported_models_int:
             continue
         undistort_tasks.append((i, camera))
     if len(undistort_tasks) == 0:
         return False
 
-    was_list = isinstance(dataset.images, list)
-    new_images = list(dataset.images)
-    new_sampling_masks = list(dataset.sampling_masks) if dataset.sampling_masks is not None else None
-    dataset.images = new_images
-    dataset.sampling_masks = new_sampling_masks
+    was_list = isinstance(dataset["images"], list)
+    new_images = list(dataset["images"])
+    new_sampling_masks = (
+        list(dataset["sampling_masks"]) if dataset["sampling_masks"] is not None else None
+    )
+    dataset["images"] = new_images
+    dataset["sampling_masks"] = new_sampling_masks
+    np_cameras = cameras.Cameras[np.ndarray].new(dataset["cameras"])
 
     # Release memory here
     gc.collect()
@@ -123,21 +126,29 @@ def _dataset_undistort_unsupported(dataset: Dataset, supported_camera_models):
     for i, camera in tqdm(undistort_tasks, desc="undistorting images", dynamic_ncols=True):
         undistorted_camera = cameras.undistort_camera(camera)
         ow, oh = camera.image_sizes
-        if dataset.file_paths is not None:
-            dataset.file_paths[i] = os.path.join("/undistorted", os.path.split(dataset.file_paths[i])[-1])
-        if dataset.sampling_mask_paths is not None:
-            dataset.sampling_mask_paths[i] = os.path.join("/undistorted-masks", os.path.split(dataset.sampling_mask_paths[i])[-1])
-        warped = cameras.warp_image_between_cameras(camera, undistorted_camera, new_images[i][:oh, :ow])
+        if dataset["file_paths"] is not None:
+            dataset["file_paths"][i] = os.path.join(
+                "/undistorted", os.path.split(dataset["file_paths"][i])[-1]
+            )
+        if dataset["sampling_mask_paths"] is not None:
+            dataset["sampling_mask_paths"][i] = os.path.join(
+                "/undistorted-masks", os.path.split(dataset["sampling_mask_paths"][i])[-1]
+            )
+        warped = cameras.warp_image_between_cameras(
+            camera, undistorted_camera, new_images[i][:oh, :ow]
+        )
         new_images[i] = warped
         if new_sampling_masks is not None:
             warped = cameras.warp_image_between_cameras(camera, undistorted_camera, new_sampling_masks[i][:oh, :ow])
             new_sampling_masks[i] = warped
         # IMPORTANT: camera is modified in-place
-        dataset.cameras[i] = undistorted_camera
+        np_cameras[i] = undistorted_camera
     if not was_list:
-        dataset.images = padded_stack(new_images)
-        dataset.sampling_masks = padded_stack(new_sampling_masks) if new_sampling_masks is not None else None
-    dataset.file_paths_root = Path("/undistorted")
+        dataset["images"] = padded_stack(new_images)
+        dataset["sampling_masks"] = (
+            padded_stack(new_sampling_masks) if new_sampling_masks is not None else None
+        )
+    dataset["file_paths_root"] = "/undistorted"
     return True
 
 
@@ -145,7 +156,7 @@ METADATA_COLUMNS = ["exposure"]
 DatasetType = Literal["object-centric", "forward-facing"]
 
 
-def get_scene_scale(cameras: cameras.Cameras, dataset_type: Optional[DatasetType]):
+def get_scene_scale(cameras: Cameras, dataset_type: Optional[DatasetType]):
     if dataset_type == "object-centric":
         return float(np.percentile(np.linalg.norm(cameras.poses[..., :3, 3] - cameras.poses[..., :3, 3].mean(), axis=-1), 90))
 
@@ -177,13 +188,20 @@ def get_image_metadata(image: PIL.Image.Image):
     return np.array([values.get(c, np.nan) for c in METADATA_COLUMNS], dtype=np.float32)
 
 
-def dataset_load_features(dataset: Dataset, required_features, supported_camera_models=None):
+def dataset_load_features(
+    dataset: Dataset, features=None, supported_camera_models=None
+) -> Dataset:
+    if features is None:
+        features = frozenset(("color",))
+    if supported_camera_models is None:
+        supported_camera_models = frozenset(("pinhole",))
+    np_cameras = cameras.Cameras[np.ndarray].new(dataset["cameras"])
     images = []
     image_sizes = []
     all_metadata = []
-    for p in tqdm(dataset.file_paths, desc="loading images", dynamic_ncols=True):
+    for p in tqdm(dataset["file_paths"], desc="loading images", dynamic_ncols=True):
         if str(p).endswith(".bin"):
-            assert dataset.color_space == "linear"
+            assert dataset["metadata"]["color_space"] == "linear"
             with open(p, "rb") as f:
                 data_bytes = f.read()
                 h, w = struct.unpack("ii", data_bytes[:8])
@@ -198,7 +216,7 @@ def dataset_load_features(dataset: Dataset, required_features, supported_camera_
                 [np.nan for _ in range(len(METADATA_COLUMNS))], dtype=np.float32
             )
         else:
-            assert dataset.color_space == "srgb"
+            assert dataset["metadata"]["color_space"] == "srgb"
             pil_image = PIL.Image.open(p)
             metadata = get_image_metadata(pil_image)
             image = np.array(pil_image, dtype=np.uint8)
@@ -207,16 +225,18 @@ def dataset_load_features(dataset: Dataset, required_features, supported_camera_
         all_metadata.append(metadata)
     logging.debug(f"Loaded {len(images)} images")
 
-    if dataset.sampling_mask_paths is not None:
+    if dataset["sampling_mask_paths"] is not None:
         sampling_masks = []
-        for p in tqdm(dataset.sampling_mask_paths, desc="loading sampling masks", dynamic_ncols=True):
+        for p in tqdm(dataset["sampling_mask_paths"], desc="loading sampling masks", dynamic_ncols=True):
             sampling_mask = PIL.Image.open(p).convert("L")
             sampling_masks.append(np.array(sampling_mask, dtype=np.uint8).astype(bool))
-        dataset.sampling_masks = sampling_masks  # padded_stack(sampling_masks)
+        dataset["sampling_masks"] = sampling_masks  # padded_stack(sampling_masks)
         logging.debug(f"Loaded {len(sampling_masks)} sampling masks")
 
-    dataset.images = images  # padded_stack(images)
-    dataset.cameras = dataset.cameras.with_image_sizes(np.array(image_sizes, dtype=np.int32)).with_metadata(np.stack(all_metadata, 0))
+    dataset["images"] = images  # padded_stack(images)
+    dataset["cameras"] = np_cameras.with_image_sizes(
+        np.array(image_sizes, dtype=np.int32)
+    ).with_metadata(np.stack(all_metadata, 0))
     if supported_camera_models is not None:
         if _dataset_undistort_unsupported(dataset, supported_camera_models):
             logging.warning("Some cameras models are not supported by the method. Images have been undistorted. Make sure to use the undistorted images for training.")
@@ -253,3 +273,57 @@ class MultiDatasetError(DatasetNotFoundError):
             mdetail = f'\n{" "*prefixlen}'.join(rows)
             message += f"\n{prefix}{mdetail}"
         logging.error(message)
+
+
+def dataset_index_select(dataset: Dataset, i: Union[slice, int, np.ndarray]) -> Dataset:
+    assert isinstance(i, (slice, int, np.ndarray))
+    dataset_len = len(dataset["file_paths"])
+
+    def index(key, obj):
+        if obj is None:
+            return None
+        if key == "cameras":
+            if len(obj) == 1:
+                return obj if isinstance(i, int) else obj
+            return obj[i]
+        if isinstance(obj, np.ndarray):
+            if obj.shape[0] == 1:
+                return obj[0] if isinstance(i, int) else obj
+            obj = obj[i]
+            return obj
+        if isinstance(obj, list):
+            indices = np.arange(dataset_len)[i]
+            if indices.ndim == 0:
+                return obj[indices]
+            return [obj[i] for i in indices]
+        raise ValueError(f"Cannot index object of type {type(obj)} at key {key}")
+
+    dataset = dataset.copy()
+    cast(Dict, dataset).update({k: index(k, v) for k, v in dataset.items() if k not in {"file_paths_root", "points3D_xyz", "points3D_rgb", "metadata"}})
+    return dataset
+
+
+def construct_dataset(cameras: Cameras,
+                      file_paths: Sequence[str],
+                      sampling_mask_paths: Optional[Sequence[str]] = None,
+                      file_paths_root: Optional[str] = None,
+                      images: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W, 3]
+                      sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W]
+                      points3D_xyz: Optional[np.ndarray] = None,  # [M, 3]
+                      points3D_rgb: Optional[np.ndarray] = None,  # [M, 3]
+                      metadata: Optional[dict] = None):
+    if metadata is None:
+        metadata = {}
+    if file_paths_root is None:
+        file_paths_root = os.path.commonpath(file_paths)
+    return dict(
+        cameras=cameras,
+        file_paths=list(file_paths),
+        sampling_mask_paths=list(sampling_mask_paths) if sampling_mask_paths is not None else None,
+        file_paths_root=file_paths_root,
+        images=images,
+        sampling_masks=sampling_masks,
+        points3D_xyz=points3D_xyz,
+        points3D_rgb=points3D_rgb,
+        metadata=metadata
+    )

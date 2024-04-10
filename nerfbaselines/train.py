@@ -13,12 +13,11 @@ from tqdm import tqdm
 import numpy as np
 import click
 from .io import open_any_directory, deserialize_nb_info, serialize_nb_info
-from .datasets import load_dataset, Dataset
+from .datasets import load_dataset, Dataset, dataset_index_select
 from .utils import Indices, setup_logging, image_to_srgb, visualize_depth, handle_cli_error
 from .utils import remap_error, get_resources_utilization_info, assert_not_none
 from .utils import IndicesClickType, SetParamOptionType
 from .utils import make_image_grid
-from .cameras import CameraModel
 from .types import Method, Literal, FrozenSet
 from .render import render_all_images
 from .evaluate import EvaluationProtocol
@@ -50,13 +49,11 @@ def log_metrics(logger: Logger, metrics, *, prefix: str = "", step: int):
 def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, step, evaluation_protocol: EvaluationProtocol):
     rand_number, = struct.unpack("L", hashlib.sha1(str(step).encode("utf8")).digest()[:8])
 
-    idx = rand_number % len(dataset)
-    dataset_slice = dataset[idx : idx + 1]
+    idx = rand_number % len(dataset["file_paths"])
+    dataset_slice = dataset_index_select(dataset, slice(idx, idx + 1))
+    images = dataset_slice["images"]
 
-    expected_scene_scale: Optional[float] = dataset_slice.metadata.get("expected_scene_scale")
-
-    assert dataset_slice.images is not None, f"{split} dataset must have images loaded"
-    assert dataset_slice.cameras.image_sizes is not None, f"{split} dataset must have image_sizes specified"
+    expected_scene_scale: Optional[float] = dataset_slice["metadata"].get("expected_scene_scale")
 
     start = time.perf_counter()
     # Pseudo-randomly select an image based on the step
@@ -77,18 +74,19 @@ def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, st
         for _metrics in evaluation_protocol.evaluate([predictions], dataset_slice):
             metrics = cast(Dict[str, Union[str, int, float]], _metrics)
 
-        w, h = dataset_slice.cameras.image_sizes[0]
-        gt = dataset_slice.images[0][:h, :w]
+        w, h = dataset_slice["cameras"].image_sizes[0]
+        gt = images[0][:h, :w]
         color = predictions["color"]
 
-        background_color = dataset_slice.metadata.get("background_color", None)
-        color_srgb = image_to_srgb(color, np.uint8, color_space=dataset_slice.color_space, background_color=background_color)
-        gt_srgb = image_to_srgb(gt, np.uint8, color_space=dataset_slice.color_space, background_color=background_color)
+        background_color = dataset_slice["metadata"].get("background_color", None)
+        dataset_colorspace = dataset_slice["metadata"].get("color_space", "srgb")
+        color_srgb = image_to_srgb(color, np.uint8, color_space=dataset_colorspace, background_color=background_color)
+        gt_srgb = image_to_srgb(gt, np.uint8, color_space=dataset_colorspace, background_color=background_color)
 
-        image_path = dataset_slice.file_paths[0]
-        if dataset_slice.file_paths_root is not None:
-            if str(image_path).startswith(str(dataset_slice.file_paths_root)):
-                image_path = str(Path(image_path).relative_to(dataset_slice.file_paths_root))
+        image_path = dataset_slice["file_paths"][0]
+        if dataset_slice.get("file_paths_root") is not None:
+            if str(image_path).startswith(str(dataset_slice["file_paths_root"])):
+                image_path = str(Path(image_path).relative_to(dataset_slice["file_paths_root"]))
 
         metrics["image-path"] = image_path
         metrics["fps"] = 1 / elapsed
@@ -97,7 +95,7 @@ def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, st
 
         depth = None
         if "depth" in predictions:
-            near_far = dataset_slice.cameras.nears_fars[0] if dataset_slice.cameras.nears_fars is not None else None
+            near_far = dataset_slice["cameras"].nears_fars[0] if dataset_slice["cameras"].nears_fars is not None else None
             depth = visualize_depth(predictions["depth"], expected_scale=expected_scene_scale, near_far=near_far)
         log_metrics(logger, metrics, prefix=f"eval-few-{split}/", step=step)
 
@@ -119,15 +117,14 @@ def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, st
 
 
 def eval_all(method: Method, logger: Logger, dataset: Dataset, *, output: str, step: int, evaluation_protocol: EvaluationProtocol, split: str, nb_info):
-    assert dataset.images is not None, "test dataset must have images loaded"
     total_rays = 0
     metrics: Optional[Dict[str, float]] = {} if logger else None
-    expected_scene_scale = dataset.metadata.get("expected_scene_scale")
+    expected_scene_scale = dataset["metadata"].get("expected_scene_scale")
 
     # Store predictions, compute metrics, etc.
-    prefix = dataset.file_paths_root
+    prefix = dataset["file_paths_root"]
     if prefix is None:
-        prefix = Path(os.path.commonpath(dataset.file_paths))
+        prefix = Path(os.path.commonpath(dataset["file_paths"]))
 
     if split != "test":
         output_metrics = os.path.join(output, f"results-{step}-{split}.json")
@@ -152,7 +149,7 @@ def eval_all(method: Method, logger: Logger, dataset: Dataset, *, output: str, s
     vis_images: List[Tuple[np.ndarray, np.ndarray]] = []
     vis_depth: List[np.ndarray] = []
     for (i, gt), pred, (w, h) in zip(
-        enumerate(dataset.images),
+        enumerate(dataset["images"]),
         render_all_images(
             method,
             dataset,
@@ -161,16 +158,17 @@ def eval_all(method: Method, logger: Logger, dataset: Dataset, *, output: str, s
             nb_info=nb_info,
             evaluation_protocol=evaluation_protocol,
         ),
-        assert_not_none(dataset.cameras.image_sizes),
+        assert_not_none(dataset["cameras"].image_sizes),
     ):
         if len(vis_images) < num_vis_images:
             color = pred["color"]
-            background_color = dataset.metadata.get("background_color", None)
-            color_srgb = image_to_srgb(color, np.uint8, color_space=dataset.color_space, background_color=background_color)
-            gt_srgb = image_to_srgb(gt[:h, :w], np.uint8, color_space=dataset.color_space, background_color=background_color)
+            background_color = dataset["metadata"].get("background_color", None)
+            dataset_colorspace = dataset["metadata"].get("color_space", "srgb")
+            color_srgb = image_to_srgb(color, np.uint8, color_space=dataset_colorspace, background_color=background_color)
+            gt_srgb = image_to_srgb(gt[:h, :w], np.uint8, color_space=dataset_colorspace, background_color=background_color)
             vis_images.append((gt_srgb, color_srgb))
             if "depth" in pred:
-                near_far = dataset.cameras.nears_fars[i] if dataset.cameras.nears_fars is not None else None
+                near_far = dataset["cameras"].nears_fars[i] if dataset["cameras"].nears_fars is not None else None
                 vis_depth.append(visualize_depth(pred["depth"], expected_scale=expected_scene_scale, near_far=near_far))
     elapsed = time.perf_counter() - start
 
@@ -185,7 +183,7 @@ def eval_all(method: Method, logger: Logger, dataset: Dataset, *, output: str, s
     if logger:
         assert metrics is not None, "metrics must be computed"
         logging.debug(f"logging metrics to {logger}")
-        metrics["fps"] = len(dataset) / elapsed
+        metrics["fps"] = len(dataset["file_paths"]) / elapsed
         metrics["rays-per-second"] = total_rays / elapsed
         metrics["time"] = elapsed
         log_metrics(logger, metrics, prefix=f"eval-all-{split}/", step=step)
@@ -309,27 +307,27 @@ class Trainer:
         # Validate and setup datasets
         self._setup_data(train_dataset, test_dataset)
 
-    def _setup_data(self, train_dataset, test_dataset):
+    def _setup_data(self, train_dataset: Dataset, test_dataset: Optional[Dataset]):
         # Validate and setup datasets
         # Store a slice of train dataset used for eval_few
-        self._average_image_size = train_dataset.cameras.image_sizes.prod(-1).astype(np.float32).mean()
-        dataset_background_color = train_dataset.metadata.get("background_color")
+        self._average_image_size = train_dataset["cameras"].image_sizes.prod(-1).astype(np.float32).mean()
+        dataset_background_color = train_dataset["metadata"].get("background_color")
         if dataset_background_color is not None:
             assert isinstance(dataset_background_color, np.ndarray), "Dataset background color must be a numpy array"
             assert dataset_background_color.dtype == np.uint8, "Dataset background color must be an uint8 array"
-        train_dataset_indices = np.linspace(0, len(train_dataset) - 1, 16, dtype=int)
-        self._train_dataset_for_eval = train_dataset[train_dataset_indices]
+        train_dataset_indices = np.linspace(0, len(train_dataset["file_paths"]) - 1, 16, dtype=int)
+        self._train_dataset_for_eval = dataset_index_select(train_dataset, train_dataset_indices)
 
-        assert train_dataset.color_space is not None
-        color_space = train_dataset.color_space
-        self._dataset_metadata = train_dataset.metadata.copy()
+        color_space = train_dataset["metadata"].get("color_space")
+        assert color_space is not None
+        self._dataset_metadata = train_dataset["metadata"].copy()
 
         # Setup test dataset dataset
         self.test_dataset = test_dataset
         if test_dataset is not None:
-            if test_dataset.color_space != color_space:
-                raise RuntimeError(f"train dataset color space {color_space} != test dataset color space {test_dataset.color_space}")
-            test_background_color = test_dataset.metadata.get("background_color")
+            if test_dataset["metadata"].get("color_space") != color_space:
+                raise RuntimeError(f"train dataset color space {color_space} != test dataset color space {test_dataset['metadata'].get('color_space')}")
+            test_background_color = test_dataset["metadata"].get("background_color")
             if test_background_color is not None:
                 assert isinstance(test_background_color, np.ndarray), "Dataset's background_color must be a numpy array"
             if not (
@@ -340,10 +338,10 @@ class Trainer:
                     np.array_equal(test_background_color, dataset_background_color)
                 )
             ):
-                raise RuntimeError(f"train dataset color space {dataset_background_color} != test dataset color space {test_dataset.metadata.get('background_color')}")
+                raise RuntimeError(f"train dataset color space {dataset_background_color} != test dataset color space {test_dataset['metadata'].get('background_color')}")
 
         self._validate_output_artifact()
-        test_dataset_name = self.test_dataset.metadata.get("name") if self.test_dataset is not None else train_dataset.metadata.get("name")
+        test_dataset_name = self.test_dataset['metadata'].get("name") if self.test_dataset is not None else train_dataset['metadata'].get("name")
         self._evaluation_protocol = evaluate.get_evaluation_protocol(test_dataset_name)
 
     def _validate_output_artifact(self):
@@ -526,8 +524,8 @@ class Trainer:
         assert self._train_dataset_for_eval is not None, "train_dataset_for_eval must be set"
         rand_number, = struct.unpack("L", hashlib.sha1(str(self.step).encode("utf8")).digest()[:8])
 
-        idx = rand_number % len(self._train_dataset_for_eval)
-        dataset_slice = self._train_dataset_for_eval[idx : idx + 1]
+        idx = rand_number % len(self._train_dataset_for_eval["file_paths"])
+        dataset_slice = dataset_index_select(self._train_dataset_for_eval, slice(idx, idx + 1))
 
         eval_few(self.method, logger, dataset_slice, split="train", step=self.step, evaluation_protocol=self._evaluation_protocol)
         
@@ -535,8 +533,8 @@ class Trainer:
             logging.warning("skipping eval_few on test dataset - no eval dataset")
             return
 
-        idx = rand_number % len(self.test_dataset)
-        dataset_slice = self.test_dataset[idx : idx + 1]
+        idx = rand_number % len(self.test_dataset["file_paths"])
+        dataset_slice = dataset_index_select(self.test_dataset, slice(idx, idx + 1))
         eval_few(self.method, logger, dataset_slice, split="test", step=self.step, evaluation_protocol=self._evaluation_protocol)
 
 
@@ -611,16 +609,22 @@ def train_command(
                 logging.info("loading train dataset")
                 method_info = method_cls.get_method_info()
                 required_features = method_info.get("required_features", frozenset())
-                supported_camera_models = method_info.get("supported_camera_models", frozenset((CameraModel.PINHOLE,)))
-                train_dataset = load_dataset(_data, split="train", features=required_features)
-                train_dataset.load_features(required_features, supported_camera_models)
-                assert train_dataset.cameras.image_sizes is not None, "image sizes must be specified"
+                supported_camera_models = method_info.get("supported_camera_models", frozenset(("pinhole",)))
+                train_dataset = load_dataset(_data, 
+                                             split="train", 
+                                             features=required_features, 
+                                             supported_camera_models=supported_camera_models, 
+                                             load_features=True)
+                assert train_dataset["cameras"].image_sizes is not None, "image sizes must be specified"
 
                 # Load eval dataset
                 logging.info("loading eval dataset")
-                test_dataset = load_dataset(_data, split="test", features=required_features)
-                test_dataset.metadata["expected_scene_scale"] = train_dataset.metadata.get("expected_scene_scale")
-                test_dataset.load_features(required_features.union({"color"}))
+                test_dataset = load_dataset(_data, 
+                                            split="test", 
+                                            features=required_features, 
+                                            supported_camera_models=supported_camera_models, 
+                                            load_features=True)
+                test_dataset["metadata"]["expected_scene_scale"] = train_dataset["metadata"].get("expected_scene_scale")
 
                 # Build the method
                 method = method_cls(

@@ -38,17 +38,17 @@ class TetraNeRF(NerfStudio):
 
     def _setup_train(self, train_dataset: Dataset, **kwargs):
         dataset = train_dataset
-        dataset_name = dataset.metadata["name"]
+        dataset_name = dataset["metadata"]["name"]
         if dataset_name == "blender":
             # We use the official PC for the Blender dataset
-            scene = dataset.metadata["scene"]
+            scene = dataset["metadata"]["scene"]
             url = f"https://data.ciirc.cvut.cz/public/projects/2023TetraNeRF/assets/pointnerf-blender/{scene}.npz"
             logging.info(f"Downloading official point cloud for {dataset_name}/{scene} from {url}")
-            dataset.points3D_xyz, dataset.points3D_rgb = download_pointcloud(url)
+            dataset["points3D_xyz"], dataset["points3D_rgb"] = download_pointcloud(url)
         elif dataset_name == "mipnerf360":
             # We use the official PC for the MipNerf360 dataset
-            scene = dataset.metadata["scene"]
+            scene = dataset["metadata"]["scene"]
             url = f"https://data.ciirc.cvut.cz/public/projects/2023TetraNeRF/assets/mipnerf360/{scene}.npz"
             logging.info(f"Downloading official point cloud for {dataset_name}/{scene} from {url}")
-            dataset.points3D_xyz, dataset.points3D_rgb = download_pointcloud(url)
+            dataset["points3D_xyz"], dataset["points3D_rgb"] = download_pointcloud(url)
         return super()._setup_train(dataset, **kwargs)

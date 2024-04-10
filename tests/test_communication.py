@@ -4,8 +4,8 @@ import pytest
 from typing import Iterable
 import numpy as np
 from time import sleep
-from nerfbaselines import Method, MethodInfo, Cameras, RenderOutput, ModelInfo, CameraModel
-from nerfbaselines.types import Dataset, OptimizeEmbeddingsOutput
+from nerfbaselines import Method, MethodInfo, RenderOutput, ModelInfo
+from nerfbaselines import cameras
 from nerfbaselines.utils import CancellationToken, CancelledException
 
 
@@ -37,7 +37,7 @@ def test_render(use_remote_method):
 
     with use_remote_method(TestMethodRenderCancellable) as remote_method_cls:
         remote_method = remote_method_cls()
-        cameras = Cameras(
+        all_cameras = cameras.Cameras[np.ndarray](
             poses=np.eye(4, dtype=np.float32)[None, :3, :4],
             intrinsics=np.zeros((1, 4), dtype=np.float32),
             camera_types=np.zeros((1,), dtype=np.int32),
@@ -45,7 +45,7 @@ def test_render(use_remote_method):
             image_sizes=np.array((64, 48), dtype=np.int32),
             nears_fars=None,
         )
-        vals = [int(x["color"]) for x in remote_method.render(cameras)]
+        vals = [int(x["color"]) for x in remote_method.render(all_cameras)]
         assert vals == [23, 26]
 
 
@@ -155,7 +155,7 @@ def test_render_cancellable(use_remote_method):
             out: MethodInfo = {
                 "name": "_test",
                 "required_features": frozenset(("color",)),
-                "supported_camera_models": frozenset((CameraModel.OPENCV,))
+                "supported_camera_models": frozenset(("opencv",))
             }
             return out
 
@@ -176,7 +176,7 @@ def test_render_cancellable(use_remote_method):
 
     with use_remote_method(TestMethodRenderCancellable) as remote_method_cls:
         remote_method = remote_method_cls()
-        cameras = Cameras(
+        all_cameras = cameras.Cameras[np.ndarray](
             poses=np.eye(4, dtype=np.float32)[None, :3, :4],
             intrinsics=np.zeros((1, 4), dtype=np.float32),
             camera_types=np.zeros((1,), dtype=np.int32),
@@ -187,7 +187,7 @@ def test_render_cancellable(use_remote_method):
         cancelation_token = CancellationToken()
         vals = []
         with pytest.raises(CancelledException), cancelation_token:
-            for vw in remote_method.render(cameras):
+            for vw in remote_method.render(all_cameras):
                 v = int(vw["color"])
                 vals.append(v)
                 if v > 3:
@@ -196,7 +196,7 @@ def test_render_cancellable(use_remote_method):
 
         vals = []
         with pytest.raises(CancelledException), cancelation_token:
-            for vw in cancellable(remote_method.render)(cameras):
+            for vw in cancellable(remote_method.render)(all_cameras):
                 v = int(vw["color"])
                 vals.append(v)
                 if v > 3:

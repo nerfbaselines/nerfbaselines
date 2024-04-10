@@ -1,8 +1,11 @@
-from typing import Union
+from typing import Union, Optional, cast
 from importlib import import_module
 import logging
 from pathlib import Path
-from ..types import Dataset, DatasetFeature, FrozenSet, NB_PREFIX
+from ..types import Dataset, DatasetFeature, CameraModel, FrozenSet, NB_PREFIX
+from ._common import dataset_load_features as dataset_load_features
+from ._common import dataset_index_select as dataset_index_select
+from ._common import construct_dataset as construct_dataset
 from ._common import DatasetNotFoundError, MultiDatasetError
 
 
@@ -36,7 +39,17 @@ def download_dataset(path: str, output: Union[str, Path]):
     raise MultiDatasetError(errors, f"no supported dataset found for path {path}")
 
 
-def load_dataset(path: Union[Path, str], split: str, features: FrozenSet[DatasetFeature]) -> Dataset:
+def load_dataset(
+        path: Union[Path, str], 
+        split: str, 
+        features: Optional[FrozenSet[DatasetFeature]] = None,
+        supported_camera_models: Optional[FrozenSet[CameraModel]] = None,
+        load_features: bool = True,
+        ) -> Dataset:
+    if features is None:
+        features = frozenset(("color",))
+    if supported_camera_models is None:
+        supported_camera_models = frozenset(("pinhole",))
     # If path is and external path, we download the dataset first
     if isinstance(path, str) and path.startswith("external://"):
         dataset = path.split("://", 1)[1]
@@ -46,15 +59,20 @@ def load_dataset(path: Union[Path, str], split: str, features: FrozenSet[Dataset
 
     path = Path(path)
     errors = {}
+    dataset_instance = None
     for name in SUPPORTED_DATASETS:
         try:
             module = import_module(f".{name}", __package__)
             load_fn = getattr(module, f"load_{name}_dataset")
-            dataset = load_fn(path, split=split, features=features)
+            dataset_instance = cast(Dataset, load_fn(path, split=split, features=features))
             logging.info(f"loaded {name} dataset from path {path}")
-            return dataset
+            break
         except DatasetNotFoundError as e:
             logging.debug(e)
             logging.debug(f"{name} dataset not found in path {path}")
             errors[name] = str(e)
-    raise MultiDatasetError(errors, f"no supported dataset found in path {path}")
+    else:
+        raise MultiDatasetError(errors, f"no supported dataset found in path {path}")
+    if load_features:
+        dataset_instance = dataset_load_features(dataset_instance, features=features, supported_camera_models=supported_camera_models)
+    return dataset_instance

@@ -11,7 +11,7 @@ import tempfile
 import numpy as np
 from PIL import Image, ImageOps
 from ...types import Dataset, Method, MethodInfo, ModelInfo, OptimizeEmbeddingsOutput, RenderOutput
-from ...cameras import CameraModel, Cameras
+from ...types import Cameras, camera_model_to_int
 from ...utils import cast_value, flatten_hparams, remap_error
 from ...pose_utils import pad_poses, unpad_poses
 
@@ -57,14 +57,14 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
     frames = []
     up = np.zeros(3)
 
-    for i in range(len(dataset)):
+    for i in range(len(dataset["file_paths"])):
         camera = {}
-        camera["w"] = int(dataset.cameras.image_sizes[i, 0])
-        camera["h"] = int(dataset.cameras.image_sizes[i, 1])
-        camera["fl_x"] = float(dataset.cameras.intrinsics[i, 0])
-        camera["fl_y"] = float(dataset.cameras.intrinsics[i, 1])
-        camera["cx"] = dataset.cameras.intrinsics[i, 2].item()
-        camera["cy"] = dataset.cameras.intrinsics[i, 3].item()
+        camera["w"] = int(dataset["cameras"].image_sizes[i, 0])
+        camera["h"] = int(dataset["cameras"].image_sizes[i, 1])
+        camera["fl_x"] = float(dataset["cameras"].intrinsics[i, 0])
+        camera["fl_y"] = float(dataset["cameras"].intrinsics[i, 1])
+        camera["cx"] = dataset["cameras"].intrinsics[i, 2].item()
+        camera["cy"] = dataset["cameras"].intrinsics[i, 3].item()
         camera["k1"] = 0
         camera["k2"] = 0
         camera["p1"] = 0
@@ -72,17 +72,17 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
         camera["k3"] = 0
         camera["k4"] = 0
         camera["is_fisheye"] = False
-        cam_type = dataset.cameras.camera_types[i]
-        if cam_type == CameraModel.PINHOLE.value:
+        cam_type = dataset["cameras"].camera_types[i]
+        if cam_type == camera_model_to_int("pinhole"):
             pass
-        elif cam_type in {CameraModel.OPENCV.value, CameraModel.OPENCV_FISHEYE.value}:
-            camera["k1"] = dataset.cameras.distortion_parameters[i, 0].item()
-            camera["k2"] = dataset.cameras.distortion_parameters[i, 1].item()
-            camera["p1"] = dataset.cameras.distortion_parameters[i, 2].item()
-            camera["p2"] = dataset.cameras.distortion_parameters[i, 3].item()
-            camera["k3"] = dataset.cameras.distortion_parameters[i, 4].item()
-            camera["k4"] = dataset.cameras.distortion_parameters[i, 5].item()
-            if cam_type == CameraModel.OPENCV_FISHEYE.value:
+        elif cam_type in {camera_model_to_int("opencv"), camera_model_to_int("opencv_fisheye")}:
+            camera["k1"] = dataset["cameras"].distortion_parameters[i, 0].item()
+            camera["k2"] = dataset["cameras"].distortion_parameters[i, 1].item()
+            camera["p1"] = dataset["cameras"].distortion_parameters[i, 2].item()
+            camera["p2"] = dataset["cameras"].distortion_parameters[i, 3].item()
+            camera["k3"] = dataset["cameras"].distortion_parameters[i, 4].item()
+            camera["k4"] = dataset["cameras"].distortion_parameters[i, 5].item()
+            if cam_type == camera_model_to_int("opencv_fisheye"):
                 camera["is_fisheye"] = True
         else:
             raise NotImplementedError(f"Camera model {cam_type} not supported")
@@ -93,9 +93,9 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
         # camera["fovy"] = camera["camera_angle_y"] * 180 / math.pi
         frame = camera.copy()
         bottom = np.array([0.0, 0.0, 0.0, 1.0]).reshape([1, 4])
-        name = str(dataset.file_paths[i])
+        name = str(dataset["file_paths"][i])
         # b = sharpness(name) if os.path.exists(name) else 1.0
-        c2w = dataset.cameras.poses[i, :3, :4]
+        c2w = dataset["cameras"].poses[i, :3, :4]
 
         # Convert from Opencv to OpenGL coordinate system
         c2w = c2w.copy()
@@ -197,7 +197,7 @@ class InstantNGP(Method):
         return MethodInfo(
             name=cls._method_name,
             required_features=frozenset(("color",)), 
-            supported_camera_models=frozenset((CameraModel.PINHOLE, CameraModel.OPENCV, CameraModel.OPENCV_FISHEYE)),
+            supported_camera_models=frozenset(("pinhole", "opencv", "opencv_fisheye")),
         )
 
     def get_info(self) -> ModelInfo:
@@ -273,41 +273,41 @@ class InstantNGP(Method):
     def _write_images(self, dataset: Dataset, tmpdir: str):
         from tqdm import tqdm
 
-        for i, impath_source in enumerate(tqdm(dataset.file_paths, desc="caching images", dynamic_ncols=True)):
+        for i, impath_source in enumerate(tqdm(dataset["file_paths"], desc="caching images", dynamic_ncols=True)):
             impath_source = Path(impath_source)
-            impath_target = Path(tmpdir) / str(impath_source.relative_to(dataset.file_paths_root)).replace("/", "__")
-            dataset.file_paths[i] = impath_target
+            impath_target = Path(tmpdir) / str(impath_source.relative_to(dataset["file_paths_root"])).replace("/", "__")
+            dataset["file_paths"][i] = str(impath_target)
             impath_target.parent.mkdir(parents=True, exist_ok=True)
             if impath_target.exists():
                 continue
-            width, height = dataset.cameras.image_sizes[i]
+            width, height = dataset["cameras"].image_sizes[i]
             if impath_source.exists():
                 impath_target.symlink_to(impath_source)
                 logging.debug(f"symlinked {impath_source} to {impath_target}")
             else:
-                img = dataset.images[i][:height, :width]
-                if dataset.color_space == "srgb":
+                img = dataset["images"][i][:height, :width]
+                if dataset["metadata"]["color_space"] == "srgb":
                     impath_target = impath_target.with_suffix(".png")
-                    dataset.file_paths[i] = impath_target
+                    dataset["file_paths"][i] = str(impath_target)
                     image = Image.fromarray(img)
                     image.save(str(impath_target))
-                elif dataset.color_space == "linear":
+                elif dataset["metadata"]["color_space"] == "linear":
                     impath_target = impath_target.with_suffix(".bin")
-                    dataset.file_paths[i] = impath_target
+                    dataset["file_paths"][i] = str(impath_target)
                     if img.shape[2] < 4:
                         img = np.dstack((img, np.ones([img.shape[0], img.shape[1], 4 - img.shape[2]])))
                     with open(str(impath_target), "wb") as f:
                         f.write(struct.pack("ii", img.shape[0], img.shape[1]))
                         f.write(img.astype(np.float16).tobytes())
                 logging.debug(f"copied {impath_source} to {impath_target}")
-            if dataset.sampling_masks is not None:
-                mask = dataset.sampling_masks[i]
+            if dataset["sampling_masks"] is not None:
+                mask = dataset["sampling_masks"][i]
                 mask = Image.fromarray(mask[:height, :width], mode="L")
                 mask = ImageOps.invert(mask)
                 maskname = impath_target.with_name(f"dynamic_mask_{impath_target.name}")
-                dataset.sampling_masks[i] = maskname
+                dataset["sampling_masks"][i] = maskname
                 mask.save(str(maskname))
-        dataset.file_paths_root = str(tmpdir)
+        dataset["file_paths_root"] = str(tmpdir)
 
     def _setup_train(self, train_dataset: Dataset, config_overrides):
         # Write images
@@ -326,7 +326,7 @@ class InstantNGP(Method):
                 self._loaded_step = current_step
                 self.dataparser_params["dataparser_transform"] = np.array(self.dataparser_params["dataparser_transform"], dtype=np.float32)
         else:
-            loader = train_dataset.metadata.get("name")
+            loader = train_dataset["metadata"].get("name")
             nerf_compatibility = False
             if loader == "blender":
                 aabb_scale = None
@@ -342,7 +342,7 @@ class InstantNGP(Method):
             keep_coords = cast_value(bool, config_overrides.get("keep_coords", keep_coords))
             nerf_compatibility = cast_value(bool, config_overrides.get("nerf_compatibility", nerf_compatibility))
             self._train_transforms, self.dataparser_params = get_transforms(
-                train_dataset, aabb_scale=aabb_scale, keep_coords=keep_coords, nerf_compatibility=nerf_compatibility, color_space=train_dataset.color_space
+                train_dataset, aabb_scale=aabb_scale, keep_coords=keep_coords, nerf_compatibility=nerf_compatibility, color_space=train_dataset["metadata"]["color_space"]
             )
         with (Path(tmpdir) / "transforms.json").open("w") as f:
             json.dump(self._train_transforms, f)
@@ -412,9 +412,12 @@ class InstantNGP(Method):
     def _with_eval_setup(self, cameras: Cameras):
         with tempfile.TemporaryDirectory() as tmpdir:
             self._is_render_mode = True
-            dataset = Dataset(
+            dataset: Dataset = dict(
+                points3D_xyz=None,
+                points3D_rgb=None,
                 cameras=cameras,
                 sampling_mask_paths=None,
+                sampling_masks=None,
                 images=[np.zeros((h, w, 3), dtype=np.uint8) for w, h in cameras.image_sizes],
                 file_paths_root="eval",
                 file_paths=[f"eval/{i:06d}.png" for i in range(len(cameras.poses))],
@@ -468,7 +471,7 @@ class InstantNGP(Method):
         with self._with_eval_setup(cameras) as testbed:
             spp = 8
             for i in range(testbed.nerf.training.dataset.n_images):
-                resolution = testbed.nerf.training.dataset.metadata[i].resolution
+                resolution = testbed.nerf.training.dataset["metadata"][i].resolution
                 testbed.set_camera_to_training_view(i)
                 testbed.render_mode = self.RenderMode.Shade
                 image = np.copy(testbed.render(resolution[0], resolution[1], spp, True))

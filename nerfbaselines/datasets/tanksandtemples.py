@@ -29,13 +29,13 @@ def load_tanksandtemples_dataset(path: Path, split: str, downscale_factor: int =
     scene = single(x for x in SCENES if x in str(path))
 
     dataset: Dataset = load_colmap_dataset(path, images_path=images_path, split=None, **kwargs)
-    dataset.metadata["name"] = DATASET_NAME
-    dataset.metadata["scene"] = scene
-    dataset.metadata["expected_scene_scale"] = get_scene_scale(dataset.cameras, None),
-    dataset.metadata["type"] = None
-    viewer_transform, viewer_pose = get_default_viewer_transform(dataset.cameras.poses, None)
-    dataset.metadata["viewer_transform"] = viewer_transform
-    dataset.metadata["viewer_initial_pose"] = viewer_pose
+    dataset["metadata"]["name"] = DATASET_NAME
+    dataset["metadata"]["scene"] = scene
+    dataset["metadata"]["expected_scene_scale"] = get_scene_scale(dataset["cameras"], None),
+    dataset["metadata"]["type"] = None
+    viewer_transform, viewer_pose = get_default_viewer_transform(dataset["cameras"].poses, None)
+    dataset["metadata"]["viewer_transform"] = viewer_transform
+    dataset["metadata"]["viewer_initial_pose"] = viewer_pose
     return dataset
 
 

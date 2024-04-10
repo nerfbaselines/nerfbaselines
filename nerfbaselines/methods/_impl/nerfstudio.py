@@ -12,7 +12,7 @@ from typing import Iterable, Optional, TypeVar, List, Tuple, Any
 import numpy as np
 from ...types import Method, OptimizeEmbeddingsOutput, MethodInfo, ModelInfo
 from ...types import Dataset, RenderOutput
-from ...cameras import CameraModel, Cameras
+from ...types import Cameras, camera_model_from_int
 from ...utils import convert_image_dtype
 from ...utils import cast_value, remap_error
 
@@ -20,7 +20,6 @@ import yaml
 import torch
 from nerfstudio.cameras import camera_utils
 from nerfstudio.cameras.cameras import Cameras as NSCameras, CameraType as NPCameraType
-from nerfstudio.models.base_model import Model
 from nerfstudio.data.dataparsers.base_dataparser import DataParser, DataparserOutputs
 from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManagerConfig, VanillaDataManager, InputDataset
 from nerfstudio.data.scene_box import SceneBox
@@ -142,22 +141,22 @@ class _CustomDataParser(DataParser):
                 dataparser_transform=self.method.dataparser_params["dataparser_transform"][..., :3, :].contiguous(),
                 dataparser_scale=self.method.dataparser_params["dataparser_scale"],
             )
-        image_names = [f"{i:06d}.png" for i in range(len(self.dataset.cameras.poses))]
-        camera_types = [NPCameraType.PERSPECTIVE for _ in range(len(self.dataset.cameras.poses))]
+        image_names = [f"{i:06d}.png" for i in range(len(self.dataset["cameras"].poses))]
+        camera_types = [NPCameraType.PERSPECTIVE for _ in range(len(self.dataset["cameras"].poses))]
         npmap = {x.name.lower(): x.value for x in NPCameraType.__members__.values()}
         npmap["pinhole"] = npmap["perspective"]
         npmap["opencv"] = npmap["perspective"]
         npmap["opencv_fisheye"] = npmap["fisheye"]
-        camera_types = [npmap[CameraModel(self.dataset.cameras.camera_types[i]).name.lower()] for i in range(len(self.dataset.cameras.poses))]
+        camera_types = [npmap[camera_model_from_int(self.dataset["cameras"].camera_types[i])] for i in range(len(self.dataset["cameras"].poses))]
 
-        poses = self.dataset.cameras.poses.copy()
+        poses = self.dataset["cameras"].poses.copy()
        
         # Convert from Opencv to OpenGL coordinate system
         poses[..., 0:3, 1:3] *= -1
 
         # in x,y,z order
         # assumes that the scene is centered at the origin
-        if self.dataset.metadata.get("name") == "blender":
+        if self.dataset["metadata"].get("name") == "blender":
             aabb_scale = 1.5
             self.method.dataparser_params = dict(dataparser_transform=torch.eye(4, dtype=torch.float32), dataparser_scale=1.0, aabb_scale=1.5, num_images=len(image_names))
         else:
@@ -176,37 +175,37 @@ class _CustomDataParser(DataParser):
         self.method._patch_dataparser_params()
         scene_box = SceneBox(aabb=torch.tensor([[-aabb_scale, -aabb_scale, -aabb_scale], [aabb_scale, aabb_scale, aabb_scale]], dtype=torch.float32))
         th_poses = self.method._transform_poses(torch.from_numpy(poses).float())
-        distortion_parameters = torch.from_numpy(_map_distortion_parameters(self.dataset.cameras.distortion_parameters))
+        distortion_parameters = torch.from_numpy(_map_distortion_parameters(self.dataset["cameras"].distortion_parameters))
         cameras = NSCameras(
             camera_to_worlds=th_poses,
-            fx=torch.from_numpy(self.dataset.cameras.intrinsics[..., 0]).contiguous(),
-            fy=torch.from_numpy(self.dataset.cameras.intrinsics[..., 1]).contiguous(),
-            cx=torch.from_numpy(self.dataset.cameras.intrinsics[..., 2]).contiguous(),
-            cy=torch.from_numpy(self.dataset.cameras.intrinsics[..., 3]).contiguous(),
+            fx=torch.from_numpy(self.dataset["cameras"].intrinsics[..., 0]).contiguous(),
+            fy=torch.from_numpy(self.dataset["cameras"].intrinsics[..., 1]).contiguous(),
+            cx=torch.from_numpy(self.dataset["cameras"].intrinsics[..., 2]).contiguous(),
+            cy=torch.from_numpy(self.dataset["cameras"].intrinsics[..., 3]).contiguous(),
             distortion_params=distortion_parameters.contiguous(),
-            width=torch.from_numpy(self.dataset.cameras.image_sizes[..., 0]).long().contiguous(),
-            height=torch.from_numpy(self.dataset.cameras.image_sizes[..., 1]).long().contiguous(),
+            width=torch.from_numpy(self.dataset["cameras"].image_sizes[..., 0]).long().contiguous(),
+            height=torch.from_numpy(self.dataset["cameras"].image_sizes[..., 1]).long().contiguous(),
             camera_type=torch.tensor(camera_types, dtype=torch.long),
         )
         metadata = {}
         transform_matrix = self.method.dataparser_params["dataparser_transform"]
         scale_factor = self.method.dataparser_params["dataparser_scale"]
         if self.method._require_points3D:
-            assert self.dataset.points3D_xyz is not None, "Points3D are required but not provided"
-            xyz = torch.from_numpy(self.dataset.points3D_xyz).float()
+            assert self.dataset["points3D_xyz"] is not None, "Points3D are required but not provided"
+            xyz = torch.from_numpy(self.dataset["points3D_xyz"]).float()
 
             # Transform poses using the dataparser transform
             xyz = torch.cat((xyz, torch.ones_like(xyz[..., :1])), -1) @ transform_matrix.T
             xyz = (xyz[..., :3] / xyz[..., 3:]).contiguous()
             xyz *= scale_factor
             metadata["points3D_xyz"] = xyz
-            metadata["points3D_rgb"] = torch.from_numpy(self.dataset.points3D_rgb)
+            metadata["points3D_rgb"] = torch.from_numpy(self.dataset["points3D_rgb"])
         return DataparserOutputs(
             image_names,
             cameras,
             self.method.dataparser_params.get("alpha_color", None),
             scene_box,
-            image_names if self.dataset.sampling_masks else None,
+            image_names if self.dataset["sampling_masks"] else None,
             metadata,
             dataparser_transform=transform_matrix[..., :3, :].contiguous(),  # pylint: disable=protected-access
             dataparser_scale=scale_factor,
@@ -262,7 +261,7 @@ class NerfStudio(Method):
         # See https://github.com/nerfstudio-project/nerfstudio/tree/SIGGRAPH-2023-Code
         # NOTE: we change the average_init_density!!
         use_original_average_init_density = False
-        if dataset.metadata.get("name") == "blender":
+        if dataset["metadata"].get("name") == "blender":
             logging.info("Applying config patch for dataset type blender")
             if not _config_safe_set(config, "pipeline.model.near_plane", 2.0):
                 logging.warning("Flag pipeline.model.near_plane is not set (required for blender-type dataset)")
@@ -283,7 +282,7 @@ class NerfStudio(Method):
             if not _config_safe_set(config, "pipeline.model.average_init_density", 1.0):
                 logging.warning("Flag pipeline.model.average_init_density is not set (required for blender-type dataset)")
 
-        if dataset.metadata.get("name") == "mipnerf360":
+        if dataset["metadata"].get("name") == "mipnerf360":
             if not _config_safe_set(config, "max_num_iterations", 70000):
                 logging.warning("Flag max_num_iterations is not set (required for mipnerf360-type dataset)")
             if not _config_safe_set(config, "pipeline.datamanager.camera_optimizer.mode", "off") and not _config_safe_set(config, "pipeline.model.camera_optimizer.mode", "off"):
@@ -294,7 +293,7 @@ class NerfStudio(Method):
                 if not _config_safe_set(config, "pipeline.model.average_init_density", 1.0):
                     logging.warning("Flag pipeline.model.average_init_density is not set (required for mipnerf360-type dataset)")
 
-        if dataset.metadata.get("name") == "nerfstudio":
+        if dataset["metadata"].get("name") == "nerfstudio":
             if use_original_average_init_density:
                 if not _config_safe_set(config, "pipeline.model.average_init_density", 1.0):
                     logging.warning("Flag pipeline.model.average_init_density is not set (required for nerfstudio-type dataset)")
@@ -313,9 +312,9 @@ class NerfStudio(Method):
             required_features=frozenset(features),
             supported_camera_models=frozenset(
                 (
-                    CameraModel.PINHOLE,
-                    CameraModel.OPENCV,
-                    CameraModel.OPENCV_FISHEYE,
+                    "pinhole",
+                    "opencv",
+                    "opencv_fisheye",
                 )
             ),
         )
@@ -355,7 +354,7 @@ class NerfStudio(Method):
         npmap["pinhole"] = npmap["perspective"]
         npmap["opencv"] = npmap["perspective"]
         npmap["opencv_fisheye"] = npmap["fisheye"]
-        camera_types = [npmap[CameraModel(cameras.camera_types[i]).name.lower()] for i in range(len(poses))]
+        camera_types = [npmap[camera_model_from_int(cameras.camera_types[i])] for i in range(len(poses))]
         sizes = cameras.image_sizes
         distortion_parameters = torch.from_numpy(_map_distortion_parameters(cameras.distortion_parameters))
         ns_cameras = NSCameras(
@@ -460,7 +459,7 @@ class NerfStudio(Method):
             # setup_train is not called for eval dataset
             def setup_train(self, *args, **kwargs):
                 if self.config.camera_optimizer is not None:
-                    self.train_camera_optimizer = self.config.camera_optimizer.setup(num_cameras=self.train_dataset.cameras.size, device=self.device)
+                    self.train_camera_optimizer = self.config.camera_optimizer.setup(num_cameras=self.train_dataset["cameras"].size, device=self.device)
 
             DM.setup_train = setup_train
             # setup_eval is not called for eval dataset
@@ -472,7 +471,7 @@ class NerfStudio(Method):
             self.dataparser_params = torch.load(os.path.join(self.checkpoint, "dataparser_params.pth"), map_location="cpu")
         self.config = copy.deepcopy(self._original_config)
         # We use this hack to release the memory after the data was copied to cached dataloader
-        images_holder = [train_dataset.images]
+        images_holder = [train_dataset["images"]]
 
         self._patch_datamanager(self.config, train_dataset, images_holder)
         self.config.output_dir = Path(self._tmpdir.name)

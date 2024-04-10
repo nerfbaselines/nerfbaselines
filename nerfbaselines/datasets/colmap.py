@@ -4,12 +4,13 @@ import logging
 from pathlib import Path
 from typing import Tuple, Optional, Dict
 import numpy as np
-from ..types import Dataset, DatasetFeature, FrozenSet
+from ..types import DatasetFeature, FrozenSet
+from ..types import CameraModel, camera_model_to_int
 from ..utils import Indices
-from ..cameras import CameraModel, Cameras
 from ._colmap_utils import read_cameras_binary, read_images_binary, read_points3D_binary, qvec2rotmat
 from ._colmap_utils import read_cameras_text, read_images_text, read_points3D_text, Image, Camera, Point3D
-from ._common import DatasetNotFoundError, padded_stack, get_default_viewer_transform
+from ._common import DatasetNotFoundError, padded_stack, get_default_viewer_transform, dataset_index_select, construct_dataset
+from .. import cameras
 
 
 def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.ndarray, Tuple[int, int]]:
@@ -33,7 +34,7 @@ def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.nda
         fl_y = float(camera_params[0])
         cx = float(camera_params[1])
         cy = float(camera_params[2])
-        camera_model = CameraModel.PINHOLE
+        camera_model = "pinhole"
     elif camera.model == "PINHOLE":
         # f, cx, cy, k
 
@@ -43,7 +44,7 @@ def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.nda
         fl_y = float(camera_params[1])
         cx = float(camera_params[2])
         cy = float(camera_params[3])
-        camera_model = CameraModel.PINHOLE
+        camera_model = "pinhole"
     elif camera.model == "SIMPLE_RADIAL":
         # f, cx, cy, k
 
@@ -56,7 +57,7 @@ def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.nda
         cx = float(camera_params[1])
         cy = float(camera_params[2])
         out["k1"] = float(camera_params[3])
-        camera_model = CameraModel.OPENCV
+        camera_model = "opencv"
     elif camera.model == "RADIAL":
         # f, cx, cy, k1, k2
 
@@ -70,7 +71,7 @@ def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.nda
         cy = float(camera_params[2])
         out["k1"] = float(camera_params[3])
         out["k2"] = float(camera_params[4])
-        camera_model = CameraModel.OPENCV
+        camera_model = "opencv"
     elif camera.model == "OPENCV":
         # fx, fy, cx, cy, k1, k2, p1, p2
 
@@ -87,7 +88,7 @@ def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.nda
         out["k2"] = float(camera_params[5])
         out["p1"] = float(camera_params[6])
         out["p2"] = float(camera_params[7])
-        camera_model = CameraModel.OPENCV
+        camera_model = "opencv"
     elif camera.model == "OPENCV_FISHEYE":
         # fx, fy, cx, cy, k1, k2, k3, k4
 
@@ -112,7 +113,7 @@ def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.nda
         out["k2"] = float(camera_params[5])
         out["k3"] = float(camera_params[6])
         out["k4"] = float(camera_params[7])
-        camera_model = CameraModel.OPENCV_FISHEYE
+        camera_model = "opencv_fisheye"
     elif camera.model == "FULL_OPENCV":
         # fx, fy, cx, cy, k1, k2, p1, p2, k3, k4, k5, k6
 
@@ -164,7 +165,7 @@ def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.nda
         cx = float(camera_params[1])
         cy = float(camera_params[2])
         out["k1"] = float(camera_params[3])
-        camera_model = CameraModel.OPENCV_FISHEYE
+        camera_model = "opencv_fisheye"
     elif camera.model == "RADIAL_FISHEYE":
         # f, cx, cy, k1, k2
 
@@ -187,7 +188,7 @@ def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.nda
         out["k2"] = float(camera_params[4])
         out["k3"] = 0.0
         out["k4"] = 0.0
-        camera_model = CameraModel.OPENCV_FISHEYE
+        camera_model = "opencv_fisheye"
     else:
         # THIN_PRISM_FISHEYE not supported!
         raise NotImplementedError(f"{camera.model} camera model is not supported yet!")
@@ -196,7 +197,7 @@ def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.nda
     image_height: int = camera.height
     intrinsics = np.array([fl_x, fl_y, cx, cy], dtype=np.float32)
     distortion_params = np.array([out.get(k, 0.0) for k in ("k1", "k2", "p1", "p2", "k3", "k4")], dtype=np.float32)
-    return intrinsics, camera_model.value, distortion_params, (image_width, image_height)
+    return intrinsics, camera_model_to_int(camera_model), distortion_params, (image_width, image_height)
 
 
 def load_colmap_dataset(path: Path, 
@@ -229,9 +230,9 @@ def load_colmap_dataset(path: Path,
         raise DatasetNotFoundError("Missing 'images' folder in COLMAP dataset")
 
     if (colmap_path / "cameras.bin").exists():
-        cameras = read_cameras_binary(colmap_path / "cameras.bin")
+        colmap_cameras = read_cameras_binary(colmap_path / "cameras.bin")
     elif (colmap_path / "cameras.txt").exists():
-        cameras = read_cameras_text(colmap_path / "cameras.txt")
+        colmap_cameras = read_cameras_text(colmap_path / "cameras.txt")
     else:
         raise DatasetNotFoundError("Missing 'sparse/0/cameras.{bin,txt}' file in COLMAP dataset")
 
@@ -269,14 +270,14 @@ def load_colmap_dataset(path: Path,
     i = 0
     c2w: np.ndarray
     for image in images.values():
-        camera: Camera = cameras[image.camera_id]
+        camera: Camera = colmap_cameras[image.camera_id]
         intrinsics, camera_type, distortion_params, (w, h) = _parse_colmap_camera_params(camera)
         camera_sizes.append(np.array((w, h), dtype=np.int32))
         camera_intrinsics.append(intrinsics)
         camera_types.append(camera_type)
         camera_distortion_params.append(distortion_params)
         image_names.append(image.name)
-        image_paths.append(images_path / image.name)
+        image_paths.append(str(images_path / image.name))
         if sampling_mask_paths is not None:
             sampling_mask_paths.append(sampling_masks_path / Path(image.name).with_suffix(".png"))
 
@@ -305,7 +306,7 @@ def load_colmap_dataset(path: Path,
         points3D_rgb = np.array([p.rgb for p in points3D.values()], dtype=np.uint8)
 
     # camera_ids=torch.tensor(camera_ids, dtype=torch.int32),
-    cameras = Cameras(
+    all_cameras = cameras.Cameras[np.ndarray](
         poses=np.stack(camera_poses, 0).astype(np.float32),
         intrinsics=np.stack(camera_intrinsics, 0).astype(np.float32),
         camera_types=np.array(camera_types, dtype=np.int32),
@@ -313,38 +314,46 @@ def load_colmap_dataset(path: Path,
         image_sizes=np.stack(camera_sizes, 0).astype(np.int32),
         nears_fars=nears_fars.astype(np.float32),
     )
-    dataset = Dataset(
-        cameras=cameras,
+    indices = None
+    train_indices = np.arange(len(image_paths))
+    if split is not None:
+        if test_indices is None and ((path / "train_list.txt").exists() or (path / "test_list.txt").exists()):
+            logging.info(f"colmap dataloader is loading split data from {path / f'{split}_list.txt'}")
+            train_indices = None
+            for split in set(("train", split)):
+                split_image_names = set((path / f"{split}_list.txt").read_text().splitlines())
+                indices = np.ndarray([name in split_image_names for i, name in enumerate(image_names)], dtype=bool)
+                if indices.sum() == 0:
+                    raise DatasetNotFoundError(f"no images found for split {split} in {path / f'{split}_list.txt'}")
+                if indices.sum() < len(split_image_names):
+                    logging.warning(f"only {indices.sum()} images found for split {split} in {path / f'{split}_list.txt'}")
+                if split == "train":
+                    train_indices = indices
+            assert train_indices is not None
+        else:
+            if test_indices is None:
+                test_indices = Indices.every_iters(8)
+            dataset_len = len(image_paths)
+            test_indices.total = dataset_len
+            test_indices_array: np.ndarray = np.array([i in test_indices for i in range(dataset_len)], dtype=bool)
+            train_indices = np.logical_not(test_indices_array)
+            indices = train_indices if split == "train" else test_indices_array
+
+    viewer_transform, viewer_pose = get_default_viewer_transform(all_cameras[train_indices].poses, None)
+    dataset = construct_dataset(
+        cameras=all_cameras,
         file_paths=image_paths,
         points3D_xyz=points3D_xyz,
         points3D_rgb=points3D_rgb,
         sampling_mask_paths=sampling_mask_paths,
         file_paths_root=str(images_path),
-    )
+        metadata={
+            "name": "colmap",
+            "color_space": "srgb",
+            "viewer_transform": viewer_transform,
+            "viewer_initial_pose": viewer_pose,
+        })
+    if indices is not None:
+        dataset = dataset_index_select(dataset, indices)
 
-    if split is not None:
-        if test_indices is None and ((path / "train_list.txt").exists() or (path / "test_list.txt").exists()):
-            logging.info(f"colmap dataloader is loading split data from {path / f'{split}_list.txt'}")
-            split_image_names = set((path / f"{split}_list.txt").read_text().splitlines())
-            indices: np.ndarray = np.ndarray([name in split_image_names for i, name in enumerate(image_names)], dtype=bool)
-            if indices.sum() == 0:
-                raise DatasetNotFoundError(f"no images found for split {split} in {path / f'{split}_list.txt'}")
-            if indices.sum() < len(split_image_names):
-                logging.warning(f"only {indices.sum()} images found for split {split} in {path / f'{split}_list.txt'}")
-        else:
-            if test_indices is None:
-                test_indices = Indices.every_iters(8)
-            test_indices.total = len(dataset)
-            test_indices_array: np.ndarray = np.array([i in test_indices for i in range(len(dataset))], dtype=bool)
-            if split == "train":
-                indices = np.logical_not(test_indices_array)
-            else:
-                indices = test_indices_array
-        dataset = dataset[indices]
-    dataset.metadata["name"] = "colmap"
-    dataset.metadata["color_space"] = "srgb"
-
-    viewer_transform, viewer_pose = get_default_viewer_transform(dataset.cameras.poses, None)
-    dataset.metadata["viewer_transform"] = viewer_transform
-    dataset.metadata["viewer_initial_pose"] = viewer_pose
     return dataset

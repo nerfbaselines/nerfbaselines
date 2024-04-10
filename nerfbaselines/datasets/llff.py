@@ -7,8 +7,9 @@ import logging
 import sys
 from pathlib import Path
 import numpy as np
-from ..types import Dataset, Cameras, CameraModel
-from ._common import DatasetNotFoundError
+from ..types import camera_model_to_int
+from ._common import DatasetNotFoundError, construct_dataset
+from .. import cameras
 
 
 gdrive_id = "16VnMcF1KJYxN9QId6TClMsZRahHNMW5g"
@@ -59,11 +60,11 @@ def load_llff_dataset(path: Path, split: str, downscale_factor: int = 4, **kwarg
     c2w = c2w.copy()
     c2w[..., 0:3, 1:3] *= -1
 
-    return Dataset(
-        cameras=Cameras(
+    return construct_dataset(
+        cameras=cameras.Cameras[np.ndarray](
             poses=c2w,
             intrinsics=(intrinsics)[indices],
-            camera_types=np.full(len(indices), CameraModel.PINHOLE.value, dtype=np.int32),
+            camera_types=np.full(len(indices), camera_model_to_int("pinhole"), dtype=np.int32),
             distortion_parameters=np.zeros((len(indices), 0), dtype=np.float32),
             image_sizes=img_wh.T[indices],
             nears_fars=near_fars[indices],

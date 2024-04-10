@@ -137,7 +137,7 @@ def mock_multinerf():
 
             def new_setup_train(self, train_dataset, *args, **kwargs):
                 nonlocal image_sizes
-                image_sizes = train_dataset.cameras.image_sizes
+                image_sizes = train_dataset["cameras"].image_sizes
                 return old_setup_train(self, train_dataset, *args, **kwargs)
 
             def new_save(self, path):

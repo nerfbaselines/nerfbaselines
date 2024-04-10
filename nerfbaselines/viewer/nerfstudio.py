@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from ..types import Method, Dataset
-from ..cameras import Cameras, CameraModel
+from ..types import Cameras, camera_model_to_int
+from ..datasets import dataset_load_features
 from ..datasets._colmap_utils import qvec2rotmat, rotmat2qvec
 from ..utils import convert_image_dtype
 from ..datasets import load_dataset
@@ -64,10 +65,10 @@ def _get_dataparser_outputs(dataset: Dataset, transform):
     # Transform?
     distortion_parameters = torch.from_numpy(_map_distortion_parameters(dataset.cameras.distortion_parameters))
     camera_types_map = {
-        CameraModel.PINHOLE.value: 0,
-        CameraModel.OPENCV.value: 0,
-        CameraModel.FULL_OPENCV.value: 0,
-        CameraModel.OPENCV_FISHEYE.value: 1,
+        camera_model_to_int("pinhole"): 0,
+        camera_model_to_int("opencv"): 0,
+        camera_model_to_int("full_opencv"): 0,
+        camera_model_to_int("opencv_fisheye"): 1,
     }
     cameras = NSCameras(
         camera_to_worlds=th_poses,
@@ -294,17 +295,17 @@ def run_nerfstudio_viewer(method: Optional[Method], data: str, port=6006):
     assert method is not None, "Method is required"
     if data is not None:
         features = frozenset({"color"})
-        train_dataset = load_dataset(data, split="test", features=features)
-        test_dataset = load_dataset(data, split="train", features=features)
+        train_dataset = load_dataset(data, split="test", features=features, load_features=False)
+        test_dataset = load_dataset(data, split="train", features=features, load_features=False)
         # transform = get_orientation_transform(train_dataset.cameras.poses)
         transform = None
         # NOTE: transform is not supported at the moment
         # The reason is that we cannot undo the transform inside the trajectory export panel
         server = NerfstudioViewer(method, port=port, transform=transform)
 
-        train_dataset.load_features(features)
+        dataset_load_features(train_dataset, features)
         server.add_dataset_views(train_dataset, "train")
-        test_dataset.load_features(features)
+        dataset_load_features(test_dataset, features)
         server.add_dataset_views(test_dataset, "test")
     else:
         server = NerfstudioViewer(method, port=port)

@@ -21,13 +21,13 @@ except ImportError:
 from .utils import setup_logging, image_to_srgb, save_image, visualize_depth, handle_cli_error
 from .render import with_supported_camera_models
 from .utils import convert_image_dtype
-from .types import Method, Literal
-from .cameras import Cameras, CameraModel
+from .types import Method, Literal, Cameras, CameraModel, camera_model_to_int
 from .backends import ALL_BACKENDS
 
 from .io import open_any_directory, deserialize_nb_info
 from . import registry
 from . import backends
+from . import cameras
 
 
 OutputType = Literal["color", "depth"]
@@ -45,7 +45,7 @@ def render_frames(
     output = Path(output)
     assert cameras.image_sizes is not None, "cameras.image_sizes must be set"
     info = method.get_info()
-    render = with_supported_camera_models(info.get("supported_camera_models", frozenset((CameraModel.PINHOLE,))))(method.render)
+    render = with_supported_camera_models(info.get("supported_camera_models", frozenset(("pinhole",))))(method.render)
     color_space = "srgb"
     background_color = nb_info.get("background_color") if nb_info is not None else None
     expected_scene_scale = nb_info.get("expected_scene_scale") if nb_info is not None else None
@@ -121,15 +121,15 @@ def read_nerfstudio_trajectory(data: Dict[str, Any]) -> "Trajectory":
     w = data["render_width"]
 
     if "camera_type" not in data:
-        camera_type = CameraModel.PINHOLE
+        camera_type = "pinhole"
     else:
         camera_type_name = data["camera_type"].upper().replace("-", "_")
         if camera_type_name == "PERSPECTIVE":
-            camera_type = CameraModel.PINHOLE
+            camera_type = "pinhole"
         elif camera_type_name == "FISHEYE":
-            camera_type = CameraModel.OPENCV_FISHEYE
-        elif camera_type_name in CameraModel:
-            camera_type = CameraModel[camera_type_name]
+            camera_type = "pinhole"
+        elif camera_type_name in get_args(CameraModel):
+            camera_type = camera_type_name
         else:
             raise RuntimeError(f"Unsupported camera type {data['camera_type']}.")
 
@@ -158,11 +158,11 @@ def read_nerfstudio_trajectory(data: Dict[str, Any]) -> "Trajectory":
     cy = np.array(cys, dtype=np.float32)
     intrinsics = np.stack([fx, fy, cx, cy], -1)
     return Trajectory(
-        cameras=Cameras(
+        cameras=cameras.Cameras[np.ndarray](
             poses=camera_to_worlds,
             intrinsics=intrinsics,
             image_sizes=np.array((w, h), dtype=np.int32)[None].repeat(len(camera_to_worlds), 0),
-            camera_types=np.array([camera_type.value] * len(camera_to_worlds), dtype=np.int32),
+            camera_types=np.array([camera_model_to_int(camera_type)] * len(camera_to_worlds), dtype=np.int32),
             distortion_parameters=np.zeros((len(camera_to_worlds), 0), dtype=np.float32),
             nears_fars=None,
         ),

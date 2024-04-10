@@ -7,7 +7,6 @@ import os
 import numpy as np
 from nerfbaselines import Method, MethodInfo, Cameras, RenderOutput, Indices, ModelInfo
 from nerfbaselines.datasets import _colmap_utils as colmap_utils
-from nerfbaselines.cameras import CameraModel
 from nerfbaselines import metrics
 from unittest import mock
 import tarfile
@@ -59,7 +58,7 @@ class _TestMethod(Method):
         return {
             "name": "_test",
             "required_features": frozenset(("color",)),
-            "supported_camera_models": frozenset((CameraModel.PINHOLE,)),
+            "supported_camera_models": frozenset(("pinhole",)),
         }
 
 
@@ -69,10 +68,10 @@ class _TestMethod(Method):
             "loaded_step": None,
             "supported_camera_models": frozenset(
                 (
-                    CameraModel.PINHOLE,
-                    CameraModel.OPENCV,
-                    CameraModel.OPENCV_FISHEYE,
-                    CameraModel.FULL_OPENCV,
+                    "pinhole",
+                    "opencv",
+                    "opencv_fisheye",
+                    "full_opencv",
                 )
             ),
             "num_iterations": 13,
@@ -292,13 +291,13 @@ def test_train_command_undistort(tmp_path, wandb_init_run):
     class _Method(_TestMethod):
         def get_info(self) -> ModelInfo:
             info: ModelInfo = {**super().get_info()}
-            info["supported_camera_models"] = frozenset((CameraModel.PINHOLE,))
+            info["supported_camera_models"] = frozenset(("pinhole",))
             return info
 
         def __init__(self, *args, train_dataset, **kwargs):
             nonlocal setup_data_was_called
             setup_data_was_called = True
-            assert all(train_dataset.cameras.camera_types == 0)
+            assert all(train_dataset["cameras"].camera_types == 0)
             super().__init__(*args, train_dataset=train_dataset, **kwargs)
 
         def render(self, cameras, *args, **kwargs):
@@ -351,13 +350,13 @@ def test_render_command(tmp_path, output_type):
     class _Method(_TestMethod):
         def get_info(self) -> ModelInfo:
             info: ModelInfo = {**super().get_info()}
-            info["supported_camera_models"] = frozenset((CameraModel.PINHOLE,))
+            info["supported_camera_models"] = frozenset(("pinhole",))
             return info
 
         def __init__(self, *args, train_dataset, **kwargs):
             nonlocal setup_data_was_called
             setup_data_was_called = True
-            assert all(train_dataset.cameras.camera_types == 0)
+            assert all(train_dataset["cameras"].camera_types == 0)
             super().__init__(*args, train_dataset=train_dataset, **kwargs)
 
         def render(self, cameras, *args, **kwargs):

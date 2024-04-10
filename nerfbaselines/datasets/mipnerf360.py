@@ -9,7 +9,7 @@ import zipfile
 from tqdm import tqdm
 import tempfile
 from ..types import Dataset
-from ._common import DatasetNotFoundError, single, get_scene_scale, get_default_viewer_transform
+from ._common import DatasetNotFoundError, single, get_scene_scale, get_default_viewer_transform, dataset_index_select
 from .colmap import load_colmap_dataset
 
 
@@ -40,28 +40,28 @@ def load_mipnerf360_dataset(path: Path, split: str, **kwargs):
     # Use split=None to load all images
     # We then select the same images as in the LLFF multinerf dataset loader
     dataset: Dataset = load_colmap_dataset(path, images_path=images_path, split=None, **kwargs)
-    dataset.metadata["name"] = "mipnerf360"
-    dataset.metadata["scene"] = scene
-    dataset.metadata["expected_scene_scale"] = get_scene_scale(dataset.cameras, "object-centric")
-    dataset.metadata["type"] = "object-centric"
-    dataset.metadata["color_space"] = "srgb"
+    dataset["metadata"]["name"] = "mipnerf360"
+    dataset["metadata"]["scene"] = scene
+    dataset["metadata"]["expected_scene_scale"] = get_scene_scale(dataset["cameras"], "object-centric")
+    dataset["metadata"]["type"] = "object-centric"
+    dataset["metadata"]["color_space"] = "srgb"
 
-    viewer_transform, viewer_pose = get_default_viewer_transform(dataset.cameras.poses, "object-centric")
-    dataset.metadata["viewer_transform"] = viewer_transform
-    dataset.metadata["viewer_initial_pose"] = viewer_pose
+    viewer_transform, viewer_pose = get_default_viewer_transform(dataset["cameras"].poses, "object-centric")
+    dataset["metadata"]["viewer_transform"] = viewer_transform
+    dataset["metadata"]["viewer_initial_pose"] = viewer_pose
 
 
-    image_names = dataset.file_paths
+    image_names = dataset["file_paths"]
     inds = np.argsort(image_names)
 
-    all_indices = np.arange(len(dataset))
+    all_indices = np.arange(len(dataset["file_paths"]))
     llffhold = 8
     if split == "train":
         indices = all_indices % llffhold != 0
     else:
         indices = all_indices % llffhold == 0
     indices = inds[indices]
-    return dataset[indices]
+    return dataset_index_select(dataset, indices)
 
 
 def download_mipnerf360_dataset(path: str, output: Path):

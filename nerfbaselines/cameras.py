@@ -1,22 +1,46 @@
-from typing import Optional, Sequence, Tuple, cast
-from enum import Enum
+from typing import Optional, Sequence, Tuple, cast, Dict, TypeVar, TYPE_CHECKING
 from dataclasses import dataclass
 import dataclasses
 import numpy as np
-from .utils import cached_property, padded_stack, is_broadcastable, convert_image_dtype
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self
+try:
+    from typing import Generic
+except ImportError:
+    from typing_extensions import Generic
+from .utils import padded_stack, is_broadcastable, convert_image_dtype, Literal, get_args
 from .types import Protocol, runtime_checkable
+from . import types
 
 
-class CameraModel(Enum):
-    PINHOLE = 0
-    OPENCV = 1
-    OPENCV_FISHEYE = 2
-    FULL_OPENCV = 3
+if TYPE_CHECKING:
+    import torch
+    import jax.numpy as jnp
+    TTensor = TypeVar("TTensor", np.ndarray, jnp.ndarray, torch.Tensor)
+else:
+    TTensor = TypeVar("TTensor")
+CameraModel = Literal["pinhole", "opencv", "opencv_fisheye", "full_opencv"]
+
+
+def camera_model_to_int(camera_model: CameraModel) -> int:
+    camera_models = get_args(CameraModel)
+    if camera_model not in camera_models:
+        raise ValueError(f"Unknown camera model {camera_model}, known models are {camera_models}")
+    return get_args(CameraModel).index(camera_model)
+
+
+def camera_model_from_int(i: int) -> CameraModel:
+    camera_models = get_args(CameraModel)
+    if i >= len(camera_models):
+        raise ValueError(f"Unknown camera model with index {i}, known models are {camera_models}")
+    return get_args(CameraModel)[i]
 
 
 @runtime_checkable
 class _DistortionFunction(Protocol):
-    def __call__(self, params: np.ndarray, uv: np.ndarray, xnp=np) -> np.ndarray:
+    def __call__(self, distortion_params: np.ndarray, uv: np.ndarray, xnp=np) -> np.ndarray:
         ...
 
 
@@ -310,10 +334,10 @@ def _distort_full_opencv(distortion_params, uv, xnp=np):
     return xnp.stack((du, dv), -1)
 
 
-_DISTORTIONS = {
-    CameraModel.OPENCV: _distort_opencv,
-    CameraModel.OPENCV_FISHEYE: _distort_opencv_fisheye,
-    CameraModel.FULL_OPENCV: _distort_full_opencv,
+_DISTORTIONS: Dict[CameraModel, _DistortionFunction] = {
+    "opencv": _distort_opencv,
+    "opencv_fisheye": _distort_opencv_fisheye,
+    "full_opencv": _distort_full_opencv,
 }
 
 
@@ -327,12 +351,12 @@ def _distort(camera_types, distortion_params, uv, xnp=np):
         uv: [batch, ..., 2]
         xnp: The numpy module to use.
     """
-    pinhole_mask = camera_types == CameraModel.PINHOLE.value
+    pinhole_mask = camera_types == camera_model_to_int("pinhole")
     if xnp.all(pinhole_mask):
         return uv
     out = None
     for cam, distortion in _DISTORTIONS.items():
-        mask = camera_types == cam.value
+        mask = camera_types == camera_model_to_int(cam)
         if xnp.any(mask):
             if xnp.all(mask):
                 return uv + distortion(distortion_params, uv, xnp=xnp)
@@ -346,12 +370,12 @@ def _distort(camera_types, distortion_params, uv, xnp=np):
 
 
 def _undistort(camera_types: np.ndarray, distortion_params: np.ndarray, uv: np.ndarray, xnp=np, **kwargs):
-    pinhole_mask = camera_types == CameraModel.PINHOLE.value
+    pinhole_mask = camera_types == camera_model_to_int("pinhole")
     if xnp.all(pinhole_mask):
         return uv
     out = None
     for cam, distortion in _DISTORTIONS.items():
-        mask = camera_types == cam.value
+        mask = camera_types == camera_model_to_int(cam)
         if xnp.any(mask):
             if xnp.all(mask):
                 return _iterative_undistortion(distortion, uv, distortion_params, xnp=xnp, **kwargs)
@@ -365,17 +389,28 @@ def _undistort(camera_types: np.ndarray, distortion_params: np.ndarray, uv: np.n
 
 
 @dataclass(frozen=True)
-class Cameras:
-    poses: np.ndarray  # [N, (R, t)]
-    intrinsics: np.ndarray  # [N, (fx,fy,cx,cy)]
+class Cameras(Generic[TTensor]):
+    poses: TTensor  # [N, (R, t)]
+    intrinsics: TTensor  # [N, (fx,fy,cx,cy)]
 
     # Distortions
-    camera_types: np.ndarray  # [N]
-    distortion_parameters: np.ndarray  # [N, num_params]
+    camera_types: TTensor  # [N]
+    distortion_parameters: TTensor  # [N, num_params]
+    image_sizes: TTensor  # [N, 2]
 
-    image_sizes: Optional[np.ndarray]  # [N, 2]
-    nears_fars: Optional[np.ndarray]  # [N, 2]
-    metadata: Optional[np.ndarray] = None
+    nears_fars: Optional[TTensor]  # [N, 2]
+    metadata: Optional[TTensor] = None
+
+    @classmethod
+    def new(cls, cameras: types.Cameras, copy: bool = False) -> Self:
+        return cls(
+            poses=np.copy(cameras.poses),
+            intrinsics=np.copy(cameras.intrinsics),
+            camera_types=np.copy(cameras.camera_types),
+            distortion_parameters=np.copy(cameras.distortion_parameters),
+            image_sizes=np.copy(cameras.image_sizes),
+            nears_fars=np.copy(cameras.nears_fars) if cameras.nears_fars is not None else None,
+            metadata=np.copy(cameras.metadata) if cameras.metadata is not None else None)
 
     def __len__(self):
         if len(self.poses.shape) == 2:
@@ -394,7 +429,7 @@ class Cameras:
             intrinsics=self.intrinsics[index],
             camera_types=self.camera_types[index],
             distortion_parameters=self.distortion_parameters[index],
-            image_sizes=self.image_sizes[index] if self.image_sizes is not None else None,
+            image_sizes=self.image_sizes[index],
             nears_fars=self.nears_fars[index] if self.nears_fars is not None else None,
             metadata=self.metadata[index] if self.metadata is not None else None,
         )
@@ -406,8 +441,7 @@ class Cameras:
         self.intrinsics[index] = value.intrinsics
         self.camera_types[index] = value.camera_types
         self.distortion_parameters[index] = value.distortion_parameters
-        if self.image_sizes is not None:
-            self.image_sizes[index] = value.image_sizes
+        self.image_sizes[index] = value.image_sizes
         if self.nears_fars is not None:
             self.nears_fars[index] = value.nears_fars
         if self.metadata is not None:
@@ -418,7 +452,7 @@ class Cameras:
             yield self[i]
 
     @staticmethod
-    def get_image_pixels(image_sizes: np.ndarray, xnp=np) -> np.ndarray:
+    def get_image_pixels(image_sizes: TTensor, xnp=np) -> TTensor:
         if len(image_sizes.shape) == 1:
             w, h = image_sizes
             return np.stack(np.meshgrid(np.arange(w), np.flip(np.arange(h)), indexing="xy"), -1).reshape(-1, 2)
@@ -487,13 +521,13 @@ class Cameras:
         metadata = None
         if any(v.image_sizes is not None for v in values):
             assert all(v.image_sizes is not None for v in values), "Either all or none of the cameras must have image sizes"
-            image_sizes = np.concatenate([cast(np.ndarray, v.image_sizes) for v in values])
+            image_sizes = np.concatenate([cast(TTensor, v.image_sizes) for v in values])
         if any(v.nears_fars is not None for v in values):
             assert all(v.nears_fars is not None for v in values), "Either all or none of the cameras must have nears and fars"
-            nears_fars = np.concatenate([cast(np.ndarray, v.nears_fars) for v in values])
+            nears_fars = np.concatenate([cast(TTensor, v.nears_fars) for v in values])
         if any(v.metadata is not None for v in values):
             assert all(v.metadata is not None for v in values), "Either all or none of the cameras must have metadata"
-            metadata = np.concatenate([cast(np.ndarray, v.metadata) for v in values])
+            metadata = np.concatenate([cast(TTensor, v.metadata) for v in values])
         return cls(
             poses=np.concatenate([v.poses for v in values]),
             intrinsics=np.concatenate([v.intrinsics for v in values]),
@@ -504,13 +538,13 @@ class Cameras:
             metadata=metadata,
         )
 
-    def with_image_sizes(self, image_sizes: np.ndarray) -> "Cameras":
+    def with_image_sizes(self, image_sizes: TTensor) -> "Cameras":
         multipliers = image_sizes.astype(self.intrinsics.dtype) / self.image_sizes 
         multipliers = np.concatenate([multipliers, multipliers], -1)
         intrinsics = self.intrinsics * multipliers
         return dataclasses.replace(self, image_sizes=image_sizes, intrinsics=intrinsics)
 
-    def with_metadata(self, metadata: np.ndarray) -> "Cameras":
+    def with_metadata(self, metadata: TTensor) -> "Cameras":
         return dataclasses.replace(self, metadata=metadata)
 
     def clone(self) -> "Cameras":
@@ -523,29 +557,6 @@ class Cameras:
             image_sizes=np.copy(self.image_sizes) if self.image_sizes is not None else None,
             nears_fars=np.copy(self.nears_fars) if self.nears_fars is not None else None,
             metadata=np.copy(self.metadata) if self.metadata is not None else None)
-
-
-# def undistort_images(cameras: Cameras, images: np.ndarray) -> np.ndarray:
-#     """
-#     Undistort images
-#
-#     Args:
-#         cameras: Original distorted cameras [N_cams]
-#         images: Images to undistort [N_cams, H, W, C]
-#     Returns:
-#         undistorted images: [N_cams, H, W, C]
-#     """
-#     assert len(cameras) == len(images), "Number of cameras and images must be the same"
-#     outputs = []
-#     undistorted_cameras = cameras.undistort()
-#     for cam, cam_target, img in zip(cameras, undistorted_cameras, images):
-#         if cam.camera_types.item() != CameraModel.PINHOLE.value:
-#             # Undistort
-#             w, h = cam.image_sizes
-#             outputs.append(warp_image_between_cameras(cam, cam_target, img[:h, :w]))
-#         else:
-#             outputs.append(img)
-#     return padded_stack(outputs)
 
 
 def interpolate_bilinear(image: np.ndarray, xy: np.ndarray, xnp=np) -> np.ndarray:
@@ -648,7 +659,7 @@ def undistort_camera(camera: Cameras, xnp=np):
     assert camera.image_sizes is not None, "Camera must have image sizes"
     original_camera = camera
 
-    mask = camera.camera_types != CameraModel.PINHOLE.value
+    mask = camera.camera_types != camera_model_to_int("pinhole")
     if not np.any(mask):
         return camera
 
@@ -740,7 +751,7 @@ def undistort_camera(camera: Cameras, xnp=np):
         image_sizes[mask] = undistorted_image_sizes
     return dataclasses.replace(
         original_camera,
-        camera_types=np.full_like(original_camera.camera_types, CameraModel.PINHOLE.value),
+        camera_types=np.full_like(original_camera.camera_types, camera_model_to_int("pinhole")),
         distortion_parameters=np.zeros_like(original_camera.distortion_parameters),
         intrinsics=intrinsics,
         image_sizes=image_sizes,

@@ -24,7 +24,7 @@ import tempfile
 from argparse import ArgumentParser
 
 from nerfbaselines.types import Dataset, OptimizeEmbeddingsOutput, RenderOutput, MethodInfo, ModelInfo
-from nerfbaselines import Cameras, CameraModel
+from nerfbaselines.types import Cameras, CameraModel
 from nerfbaselines import Method
 from nerfbaselines.types import Optional
 from nerfbaselines.utils import padded_stack, convert_image_dtype
@@ -38,28 +38,28 @@ def shlex_join(split_command):
 
 
 def load_dataset(args, dataset: Dataset, transform_args=None):
-    poses = dataset.cameras.poses.copy()
+    poses = dataset["cameras"].poses.copy()
     imgs = None
-    if dataset.images is not None:
-        imgs = np.stack(dataset.images, 0)
+    if dataset["images"] is not None:
+        imgs = np.stack(dataset["images"], 0)
         imgs = convert_image_dtype(imgs, np.float32)
 
     # Convert from OpenCV to OpenGL coordinate system
     poses[..., 1:3] *= -1
     poses = poses.astype(np.float32)
-    W, H = dataset.cameras.image_sizes[0]
-    focal = dataset.cameras.intrinsics[0, 0]
+    W, H = dataset["cameras"].image_sizes[0]
+    focal = dataset["cameras"].intrinsics[0, 0]
     if args.dataset_type == "blender":
         assert (
-            np.all(dataset.cameras.image_sizes[..., 0] == W) and
-            np.all(dataset.cameras.image_sizes[..., 1] == H) and
-            np.all(dataset.cameras.intrinsics[..., 0] == focal) and
-            np.all(dataset.cameras.intrinsics[..., 1] == focal)
+            np.all(dataset["cameras"].image_sizes[..., 0] == W) and
+            np.all(dataset["cameras"].image_sizes[..., 1] == H) and
+            np.all(dataset["cameras"].intrinsics[..., 0] == focal) and
+            np.all(dataset["cameras"].intrinsics[..., 1] == focal)
         ), "All images must have the same width, height, and focal lenghts"
         cx, cy = W / 2, H / 2
         assert (
-            np.all(dataset.cameras.intrinsics[..., 2] == cx) and
-            np.all(dataset.cameras.intrinsics[..., 3] == cy)
+            np.all(dataset["cameras"].intrinsics[..., 2] == cx) and
+            np.all(dataset["cameras"].intrinsics[..., 3] == cy)
         ), "All images must have the same principal point in the center of the image"
 
         near = 2.
@@ -81,11 +81,11 @@ def load_dataset(args, dataset: Dataset, transform_args=None):
             recenter=True
             spherify=args.spherify
 
-            bds = dataset.cameras.nears_fars
+            bds = dataset["cameras"].nears_fars
             print('Loaded', bds.min(), bds.max())
             
             # Rescale if bd_factor is provided
-            near_original = dataset.cameras.nears_fars.min()
+            near_original = dataset["cameras"].nears_fars.min()
             bd_factor=.75  # 0.75 is the default parameter
             sc = 1 / (near_original * bd_factor)
             poses[:,:3,3] *= sc
@@ -213,12 +213,12 @@ class NeRF(Method):
             config_overrides = (config_overrides or {}).copy()
 
             self.metadata["dataset_metadata"] = {
-                "type": train_dataset.metadata.get("type"),
-                "name": train_dataset.metadata.get("name"),
+                "type": train_dataset["metadata"].get("type"),
+                "name": train_dataset["metadata"].get("name"),
             }
 
             # Load dataset-specific config
-            dataset_name = train_dataset.metadata.get("name")
+            dataset_name = train_dataset["metadata"].get("name")
             if dataset_name == "blender":
                 config_name = "blender_config.txt"
             elif dataset_name == "llff":
@@ -418,7 +418,7 @@ class NeRF(Method):
         if embeddings is not None:
             raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
         _, poses, _ = load_dataset(self.args,
-            Dataset(
+            dict(
                 cameras=cameras,
                 file_paths=[f"{i:06d}.png" for i in range(len(cameras))],
                 metadata=self.metadata["dataset_metadata"],

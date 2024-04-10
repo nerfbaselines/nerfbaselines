@@ -11,7 +11,7 @@ import numpy as np
 import functools
 import gc
 from ...types import Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput
-from ...cameras import Cameras, CameraModel
+from ...types import Cameras, camera_model_to_int
 try:
     # We need to import torch before jax to load correct CUDA libraries
     import torch
@@ -67,21 +67,21 @@ def flatten_data(images):
 
 
 def convert_posedata(dataset: Dataset):
-    camera_types = dataset.cameras.camera_types
+    camera_types = dataset["cameras"].camera_types
     assert np.all(camera_types == camera_types[:1]), "Currently, all camera types must be the same for the ZipNeRF method"
     camtype = {
-        CameraModel.PINHOLE.value: camera_utils.ProjectionType.PERSPECTIVE,
-        CameraModel.OPENCV.value: camera_utils.ProjectionType.PERSPECTIVE,
-        CameraModel.OPENCV_FISHEYE.value: camera_utils.ProjectionType.FISHEYE,
+        camera_model_to_int("pinhole"): camera_utils.ProjectionType.PERSPECTIVE,
+        camera_model_to_int("opencv"): camera_utils.ProjectionType.PERSPECTIVE,
+        camera_model_to_int("opencv_fisheye"): camera_utils.ProjectionType.FISHEYE,
     }[camera_types[0]]
 
     names = []
     camtoworlds = []
     pixtocams = []
-    for i in range(len(dataset)):
-        names.append(dataset.file_paths[i])
-        camtoworlds.append(dataset.cameras.poses[i])
-        fx, fy, cx, cy = dataset.cameras.intrinsics[i]
+    for i in range(len(dataset["file_paths"])):
+        names.append(dataset["file_paths"][i])
+        camtoworlds.append(dataset["cameras"].poses[i])
+        fx, fy, cx, cy = dataset["cameras"].intrinsics[i]
         pixtocams.append(np.linalg.inv(camera_utils.intrinsic_matrix(fx, fy, cx, cy)))
     camtoworlds = np.stack(camtoworlds, axis=0).astype(np.float32).copy()
 
@@ -90,8 +90,8 @@ def convert_posedata(dataset: Dataset):
 
     pixtocams = np.stack(pixtocams, axis=0)
     distortion_params = None
-    if dataset.cameras.distortion_parameters is not None:
-        distortion_params = dict(zip(["k1", "k2", "p1", "p2", "k3", "k4"], np.moveaxis(dataset.cameras.distortion_parameters, -1, 0)))
+    if dataset["cameras"].distortion_parameters is not None:
+        distortion_params = dict(zip(["k1", "k2", "p1", "p2", "k3", "k4"], np.moveaxis(dataset["cameras"].distortion_parameters, -1, 0)))
     return camtoworlds, pixtocams, distortion_params, camtype
 
 
@@ -181,7 +181,7 @@ class MNDataset(datasets.Dataset):
         assert not config.rawnerf_mode, "RawNeRF mode is not supported for the ZipNeRF method yet"
         assert not config.forward_facing, "Forward facing scenes are not supported for the ZipNeRF method yet"
         poses, pixtocams, distortion_params, camtype = convert_posedata(self.dataset)
-        self.points = self.dataset.points3D_xyz
+        self.points = self.dataset["points3D_xyz"]
         if self.verbose:
             print(f"*** Loaded camera parameters for {len(poses)} images")
 
@@ -190,9 +190,9 @@ class MNDataset(datasets.Dataset):
         self.camtype = camtype
 
         images = []
-        for img in self.dataset.images:
+        for img in self.dataset["images"]:
             img = img.astype(np.float32) / 255.0
-            if self.dataset.metadata.get("name") == "blender" and img.shape[-1] == 4:
+            if self.dataset["metadata"].get("name") == "blender" and img.shape[-1] == 4:
                 # Blend with white background.
                 img = img[..., :3] * img[..., 3:] + (1 - img[..., 3:])
             images.append(img)
@@ -211,11 +211,11 @@ class MNDataset(datasets.Dataset):
             transform, scale = get_transform_and_scale(self.colmap_to_world_transform)
             poses = unpad_poses(transform @ pad_poses(poses))
             poses[:, :3, 3] *= scale
-        elif self.dataset.metadata.get("name") == "blender":
+        elif self.dataset["metadata"].get("name") == "blender":
             self.dataparser_transform = (None, np.eye(4))
             meters_per_colmap = self.dataparser_transform[0]
         elif self.dataparser_transform is None:
-            meters_per_colmap = camera_utils.get_meters_per_colmap_from_calibration_images(config, poses, [x.name for x in self.dataset.file_paths])
+            meters_per_colmap = camera_utils.get_meters_per_colmap_from_calibration_images(config, poses, [x.name for x in self.dataset["file_paths"]])
 
             # Rotate/scale poses to align ground with xy plane and fit to unit cube.
             if config.transform_poses_fn is None:
@@ -287,7 +287,7 @@ class MNDataset(datasets.Dataset):
             images = all_images
             self.pixtocams = np.concatenate(all_pixtocams, axis=0).astype(np.float32)
 
-        widths, heights = np.moveaxis(self.dataset.cameras.image_sizes, -1, 0)
+        widths, heights = np.moveaxis(self.dataset["cameras"].image_sizes, -1, 0)
         const_height = np.all(np.array(heights) == heights[0])
         const_width = np.all(np.array(widths) == widths[0])
         if const_height and const_width:
@@ -352,7 +352,7 @@ class CamP_ZipNeRF(Method):
             self.config = self._load_config()
             self._setup_eval()
         elif train_dataset is not None:
-            self.config = self._load_config(train_dataset.metadata.get("name"), config_overrides)
+            self.config = self._load_config(train_dataset["metadata"].get("name"), config_overrides)
             self._setup_train(train_dataset)
         else:
             raise ValueError("Either checkpoint or train_dataset must be provided")
@@ -391,7 +391,7 @@ class CamP_ZipNeRF(Method):
         return MethodInfo(
             name=cls._method_name,
             required_features=frozenset(("color",)),
-            supported_camera_models=frozenset((CameraModel.PINHOLE, CameraModel.OPENCV, CameraModel.OPENCV_FISHEYE)),
+            supported_camera_models=frozenset(("pinhole", "opencv", "opencv_fisheye")),
         )
 
     def get_info(self):
@@ -443,7 +443,7 @@ class CamP_ZipNeRF(Method):
         self._camera_type = dataset.camtype
         assert self._dataparser_transform is not None
 
-        self.cameras = jax.tree_util.tree_map(np_to_jax, dataset.cameras)
+        self.cameras = jax.tree_util.tree_map(np_to_jax, dataset["cameras"])
         self.cameras_replicated = flax.jax_utils.replicate(self.cameras)
 
         rng, key = random.split(rng)
@@ -565,7 +565,7 @@ class CamP_ZipNeRF(Method):
         mwidth, mheight = sizes.max(0)
         assert self._dataparser_transform is not None
         test_dataset = MNDataset(
-            Dataset(
+            dict(
                 cameras=cameras,
                 file_paths=[f"{i:06d}.png" for i in range(len(poses))],
                 images=np.zeros((len(sizes), mheight, mwidth, 3), dtype=np.uint8),
@@ -575,7 +575,7 @@ class CamP_ZipNeRF(Method):
             dataparser_transform=self._dataparser_transform,
             verbose=False,
         )
-        cameras = jax.tree_util.tree_map(np_to_jax, test_dataset.cameras)
+        cameras = jax.tree_util.tree_map(np_to_jax, test_dataset["cameras"])
         cameras_replicated = flax.jax_utils.replicate(cameras)
 
         for i in range(len(poses)):
@@ -594,7 +594,7 @@ class CamP_ZipNeRF(Method):
 
             # TODO: handle rawnerf color space
             # if config.rawnerf_mode:
-            #     postprocess_fn = test_dataset.metadata['postprocess_fn']
+            #     postprocess_fn = test_dataset["metadata"]['postprocess_fn']
             # else:
             accumulation = rendering["acc"]
             eps = np.finfo(accumulation.dtype).eps

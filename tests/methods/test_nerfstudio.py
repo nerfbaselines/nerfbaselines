@@ -136,12 +136,6 @@ def mock_nerfstudio(mock_torch):
         _ = dataparser.get_dataparser_outputs(split="test")
         datamanager = config.pipeline.datamanager._target()
         _dataset = datamanager.dataset_type(train_dataparser_outputs)
-        # if len(train_dataparser_outputs.image_filenames) > 0:
-        #     for i in range(3):
-        #         img = dataset.get_image(i)
-        #         assert img is not None
-        #         assert len(img.shape) == 3
-        #         assert img.dtype == torch.float32
 
     trainer.setup = mock.Mock(side_effect=setup)
 

@@ -12,8 +12,8 @@ import tempfile
 import numpy as np
 from PIL import Image
 from ...types import Method, MethodInfo, ModelInfo, OptimizeEmbeddingsOutput, RenderOutput
+from ...types import Cameras, camera_model_to_int
 from ...datasets import Dataset
-from ...cameras import CameraModel, Cameras
 from ...utils import cached_property, flatten_hparams, remap_error
 from ...pose_utils import get_transform_and_scale
 from ...math_utils import rotate_spherical_harmonics, rotation_matrix_to_quaternion, quaternion_multiply
@@ -150,22 +150,22 @@ def _load_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, ima
 def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: str, white_background: bool = False, scale_coords=None):
     if dataset is None:
         return SceneInfo(None, [], [], nerf_normalization=dict(radius=None, translate=None), ply_path=None)
-    assert np.all(dataset.cameras.camera_types == CameraModel.PINHOLE.value), "Only pinhole cameras supported"
+    assert np.all(dataset["cameras"].camera_types == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
 
     cam_infos = []
-    for idx, extr in enumerate(dataset.cameras.poses):
-        intrinsics = dataset.cameras.intrinsics[idx]
-        width, height = dataset.cameras.image_sizes[idx]
-        pose = dataset.cameras.poses[idx]
-        image_path = dataset.file_paths[idx] if dataset.file_paths is not None else f"{idx:06d}.png"
+    for idx, extr in enumerate(dataset["cameras"].poses):
+        intrinsics = dataset["cameras"].intrinsics[idx]
+        width, height = dataset["cameras"].image_sizes[idx]
+        pose = dataset["cameras"].poses[idx]
+        image_path = dataset["file_paths"][idx] if dataset["file_paths"] is not None else f"{idx:06d}.png"
         image_name = (
-            os.path.relpath(str(dataset.file_paths[idx]), str(dataset.file_paths_root)) if dataset.file_paths is not None and dataset.file_paths_root is not None else os.path.basename(image_path)
+            os.path.relpath(str(dataset["file_paths"][idx]), str(dataset["file_paths_root"])) if dataset["file_paths"] is not None and dataset["file_paths_root"] is not None else os.path.basename(image_path)
         )
 
-        w, h = dataset.cameras.image_sizes[idx]
-        im_data = dataset.images[idx][:h, :w]
+        w, h = dataset["cameras"].image_sizes[idx]
+        im_data = dataset["images"][idx][:h, :w]
         assert im_data.dtype == np.uint8, "Gaussian Splatting supports images as uint8"
-        if dataset.metadata.get("name", None) == "blender":
+        if dataset["metadata"].get("name", None) == "blender":
             assert white_background, "white_background must be set for blender scenes"
             assert im_data.shape[-1] == 4
             bg = np.array([1, 1, 1])
@@ -176,8 +176,8 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
             assert not white_background, "white_background is only supported for blender scenes"
         image = Image.fromarray(im_data)
         sampling_mask = None
-        if dataset.sampling_masks is not None:
-            sampling_mask = Image.fromarray((dataset.sampling_masks[idx] * 255).astype(np.uint8))
+        if dataset["sampling_masks"] is not None:
+            sampling_mask = Image.fromarray((dataset["sampling_masks"][idx] * 255).astype(np.uint8))
 
         cam_info = _load_caminfo(
             idx, pose, intrinsics, 
@@ -193,11 +193,11 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
     cam_infos = sorted(cam_infos.copy(), key=lambda x: x.image_name)
     nerf_normalization = getNerfppNorm(cam_infos)
 
-    points3D_xyz = dataset.points3D_xyz
+    points3D_xyz = dataset["points3D_xyz"]
     if scale_coords is not None:
         points3D_xyz = points3D_xyz * scale_coords
-    points3D_rgb = dataset.points3D_rgb
-    if points3D_xyz is None and dataset.metadata.get("name", None) == "blender":
+    points3D_rgb = dataset["points3D_rgb"]
+    if points3D_xyz is None and dataset["metadata"].get("name", None) == "blender":
         # https://github.com/graphdeco-inria/gaussian-splatting/blob/2eee0e26d2d5fd00ec462df47752223952f6bf4e/scene/dataset_readers.py#L221C4-L221C4
         num_pts = 100_000
         logging.info(f"generating random point cloud ({num_pts})...")
@@ -240,7 +240,7 @@ class GaussianSplatting(Method):
 
         # Setup config
         if self.checkpoint is None:
-            if train_dataset.metadata.get("name") == "blender":
+            if train_dataset["metadata"].get("name") == "blender":
                 # Blender scenes have white background
                 self._args_list.append("--white_background")
                 logging.info("overriding default background color to white for blender dataset")
@@ -257,7 +257,7 @@ class GaussianSplatting(Method):
 
         if self.checkpoint is None:
             # Verify parameters are set correctly
-            if train_dataset.metadata.get("name") == "blender":
+            if train_dataset["metadata"].get("name") == "blender":
                 assert self.dataset.white_background, "white_background should be True for blender dataset"
 
         if train_dataset is not None:
@@ -293,7 +293,7 @@ class GaussianSplatting(Method):
 
         bg_color = [1, 1, 1] if self.dataset.white_background else [0, 0, 0]
         self.background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
-        self._input_points = (train_dataset.points3D_xyz, train_dataset.points3D_rgb)
+        self._input_points = (train_dataset["points3D_xyz"], train_dataset["points3D_rgb"])
         self._viewpoint_stack = []
 
     def _setup_eval(self):
@@ -326,7 +326,7 @@ class GaussianSplatting(Method):
         return MethodInfo(
             name=cls._method_name,
             required_features=frozenset(("color", "points3D_xyz")),
-            supported_camera_models=frozenset((CameraModel.PINHOLE,)),
+            supported_camera_models=frozenset(("pinhole",)),
         )
 
     def get_info(self) -> ModelInfo:
@@ -363,7 +363,7 @@ class GaussianSplatting(Method):
     def render(self, cameras: Cameras, embeddings=None) -> Iterable[RenderOutput]:
         if embeddings is not None:
             raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
-        assert np.all(cameras.camera_types == CameraModel.PINHOLE.value), "Only pinhole cameras supported"
+        assert np.all(cameras.camera_types == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
         sizes = cameras.image_sizes
         poses = cameras.poses
         intrinsics = cameras.intrinsics

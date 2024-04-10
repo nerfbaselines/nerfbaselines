@@ -1,33 +1,31 @@
 import os
 import logging
-import sys
 from pathlib import Path
 import math
 import shutil
-import subprocess
 import json
 import zipfile
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 
 import numpy as np
 from PIL import Image
 
 from ._colmap_utils import read_points3D_binary, read_points3D_text
-from ._common import DatasetNotFoundError, get_scene_scale, get_default_viewer_transform
-from ..cameras import CameraModel, Cameras
-from ..types import Dataset, FrozenSet, DatasetFeature
+from ._common import DatasetNotFoundError, get_scene_scale, get_default_viewer_transform, construct_dataset
+from .. import cameras
+from ..types import CameraModel, camera_model_to_int, FrozenSet, DatasetFeature, get_args
 from ..io import wget
 
 
 MAX_AUTO_RESOLUTION = 1600
 
-CAMERA_MODEL_TO_TYPE = {
-    "SIMPLE_PINHOLE": CameraModel.PINHOLE,
-    "PINHOLE": CameraModel.PINHOLE,
-    "SIMPLE_RADIAL": CameraModel.OPENCV,
-    "RADIAL": CameraModel.OPENCV,
-    "OPENCV": CameraModel.OPENCV,
-    "OPENCV_FISHEYE": CameraModel.OPENCV_FISHEYE,
+CAMERA_MODEL_TO_TYPE: Dict[str, Optional[CameraModel]] = {
+    "SIMPLE_PINHOLE": "pinhole",
+    "PINHOLE": "pinhole",
+    "SIMPLE_RADIAL": "opencv",
+    "RADIAL": "opencv",
+    "OPENCV": "opencv",
+    "OPENCV_FISHEYE": "opencv_fisheye",
     "EQUIRECTANGULAR": None,
     "OMNIDIRECTIONALSTEREO_L": None,
     "OMNIDIRECTIONALSTEREO_R": None,
@@ -360,15 +358,15 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
     # )
 
     if "camera_model" in meta:
-        camera_type = CAMERA_MODEL_TO_TYPE[meta["camera_model"]]
-        if camera_type is None:
+        camera_type = meta.get("camera_model")
+        if camera_type not in get_args(CameraModel):
             raise NotImplementedError(f"Camera model {meta['camera_model']} is not supported.")
     else:
         if distort_fixed:
             has_distortion = any(meta[x] != 0.0 for x in ["k1", "k2", "p1", "p2", "k3", "k4"])
         else:
             has_distortion = any(np.any(x != 0.0) for x in distort)
-        camera_type = CameraModel.OPENCV if has_distortion else CameraModel.PINHOLE
+        camera_type = "opencv" if has_distortion else "pinhole"
 
     fx = np.full((len(poses),), meta["fl_x"], dtype=np.float32) if fx_fixed else np.array(fx, dtype=np.float32)
     fy = np.full((len(poses),), meta["fl_y"], dtype=np.float32) if fy_fixed else np.array(fy, dtype=np.float32)
@@ -399,10 +397,10 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
     # Convert from OpenGL to OpenCV coordinate system
     c2w[0:3, 1:3] *= -1
 
-    cameras = Cameras(
+    all_cameras = cameras.Cameras[np.ndarray](
         poses=c2w,
         intrinsics=np.stack([fx, fy, cx, cy], -1),
-        camera_types=np.full((len(poses),), camera_type.value, dtype=np.int32),
+        camera_types=np.full((len(poses),), camera_model_to_int(camera_type), dtype=np.int32),
         distortion_parameters=distortion_params,
         image_sizes=np.stack([height, width], -1),
         nears_fars=None,
@@ -450,11 +448,11 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
         points3D_xyz = points3D_xyz[..., np.array([1, 0, 2])]
         points3D_xyz[..., 2] *= -1
 
-    viewer_transform, viewer_pose = get_default_viewer_transform(cameras.poses, None)
+    viewer_transform, viewer_pose = get_default_viewer_transform(all_cameras.poses, None)
 
     idx_tensor = np.array(indices, dtype=np.int32)
-    return Dataset(
-        cameras=cameras,
+    return construct_dataset(
+        cameras=all_cameras,
         file_paths=image_filenames,
         sampling_mask_paths=mask_filenames if len(mask_filenames) > 0 else None,
         file_paths_root=str(images_root),
@@ -462,7 +460,7 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
         points3D_rgb=points3D_rgb,
         metadata={
             "name": "nerfstudio",
-            "expected_scene_scale": get_scene_scale(cameras, "object-centric") if split == "train" else None,
+            "expected_scene_scale": get_scene_scale(all_cameras, "object-centric") if split == "train" else None,
             "type": None,
             "viewer_transform": viewer_transform,
             "viewer_initial_pose": viewer_pose,

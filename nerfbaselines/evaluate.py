@@ -14,7 +14,7 @@ import tempfile
 
 from tqdm import tqdm
 
-from .cameras import CameraModel
+from .datasets import construct_dataset
 from .utils import read_image, convert_image_dtype, run_on_host
 from .types import Optional, Literal, Dataset, RenderOutput, EvaluationProtocol, Cameras
 from .render import image_to_srgb, Method, with_supported_camera_models
@@ -141,7 +141,7 @@ def evaluate(predictions: str,
         gt_images = [
             read_image(predictions_path / "gt-color" / name) for name in relpaths
         ]
-        dataset = Dataset(
+        dataset = construct_dataset(
             cameras=typing.cast(Cameras, None),
             file_paths=relpaths,
             file_paths_root=str(predictions_path / "color"),
@@ -189,21 +189,20 @@ class DefaultEvaluationProtocol(EvaluationProtocol):
 
     def render(self, method: Method, dataset: Dataset) -> Iterable[RenderOutput]:
         info = method.get_info()
-        supported_camera_models = info.get("supported_camera_models", frozenset((CameraModel.PINHOLE,)))
+        supported_camera_models = info.get("supported_camera_models", frozenset(("pinhole",)))
         render = with_supported_camera_models(supported_camera_models)(method.render)
-        yield from render(dataset.cameras)
+        yield from render(dataset["cameras"])
 
     def get_name(self):
         return "default"
 
     def evaluate(self, predictions: Iterable[RenderOutput], dataset: Dataset) -> Iterable[Dict[str, Union[float, int]]]:
-        assert dataset.images is not None, "dataset.images must be set"
-        background_color = dataset.metadata.get("background_color")
+        background_color = dataset["metadata"].get("background_color")
         for i, prediction in enumerate(predictions):
             pred = prediction["color"]
-            gt = dataset.images[i]
-            pred = image_to_srgb(pred, np.uint8, color_space=dataset.color_space, background_color=background_color)
-            gt = image_to_srgb(gt, np.uint8, color_space=dataset.color_space, background_color=background_color)
+            gt = dataset["images"][i]
+            pred = image_to_srgb(pred, np.uint8, color_space=dataset["metadata"]["color_space"], background_color=background_color)
+            gt = image_to_srgb(gt, np.uint8, color_space=dataset["metadata"]["color_space"], background_color=background_color)
             pred_f = convert_image_dtype(pred, np.float32)
             gt_f = convert_image_dtype(gt, np.float32)
             yield compute_metrics(pred_f[None], gt_f[None], reduce=True)

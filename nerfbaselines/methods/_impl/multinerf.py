@@ -6,7 +6,7 @@ import numpy as np
 import functools
 import gc
 from ...types import Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput
-from ...cameras import Cameras, CameraModel
+from ...types import Cameras
 from ...utils import padded_stack
 
 try:
@@ -130,13 +130,14 @@ class NBDataset(MNDataset):
             camera_utils.ProjectionType.PERSPECTIVE,
             camera_utils.ProjectionType.FISHEYE,
         ]
-        self.camtype = [camtype_map[i] for i in self.dataset.cameras.camera_types]
+        self.camtype = [camtype_map[i] for i in self.dataset["cameras"].camera_types]
+        dataset_len = len(self.dataset["file_paths"])
         self.distortion_params = [
-            dict(zip(["k1", "k2", "p1", "p2", "k3", "k4"], self.dataset.cameras.distortion_parameters[i])) if self.dataset.cameras.camera_types[i] > 0 else None for i in range(len(self.dataset))
+            dict(zip(["k1", "k2", "p1", "p2", "k3", "k4"], self.dataset["cameras"].distortion_parameters[i])) if self.dataset["cameras"].camera_types[i] > 0 else None for i in range(dataset_len)
         ]
 
         # Scale the inverse intrinsics matrix by the image downsampling factor.
-        fx, fy, cx, cy = np.moveaxis(self.dataset.cameras.intrinsics, -1, 0)
+        fx, fy, cx, cy = np.moveaxis(self.dataset["cameras"].intrinsics, -1, 0)
         pixtocam = np.linalg.inv(np.stack([camera_utils.intrinsic_matrix(fx[i], fy[i], cx[i], cy[i]) for i in range(len(fx))], axis=0))
         self.pixtocams = pixtocam.astype(np.float32)
         self.focal = 1.0 / self.pixtocams[..., 0, 0]
@@ -146,7 +147,7 @@ class NBDataset(MNDataset):
         # TODO: handle rawnerf and FF scenes
 
         # Rotate/scale poses to align ground with xy plane and fit to unit cube.
-        poses = self.dataset.cameras.poses.copy()
+        poses = self.dataset["cameras"].poses.copy()
 
         # Convert from Opencv to OpenGL coordinate system
         poses[..., 0:3, 1:3] *= -1
@@ -156,7 +157,7 @@ class NBDataset(MNDataset):
             scale = np.linalg.norm(transform[:3, :3], ord=2, axis=-2)
             poses = camera_utils.unpad_poses(transform @ camera_utils.pad_poses(poses))
             poses[..., :3, :3] = np.diag(1 / scale) @ poses[..., :3, :3]
-        elif self.dataset.metadata.get("name") == "blender":
+        elif self.dataset["metadata"].get("name") == "blender":
             transform = np.eye(4)
             self._dataparser_transform = transform
         else:
@@ -172,22 +173,22 @@ class NBDataset(MNDataset):
         self.colmap_to_world_transform = transform
         self.poses = poses
         if not self._eval:
-            images = self.dataset.images
+            images = self.dataset["images"]
             if isinstance(images, list):
                 images = padded_stack(images)
             self.images = images.astype(np.float32) / 255.0
-            if self.dataset.metadata.get("name") == "blender" and not self._eval:
+            if self.dataset["metadata"].get("name") == "blender" and not self._eval:
                 # Blender renders images in sRGB space, so convert to linear.
                 self.images = self.images[..., :3] * self.images[..., 3:] + (1 - self.images[..., 3:])
         else:
-            self.images = self.dataset.images
+            self.images = self.dataset["images"]
         self.camtoworlds = poses
-        self.width, self.height = np.moveaxis(self.dataset.cameras.image_sizes, -1, 0)
-        # if self.dataset.cameras.nears_fars is None:
+        self.width, self.height = np.moveaxis(self.dataset["cameras"].image_sizes, -1, 0)
+        # if self.dataset["cameras"].nears_fars is None:
         self.near = np.full((len(self.dataset),), self._config.near, dtype=np.float32)
         self.far = np.full((len(self.dataset),), self._config.far, dtype=np.float32)
         # else:
-        #     self.near, self.far = np.moveaxis(self.dataset.cameras.nears_fars, -1, 0)
+        #     self.near, self.far = np.moveaxis(self.dataset["cameras"].nears_fars, -1, 0)
 
 
 class MultiNeRF(Method):
@@ -221,7 +222,7 @@ class MultiNeRF(Method):
             self._config_str = (Path(checkpoint) / "config.gin").read_text()
             self.config = self._load_config()
         else:
-            self.config = self._load_config(train_dataset.metadata.get("name"), config_overrides=config_overrides)
+            self.config = self._load_config(train_dataset["metadata"].get("name"), config_overrides=config_overrides)
 
         if train_dataset is not None:
             self._setup_train(train_dataset)
@@ -261,7 +262,7 @@ class MultiNeRF(Method):
         return MethodInfo(
             name=cls._method_name,
             required_features=frozenset(("color",)),
-            supported_camera_models=frozenset((CameraModel.PINHOLE, CameraModel.OPENCV, CameraModel.OPENCV_FISHEYE)),
+            supported_camera_models=frozenset(("pinhole", "opencv", "opencv_fisheye")),
         )
 
     def get_info(self):
@@ -416,7 +417,7 @@ class MultiNeRF(Method):
         mwidth, mheight = sizes.max(0)
         assert self._dataparser_transform is not None
         test_dataset = NBDataset(
-            Dataset(
+            dict(
                 cameras=cameras,
                 file_paths=[f"{i:06d}.png" for i in range(len(poses))],
                 images=np.zeros((len(sizes), mheight, mwidth), dtype=np.uint8),
@@ -431,7 +432,7 @@ class MultiNeRF(Method):
 
             # TODO: handle rawnerf color space
             # if config.rawnerf_mode:
-            #     postprocess_fn = test_dataset.metadata['postprocess_fn']
+            #     postprocess_fn = test_dataset["metadata"]['postprocess_fn']
             # else:
             accumulation = rendering["acc"]
             eps = np.finfo(accumulation.dtype).eps
