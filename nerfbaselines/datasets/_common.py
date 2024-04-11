@@ -6,12 +6,15 @@ import numpy as np
 import PIL.Image
 import PIL.ExifTags
 from tqdm import tqdm
-from typing import Optional, Tuple, Union, List, Sequence, Dict, cast
+from typing import Any, Optional, TypeVar, Tuple, Union, List, Sequence, Dict, cast, overload
 from ..cameras import camera_model_to_int
-from ..types import Dataset, Literal, Cameras
+from ..types import Dataset, Literal, Cameras, UnloadedDataset
 from .. import cameras
 from ..utils import padded_stack
 from ..pose_utils import rotation_matrix, pad_poses, unpad_poses, viewmatrix, apply_transform
+
+
+TDataset = TypeVar("TDataset", Dataset, UnloadedDataset)
 
 
 def single(xs):
@@ -118,7 +121,6 @@ def _dataset_undistort_unsupported(dataset: Dataset, supported_camera_models):
     )
     dataset["images"] = new_images
     dataset["sampling_masks"] = new_sampling_masks
-    np_cameras = cameras.Cameras[np.ndarray].new(dataset["cameras"])
 
     # Release memory here
     gc.collect()
@@ -142,7 +144,7 @@ def _dataset_undistort_unsupported(dataset: Dataset, supported_camera_models):
             warped = cameras.warp_image_between_cameras(camera, undistorted_camera, new_sampling_masks[i][:oh, :ow])
             new_sampling_masks[i] = warped
         # IMPORTANT: camera is modified in-place
-        np_cameras[i] = undistorted_camera
+        dataset["cameras"][i] = undistorted_camera
     if not was_list:
         dataset["images"] = padded_stack(new_images)
         dataset["sampling_masks"] = (
@@ -189,14 +191,13 @@ def get_image_metadata(image: PIL.Image.Image):
 
 
 def dataset_load_features(
-    dataset: Dataset, features=None, supported_camera_models=None
+    dataset: UnloadedDataset, features=None, supported_camera_models=None
 ) -> Dataset:
     if features is None:
         features = frozenset(("color",))
     if supported_camera_models is None:
         supported_camera_models = frozenset(("pinhole",))
-    np_cameras = cameras.Cameras[np.ndarray].new(dataset["cameras"])
-    images = []
+    images: List[np.ndarray] = []
     image_sizes = []
     all_metadata = []
     for p in tqdm(dataset["file_paths"], desc="loading images", dynamic_ncols=True):
@@ -234,13 +235,15 @@ def dataset_load_features(
         logging.debug(f"Loaded {len(sampling_masks)} sampling masks")
 
     dataset["images"] = images  # padded_stack(images)
-    dataset["cameras"] = np_cameras.with_image_sizes(
+    dataset["cameras"] = dataset["cameras"].with_image_sizes(
         np.array(image_sizes, dtype=np.int32)
     ).with_metadata(np.stack(all_metadata, 0))
     if supported_camera_models is not None:
-        if _dataset_undistort_unsupported(dataset, supported_camera_models):
-            logging.warning("Some cameras models are not supported by the method. Images have been undistorted. Make sure to use the undistorted images for training.")
-    return dataset
+        if _dataset_undistort_unsupported(cast(Dataset, dataset), supported_camera_models):
+            logging.warning(
+                "Some cameras models are not supported by the method. Images have been undistorted. Make sure to use the undistorted images for training."
+            )
+    return cast(Dataset, dataset)
 
 
 class DatasetNotFoundError(Exception):
@@ -275,7 +278,7 @@ class MultiDatasetError(DatasetNotFoundError):
         logging.error(message)
 
 
-def dataset_index_select(dataset: Dataset, i: Union[slice, int, np.ndarray]) -> Dataset:
+def dataset_index_select(dataset: TDataset, i: Union[slice, int, np.ndarray]) -> TDataset:
     assert isinstance(i, (slice, int, np.ndarray))
     dataset_len = len(dataset["file_paths"])
 
@@ -298,25 +301,52 @@ def dataset_index_select(dataset: Dataset, i: Union[slice, int, np.ndarray]) -> 
             return [obj[i] for i in indices]
         raise ValueError(f"Cannot index object of type {type(obj)} at key {key}")
 
-    dataset = dataset.copy()
-    cast(Dict, dataset).update({k: index(k, v) for k, v in dataset.items() if k not in {"file_paths_root", "points3D_xyz", "points3D_rgb", "metadata"}})
-    return dataset
+    _dataset = cast(Dict, dataset.copy())
+    _dataset.update({k: index(k, v) for k, v in dataset.items() if k not in {"file_paths_root", "points3D_xyz", "points3D_rgb", "metadata"}})
+    return cast(TDataset, _dataset)
 
 
-def construct_dataset(cameras: Cameras,
+@overload
+def construct_dataset(*,
+                      cameras: Cameras,
                       file_paths: Sequence[str],
+                      images: Union[np.ndarray, List[np.ndarray]],
+                      sampling_mask_paths: Optional[Sequence[str]] = ...,
+                      file_paths_root: Optional[str] = ...,
+                      sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = ...,  # [N][H, W]
+                      points3D_xyz: Optional[np.ndarray] = ...,  # [M, 3]
+                      points3D_rgb: Optional[np.ndarray] = ...,  # [M, 3]
+                      metadata: Dict) -> Dataset:
+    ...
+
+
+@overload
+def construct_dataset(*,
+                      cameras: Cameras,
+                      file_paths: Sequence[str],
+                      images: Literal[None] = None,
+                      sampling_mask_paths: Optional[Sequence[str]] = ...,
+                      file_paths_root: Optional[str] = ...,
+                      sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = ...,  # [N][H, W]
+                      points3D_xyz: Optional[np.ndarray] = ...,  # [M, 3]
+                      points3D_rgb: Optional[np.ndarray] = ...,  # [M, 3]
+                      metadata: Dict) -> UnloadedDataset:
+    ...
+
+
+def construct_dataset(*,
+                      cameras: Cameras,
+                      file_paths: Sequence[str],
+                      images: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W, 3]
                       sampling_mask_paths: Optional[Sequence[str]] = None,
                       file_paths_root: Optional[str] = None,
-                      images: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W, 3]
                       sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W]
                       points3D_xyz: Optional[np.ndarray] = None,  # [M, 3]
                       points3D_rgb: Optional[np.ndarray] = None,  # [M, 3]
-                      metadata: Optional[dict] = None):
-    if metadata is None:
-        metadata = {}
+                      metadata: Dict) -> Union[UnloadedDataset, Dataset]:
     if file_paths_root is None:
         file_paths_root = os.path.commonpath(file_paths)
-    return dict(
+    return UnloadedDataset(
         cameras=cameras,
         file_paths=list(file_paths),
         sampling_mask_paths=list(sampling_mask_paths) if sampling_mask_paths is not None else None,

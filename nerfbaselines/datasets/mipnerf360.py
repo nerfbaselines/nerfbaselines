@@ -39,7 +39,7 @@ def load_mipnerf360_dataset(path: Path, split: str, **kwargs):
 
     # Use split=None to load all images
     # We then select the same images as in the LLFF multinerf dataset loader
-    dataset: Dataset = load_colmap_dataset(path, images_path=images_path, split=None, **kwargs)
+    dataset = load_colmap_dataset(path, images_path=images_path, split=None, **kwargs)
     dataset["metadata"]["name"] = "mipnerf360"
     dataset["metadata"]["scene"] = scene
     dataset["metadata"]["expected_scene_scale"] = get_scene_scale(dataset["cameras"], "object-centric")

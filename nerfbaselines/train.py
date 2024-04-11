@@ -84,9 +84,10 @@ def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, st
         gt_srgb = image_to_srgb(gt, np.uint8, color_space=dataset_colorspace, background_color=background_color)
 
         image_path = dataset_slice["file_paths"][0]
-        if dataset_slice.get("file_paths_root") is not None:
-            if str(image_path).startswith(str(dataset_slice["file_paths_root"])):
-                image_path = str(Path(image_path).relative_to(dataset_slice["file_paths_root"]))
+        images_root = dataset_slice.get("file_paths_root")
+        if images_root is not None:
+            if str(image_path).startswith(str(images_root)):
+                image_path = str(Path(image_path).relative_to(images_root))
 
         metrics["image-path"] = image_path
         metrics["fps"] = 1 / elapsed

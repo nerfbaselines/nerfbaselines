@@ -44,7 +44,7 @@ def load_phototourism_dataset(path: Path, split: str, use_nerfw_split=None, **kw
             )
 
     # We then select the same images as in the LLFF multinerf dataset loader
-    dataset: Dataset = load_colmap_dataset(
+    dataset = load_colmap_dataset(
         path, 
         images_path=images_path,
         colmap_path=Path("sparse"),

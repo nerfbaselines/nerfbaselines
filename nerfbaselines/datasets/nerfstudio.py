@@ -11,9 +11,8 @@ import numpy as np
 from PIL import Image
 
 from ._colmap_utils import read_points3D_binary, read_points3D_text
-from ._common import DatasetNotFoundError, get_scene_scale, get_default_viewer_transform, construct_dataset
-from .. import cameras
-from ..types import CameraModel, camera_model_to_int, FrozenSet, DatasetFeature, get_args
+from ._common import DatasetNotFoundError, get_scene_scale, get_default_viewer_transform, construct_dataset, dataset_index_select
+from ..types import CameraModel, camera_model_to_int, FrozenSet, DatasetFeature, get_args, Cameras
 from ..io import wget
 
 
@@ -192,8 +191,8 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
     else:
         raise DatasetNotFoundError(f"Could not find transforms.json in {path}")
 
-    image_filenames = []
-    mask_filenames = []
+    image_filenames: List[str] = []
+    mask_filenames: List[str] = []
     depth_filenames = []
     poses = []
 
@@ -263,7 +262,7 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
                 )
             )
 
-        image_filenames.append(fname)
+        image_filenames.append(str(fname))
         poses.append(np.array(frame["transform_matrix"]))
         if "mask_path" in frame:
             mask_filepath = Path(frame["mask_path"])
@@ -272,7 +271,7 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
                 data_dir,
                 downsample_folder_prefix="masks_",
             )
-            mask_filenames.append(mask_fname)
+            mask_filenames.append(str(mask_fname))
 
         if "depth_file_path" in frame:
             depth_filepath = Path(frame["depth_file_path"])
@@ -397,7 +396,7 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
     # Convert from OpenGL to OpenCV coordinate system
     c2w[0:3, 1:3] *= -1
 
-    all_cameras = cameras.Cameras[np.ndarray](
+    all_cameras = Cameras(
         poses=c2w,
         intrinsics=np.stack([fx, fy, cx, cy], -1),
         camera_types=np.full((len(poses),), camera_model_to_int(camera_type), dtype=np.int32),
@@ -451,21 +450,22 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
     viewer_transform, viewer_pose = get_default_viewer_transform(all_cameras.poses, None)
 
     idx_tensor = np.array(indices, dtype=np.int32)
-    return construct_dataset(
-        cameras=all_cameras,
-        file_paths=image_filenames,
-        sampling_mask_paths=mask_filenames if len(mask_filenames) > 0 else None,
-        file_paths_root=str(images_root),
-        points3D_xyz=points3D_xyz,
-        points3D_rgb=points3D_rgb,
-        metadata={
-            "name": "nerfstudio",
-            "expected_scene_scale": get_scene_scale(all_cameras, "object-centric") if split == "train" else None,
-            "type": None,
-            "viewer_transform": viewer_transform,
-            "viewer_initial_pose": viewer_pose,
-        },
-    )[idx_tensor]
+    return dataset_index_select(
+        construct_dataset(
+            cameras=all_cameras,
+            file_paths=image_filenames,
+            sampling_mask_paths=mask_filenames if len(mask_filenames) > 0 else None,
+            file_paths_root=str(images_root),
+            points3D_xyz=points3D_xyz,
+            points3D_rgb=points3D_rgb,
+            metadata={
+                "name": "nerfstudio",
+                "expected_scene_scale": get_scene_scale(all_cameras, "object-centric") if split == "train" else None,
+                "type": None,
+                "viewer_transform": viewer_transform,
+                "viewer_initial_pose": viewer_pose,
+            },
+        ), idx_tensor)
 
 
 def grab_file_id(zip_url: str) -> str:

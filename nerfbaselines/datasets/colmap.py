@@ -2,15 +2,14 @@ import typing
 from collections import OrderedDict
 import logging
 from pathlib import Path
-from typing import Tuple, Optional, Dict
+from typing import Tuple, Optional, Dict, List
 import numpy as np
 from ..types import DatasetFeature, FrozenSet
-from ..types import CameraModel, camera_model_to_int
+from ..types import CameraModel, camera_model_to_int, Cameras
 from ..utils import Indices
 from ._colmap_utils import read_cameras_binary, read_images_binary, read_points3D_binary, qvec2rotmat
 from ._colmap_utils import read_cameras_text, read_images_text, read_points3D_text, Image, Camera, Point3D
 from ._common import DatasetNotFoundError, padded_stack, get_default_viewer_transform, dataset_index_select, construct_dataset
-from .. import cameras
 
 
 def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.ndarray, Tuple[int, int]]:
@@ -261,9 +260,9 @@ def load_colmap_dataset(path: Path,
     camera_poses = []
     camera_types = []
     camera_distortion_params = []
-    image_paths = []
+    image_paths: List[str] = []
     image_names = []
-    sampling_mask_paths = None if not sampling_masks_path.exists() else []
+    sampling_mask_paths: Optional[List[str]] = None if not sampling_masks_path.exists() else []
     camera_sizes = []
 
     image: Image
@@ -279,7 +278,7 @@ def load_colmap_dataset(path: Path,
         image_names.append(image.name)
         image_paths.append(str(images_path / image.name))
         if sampling_mask_paths is not None:
-            sampling_mask_paths.append(sampling_masks_path / Path(image.name).with_suffix(".png"))
+            sampling_mask_paths.append(str(sampling_masks_path / Path(image.name).with_suffix(".png")))
 
         rotation = qvec2rotmat(image.qvec).astype(np.float64)
 
@@ -306,7 +305,7 @@ def load_colmap_dataset(path: Path,
         points3D_rgb = np.array([p.rgb for p in points3D.values()], dtype=np.uint8)
 
     # camera_ids=torch.tensor(camera_ids, dtype=torch.int32),
-    all_cameras = cameras.Cameras[np.ndarray](
+    all_cameras = Cameras(
         poses=np.stack(camera_poses, 0).astype(np.float32),
         intrinsics=np.stack(camera_intrinsics, 0).astype(np.float32),
         camera_types=np.array(camera_types, dtype=np.int32),

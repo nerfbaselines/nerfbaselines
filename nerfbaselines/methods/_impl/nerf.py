@@ -24,7 +24,7 @@ import tempfile
 from argparse import ArgumentParser
 
 from nerfbaselines.types import Dataset, OptimizeEmbeddingsOutput, RenderOutput, MethodInfo, ModelInfo
-from nerfbaselines.types import Cameras, CameraModel
+from nerfbaselines.types import Cameras, CameraModel, get_args
 from nerfbaselines import Method
 from nerfbaselines.types import Optional
 from nerfbaselines.utils import padded_stack, convert_image_dtype
@@ -167,7 +167,7 @@ class NeRF(Method):
         return MethodInfo(
             name=cls._method_name,
             required_features=frozenset(("color",)),
-            supported_camera_models=frozenset(CameraModel.__members__.values()),
+            supported_camera_models=frozenset(get_args(CameraModel)),
         )
 
     def get_info(self) -> ModelInfo:
@@ -182,9 +182,8 @@ class NeRF(Method):
                 loaded_step = int(ft_weights[-10:-4])
 
         return ModelInfo(
-            name=self._method_name,
+            **self.get_method_info(),
             num_iterations=N_iters,
-            supported_camera_models=frozenset(CameraModel.__members__.values()),
             loaded_step=loaded_step,
             loaded_checkpoint=self.checkpoint,
             batch_size=self.args.N_rand,

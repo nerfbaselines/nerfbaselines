@@ -27,7 +27,6 @@ from .backends import ALL_BACKENDS
 from .io import open_any_directory, deserialize_nb_info
 from . import registry
 from . import backends
-from . import cameras
 
 
 OutputType = Literal["color", "depth"]
@@ -158,7 +157,7 @@ def read_nerfstudio_trajectory(data: Dict[str, Any]) -> "Trajectory":
     cy = np.array(cys, dtype=np.float32)
     intrinsics = np.stack([fx, fy, cx, cy], -1)
     return Trajectory(
-        cameras=cameras.Cameras[np.ndarray](
+        cameras=Cameras(
             poses=camera_to_worlds,
             intrinsics=intrinsics,
             image_sizes=np.array((w, h), dtype=np.int32)[None].repeat(len(camera_to_worlds), 0),

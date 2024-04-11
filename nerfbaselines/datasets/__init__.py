@@ -1,4 +1,4 @@
-from typing import Union, Optional, cast
+from typing import Union, Optional, cast, overload
 from importlib import import_module
 import logging
 from pathlib import Path
@@ -7,6 +7,7 @@ from ._common import dataset_load_features as dataset_load_features
 from ._common import dataset_index_select as dataset_index_select
 from ._common import construct_dataset as construct_dataset
 from ._common import DatasetNotFoundError, MultiDatasetError
+from ..types import UnloadedDataset, Literal
 
 
 SUPPORTED_DATASETS = [
@@ -39,13 +40,34 @@ def download_dataset(path: str, output: Union[str, Path]):
     raise MultiDatasetError(errors, f"no supported dataset found for path {path}")
 
 
+@overload
+def load_dataset(
+        path: Union[Path, str], 
+        split: str, 
+        features: Optional[FrozenSet[DatasetFeature]] = ...,
+        supported_camera_models: Optional[FrozenSet[CameraModel]] = ...,
+        load_features: Literal[True] = ...) -> Dataset:
+    ...
+
+
+@overload
+def load_dataset(
+        path: Union[Path, str], 
+        split: str, 
+        features: Optional[FrozenSet[DatasetFeature]] = ...,
+        supported_camera_models: Optional[FrozenSet[CameraModel]] = ...,
+        load_features: Literal[False] = ...) -> UnloadedDataset:
+    ...
+
+
+
 def load_dataset(
         path: Union[Path, str], 
         split: str, 
         features: Optional[FrozenSet[DatasetFeature]] = None,
         supported_camera_models: Optional[FrozenSet[CameraModel]] = None,
         load_features: bool = True,
-        ) -> Dataset:
+        ) -> Union[Dataset, UnloadedDataset]:
     if features is None:
         features = frozenset(("color",))
     if supported_camera_models is None:
@@ -64,7 +86,7 @@ def load_dataset(
         try:
             module = import_module(f".{name}", __package__)
             load_fn = getattr(module, f"load_{name}_dataset")
-            dataset_instance = cast(Dataset, load_fn(path, split=split, features=features))
+            dataset_instance = cast(UnloadedDataset, load_fn(path, split=split, features=features))
             logging.info(f"loaded {name} dataset from path {path}")
             break
         except DatasetNotFoundError as e:
@@ -74,5 +96,5 @@ def load_dataset(
     else:
         raise MultiDatasetError(errors, f"no supported dataset found in path {path}")
     if load_features:
-        dataset_instance = dataset_load_features(dataset_instance, features=features, supported_camera_models=supported_camera_models)
+        return dataset_load_features(dataset_instance, features=features, supported_camera_models=supported_camera_models)
     return dataset_instance

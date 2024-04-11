@@ -12,8 +12,8 @@ import inspect
 import struct
 from pathlib import Path
 from functools import wraps
-from typing import Any, Optional, Dict, TYPE_CHECKING, Union, List, TypeVar, Iterable, overload, Callable
-from typing import BinaryIO
+from typing import Any, Optional, Dict, TYPE_CHECKING, Union, List, TypeVar, Iterable, overload, Callable, cast, Type
+from typing import BinaryIO, Tuple
 import logging
 import types
 import numpy as np
@@ -55,10 +55,50 @@ else:
 
             return property(fn_cached)
 
+if TYPE_CHECKING:
+    import torch
+    import jax.numpy as jnp
+
 
 T = TypeVar("T")
 TCallable = TypeVar("TCallable", bound=Callable)
+TTensor = TypeVar("TTensor", np.ndarray, "torch.Tensor", "jnp.ndarray")
 _generate_interface_types = []
+
+
+@overload
+def _get_xnp(tensor: np.ndarray):
+    return np
+
+@overload
+def _get_xnp(tensor: 'jnp.ndarray'):
+    return cast('jnp', sys.modules["jax.numpy"])
+
+@overload
+def _get_xnp(tensor: 'torch.Tensor'):
+    return cast('torch', sys.modules["torch"])
+
+
+def _get_xnp(tensor: TTensor):
+    if isinstance(tensor, np.ndarray):
+        return np
+    if tensor.__module__.startswith("jax"):
+        return cast('jnp', sys.modules["jax.numpy"])
+    if tensor.__module__ == "torch":
+        return cast('torch', sys.modules["torch"])
+    raise ValueError(f"Unknown tensor type {type(tensor)}")
+
+
+def _xnp_copy(tensor: TTensor, xnp: Any = np) -> TTensor:
+    if xnp.__name__ == "torch":
+        return tensor.clone()  # type: ignore
+    return xnp.copy(tensor)  # type: ignore
+
+
+def _xnp_astype(tensor: TTensor, dtype, xnp: Any) -> TTensor:
+    if xnp.__name__ == "torch":
+        return tensor.to(dtype)  # type: ignore
+    return tensor.astype(dtype)  # type: ignore
 
 
 def generate_interface(cls):
@@ -369,8 +409,8 @@ def batched(array, batch_size):
         yield array[i : i + batch_size]
 
 
-def padded_stack(tensors: Union[np.ndarray, List[np.ndarray]]) -> np.ndarray:
-    if isinstance(tensors, np.ndarray):
+def padded_stack(tensors: Union[np.ndarray, Tuple[np.ndarray, ...], List[np.ndarray]]) -> np.ndarray:
+    if not isinstance(tensors, (tuple, list)):
         return tensors
     max_shape = tuple(max(s) for s in zip(*[x.shape for x in tensors]))
     out_tensors = []

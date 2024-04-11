@@ -5,7 +5,7 @@ from pathlib import Path
 import zipfile
 from tqdm import tqdm
 import tempfile
-from ..types import Dataset
+from ..types import UnloadedDataset
 from ._common import DatasetNotFoundError, single, get_scene_scale, get_default_viewer_transform
 from .colmap import load_colmap_dataset
 
@@ -18,7 +18,7 @@ SCENES = {
 }
 
 
-def load_tanksandtemples_dataset(path: Path, split: str, downscale_factor: int = 2, **kwargs) -> Dataset:
+def load_tanksandtemples_dataset(path: Path, split: str, downscale_factor: int = 2, **kwargs) -> UnloadedDataset:
     if split:
         assert split in {"train", "test"}
     if DATASET_NAME not in str(path) or not any(s in str(path) for s in SCENES):
@@ -28,7 +28,7 @@ def load_tanksandtemples_dataset(path: Path, split: str, downscale_factor: int =
     images_path = Path("images") if downscale_factor == 1 else Path(f"images_{downscale_factor}")
     scene = single(x for x in SCENES if x in str(path))
 
-    dataset: Dataset = load_colmap_dataset(path, images_path=images_path, split=None, **kwargs)
+    dataset = load_colmap_dataset(path, images_path=images_path, split=None, **kwargs)
     dataset["metadata"]["name"] = DATASET_NAME
     dataset["metadata"]["scene"] = scene
     dataset["metadata"]["expected_scene_scale"] = get_scene_scale(dataset["cameras"], None),

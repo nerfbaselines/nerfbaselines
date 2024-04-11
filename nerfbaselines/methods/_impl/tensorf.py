@@ -15,7 +15,7 @@ except ImportError:
     from typing_extensions import Optional
 
 from nerfbaselines.types import Dataset, OptimizeEmbeddingsOutput, RenderOutput, MethodInfo, ModelInfo
-from nerfbaselines.types import Cameras, CameraModel
+from nerfbaselines.types import Cameras, CameraModel, get_args
 from nerfbaselines import Method
 
 import configargparse
@@ -215,14 +215,13 @@ class TensoRF(Method):
         return MethodInfo(
             name=cls._method_name,
             required_features=frozenset(("color",)),
-            supported_camera_models=frozenset(CameraModel.__members__.values()),
+            supported_camera_models=frozenset(get_args(CameraModel)),
         )
 
     def get_info(self) -> ModelInfo:
         return ModelInfo(
-            name=self._method_name,
+            **self.get_method_info(),
             num_iterations=self.args.n_iters,
-            supported_camera_models=frozenset(CameraModel.__members__.values()),
             loaded_step=self.metadata.get("step"),
             loaded_checkpoint=str(self.checkpoint) if self.checkpoint is not None else None,
             batch_size=self.args.batch_size,

@@ -5,8 +5,8 @@ from typing import Iterable
 import numpy as np
 from time import sleep
 from nerfbaselines import Method, MethodInfo, RenderOutput, ModelInfo
-from nerfbaselines import cameras
 from nerfbaselines.utils import CancellationToken, CancelledException
+from nerfbaselines.types import Cameras
 
 
 def test_render(use_remote_method):
@@ -37,7 +37,7 @@ def test_render(use_remote_method):
 
     with use_remote_method(TestMethodRenderCancellable) as remote_method_cls:
         remote_method = remote_method_cls()
-        all_cameras = cameras.Cameras[np.ndarray](
+        all_cameras = Cameras(
             poses=np.eye(4, dtype=np.float32)[None, :3, :4],
             intrinsics=np.zeros((1, 4), dtype=np.float32),
             camera_types=np.zeros((1,), dtype=np.int32),
@@ -176,7 +176,7 @@ def test_render_cancellable(use_remote_method):
 
     with use_remote_method(TestMethodRenderCancellable) as remote_method_cls:
         remote_method = remote_method_cls()
-        all_cameras = cameras.Cameras[np.ndarray](
+        all_cameras = Cameras(
             poses=np.eye(4, dtype=np.float32)[None, :3, :4],
             intrinsics=np.zeros((1, 4), dtype=np.float32),
             camera_types=np.zeros((1,), dtype=np.int32),

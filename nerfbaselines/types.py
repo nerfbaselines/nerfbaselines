@@ -1,217 +1,187 @@
 from abc import abstractmethod
-from typing import Optional, Callable, Iterable, List, Dict, Any, cast, Union, Sequence
-from dataclasses import dataclass, field
+from typing import Optional, Iterable, List, Dict, Any, cast, Union, Sequence, TypeVar, TYPE_CHECKING
+from dataclasses import dataclass
 import dataclasses
 import os
 import numpy as np
-import numpy.typing
-
 try:
     from typing import Self
 except ImportError:
-    from typing_extensions import Self  # type: ignore
+    from typing_extensions import Self
+try:
+    from typing import Generic
+except ImportError:
+    from typing_extensions import Generic
 try:
     from typing import Protocol
 except ImportError:
-    from typing_extensions import Protocol  # type: ignore
+    from typing_extensions import Protocol
 try:
     from typing import runtime_checkable
 except ImportError:
-    from typing_extensions import runtime_checkable  # type: ignore
+    from typing_extensions import runtime_checkable
 try:
     from typing import Literal
 except ImportError:
-    from typing_extensions import Literal  # type: ignore
+    from typing_extensions import Literal
 try:
-    from typing import get_args, get_origin
+    from typing import get_args as get_args
+    from typing import get_origin as get_origin
 except ImportError:
-    from typing_extensions import get_args, get_origin  # noqa: F401
+    from typing_extensions import get_args as get_args
+    from typing_extensions import get_origin as get_origin
 try:
-    from typing import NotRequired  # noqa: F401
-    from typing import Required  # noqa: F401
+    from typing import NotRequired
+    from typing import Required
     from typing import TypedDict
 except ImportError:
-    from typing_extensions import NotRequired  # noqa: F401
-    from typing_extensions import Required  # noqa: F401
+    from typing_extensions import NotRequired
+    from typing_extensions import Required
     from typing_extensions import TypedDict
 try:
     from typing import FrozenSet
 except ImportError:
-    from typing_extensions import FrozenSet  # type: ignore
-from .cameras import CameraModel, camera_model_to_int, camera_model_from_int  # noqa: F401
-from . import cameras as _cameras
-from .utils import padded_stack, generate_interface
+    from typing_extensions import FrozenSet
+from .utils import padded_stack, generate_interface, TTensor
+from .utils import _xnp_copy, _get_xnp, _xnp_astype
 
 
-ColorSpace = Literal["srgb", "linear"]
 NB_PREFIX = os.path.expanduser(os.environ.get("NERFBASELINES_PREFIX", "~/.cache/nerfbaselines"))
+ColorSpace = Literal["srgb", "linear"]
+CameraModel = Literal["pinhole", "opencv", "opencv_fisheye", "full_opencv"]
+DatasetFeature = Literal["color", "points3D_xyz", "points3D_rgb"]
 
 
-class Cameras(Protocol):
-    @property
-    def poses(self) -> np.ndarray[Any, np.dtype[np.float32]]:
-        """
-        Poses: [N, (R, t)]
-        """
-        ...
-
-    @property
-    def intrinsics(self) -> np.ndarray[Any, np.dtype[np.float32]]:
-        """
-        Intrinsics: [N, (fx,fy,cx,cy)]
-        """
-        ...
-
-    @property
-    def camera_types(self) -> np.ndarray[Any, np.dtype[np.int32]]:
-        """
-        Camera types: [N]
-        """
-        ...
-
-    @property
-    def distortion_parameters(self) -> np.ndarray[Any, np.dtype[np.float32]]:
-        """
-        Distortion parameters: [N, num_params]
-        """
-        ...
+def camera_model_to_int(camera_model: CameraModel) -> int:
+    camera_models = get_args(CameraModel)
+    if camera_model not in camera_models:
+        raise ValueError(f"Unknown camera model {camera_model}, known models are {camera_models}")
+    return get_args(CameraModel).index(camera_model)
 
 
-    @property
-    def image_sizes(self) -> np.ndarray[Any, np.dtype[np.int32]]:
-        """
-        Image sizes: [N, (w,h)]
-        """
-        ...
+def camera_model_from_int(i: int) -> CameraModel:
+    camera_models = get_args(CameraModel)
+    if i >= len(camera_models):
+        raise ValueError(f"Unknown camera model with index {i}, known models are {camera_models}")
+    return get_args(CameraModel)[i]
 
-    @property
-    def nears_fars(self) -> Optional[np.ndarray[Any, np.dtype[np.float32]]]:
-        """
-        Near and far planes: [N, (near, far)]
-        """
-        ...
 
-    @property
-    def metadata(self) -> Optional[np.ndarray]:
-        """
-        Metadata: [N]
-        """
-        ...
+@dataclass(frozen=True)
+class GenericCameras(Generic[TTensor]):
+    poses: TTensor  # [N, (R, t)]
+    intrinsics: TTensor  # [N, (fx,fy,cx,cy)]
 
-    def __len__(self) -> int:
-        ...
+    camera_types: TTensor  # [N]
+    distortion_parameters: TTensor  # [N, num_params]
+    image_sizes: TTensor  # [N, 2]
 
-    def item(self) -> Self:
-        ...
+    nears_fars: Optional[TTensor]  # [N, 2]
+    metadata: Optional[TTensor] = None
 
-    def __getitem__(self, index) -> Self:
-        ...
-        
-    def __iter__(self) -> Iterable[Self]:
-        ...
+
+    def __len__(self):
+        return 1 if len(self.poses.shape) == 2 else len(self.poses)
+
+    def item(self):
+        assert len(self) == 1, "Cameras must have exactly one element to be converted to a single camera"
+        return self if len(self.poses.shape) == 2 else self[0]
+
+    def __getitem__(self, index):
+        return type(self)(
+            poses=self.poses[index],
+            intrinsics=self.intrinsics[index],
+            camera_types=self.camera_types[index],
+            distortion_parameters=self.distortion_parameters[index],
+            image_sizes=self.image_sizes[index],
+            nears_fars=self.nears_fars[index] if self.nears_fars is not None else None,
+            metadata=self.metadata[index] if self.metadata is not None else None,
+        )
+
+    def __setitem__(self, index, value):
+        assert (self.image_sizes is None) == (value.image_sizes is None), "Either both or none of the cameras must have image sizes"
+        assert (self.nears_fars is None) == (value.nears_fars is None), "Either both or none of the cameras must have nears and fars"
+        self.poses[index] = value.poses
+        self.intrinsics[index] = value.intrinsics
+        self.camera_types[index] = value.camera_types
+        self.distortion_parameters[index] = value.distortion_parameters
+        self.image_sizes[index] = value.image_sizes
+        if self.nears_fars is not None:
+            self.nears_fars[index] = value.nears_fars
+        if self.metadata is not None:
+            self.metadata[index] = value.metadata
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
 
     @classmethod
     def cat(cls, values: Sequence[Self]) -> Self:
-        ...
+        xnp = _get_xnp(values[0].poses)
+        nears_fars = None
+        metadata = None
+        if any(v.nears_fars is not None for v in values):
+            assert all(v.nears_fars is not None for v in values), "Either all or none of the cameras must have nears and fars"
+            nears_fars = xnp.concatenate([cast(TTensor, v.nears_fars) for v in values])
+        if any(v.metadata is not None for v in values):
+            assert all(v.metadata is not None for v in values), "Either all or none of the cameras must have metadata"
+            metadata = xnp.concatenate([cast(TTensor, v.metadata) for v in values])
+        return cls(
+            poses=xnp.concatenate([v.poses for v in values]),
+            intrinsics=xnp.concatenate([v.intrinsics for v in values]),
+            camera_types=xnp.concatenate([v.camera_types for v in values]),
+            distortion_parameters=xnp.concatenate([v.distortion_parameters for v in values]),
+            image_sizes=xnp.concatenate([cast(TTensor, v.image_sizes) for v in values]),
+            nears_fars=nears_fars,
+            metadata=metadata,
+        )
+
+    def replace(self, **changes) -> Self:
+        return dataclasses.replace(self, **changes)
+
+    def with_image_sizes(self, image_sizes: TTensor) -> Self:
+        xnp = _get_xnp(self.poses)
+        multipliers = _xnp_astype(image_sizes, self.intrinsics.dtype, xnp=xnp) / self.image_sizes
+        multipliers = xnp.concatenate([multipliers, multipliers], -1)
+        intrinsics = self.intrinsics * multipliers
+        return self.replace( image_sizes=image_sizes, intrinsics=intrinsics)
+
+    def with_metadata(self, metadata: TTensor) -> Self:
+        return self.replace(metadata=metadata)
+
+    def clone(self) -> Self:
+        xnp = _get_xnp(self.poses)
+        return self.replace(
+            poses=_xnp_copy(self.poses, xnp),
+            intrinsics=_xnp_copy(self.intrinsics, xnp),
+            camera_types=_xnp_copy(self.camera_types, xnp),
+            distortion_parameters=_xnp_copy(self.distortion_parameters, xnp),
+            image_sizes=_xnp_copy(self.image_sizes, xnp) if self.image_sizes is not None else None,
+            nears_fars=_xnp_copy(self.nears_fars, xnp) if self.nears_fars is not None else None,
+            metadata=_xnp_copy(self.metadata, xnp) if self.metadata is not None else None)
 
 
-class Dataset(TypedDict, total=True):
+class Cameras(GenericCameras[np.ndarray]):
+    pass
+
+
+class _IncompleteDataset(TypedDict, total=True):
     cameras: Cameras  # [N]
 
     file_paths: List[str]
     sampling_mask_paths: Optional[List[str]]
     file_paths_root: Optional[str]
-
-    images: Union[np.ndarray, List[np.ndarray]]  # [N][H, W, 3]
+    metadata: Dict
     sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]]  # [N][H, W]
     points3D_xyz: Optional[np.ndarray]  # [M, 3]
     points3D_rgb: Optional[np.ndarray]  # [M, 3]
 
-    metadata: Dict
+
+class UnloadedDataset(_IncompleteDataset):
+    images: NotRequired[Optional[Union[np.ndarray, List[np.ndarray]]]]  # [N][H, W, 3]
 
 
-
-
-# @dataclass
-# class Dataset:
-#     cameras: Cameras  # [N]
-# 
-#     file_paths: List[str]
-#     sampling_mask_paths: Optional[List[str]] = None
-#     file_paths_root: Optional[str] = None
-# 
-#     images: Optional[Union[np.ndarray, List[np.ndarray]]] = None  # [N][H, W, 3]
-#     sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = None  # [N][H, W]
-#     points3D_xyz: Optional[np.ndarray] = None  # [M, 3]
-#     points3D_rgb: Optional[np.ndarray] = None  # [M, 3]
-# 
-#     metadata: Dict = field(default_factory=dict)
-# 
-#     def __post_init__(self):
-#         if self.file_paths_root is None:
-#             self.file_paths_root = os.path.commonpath(self.file_paths)
-# 
-#     def __len__(self):
-#         return len(self.file_paths)
-# 
-#     def __getitem__(self, i) -> "Dataset":
-#         assert isinstance(i, (slice, int, np.ndarray))
-# 
-#         def index(key, obj):
-#             if obj is None:
-#                 return None
-#             if key == "cameras":
-#                 if len(obj) == 1:
-#                     return obj if isinstance(i, int) else obj
-#                 return obj[i]
-#             if isinstance(obj, np.ndarray):
-#                 if obj.shape[0] == 1:
-#                     return obj[0] if isinstance(i, int) else obj
-#                 obj = obj[i]
-#                 return obj
-#             if isinstance(obj, list):
-#                 indices = np.arange(len(self))[i]
-#                 if indices.ndim == 0:
-#                     return obj[indices]
-#                 return [obj[i] for i in indices]
-#             raise ValueError(f"Cannot index object of type {type(obj)} at key {key}")
-# 
-#         return dataclasses.replace(self, **{k: index(k, v) for k, v in self.__dict__.items() if k not in {"file_paths_root", "points3D_xyz", "points3D_rgb", "metadata"}})
-# 
-#     @mark_host
-#     def load_features(self, required_features, supported_camera_models=None):
-#         # Import lazily here because the Dataset class
-#         # may be used in places where some of the dependencies
-#         # are not available.
-#         from .datasets._common import dataset_load_features
-# 
-#         dataset_load_features(self, required_features, supported_camera_models)
-#         return self
-# 
-#     @property
-#     def expected_scene_scale(self):
-#         return self.metadata.get("expected_scene_scale")
-# 
-#     @property
-#     def color_space(self) -> ColorSpace:
-#         color_space = self.metadata.get("color_space", None)
-#         return "srgb" if color_space is None else color_space
-# 
-#     def clone(self):
-#         return dataclasses.replace(
-#             self, 
-#             cameras=self.cameras.clone(), 
-#             images=self.images.copy() if self.images is not None else None,
-#             metadata=self.metadata.copy(),
-#             sampling_masks=self.sampling_masks.copy() if self.sampling_masks is not None else None)
-
-
-def batched(array, batch_size):
-    for i in range(0, len(array), batch_size):
-        yield array[i : i + batch_size]
-
-
-DatasetFeature = Literal["color", "points3D_xyz", "points3D_rgb"]
+class Dataset(_IncompleteDataset):
+    images: Union[np.ndarray, List[np.ndarray]]  # [N][H, W, 3]
 
 
 class RenderOutput(TypedDict, total=False):
@@ -329,6 +299,11 @@ class Method(Protocol):
         raise NotImplementedError()
 
 
+def _batched(array, batch_size):
+    for i in range(0, len(array), batch_size):
+        yield array[i : i + batch_size]
+
+
 class RayMethod(Method):
     name: str
 
@@ -379,14 +354,15 @@ class RayMethod(Method):
     def setup_train(self, train_dataset: Dataset, *, num_iterations: Optional[int] = None, config_overrides: Optional[Dict[str, Any]] = None):
         self.train_dataset = train_dataset
         # Free memory
-        train_images, self.train_dataset["images"] = train_dataset["images"], None  # noqa
+        train_images, self.train_dataset["images"] = train_dataset["images"], None  # type: ignore
         assert train_images is not None, "train_dataset must have images loaded. Use `load_features` to load them."
         self.train_images = padded_stack(train_images)
         self.num_iterations = num_iterations
-        self.train_cameras = _cameras.Cameras[np.ndarray].new(train_dataset["cameras"])
+        self.train_cameras = train_dataset["cameras"]
         self.config_overrides.update(config_overrides or {})
 
     def train_iteration(self, step: int):
+        from . import cameras as _cameras
         assert self.train_dataset is not None, "setup_train must be called before train_iteration"
         assert self.train_images is not None, "train_dataset must have images"
         assert self.train_cameras is not None, "setup_train must be called before train_iteration"
@@ -397,24 +373,23 @@ class RayMethod(Method):
         y = xnp.random.randint(0, wh[..., 1])
         xy = xnp.stack([x, y], -1)
         cameras = self.train_cameras[camera_indices]
-        origins, directions = cameras.get_rays(xy, xnp=cast(Any, xnp))
+        origins, directions = _cameras.get_rays(cameras, xy)
         colors = self.train_images[camera_indices, xy[..., 1], xy[..., 0]]
         return self.train_iteration_rays(step=step, origins=origins, directions=directions, nears_fars=cameras.nears_fars, colors=colors)
 
     def render(self, cameras: Cameras, embeddings: Optional[np.ndarray] = None) -> Iterable[RenderOutput]:
+        from . import cameras as _cameras
         assert cameras.image_sizes is not None, "cameras must have image_sizes"
-        xnp = self.xnp
-        cameras = _cameras.Cameras[xnp.ndarray].new(cameras)
         batch_size = self.batch_size
         sizes = cameras.image_sizes
         global_i = 0
         for i, image_size in enumerate(sizes.tolist()):
             w, h = image_size
             local_cameras = cameras[i : i + 1, None]
-            xy = local_cameras.get_image_pixels(image_size)
+            xy = _cameras.get_image_pixels(image_size)
             outputs: List[RenderOutput] = []
-            for xy in batched(xy, batch_size):
-                origins, directions = local_cameras.get_rays(xy[None], xnp=cast(Any, xnp))
+            for xy in _batched(xy, batch_size):
+                origins, directions = _cameras.get_rays(local_cameras, xy[None])
                 local_embedding = embeddings[i:i+1] if embeddings is not None else None
                 _outputs = self.render_rays(origins=origins[0], directions=directions[0], nears_fars=local_cameras[0].nears_fars, embeddings=local_embedding)
                 outputs.append(_outputs)

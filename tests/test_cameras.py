@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from nerfbaselines import cameras
 from nerfbaselines.types import get_args, camera_model_to_int, CameraModel
+from nerfbaselines.types import Cameras
 
 
 @pytest.mark.parametrize("camera_type", get_args(CameraModel))
@@ -28,7 +29,7 @@ def test_camera(camera_type):
     pose = np.random.randn(num_cam, 3, 1)
     poses = np.concatenate([rotation, pose], -1)
     sizes = np.random.randint(200, 300, (num_cam, 2), dtype=np.int32)
-    all_cameras = cameras.Cameras[np.ndarray](
+    all_cameras = Cameras(
         poses=poses,
         intrinsics=(np.random.randn(num_cam, 4) * 0.2 + np.array([1.0, 1.0, 0.5, 0.5])) * sizes[..., :1],
         camera_types=np.full((num_cam,), camera_model_to_int(camera_type), dtype=np.int32),
@@ -37,16 +38,16 @@ def test_camera(camera_type):
         nears_fars=None,
     )
 
-    xy = cameras.Cameras[np.ndarray].get_image_pixels(np.array([100, 200])).reshape(1, -1, 2).astype(np.float32)
-    origins, dirs = all_cameras[:, None].unproject(xy)
-    xy_new = all_cameras[:, None].project(origins + dirs)
+    xy = cameras.get_image_pixels(np.array([100, 200])).reshape(1, -1, 2).astype(np.float32)
+    origins, dirs = cameras.unproject(all_cameras[:, None], xy)
+    xy_new = cameras.project(all_cameras[:, None], origins + dirs)
     xy = np.broadcast_to(xy, xy_new.shape)
     np.testing.assert_allclose(xy, xy_new, atol=5e-4, rtol=0)
 
 
 def _build_camera(camera_model: CameraModel, intrinsics, distortion_parameters):
     image_sizes = np.array([800, 600], dtype=np.int32)
-    return cameras.Cameras[np.ndarray](
+    return Cameras(
         poses=np.eye(4)[:3, :4],
         intrinsics=intrinsics,
         image_sizes=image_sizes,
@@ -65,7 +66,7 @@ def test_camera_undistort(camera_type):
     pose = np.random.randn(num_cam, 3, 1)
     poses = np.concatenate([rotation, pose], -1)
     image_sizes=np.random.randint(100, 200, (num_cam, 2), dtype=np.int32)
-    cams = cameras.Cameras[np.ndarray](
+    cams = Cameras(
         poses=poses,
         intrinsics=(np.random.randn(num_cam, 4) * 0.1 + np.array([2.0, 2.0, 0.5, 0.5])) * image_sizes[..., :1],
         camera_types=np.full((num_cam,), camera_model_to_int(camera_type), dtype=np.int32),
@@ -106,11 +107,11 @@ def test_camera_undistort(camera_type):
 
 def _test_cam_to_cam_from_img(camera_model, intrinsics, params, uvw0):
     image_size = np.array([800, 600], dtype=np.int32)
-    cam = cameras.Cameras[np.ndarray](np.eye(4)[:3, :4], intrinsics, image_sizes=image_size, camera_types=np.array(camera_model_to_int(camera_model), dtype=np.int32), distortion_parameters=params, nears_fars=None)[None]
+    cam = Cameras(np.eye(4)[:3, :4], intrinsics, image_sizes=image_size, camera_types=np.array(camera_model_to_int(camera_model), dtype=np.int32), distortion_parameters=params, nears_fars=None)[None]
     np.testing.assert_allclose(cam.intrinsics[0], intrinsics, atol=1e-4, rtol=0)
 
-    xy = cam.project(uvw0)
-    _, uvw = cam.unproject(xy)
+    xy = cameras.project(cam, uvw0)
+    _, uvw = cameras.unproject(cam, xy)
     uv0 = uvw0[..., :2] / uvw0[..., 2:]
     uv = uvw[..., :2] / uvw[..., 2:]
     np.testing.assert_allclose(uv, uv0, atol=1e-6, rtol=0)
@@ -118,11 +119,11 @@ def _test_cam_to_cam_from_img(camera_model, intrinsics, params, uvw0):
 
 def _test_cam_from_img_to_img(camera_model, intrinsics, params, xy0):
     image_size = np.array([800, 600], dtype=np.int32)
-    cam = cameras.Cameras[np.ndarray](np.eye(4)[:3, :4], intrinsics, image_sizes=image_size, camera_types=np.array(camera_model_to_int(camera_model), dtype=np.int32), distortion_parameters=params, nears_fars=None)[None]
+    cam = Cameras(np.eye(4)[:3, :4], intrinsics, image_sizes=image_size, camera_types=np.array(camera_model_to_int(camera_model), dtype=np.int32), distortion_parameters=params, nears_fars=None)[None]
     np.testing.assert_allclose(cam.intrinsics[0], intrinsics, atol=1e-4, rtol=0)
 
-    _, directions = cam.unproject(xy0)
-    xy = cam.project(directions)
+    _, directions = cameras.unproject(cam, xy0)
+    xy = cameras.project(cam, directions)
     np.testing.assert_allclose(xy, xy0, atol=1e-6, rtol=0)
 
 

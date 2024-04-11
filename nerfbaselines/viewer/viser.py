@@ -15,7 +15,6 @@ from ..utils import CancelledException, assert_not_none
 from ..pose_utils import apply_transform, get_transform_and_scale, invert_transform
 from ..datasets import load_dataset
 from ..backends._rpc import EventCancellationToken
-from .. import cameras
 
 
 def get_c2w(camera):
@@ -190,7 +189,7 @@ class ViserViewer:
 
                 c2w = get_c2w(camera)
                 c2w = self._inv_transform @ c2w
-                nb_camera: Cameras = cameras.Cameras[np.ndarray](
+                nb_camera = Cameras(
                     poses=c2w[None, :3, :4],
                     intrinsics=np.array([[focal, focal, w_total / 2, h_total / 2]], dtype=np.float32),
                     camera_types=np.array([0], dtype=np.int32),
@@ -298,11 +297,8 @@ def run_viser_viewer(method: Optional[Method] = None,
         if max_num_views is not None and len(test_dataset) > max_num_views:
             test_dataset = dataset_index_select(test_dataset, np.random.choice(len(test_dataset), 100))
 
-        train_dataset = dataset_load_features(train_dataset, features)
-        server.add_dataset_views(train_dataset, "train")
-
-        test_dataset = dataset_load_features(test_dataset, features)
-        server.add_dataset_views(test_dataset, "test")
+        server.add_dataset_views(dataset_load_features(train_dataset, features), "train")
+        server.add_dataset_views(dataset_load_features(test_dataset, features), "test")
 
     elif nb_info is not None:
         dataset_metadata = nb_info.get("dataset_metadata")
