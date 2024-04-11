@@ -6,10 +6,11 @@ InstantNGPSpec: MethodSpec = {
     "method": "._impl.instant_ngp:InstantNGP",
     "conda": {
         "environment_name": os.path.split(__file__[:-3])[-1].replace("_", "-"),
-        "python_version": "3.8",
+        "python_version": "3.9",
         "install_script": """# Install ingp
 # Dependencies and environment setup
-conda install -y cudatoolkit-dev=11.7 \\
+conda install -y cuda-toolkit -c "nvidia/label/cuda-11.7.1"
+conda install -y  \\
     make=4.3 cmake=3.28.3 xorg-libx11=1.8.7 xorg-libxcursor=1.2.0 \\
     xorg-libxrandr=1.5.2 xorg-libxinerama=1.1.5 xorg-libxext=1.3.4 xorg-libxi=1.7.10 \\
     glew=2.1.0 openexr=3.2.2 zlib=1.2 ocl-icd-system jsoncpp=1.9.5 \\
@@ -27,19 +28,48 @@ git clone --recursive https://github.com/NVlabs/instant-ngp.git
 cd instant-ngp
 git checkout cc749144b0665ff7adeee6c57787573fa3b45787
 conda install -y conda-build && conda develop .
+# Replace python version in CMakeLists.txt
+sed -i "s/Python 3\.7/Python 3\.9/g" CMakeLists.txt
 
 # Fix duplicated fmt in dependencies
 rm -rf $CONDA_PREFIX/include/fmt
 
 # Build
-cmake . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+export LIBRARY_PATH="$CONDA_PREFIX/lib/stubs:$LIBRARY_PATH"
+cmake . -B build \\
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \\
+    -DPYTHON_EXECUTABLE="$CONDA_PREFIX/bin/python" \\
+    -DPYTHON_LIBRARY="$CONDA_PREFIX/lib/libpython3.9.so" \\
+    -DPYTHON_INCLUDE_DIR="$CONDA_PREFIX/include/python3.9"
 cmake --build build --config RelWithDebInfo -j
 
 # NOTE: torch is needed for nerfbaselines
 conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 -c pytorch -c nvidia
 mkdir -p "$CONDA_PREFIX/etc/conda/activate.d"
 echo "export PYTHONPATH=\\"$CONDA_PREFIX/src/instant-ngp/build:\\$PYTHONPATH\\"" >> "$CONDA_PREFIX/etc/conda/activate.d/env_vars.sh"
+echo "export LD_LIBRARY_PATH=\\"$CONDA_PREFIX/src/instant-ngp/build:$CONDA_PREFIX/lib:\\$LD_LIBRARY_PATH\\"" >> "$CONDA_PREFIX/etc/conda/activate.d/env_vars.sh"
 echo "export PATH=\\"$CONDA_PREFIX/src/instant-ngp/build:\\$PATH\\"" >> "$CONDA_PREFIX/etc/conda/activate.d/env_vars.sh"
+
+# Test pyngp is available
+conda deactivate; conda activate "$_prefix";
+env
+echo "CONDA_PREFIX: $CONDA_PREFIX"
+echo "pythonpath"
+python -c 'import sys; print(sys.path)'
+echo "Build dir:"
+ls -l "$CONDA_PREFIX/src/instant-ngp/build"
+echo "Libs:"
+ls -l "$CONDA_PREFIX/lib"
+echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+echo "PATH: $PATH"
+echo "PYTHONPATH: $PYTHONPATH"
+echo "Locating cuda.so"
+find "$CONDA_PREFIX" -name 'libcuda.so.*'
+conda deactivate; conda activate "$_prefix"; python -c "import pyngp;" || exit 1
+# Test pyngp is available
+function nb-post-install () {
+    conda deactivate; conda activate "$_prefix"; python -c "import pyngp;" || exit 1
+}
 """,
     },
     "docker": {

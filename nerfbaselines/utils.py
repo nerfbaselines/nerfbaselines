@@ -267,6 +267,7 @@ def setup_logging(verbose: bool):
         kwargs["force"] = True
     if verbose >= 1:
         logging.basicConfig(level=logging.DEBUG, **kwargs)
+        logging.getLogger('PIL').setLevel(logging.WARNING)
     else:
         logging.basicConfig(level=logging.INFO, **kwargs)
     for handler in logging.root.handlers:

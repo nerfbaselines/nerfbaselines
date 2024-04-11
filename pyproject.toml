@@ -107,6 +107,7 @@ ignore = [
     "PLR0912",  # Too many branches.
     "PLW0603",  # Globa statement updates are discouraged.
     "PLW2901",  # For loop variable overwritten.
+    "PLR1714",  # Repeated equality comparison.
 ]
 
 [tool.cu]

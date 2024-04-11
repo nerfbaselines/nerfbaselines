@@ -471,7 +471,7 @@ class InstantNGP(Method):
         with self._with_eval_setup(cameras) as testbed:
             spp = 8
             for i in range(testbed.nerf.training.dataset.n_images):
-                resolution = testbed.nerf.training.dataset["metadata"][i].resolution
+                resolution = testbed.nerf.training.dataset.metadata[i].resolution
                 testbed.set_camera_to_training_view(i)
                 testbed.render_mode = self.RenderMode.Shade
                 image = np.copy(testbed.render(resolution[0], resolution[1], spp, True))
