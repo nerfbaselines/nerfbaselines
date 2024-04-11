@@ -8,7 +8,7 @@ import numpy as np
 import viser
 
 from ..types import Method, Dataset, FrozenSet, DatasetFeature, Literal
-from ..types import Cameras
+from ..types import Cameras, new_cameras
 from ..datasets import dataset_load_features, dataset_index_select
 from ..datasets._colmap_utils import qvec2rotmat, rotmat2qvec
 from ..utils import CancelledException, assert_not_none
@@ -189,7 +189,7 @@ class ViserViewer:
 
                 c2w = get_c2w(camera)
                 c2w = self._inv_transform @ c2w
-                nb_camera = Cameras(
+                nb_camera = new_cameras(
                     poses=c2w[None, :3, :4],
                     intrinsics=np.array([[focal, focal, w_total / 2, h_total / 2]], dtype=np.float32),
                     camera_types=np.array([0], dtype=np.int32),

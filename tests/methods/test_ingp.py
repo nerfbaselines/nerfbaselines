@@ -113,3 +113,9 @@ def test_train_instant_ngp_apptainer(run_test_train):
 @pytest.mark.docker
 def test_train_instant_ngp_docker(run_test_train):
     run_test_train()
+
+
+@pytest.mark.method(METHOD_NAME)
+@pytest.mark.conda
+def test_train_instant_ngp_conda(run_test_train):
+    run_test_train()

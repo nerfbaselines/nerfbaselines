@@ -8,7 +8,7 @@ import sys
 import json
 from pathlib import Path
 import numpy as np
-from ..types import camera_model_to_int, Cameras
+from ..types import camera_model_to_int, new_cameras
 from ._common import DatasetNotFoundError, get_default_viewer_transform, construct_dataset
 
 
@@ -53,7 +53,7 @@ def load_blender_dataset(path: Path, split: str, **kwargs):
     viewer_transform, viewer_pose = get_default_viewer_transform(c2w, "object-centric")
 
     return construct_dataset(
-        cameras=Cameras(
+        cameras=new_cameras(
             poses=c2w,
             intrinsics=intrinsics,
             camera_types=np.full(len(cams), camera_model_to_int("pinhole"), dtype=np.int32),

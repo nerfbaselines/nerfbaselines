@@ -17,6 +17,7 @@ except ImportError:
 from nerfbaselines.types import Dataset, OptimizeEmbeddingsOutput, RenderOutput, MethodInfo, ModelInfo
 from nerfbaselines.types import Cameras, CameraModel, get_args
 from nerfbaselines import Method
+from nerfbaselines import cameras as _cameras
 
 import configargparse
 import opt
@@ -32,7 +33,7 @@ from dataLoader.llff import average_poses
 def get_rays_and_indices(camera: Cameras):
     w, h = camera.image_sizes
     xy = np.stack(np.meshgrid(np.arange(w), np.arange(h), indexing="xy"), -1).reshape(-1, 2)
-    origins, directions = camera[None].get_rays(xy[None])
+    origins, directions = _cameras.get_rays(camera[None], xy[None])
     return origins[0], directions[0], xy
 
 

@@ -23,3 +23,11 @@ def test_train_tetranerf_docker(run_test_train):
     if run_test_train.dataset_name == "blender":
         pytest.skip("Blender dataset is not supported by tetra-nerf")
     run_test_train()
+
+
+@pytest.mark.conda
+@pytest.mark.method("tetra-nerf")
+def test_train_tetranerf_conda(run_test_train):
+    if run_test_train.dataset_name == "blender":
+        pytest.skip("Blender dataset is not supported by tetra-nerf")
+    run_test_train()

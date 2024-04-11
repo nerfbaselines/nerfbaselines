@@ -5,6 +5,7 @@ import pytest
 
 def pytest_addoption(parser):
     parser.addoption("--run-docker", action="store_true", default=False, help="run docker tests")
+    parser.addoption("--run-conda", action="store_true", default=False, help="run conda tests")
     parser.addoption("--run-apptainer", action="store_true", default=False, help="run apptainer tests")
     parser.addoption("--run-extras", action="store_true", default=False, help="run extras tests")
     parser.addoption("--method", action="append", default=[], help="run only these methods")
@@ -12,6 +13,7 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
+    config.addinivalue_line("markers", "conda: mark test as requiring conda")
     config.addinivalue_line("markers", "docker: mark test as requiring docker")
     config.addinivalue_line("markers", "apptainer: mark test as requiring apptainer")
     config.addinivalue_line("markers", "extras: mark test as requiring other dependencies")
@@ -32,6 +34,11 @@ def pytest_collection_modifyitems(config, items: List[pytest.Item]):
                     function.keywords["method"] = pytest.Mark(name="method", args=(m,), kwargs={})
                     items.append(function)
 
+    if not config.getoption("--run-conda"):
+        skip_slow = pytest.mark.skip(reason="need --run-conda option to run")
+        for item in items:
+            if "conda" in item.keywords:
+                item.add_marker(skip_slow)
     if not config.getoption("--run-docker"):
         skip_slow = pytest.mark.skip(reason="need --run-docker option to run")
         for item in items:

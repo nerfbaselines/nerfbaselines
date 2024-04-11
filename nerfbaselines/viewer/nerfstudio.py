@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from ..types import Method, Dataset
-from ..types import Cameras, camera_model_to_int
+from ..types import GenericCamerasImpl, camera_model_to_int
 from ..datasets import dataset_load_features
 from ..datasets._colmap_utils import qvec2rotmat, rotmat2qvec
 from ..utils import convert_image_dtype
@@ -142,7 +142,7 @@ class FakeModel(torch.nn.Module):
         out = next(
             iter(
                 self.method.render(
-                    Cameras(
+                    GenericCamerasImpl[np.ndarray](
                         poses=c2w,
                         intrinsics=np.concatenate(
                             (

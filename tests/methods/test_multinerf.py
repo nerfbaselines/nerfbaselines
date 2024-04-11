@@ -174,3 +174,12 @@ def test_train_multinerf_docker(run_test_train):
     run_test_train(config_overrides=[
         ("Config.batch_size", "128")
     ])
+
+
+@pytest.mark.conda
+@pytest.mark.method("mipnerf360")
+@_enable_gc
+def test_train_multinerf_conda(run_test_train):
+    run_test_train(config_overrides=[
+        ("Config.batch_size", "128")
+    ])

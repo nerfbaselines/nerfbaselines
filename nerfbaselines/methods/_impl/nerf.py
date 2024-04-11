@@ -167,7 +167,7 @@ class NeRF(Method):
         return MethodInfo(
             name=cls._method_name,
             required_features=frozenset(("color",)),
-            supported_camera_models=frozenset(get_args(CameraModel)),
+            supported_camera_models=frozenset(("pinhole",)),
         )
 
     def get_info(self) -> ModelInfo:

@@ -74,7 +74,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: common-tests
     outputs:
-      methods: ${{ steps.data-step.outputs.methods }}
+      conda_methods: ${{ steps.data-step.outputs.conda_methods }}
+      docker_methods: ${{ steps.data-step.outputs.docker_methods }}
+      apptainer_methods: ${{ steps.data-step.outputs.apptainer_methods }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
@@ -91,7 +93,14 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -e .
-          python -c 'import nerfbaselines.registry as r; import json; print("methods=" + json.dumps([x for x in r.supported_methods() if not ":" in x and x not in ("trips",)]))' >> $GITHUB_OUTPUT
+          python -c '
+          import nerfbaselines.registry as r;
+          blacklist=("trips",)
+          import json; 
+          print("docker_methods=" + json.dumps([x for x in r.supported_methods() if not ":" in x and x not in blacklist]))
+          print("conda_methods=" + json.dumps([x for x in r.supported_methods() if not ":" in x and x not in blacklist]))
+          print("apptainer_methods=" + json.dumps([x for x in r.supported_methods() if not ":" in x and x not in blacklist]))
+          ' >> $GITHUB_OUTPUT
 
   docker-tests:
     runs-on: ubuntu-latest
@@ -101,7 +110,7 @@ jobs:
       # fail-fast: false
       matrix:
         # method: [instant-ngp,gaussian-splatting,tetra-nerf,mipnerf360,nerfacto]
-        method: ${{ fromJson(needs.setup.outputs.methods) }}
+        method: ${{ fromJson(needs.setup.outputs.docker_methods) }}
     steps:
       - name: Free root space
         uses: almahmoud/free-root-space@main
@@ -132,7 +141,7 @@ jobs:
       # fail-fast: false
       matrix:
         # method: [instant-ngp,gaussian-splatting,tetra-nerf,mipnerf360,nerfacto]
-        method: ${{ fromJson(needs.setup.outputs.methods) }}
+        method: ${{ fromJson(needs.setup.outputs.apptainer_methods) }}
     steps:
       - uses: eWaterCycle/setup-apptainer@v2
         name: Install apptainer
@@ -164,6 +173,45 @@ jobs:
             pytest -s --run-apptainer --method-regex "$method_regex" -rA -x
           fi
 
+  conda-tests:
+    runs-on: ubuntu-latest
+    name: run-tests-conda
+    needs: setup
+    strategy:
+      # fail-fast: false
+      matrix:
+        method: ${{ fromJson(needs.setup.outputs.conda_methods) }}
+    steps:
+      - name: Free root space
+        uses: almahmoud/free-root-space@main
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.9
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: "latest"
+          auto-activate-base: false
+      - name: Install nerfbaselines
+        run: |
+          pip install --upgrade pip
+          pip install -e .
+          pip install pytest typeguard
+      - name: Run tests
+        run: |
+          export TCNN_CUDA_ARCHITECTURES="80"
+          export TORCH_CUDA_ARCH_LIST="8.0"
+          export CUDAARCHS="80"
+          method_regex="^$(python -c 'import re;print(re.escape("${{ matrix.method }}"))')(?:\\:.*|)\$"
+          if [[ "${{matrix.method}}" = tetra-nerf* ]]; then
+            # Tetra-NeRF currently uses too much disk space, so we skip it
+            :
+          else
+            pytest -s --run-conda --method-regex "$method_regex" -rA -x
+            # Second run will use the cached env
+            pytest -s --run-conda --method-regex "$method_regex" -rA -x
+          fi
+
   dataset-tests:
     runs-on: ubuntu-latest
     name: test-datasets
@@ -186,5 +234,5 @@ jobs:
           scene_name="${{ matrix.dataset }}"
           scene_name="${scene_name##*/}"
           nerfbaselines download-dataset '${{ matrix.dataset }}' -o /tmp/${{ matrix.dataset }}
-          python -c "import nerfbaselines.datasets as d;f=set(['color']);k=d.load_dataset('/tmp/${{ matrix.dataset }}', split='train', features=f); k.load_features(f)"
-          python -c "import nerfbaselines.datasets as d;f=set(['color']);k=d.load_dataset('/tmp/${{ matrix.dataset }}', split='test', features=f); k.load_features(f)"
+          python -c "import nerfbaselines.datasets as d;f=set(['color']);k=d.load_dataset('/tmp/${{ matrix.dataset }}', split='train', features=f, load_features=True);"
+          python -c "import nerfbaselines.datasets as d;f=set(['color']);k=d.load_dataset('/tmp/${{ matrix.dataset }}', split='test', features=f, load_features=True);"

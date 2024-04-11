@@ -12,7 +12,7 @@ from PIL import Image
 
 from ._colmap_utils import read_points3D_binary, read_points3D_text
 from ._common import DatasetNotFoundError, get_scene_scale, get_default_viewer_transform, construct_dataset, dataset_index_select
-from ..types import CameraModel, camera_model_to_int, FrozenSet, DatasetFeature, get_args, Cameras
+from ..types import CameraModel, camera_model_to_int, FrozenSet, DatasetFeature, get_args, new_cameras
 from ..io import wget
 
 
@@ -357,9 +357,9 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
     # )
 
     if "camera_model" in meta:
-        camera_type = meta.get("camera_model")
-        if camera_type not in get_args(CameraModel):
-            raise NotImplementedError(f"Camera model {meta['camera_model']} is not supported.")
+        camera_type = CAMERA_MODEL_TO_TYPE.get(meta.get("camera_model"))
+        if camera_type is None or camera_type not in get_args(CameraModel):
+            raise NotImplementedError(f"Camera model {meta.get('camera_model')} is not supported.")
     else:
         if distort_fixed:
             has_distortion = any(meta[x] != 0.0 for x in ["k1", "k2", "p1", "p2", "k3", "k4"])
@@ -396,7 +396,7 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
     # Convert from OpenGL to OpenCV coordinate system
     c2w[0:3, 1:3] *= -1
 
-    all_cameras = Cameras(
+    all_cameras = new_cameras(
         poses=c2w,
         intrinsics=np.stack([fx, fy, cx, cy], -1),
         camera_types=np.full((len(poses),), camera_model_to_int(camera_type), dtype=np.int32),
@@ -461,6 +461,7 @@ def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[i
             metadata={
                 "name": "nerfstudio",
                 "expected_scene_scale": get_scene_scale(all_cameras, "object-centric") if split == "train" else None,
+                "color_space": "srgb",
                 "type": None,
                 "viewer_transform": viewer_transform,
                 "viewer_initial_pose": viewer_pose,

@@ -191,6 +191,8 @@ def run_test_train_fixture(tmp_path_factory, request: pytest.FixtureRequest):
         backend = "apptainer"
     elif request.node.get_closest_marker("docker") is not None:
         backend = "docker"
+    elif request.node.get_closest_marker("conda") is not None:
+        backend = "conda"
 
     default_method_name = None
     method_marker = request.node.get_closest_marker("method")

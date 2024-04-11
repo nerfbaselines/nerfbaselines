@@ -5,16 +5,15 @@ import contextlib
 import time
 import io
 import os
-import logging
 import tarfile
-from typing import Optional, Union, TypeVar
+from typing import Optional, TypeVar
 from pathlib import Path
 import json
 import click
 from tqdm import tqdm
 import numpy as np
 import typing
-from typing import Any, Iterable, cast, List
+from typing import Iterable, cast, List
 from .datasets import load_dataset, Dataset
 from .utils import setup_logging, image_to_srgb, save_image, save_depth, visualize_depth, handle_cli_error, convert_image_dtype, assert_not_none
 from .types import Method, RenderOutput, EvaluationProtocol, Cameras

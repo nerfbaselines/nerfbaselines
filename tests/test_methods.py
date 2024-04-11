@@ -41,6 +41,27 @@ def test_supported_methods():
 #         pytest.skip("No GPU available")
 # 
 
+@pytest.mark.conda
+@pytest.mark.parametrize("method_name", [pytest.param(k, marks=[pytest.mark.method(k)]) for k in supported_methods()])
+def test_method_conda(blender_dataset_path, method_name):
+    try:
+        with registry.build_method(method_name, backend="conda") as method_cls:
+            info = method_cls.get_method_info()
+            dataset = load_dataset(blender_dataset_path, "train", features=info["required_features"], supported_camera_models=info["supported_camera_models"])
+            assert Backend.current is not None
+            assert Backend.current.name == "conda"
+            assert method_cls.get_method_info()["name"] == method_name
+            with tempfile.TemporaryDirectory() as tmpdir:
+                method = method_cls(train_dataset=dataset)
+                assert isinstance(method, Method)  # type: ignore
+                method.save(tmpdir)
+
+                method = method_cls(checkpoint=tmpdir)
+    except NoGPUError:
+        pytest.skip("No GPU available")
+
+
+
 @pytest.mark.docker
 @pytest.mark.parametrize("method_name", [pytest.param(k, marks=[pytest.mark.method(k)]) for k in supported_methods()])
 def test_method_docker(blender_dataset_path, method_name):

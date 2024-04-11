@@ -207,3 +207,9 @@ def test_train_nerfstudio_apptainer(run_test_train):
 @pytest.mark.method("nerfacto")
 def test_train_nerfstudio_docker(run_test_train):
     run_test_train()
+
+
+@pytest.mark.conda
+@pytest.mark.method("nerfacto")
+def test_train_nerfstudio_conda(run_test_train):
+    run_test_train()

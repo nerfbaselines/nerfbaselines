@@ -1,11 +1,21 @@
 import sys
 from typing import Tuple, Dict, cast, Any, TYPE_CHECKING
-import dataclasses
 import numpy as np
 from .utils import padded_stack, is_broadcastable, convert_image_dtype
-from .utils import _get_xnp, _xnp_astype
 from .types import Protocol, runtime_checkable, CameraModel, camera_model_to_int
-from .types import Cameras, GenericCameras, TTensor
+from .types import Cameras, GenericCameras, TTensor, _get_xnp
+
+
+def _xnp_copy(tensor: TTensor, xnp: Any = np) -> TTensor:
+    if xnp.__name__ == "torch":
+        return tensor.clone()  # type: ignore
+    return xnp.copy(tensor)  # type: ignore
+
+
+def _xnp_astype(tensor: TTensor, dtype, xnp: Any) -> TTensor:
+    if xnp.__name__ == "torch":
+        return tensor.to(dtype)  # type: ignore
+    return tensor.astype(dtype)  # type: ignore
 
 
 @runtime_checkable
@@ -163,14 +173,6 @@ _DISTORTIONS: Dict[CameraModel, _DistortionFunction] = {
     "opencv_fisheye": _distort_opencv_fisheye,
     "full_opencv": _distort_full_opencv,
 }
-
-
-def _xnp_copy(tensor: TTensor, xnp=np) -> TTensor:
-    if TYPE_CHECKING:
-        return tensor
-    if xnp.__name__ == "torch":
-        return tensor.clone()
-    return xnp.copy(tensor)
 
 
 def _distort(camera_types, distortion_params, uv, xnp: Any = np):
@@ -422,8 +424,8 @@ def undistort_camera(camera: Cameras):
 
     # Scale the image such the the boundary of the undistorted image.
     empty_poses = np.eye(4, dtype=camera.poses.dtype)[None].repeat(len(camera), axis=0)[..., :3, :4]
-    camera_empty = dataclasses.replace(camera, poses=empty_poses)
-    camera_empty_undistorted = dataclasses.replace(camera, poses=empty_poses, camera_types=np.zeros_like(camera.camera_types), distortion_parameters=np.zeros_like(camera.distortion_parameters))
+    camera_empty = camera.replace(poses=empty_poses)
+    camera_empty_undistorted = camera.replace(poses=empty_poses, camera_types=np.zeros_like(camera.camera_types), distortion_parameters=np.zeros_like(camera.distortion_parameters))
     assert len(camera_empty) == len(camera)
 
     # Determine min/max coordinates along top / bottom image border.

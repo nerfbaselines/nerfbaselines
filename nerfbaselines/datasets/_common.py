@@ -235,9 +235,17 @@ def dataset_load_features(
         logging.debug(f"Loaded {len(sampling_masks)} sampling masks")
 
     dataset["images"] = images  # padded_stack(images)
-    dataset["cameras"] = dataset["cameras"].with_image_sizes(
-        np.array(image_sizes, dtype=np.int32)
-    ).with_metadata(np.stack(all_metadata, 0))
+
+    # Replace image sizes and metadata
+    cameras = dataset["cameras"]
+    image_sizes = np.array(image_sizes, dtype=np.int32)
+    multipliers = image_sizes.astype(cameras.intrinsics.dtype) / cameras.image_sizes.astype(cameras.intrinsics.dtype)
+    multipliers = np.concatenate([multipliers, multipliers], -1)
+    dataset["cameras"] = cameras.replace(
+        image_sizes=image_sizes, 
+        intrinsics=cameras.intrinsics * multipliers, 
+        metadata=np.stack(all_metadata, 0))
+
     if supported_camera_models is not None:
         if _dataset_undistort_unsupported(cast(Dataset, dataset), supported_camera_models):
             logging.warning(

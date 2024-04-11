@@ -146,3 +146,10 @@ def test_train_gaussian_splatting_apptainer(run_test_train):
 @pytest.mark.docker
 def test_train_gaussian_splatting_docker(run_test_train):
     run_test_train()
+
+
+@pytest.mark.method(METHOD_NAME)
+@pytest.mark.conda
+def test_train_gaussian_splatting_conda(run_test_train):
+    run_test_train()
+

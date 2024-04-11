@@ -184,9 +184,12 @@ def get(name: str) -> MethodSpec:
     return registry[name]
 
 
-def supported_methods() -> FrozenSet[str]:
+def supported_methods(backend_name: Optional[BackendName] = None) -> FrozenSet[str]:
     _auto_register()
-    return frozenset(registry.keys())
+    if backend_name is None:
+        return frozenset(registry.keys())
+    else:
+        return frozenset(name for name, spec in registry.items() if backend_name in backends._get_implemented_backends(spec))
 
 
 def _build_method(method_name, spec: "MethodSpec") -> Type[Method]:

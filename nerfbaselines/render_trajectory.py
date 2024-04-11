@@ -21,7 +21,7 @@ except ImportError:
 from .utils import setup_logging, image_to_srgb, save_image, visualize_depth, handle_cli_error
 from .render import with_supported_camera_models
 from .utils import convert_image_dtype
-from .types import Method, Literal, Cameras, CameraModel, camera_model_to_int
+from .types import Method, Literal, Cameras, CameraModel, camera_model_to_int, new_cameras
 from .backends import ALL_BACKENDS
 
 from .io import open_any_directory, deserialize_nb_info
@@ -157,7 +157,7 @@ def read_nerfstudio_trajectory(data: Dict[str, Any]) -> "Trajectory":
     cy = np.array(cys, dtype=np.float32)
     intrinsics = np.stack([fx, fy, cx, cy], -1)
     return Trajectory(
-        cameras=Cameras(
+        cameras=new_cameras(
             poses=camera_to_worlds,
             intrinsics=intrinsics,
             image_sizes=np.array((w, h), dtype=np.int32)[None].repeat(len(camera_to_worlds), 0),

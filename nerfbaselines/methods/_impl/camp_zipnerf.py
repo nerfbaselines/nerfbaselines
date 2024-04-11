@@ -154,8 +154,6 @@ def gin_config_to_dict(config_str: str):
     return cfg
 
 
-
-
 class MNDataset(datasets.Dataset):
     def __init__(self, dataset: Dataset, config, split, dataparser_transform=None, verbose=True):
         self.split = split
@@ -443,7 +441,7 @@ class CamP_ZipNeRF(Method):
         self._camera_type = dataset.camtype
         assert self._dataparser_transform is not None
 
-        self.cameras = jax.tree_util.tree_map(np_to_jax, dataset["cameras"])
+        self.cameras = jax.tree_util.tree_map(np_to_jax, dataset.cameras)
         self.cameras_replicated = flax.jax_utils.replicate(self.cameras)
 
         rng, key = random.split(rng)
@@ -575,7 +573,7 @@ class CamP_ZipNeRF(Method):
             dataparser_transform=self._dataparser_transform,
             verbose=False,
         )
-        cameras = jax.tree_util.tree_map(np_to_jax, test_dataset["cameras"])
+        cameras = jax.tree_util.tree_map(np_to_jax, test_dataset.cameras)
         cameras_replicated = flax.jax_utils.replicate(cameras)
 
         for i in range(len(poses)):

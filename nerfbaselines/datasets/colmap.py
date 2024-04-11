@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Tuple, Optional, Dict, List
 import numpy as np
 from ..types import DatasetFeature, FrozenSet
-from ..types import CameraModel, camera_model_to_int, Cameras
+from ..types import CameraModel, camera_model_to_int, new_cameras
 from ..utils import Indices
 from ._colmap_utils import read_cameras_binary, read_images_binary, read_points3D_binary, qvec2rotmat
 from ._colmap_utils import read_cameras_text, read_images_text, read_points3D_text, Image, Camera, Point3D
@@ -305,7 +305,7 @@ def load_colmap_dataset(path: Path,
         points3D_rgb = np.array([p.rgb for p in points3D.values()], dtype=np.uint8)
 
     # camera_ids=torch.tensor(camera_ids, dtype=torch.int32),
-    all_cameras = Cameras(
+    all_cameras = new_cameras(
         poses=np.stack(camera_poses, 0).astype(np.float32),
         intrinsics=np.stack(camera_intrinsics, 0).astype(np.float32),
         camera_types=np.array(camera_types, dtype=np.int32),
