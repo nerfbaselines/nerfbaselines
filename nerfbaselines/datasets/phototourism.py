@@ -3,20 +3,23 @@ import logging
 from pathlib import Path
 import shutil
 import tempfile
+from typing import Union, cast, Dict
 import tarfile
 
 import numpy as np
 import requests
 from tqdm import tqdm
 
-from ..types import Dataset
+from ..types import Dataset, EvaluationProtocol, Method, RenderOutput, Iterable
+from ..utils import image_to_srgb
 from ._common import DatasetNotFoundError, single, get_scene_scale, get_default_viewer_transform, dataset_index_select
 from .colmap import load_colmap_dataset
 
 DATASET_NAME = "phototourism"
 
 
-def load_phototourism_dataset(path: Path, split: str, use_nerfw_split=None, **kwargs):
+def load_phototourism_dataset(path: Union[Path, str], split: str, use_nerfw_split=None, **kwargs):
+    path = Path(path)
     use_nerfw_split = use_nerfw_split if use_nerfw_split is not None else True
     if split:
         assert split in {"train", "test"}
@@ -54,6 +57,7 @@ def load_phototourism_dataset(path: Path, split: str, use_nerfw_split=None, **kw
     dataset["metadata"]["scene"] = scene
     dataset["metadata"]["expected_scene_scale"] = get_scene_scale(dataset["cameras"], None),
     dataset["metadata"]["type"] = None
+    dataset["metadata"]["evaluation_protocol"] = "nerfw"
     viewer_transform, viewer_pose = get_default_viewer_transform(dataset["cameras"].poses, None)
     dataset["metadata"]["viewer_transform"] = viewer_transform
     dataset["metadata"]["viewer_initial_pose"] = viewer_pose
@@ -106,7 +110,7 @@ _split_lists = {
 }
 
 
-def download_phototourism_dataset(path: str, output: Path):
+def download_phototourism_dataset(path: str, output: Union[Path, str]):
     output = Path(output)
     if not path.startswith(f"{DATASET_NAME}/") and path != DATASET_NAME:
         raise DatasetNotFoundError(
@@ -181,4 +185,61 @@ def download_phototourism_dataset(path: str, output: Path):
             f.write(response.text)
 
     logging.info(f"Downloaded {DATASET_NAME}/{capture_name} to {output}")
+
+
+def horizontal_half_dataset(dataset: Dataset, left: bool = True) -> Dataset:
+    intrinsics = dataset["cameras"].intrinsics.copy()
+    image_sizes = dataset["cameras"].image_sizes.copy()
+    image_sizes[:, 0] //= 2
+    if not left:
+        intrinsics[:, 2] -= image_sizes[:, 0]
+    def get_slice(img, w):
+        if left:
+            return img[:, :w]
+        else:
+            return img[:, w:]
+    dataset = dataset.copy()
+    dataset.update(cast(Dataset, dict(
+        cameras=dataset["cameras"].replace(
+            intrinsics=intrinsics,
+            image_sizes=image_sizes),
+        images=[get_slice(img, w) for img, w in zip(dataset["images"], image_sizes[:, 0])],
+        sampling_masks=[get_slice(mask, w) for mask, w in zip(dataset["sampling_masks"], image_sizes[:, 0])] if dataset["sampling_masks"] is not None else None,
+    )))
+    return dataset
+
+
+class NerfWEvaluationProtocol(EvaluationProtocol):
+    def __init__(self):
+        from nerfbaselines.evaluate import compute_metrics
+        self._compute_metrics = compute_metrics
+
+    def get_name(self):
+        return "nerfw"
+
+    def render(self, method: Method, dataset: Dataset) -> Iterable[RenderOutput]:
+        optimization_dataset = horizontal_half_dataset(dataset, left=True)
+        for i, optim_result in enumerate(method.optimize_embeddings(optimization_dataset)):
+            # Render with the optimzied result
+            for pred in method.render(dataset["cameras"][i:i+1], embeddings=[optim_result["embedding"]]):
+                yield pred
+
+    def evaluate(self, predictions: Iterable[RenderOutput], dataset: Dataset) -> Iterable[Dict[str, Union[float, int]]]:
+        for i, prediction in enumerate(predictions):
+            gt = dataset["images"][i]
+            color = prediction["color"]
+
+            background_color = dataset["metadata"].get("background_color", None)
+            color_srgb = image_to_srgb(color, np.uint8, color_space="srgb", background_color=background_color)
+            gt_srgb = image_to_srgb(gt, np.uint8, color_space="srgb", background_color=background_color)
+            w = gt_srgb.shape[1]
+            metrics = self._compute_metrics(color_srgb[:, (w//2):], gt_srgb[:, (w//2):])
+            yield metrics
+
+    def accumulate_metrics(self, metrics: Iterable[Dict[str, Union[float, int]]]) -> Dict[str, Union[float, int]]:
+        acc = {}
+        for i, data in enumerate(metrics):
+            for k, v in data.items():
+                acc[k] = (acc.get(k, 0) * i + v) / (i + 1)
+        return acc
 

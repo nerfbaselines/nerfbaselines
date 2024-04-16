@@ -343,7 +343,7 @@ class Trainer:
 
         self._validate_output_artifact()
         test_dataset_name = self.test_dataset['metadata'].get("name") if self.test_dataset is not None else train_dataset['metadata'].get("name")
-        self._evaluation_protocol = evaluate.get_evaluation_protocol(test_dataset_name)
+        self._evaluation_protocol = evaluate.get_evaluation_protocol(dataset_name=test_dataset_name)
 
     def _validate_output_artifact(self):
         # Validate generate output artifact

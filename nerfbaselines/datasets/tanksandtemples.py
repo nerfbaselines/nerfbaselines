@@ -2,6 +2,7 @@ import logging
 import shutil
 import requests
 from pathlib import Path
+from typing import Union
 import zipfile
 from tqdm import tqdm
 import tempfile
@@ -18,7 +19,8 @@ SCENES = {
 }
 
 
-def load_tanksandtemples_dataset(path: Path, split: str, downscale_factor: int = 2, **kwargs) -> UnloadedDataset:
+def load_tanksandtemples_dataset(path: Union[Path, str], split: str, downscale_factor: int = 2, **kwargs) -> UnloadedDataset:
+    path = Path(path)
     if split:
         assert split in {"train", "test"}
     if DATASET_NAME not in str(path) or not any(s in str(path) for s in SCENES):
@@ -39,7 +41,7 @@ def load_tanksandtemples_dataset(path: Path, split: str, downscale_factor: int =
     return dataset
 
 
-def download_tanksandtemples_dataset(path: str, output: Path) -> None:
+def download_tanksandtemples_dataset(path: str, output: Union[Path, str]) -> None:
     output = Path(output)
     if not path.startswith(f"{DATASET_NAME}/") and path != DATASET_NAME:
         raise DatasetNotFoundError("Dataset path must be equal to 'tanksandtemples' or must start with 'tanksandtemples/'.")

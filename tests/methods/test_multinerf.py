@@ -127,10 +127,10 @@ def mock_multinerf():
                 }
             return v
 
-        new_registry = {k: fix_spec(v) for k, v in nerfbaselines.registry.registry.items()}
+        new_registry = {k: fix_spec(v) for k, v in nerfbaselines.registry.methods_registry.items()}
 
-        with mock.patch.object(nerfbaselines.registry, "registry", new_registry):
-            from nerfbaselines.methods._impl.multinerf import MultiNeRF
+        with mock.patch.object(nerfbaselines.registry, "methods_registry", new_registry):
+            from nerfbaselines.methods.multinerf import MultiNeRF
 
             old_setup_train = MultiNeRF._setup_train
             old_save = MultiNeRF.save

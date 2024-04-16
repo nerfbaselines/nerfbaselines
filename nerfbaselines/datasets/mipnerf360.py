@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Tuple, Union
 import logging
 from itertools import groupby
 import shutil
@@ -8,7 +8,6 @@ import numpy as np
 import zipfile
 from tqdm import tqdm
 import tempfile
-from ..types import Dataset
 from ._common import DatasetNotFoundError, single, get_scene_scale, get_default_viewer_transform, dataset_index_select
 from .colmap import load_colmap_dataset
 
@@ -26,7 +25,8 @@ _scenes360_res = {
 }
 
 
-def load_mipnerf360_dataset(path: Path, split: str, **kwargs):
+def load_mipnerf360_dataset(path: Union[Path, str], split: str, **kwargs):
+    path = Path(path)
     if split:
         assert split in {"train", "test"}
     if "360" not in str(path) or not any(s in str(path) for s in _scenes360_res):
@@ -64,7 +64,7 @@ def load_mipnerf360_dataset(path: Path, split: str, **kwargs):
     return dataset_index_select(dataset, indices)
 
 
-def download_mipnerf360_dataset(path: str, output: Path):
+def download_mipnerf360_dataset(path: str, output: Union[Path, str]):
     url_extra = "https://storage.googleapis.com/gresearch/refraw360/360_extra_scenes.zip"
     url_base = "http://storage.googleapis.com/gresearch/refraw360/360_v2.zip"
     output = Path(output)

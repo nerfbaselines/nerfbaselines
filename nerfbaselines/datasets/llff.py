@@ -5,6 +5,7 @@ import tempfile
 import zipfile
 import logging
 import sys
+from typing import Union
 from pathlib import Path
 import numpy as np
 from ..types import camera_model_to_int, new_cameras
@@ -15,7 +16,7 @@ gdrive_id = "16VnMcF1KJYxN9QId6TClMsZRahHNMW5g"
 LLFF_SCENES = "fern flower fortress horns leaves orchids room trex".split()
 
 
-def load_llff_dataset(path: Path, split: str, downscale_factor: int = 4, **kwargs):
+def load_llff_dataset(path: Union[Path, str], split: str, downscale_factor: int = 4, **_):
     assert isinstance(path, (Path, str)), "path must be a pathlib.Path or str"
     path = Path(path)
 
@@ -81,7 +82,8 @@ def load_llff_dataset(path: Path, split: str, downscale_factor: int = 4, **kwarg
     )
 
 
-def download_llff_dataset(path: str, output: Path):
+def download_llff_dataset(path: str, output: Union[Path, str]):
+    output = Path(output)
     if path == "llff":
         extract_prefix = "nerf_llff_data/"
     elif path.startswith("llff/") and len(path) > len("llff/"):

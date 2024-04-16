@@ -1,3 +1,4 @@
+import logging
 import hashlib
 import tempfile
 from functools import wraps
@@ -177,6 +178,7 @@ def render_all_images(
         from .evaluate import get_evaluation_protocol
 
         evaluation_protocol = get_evaluation_protocol(dataset_name=dataset["metadata"].get("name"))
+    logging.info(f"Rendering images with evaluation protocol {evaluation_protocol.get_name()}")
     background_color =  dataset["metadata"].get("background_color", None)
     if background_color is not None:
         background_color = convert_image_dtype(background_color, np.uint8)
@@ -234,7 +236,7 @@ def render_command(checkpoint: str, data: str, output: str, split: str, verbose:
                                    features=method_info.get("required_features", None), 
                                    supported_camera_models=method_info.get("supported_camera_models", None))
             dataset_colorspace = dataset["metadata"].get("color_space", "srgb")
-            if dataset_colorspace != nb_info["color_space"]:
-                raise RuntimeError(f"Dataset color space {dataset_colorspace} != method color space {nb_info['color_space']}")
+            if dataset_colorspace != nb_info.get("color_space", "srgb"):
+                raise RuntimeError(f"Dataset color space {dataset_colorspace} != method color space {nb_info.get('color_space', 'srgb')}")
             for _ in render_all_images(method, dataset, output=output, nb_info=nb_info):
                 pass

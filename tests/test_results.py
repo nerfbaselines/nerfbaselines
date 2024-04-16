@@ -2,19 +2,21 @@ import json
 import sys
 import pytest
 from pathlib import Path
+from typing import Any, cast
 from unittest import mock
 from nerfbaselines.results import get_benchmark_datasets, render_markdown_dataset_results_table
-from nerfbaselines.registry import registry
+from nerfbaselines.registry import methods_registry as registry
 
 
 def mock_results(results_path, datasets, methods):
     import nerfbaselines.datasets
+    from nerfbaselines import registry
     from nerfbaselines.evaluate import _encode_values
 
     root = Path(nerfbaselines.__file__).absolute().parent
     for method in methods:
         for dataset in datasets:
-            dinfo = json.loads((root / "datasets" / f"{dataset}.json").read_text(encoding="utf8"))
+            dinfo = cast(Any, registry.datasets_registry[dataset].get("metadata", {}).copy())
             for scene_data in dinfo["scenes"]:
                 scene = scene_data["id"]
 

@@ -6,7 +6,7 @@ import numpy as np
 import PIL.Image
 import PIL.ExifTags
 from tqdm import tqdm
-from typing import Any, Optional, TypeVar, Tuple, Union, List, Sequence, Dict, cast, overload
+from typing import Optional, TypeVar, Tuple, Union, List, Sequence, Dict, cast, overload
 from ..cameras import camera_model_to_int
 from ..types import Dataset, Literal, Cameras, UnloadedDataset
 from .. import cameras
@@ -365,3 +365,4 @@ def construct_dataset(*,
         points3D_rgb=points3D_rgb,
         metadata=metadata
     )
+

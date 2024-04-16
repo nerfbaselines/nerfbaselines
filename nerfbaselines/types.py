@@ -400,3 +400,32 @@ class EvaluationProtocol(Protocol):
 
     def accumulate_metrics(self, metrics: Iterable[Dict[str, Union[float, int]]]) -> Dict[str, Union[float, int]]:
         ...
+
+
+class DatasetSpecMetadata(TypedDict, total=False):
+    id: str
+    name: str
+    description: str
+    paper_title: str
+    paper_authors: List[str]
+    paper_link: str
+    link: str
+    metrics: List[str]
+    default_metric: str
+    scenes: List[Dict[str, str]]
+
+
+class LoadDatasetFunction(Protocol):
+    def __call__(self, 
+                 path: str, 
+                 split: str, 
+                 features: Optional[FrozenSet[DatasetFeature]] = None, 
+                 **kwargs) -> UnloadedDataset:
+        ...
+
+
+class DownloadDatasetFunction(Protocol):
+    def __call__(self, 
+                 path: str, 
+                 output: str) -> None:
+        ...

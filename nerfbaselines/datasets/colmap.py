@@ -2,7 +2,7 @@ import typing
 from collections import OrderedDict
 import logging
 from pathlib import Path
-from typing import Tuple, Optional, Dict, List
+from typing import Tuple, Optional, Dict, List, Union
 import numpy as np
 from ..types import DatasetFeature, FrozenSet
 from ..types import CameraModel, camera_model_to_int, new_cameras
@@ -199,13 +199,14 @@ def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.nda
     return intrinsics, camera_model_to_int(camera_model), distortion_params, (image_width, image_height)
 
 
-def load_colmap_dataset(path: Path, 
+def load_colmap_dataset(path: Union[Path, str],
         images_path: Optional[Path] = None, 
         split: Optional[str] = None, 
         test_indices: Optional[Indices] = None,
         features: Optional[FrozenSet[DatasetFeature]] = None,
         colmap_path: Optional[Path] = None,
         sampling_masks_path: Optional[Path] = None):
+    path = Path(path)
     if features is None:
         features = typing.cast(FrozenSet[DatasetFeature], {})
     load_points = "points3D_xyz" in features or "points3D_rgb" in features

@@ -55,7 +55,7 @@ def mock_instant_ngp():
     testbed.frame = mock.Mock(side_effect=inc_training_step)
     testbed.loss = 0.1
     with mock.patch.dict(sys.modules, {"pyngp": pyngp}), tempfile.TemporaryDirectory() as tempdir:
-        from nerfbaselines.methods._impl import instant_ngp
+        import nerfbaselines.methods.instant_ngp as instant_ngp  # noqa
         
         pyngp.__file__ = str(Path(tempdir).joinpath("pyngp/__init__.py"))
         Path(tempdir).joinpath("configs", "nerf").mkdir(exist_ok=True, parents=True)
@@ -66,6 +66,7 @@ def mock_instant_ngp():
         def new_setup_train(self, train_dataset, *args, **kwargs):
             nonlocal image_sizes
             image_sizes = train_dataset["cameras"].image_sizes
+            print(image_sizes)
             testbed.nerf.training.dataset.n_images = len(train_dataset["cameras"])
             return old_setup_train(self, train_dataset, *args, **kwargs)
 
@@ -90,6 +91,7 @@ def mock_instant_ngp():
         def init(self, *args, **kwargs):
             intt(self, *args, **kwargs)
             self.num_iterations = 13
+        print(init)
 
         with mock.patch.object(instant_ngp.InstantNGP, "render", new_render), \
               mock.patch.object(instant_ngp.InstantNGP, "_setup_train", new_setup_train), \

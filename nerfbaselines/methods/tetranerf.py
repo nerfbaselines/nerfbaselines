@@ -1,46 +1,54 @@
-import os
-from ..registry import MethodSpec, register
+import logging
+from tqdm import tqdm
+import tempfile
+import requests
+import numpy as np
+from .nerfstudio import NerfStudio
+from nerfbaselines.datasets import Dataset
 
 
-TetraNeRFSpec: MethodSpec = {
-    "method": "._impl.tetranerf:TetraNeRF",
-    "docker": {
-        "environment_name": os.path.split(__file__[:-3])[-1].replace("_", "-"),
-        "image": "kulhanek/tetra-nerf:latest",
-        "python_path": "python3",
-        "home_path": "/home/user",
-    },
-    "kwargs": {
-        "require_points3D": True,
-        "nerfstudio_name": None,
-    },
-    "metadata": {
-        "name": "Tetra-NeRF",
-        "paper_title": "Tetra-NeRF: Representing Neural Radiance Fields Using Tetrahedra",
-        "paper_authors": ["Jonas Kulhanek", "Torsten Sattler"],
-        "paper_link": "https://arxiv.org/pdf/2304.09987.pdf",
-        "link": "https://jkulhanek.com/tetra-nerf",
-        "description": """Tetra-NeRF is a method that represents the scene as tetrahedral mesh obtained using Delaunay tetrahedralization. The input point cloud has to be provided (for COLMAP datasets the point cloud is automatically extracted). This is the official implementation
-    from the paper.""",
-    },
-}
+def download_pointcloud(url):
+    response = requests.get(url, stream=True)
+    response.raise_for_status()
+    total_size_in_bytes = int(response.headers.get("content-length", 0))
+    block_size = 1024  # 1 Kibibyte
+    progress_bar = tqdm(total=total_size_in_bytes, unit="iB", unit_scale=True, desc=f"Downloading {url.split('/')[-1]}", dynamic_ncols=True)
+    with tempfile.TemporaryFile("rb+", suffix=".npz") as file:
+        for data in response.iter_content(block_size):
+            progress_bar.update(len(data))
+            file.write(data)
+        file.flush()
+        file.seek(0)
+        progress_bar.close()
+        if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
+            logging.error(f"Failed to download dataset. {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes.")
 
-register(
-    TetraNeRFSpec, 
-    name="tetra-nerf", 
-    kwargs={
-        "nerfstudio_name": "tetra-nerf-original", 
-        "require_points3D": True
-    })
+        data = np.load(file)
+        return data["xyz"], data["rgb"]
 
-register(
-    TetraNeRFSpec,
-    name="tetra-nerf:latest",
-    kwargs={
-        "nerfstudio_name": "tetra-nerf",
-        "require_points3D": True,
-    },
-    metadata={
-        "name": "Tetra-NeRF (latest)",
-        "description": """This variant of Tetra-NeRF uses biased sampling to speed-up training and rendering. It trains/renders almost twice as fast without sacrificing quality. WARNING: this variant is not the same as the one used in the Tetra-NeRF paper.""",
-    })
+
+class TetraNeRF(NerfStudio):
+    def _apply_config_patch_for_dataset(self, config, dataset: Dataset):
+        # We do not allow config to be overriden by the dataset
+        pass
+
+    def _patch_dataparser_params(self):
+        self.dataparser_params["alpha_color"] = "white"
+        return super()._patch_dataparser_params()
+
+    def _setup_train(self, train_dataset: Dataset, **kwargs):
+        dataset = train_dataset
+        dataset_name = dataset["metadata"]["name"]
+        if dataset_name == "blender":
+            # We use the official PC for the Blender dataset
+            scene = dataset["metadata"]["scene"]
+            url = f"https://data.ciirc.cvut.cz/public/projects/2023TetraNeRF/assets/pointnerf-blender/{scene}.npz"
+            logging.info(f"Downloading official point cloud for {dataset_name}/{scene} from {url}")
+            dataset["points3D_xyz"], dataset["points3D_rgb"] = download_pointcloud(url)
+        elif dataset_name == "mipnerf360":
+            # We use the official PC for the MipNerf360 dataset
+            scene = dataset["metadata"]["scene"]
+            url = f"https://data.ciirc.cvut.cz/public/projects/2023TetraNeRF/assets/mipnerf360/{scene}.npz"
+            logging.info(f"Downloading official point cloud for {dataset_name}/{scene} from {url}")
+            dataset["points3D_xyz"], dataset["points3D_rgb"] = download_pointcloud(url)
+        return super()._setup_train(dataset, **kwargs)

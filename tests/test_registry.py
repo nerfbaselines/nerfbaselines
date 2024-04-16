@@ -30,7 +30,7 @@ class _TestMethod(Method):
 
 
 def test_registry_build_method():
-    from nerfbaselines.registry import build_method, MethodSpec, registry
+    from nerfbaselines.registry import build_method, MethodSpec, methods_registry as registry
 
     spec_dict: MethodSpec = {
         "method": _TestMethod.__module__ + ":_TestMethod",
@@ -77,7 +77,7 @@ def test_register_spec():
     from nerfbaselines.registry import register, build_method
     from nerfbaselines import registry
 
-    with mock.patch.object(registry, "registry", {}):
+    with mock.patch.object(registry, "methods_registry", {}):
         register({
             "method": test_register_spec.__module__ + ":_TestMethod",
             "conda": {

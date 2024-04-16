@@ -124,7 +124,7 @@ def test_train_command(mock_extras, tmp_path, wandb_init_run, vis):
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
     _patch_wandb_for_py37()
     from nerfbaselines.train import train_command
-    from nerfbaselines.registry import registry, MethodSpec
+    from nerfbaselines.registry import methods_registry as registry, MethodSpec
     import wandb
 
     _ns_prefix_backup = os.environ.get("NS_PREFIX", None)
@@ -212,7 +212,7 @@ def test_train_command_extras(tmp_path):
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
     from nerfbaselines.train import train_command
-    from nerfbaselines.registry import registry, MethodSpec
+    from nerfbaselines.registry import methods_registry as registry, MethodSpec
 
     assert train_command.callback is not None
 
@@ -282,7 +282,7 @@ def test_train_command_undistort(tmp_path, wandb_init_run):
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
     from nerfbaselines.train import train_command
-    from nerfbaselines.registry import registry, MethodSpec
+    from nerfbaselines.registry import methods_registry as registry, MethodSpec
 
     assert train_command.callback is not None
     render_was_called = False
@@ -341,7 +341,7 @@ def test_render_command(tmp_path, output_type):
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
     from nerfbaselines.train import train_command
-    from nerfbaselines.registry import registry, MethodSpec
+    from nerfbaselines.registry import methods_registry as registry, MethodSpec
 
     assert train_command.callback is not None
     render_was_called = False
@@ -368,7 +368,7 @@ def test_render_command(tmp_path, output_type):
     
     from nerfbaselines.train import train_command
     from nerfbaselines.render import render_command
-    from nerfbaselines.registry import registry, MethodSpec
+    from nerfbaselines.registry import methods_registry as registry, MethodSpec
 
     _ns_prefix_backup = os.environ.get("NS_PREFIX", None)
     try:

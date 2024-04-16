@@ -9,7 +9,8 @@ import warnings
 import numpy as np
 from . import metrics
 from . import datasets
-from .types import Literal, Optional, TypedDict
+from . import registry
+from .types import Literal, Optional, TypedDict, DatasetSpecMetadata
 from ._constants import WEBPAGE_URL
 
 
@@ -50,15 +51,19 @@ def get_dataset_info(dataset: str) -> DatasetInfo:
     Returns:
         The dataset info.
     """
+    from .registry import datasets_registry
     metrics_info_path = Path(metrics.__file__).with_suffix(".json")
     assert metrics_info_path.exists(), f"Metrics info file {metrics_info_path} does not exist"
     metrics_info = json.loads(metrics_info_path.read_text(encoding="utf8"))
-    dataset_info = json.loads(Path(datasets.__file__).absolute().parent.joinpath(dataset + ".json").read_text(encoding="utf8"))
+    dataset_info = cast(Optional[DatasetSpecMetadata], datasets_registry.get(dataset, {}).get("metadata", None))
+    assert dataset_info is not None, f"Dataset {dataset} not found in the registry"
 
     # Fill metrics into dataset info
     metrics_dict = {v["id"]: v for v in metrics_info}
-    dataset_info["metrics"] = [metrics_dict[v] for v in dataset_info["metrics"]]
-    return dataset_info
+    return cast(DatasetInfo, {
+        **dataset_info,
+        "metrics": [metrics_dict[v] for v in dataset_info.get("metrics", [])],
+    })
 
 
 def load_metrics_from_results(results: Dict) -> Dict[str, List[float]]:
@@ -132,7 +137,7 @@ def get_benchmark_datasets() -> List[str]:
     """
     Get the list of registered benchmark datasets.
     """
-    return [x.with_suffix("").name for x in (Path(datasets.__file__).absolute().parent.glob("*.json"))]
+    return [name for name, spec in registry.datasets_registry.items() if spec.get("metadata") is not None] 
 
 
 def format_duration(seconds: Optional[float]) -> str:

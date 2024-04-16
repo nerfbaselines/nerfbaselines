@@ -1,5 +1,4 @@
-from typing import Union, Optional, cast, overload
-from importlib import import_module
+from typing import Union, Optional, overload
 import logging
 from pathlib import Path
 from ..types import Dataset, DatasetFeature, CameraModel, FrozenSet, NB_PREFIX
@@ -10,27 +9,14 @@ from ._common import DatasetNotFoundError, MultiDatasetError
 from ..types import UnloadedDataset, Literal
 
 
-SUPPORTED_DATASETS = [
-    "mipnerf360",
-    "tanksandtemples",
-    "phototourism",
-    "nerfstudio",
-    "blender",
-    "llff",
-    "colmap",
-]
-
-
 def download_dataset(path: str, output: Union[str, Path]):
+    from ..registry import get_dataset_downloaders
+
     output = Path(output)
     errors = {}
-    for name in SUPPORTED_DATASETS:
+    for name, download_fn in get_dataset_downloaders():
         try:
-            module = import_module(f".{name}", __package__)
-            if not hasattr(module, f"download_{name}_dataset"):
-                continue
-            download_fn = getattr(module, f"download_{name}_dataset")
-            download_fn(path, output)
+            download_fn(path, str(output))
             logging.info(f"downloaded {name} dataset with path {path}")
             return
         except DatasetNotFoundError as e:
@@ -68,6 +54,8 @@ def load_dataset(
         supported_camera_models: Optional[FrozenSet[CameraModel]] = None,
         load_features: bool = True,
         ) -> Union[Dataset, UnloadedDataset]:
+    from ..registry import get_dataset_loaders, datasets_registry
+
     if features is None:
         features = frozenset(("color",))
     if supported_camera_models is None:
@@ -82,11 +70,9 @@ def load_dataset(
     path = Path(path)
     errors = {}
     dataset_instance = None
-    for name in SUPPORTED_DATASETS:
+    for name, load_fn in get_dataset_loaders():
         try:
-            module = import_module(f".{name}", __package__)
-            load_fn = getattr(module, f"load_{name}_dataset")
-            dataset_instance = cast(UnloadedDataset, load_fn(path, split=split, features=features))
+            dataset_instance = load_fn(str(path), split=split, features=features)
             logging.info(f"loaded {name} dataset from path {path}")
             break
         except DatasetNotFoundError as e:
@@ -95,6 +81,13 @@ def load_dataset(
             errors[name] = str(e)
     else:
         raise MultiDatasetError(errors, f"no supported dataset found in path {path}")
+
+    # Set correct eval protocol
+    eval_protocol = datasets_registry[name].get("evaluation_protocol", "default")
+    if dataset_instance["metadata"].get("evaluation_protocol", "default") != eval_protocol:
+        raise RuntimeError(f"evaluation protocol mismatch: {dataset_instance['metadata']['evaluation_protocol']} != {eval_protocol}")
+    dataset_instance["metadata"]["evaluation_protocol"] = eval_protocol
+
     if load_features:
         return dataset_load_features(dataset_instance, features=features, supported_camera_models=supported_camera_models)
     return dataset_instance

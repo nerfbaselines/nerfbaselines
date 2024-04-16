@@ -177,7 +177,7 @@ def mock_nerfstudio(mock_torch):
         cast(Any, sys.modules["yaml"]).load.return_value = oconfig
         camera_utils.auto_orient_and_center_poses = lambda poses, *args, **kwargs: (poses, torch.eye(4)[:3])
 
-        from nerfbaselines.methods._impl.nerfstudio import NerfStudio
+        from nerfbaselines.methods.nerfstudio import NerfStudio
 
         old_save = NerfStudio.save
 

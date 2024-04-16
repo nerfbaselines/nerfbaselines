@@ -7,6 +7,7 @@ import logging
 import sys
 import json
 from pathlib import Path
+from typing import Union
 import numpy as np
 from ..types import camera_model_to_int, new_cameras
 from ._common import DatasetNotFoundError, get_default_viewer_transform, construct_dataset
@@ -16,7 +17,7 @@ BLENDER_SCENES = {"lego", "ship", "drums", "hotdog", "materials", "mic", "chair"
 BLENDER_SPLITS = {"train", "test", "val"}
 
 
-def load_blender_dataset(path: Path, split: str, **kwargs):
+def load_blender_dataset(path: Union[Path, str], split: str, **kwargs):
     assert isinstance(path, (Path, str)), "path must be a pathlib.Path or str"
     path = Path(path)
 

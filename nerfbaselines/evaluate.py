@@ -116,6 +116,8 @@ def evaluate(predictions: str,
     Returns:
         A dictionary containing the results.
     """
+    if os.path.exists(output):
+        raise FileExistsError(f"{output} already exists")
 
     with open_any_directory(predictions, "r") as _predictions_path:
         predictions_path = Path(_predictions_path)
@@ -125,6 +127,7 @@ def evaluate(predictions: str,
 
         if evaluation_protocol is None:
             evaluation_protocol = get_evaluation_protocol(name=info["evaluation_protocol"])
+        logging.info(f"Using evaluation protocol {evaluation_protocol.get_name()}")
 
         # Run the evaluation
         metrics_lists = {}
@@ -217,7 +220,17 @@ class DefaultEvaluationProtocol(EvaluationProtocol):
 
 
 def get_evaluation_protocol(name: Optional[str] = None, dataset_name: Optional[str] = None, **kwargs) -> EvaluationProtocol:
-    return DefaultEvaluationProtocol(**kwargs)
+    from .registry import datasets_registry, resolve_evaluation_protocol
+    if name is None:
+        if dataset_name is None:
+            raise ValueError("Either name or dataset_name must be provided")
+        if dataset_name not in datasets_registry:
+            raise ValueError(f"Dataset {dataset_name} is not registered")
+        eval_protocol = datasets_registry[dataset_name].get("evaluation_protocol", "default")
+        name = eval_protocol["name"] if isinstance(eval_protocol, dict) else eval_protocol
+    if name == "default":
+        return DefaultEvaluationProtocol(**kwargs)
+    return resolve_evaluation_protocol(name)
 
 
 @contextlib.contextmanager

@@ -5,7 +5,7 @@ import math
 import shutil
 import json
 import zipfile
-from typing import Optional, List, Tuple, Dict
+from typing import Optional, List, Tuple, Dict, Union
 
 import numpy as np
 from PIL import Image
@@ -123,7 +123,7 @@ def get_train_eval_split_all(image_filenames: List) -> Tuple[np.ndarray, np.ndar
     return i_train, i_eval
 
 
-def load_nerfstudio_dataset(path: Path, split: str, downscale_factor: Optional[int] = None, features: Optional[FrozenSet[DatasetFeature]] = None, **kwargs):
+def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor: Optional[int] = None, features: Optional[FrozenSet[DatasetFeature]] = None, **kwargs):
     path = Path(path)
     downscale_factor_original = downscale_factor
     downscale_factor = None
@@ -535,7 +535,7 @@ def download_capture_name(output: Path, file_id_or_zip_url):
     os.remove(download_path)
 
 
-def download_nerfstudio_dataset(path: str, output: Path):
+def download_nerfstudio_dataset(path: str, output: Union[Path, str]):
     """
     Download data in the Nerfstudio format.
     If you are interested in the Nerfstudio Dataset subset from the SIGGRAPH 2023 paper,
