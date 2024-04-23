@@ -32,7 +32,8 @@ def load_dataset(
         split: str, 
         features: Optional[FrozenSet[DatasetFeature]] = ...,
         supported_camera_models: Optional[FrozenSet[CameraModel]] = ...,
-        load_features: Literal[True] = ...) -> Dataset:
+        load_features: Literal[True] = ...,
+        **kwargs) -> Dataset:
     ...
 
 
@@ -42,7 +43,8 @@ def load_dataset(
         split: str, 
         features: Optional[FrozenSet[DatasetFeature]] = ...,
         supported_camera_models: Optional[FrozenSet[CameraModel]] = ...,
-        load_features: Literal[False] = ...) -> UnloadedDataset:
+        load_features: Literal[False] = ...,
+        **kwargs) -> UnloadedDataset:
     ...
 
 
@@ -53,6 +55,7 @@ def load_dataset(
         features: Optional[FrozenSet[DatasetFeature]] = None,
         supported_camera_models: Optional[FrozenSet[CameraModel]] = None,
         load_features: bool = True,
+        **kwargs,
         ) -> Union[Dataset, UnloadedDataset]:
     from ..registry import get_dataset_loaders, datasets_registry
 
@@ -72,7 +75,7 @@ def load_dataset(
     dataset_instance = None
     for name, load_fn in get_dataset_loaders():
         try:
-            dataset_instance = load_fn(str(path), split=split, features=features)
+            dataset_instance = load_fn(str(path), split=split, features=features, **kwargs)
             logging.info(f"loaded {name} dataset from path {path}")
             break
         except DatasetNotFoundError as e:

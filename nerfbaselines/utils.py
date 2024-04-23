@@ -13,7 +13,7 @@ import struct
 from pathlib import Path
 from functools import wraps
 from typing import Any, Optional, Dict, TYPE_CHECKING, Union, List, TypeVar, Iterable, overload, Callable
-from typing import BinaryIO, Tuple
+from typing import BinaryIO, Tuple, cast
 import logging
 import types
 import numpy as np
@@ -34,6 +34,10 @@ except ImportError:
     from typing_extensions import NotRequired  # noqa: F401
     from typing_extensions import Required  # noqa: F401
     from typing_extensions import TypedDict
+
+if TYPE_CHECKING:
+    import torch
+    import jax.numpy as jnp
 
 if TYPE_CHECKING:
     cached_property = property
@@ -58,6 +62,25 @@ else:
 
 T = TypeVar("T")
 TCallable = TypeVar("TCallable", bound=Callable)
+TTensor = TypeVar("TTensor", np.ndarray, "torch.Tensor", "jnp.ndarray")
+
+
+def _get_xnp(tensor: TTensor):
+    if isinstance(tensor, np.ndarray):
+        return np
+    if tensor.__module__.startswith("jax"):
+        return cast('jnp', sys.modules["jax.numpy"])
+    if tensor.__module__ == "torch":
+        return cast('torch', sys.modules["torch"])
+    raise ValueError(f"Unknown tensor type {type(tensor)}")
+
+
+def _xnp_astype(tensor: TTensor, dtype, xnp: Any) -> TTensor:
+    if xnp.__name__ == "torch":
+        return tensor.to(dtype)  # type: ignore
+    return tensor.astype(dtype)  # type: ignore
+
+
 def assert_not_none(value: Optional[T]) -> T:
     assert value is not None
     return value
@@ -483,13 +506,33 @@ def _zipnerf_power_transformation(x, lam: float):
     return (((x / abs(lam - 1)) + 1) ** lam - 1) * m
 
 
-def visualize_depth(depth: np.ndarray, expected_scale: Optional[float] = None, near_far: Optional[np.ndarray] = None, pallete: str = "viridis", xnp=np) -> np.ndarray:
+def apply_colormap(array: TTensor, pallete: str = "viridis") -> TTensor:
+    xnp = _get_xnp(array)
     # TODO: remove matplotlib dependency
     import matplotlib
     import matplotlib.colors
 
+    # Map to a color scale
+    array_long = cast(TTensor, _xnp_astype(array * 255, xnp.int32, xnp=xnp).clip(0, 255))
+    colormap = matplotlib.colormaps[pallete]
+    colormap_colors = None
+    if isinstance(colormap, matplotlib.colors.ListedColormap):
+        colormap_colors = colormap.colors
+    else:
+        colormap_colors = [list(colormap(i / 255))[:3] for i in range(256)]
+    if xnp.__name__ == "torch":
+        import torch
+        pallete_array = cast(TTensor, torch.tensor(colormap_colors, dtype=torch.float32, device=cast(torch.Tensor, array).device))
+    else:
+        pallete_array = cast(TTensor, xnp.array(colormap_colors, dtype=xnp.float32))  # type: ignore
+    out = cast(TTensor, pallete_array[255 - array_long])
+    return _xnp_astype(out * 255, xnp.uint8, xnp=xnp)
+
+
+def visualize_depth(depth: np.ndarray, expected_scale: Optional[float] = None, near_far: Optional[np.ndarray] = None, pallete: str = "viridis") -> np.ndarray:
     # We will squash the depth to range [0, 1] using Barron's power transformation
-    eps = xnp.finfo(xnp.float32).eps
+    xnp = _get_xnp(depth)
+    eps = xnp.finfo(xnp.float32).eps  # type: ignore
     if near_far is not None:
         depth_squashed = (depth - near_far[0]) / (near_far[1] - near_far[0])
     elif expected_scale is not None:
@@ -502,11 +545,7 @@ def visualize_depth(depth: np.ndarray, expected_scale: Optional[float] = None, n
     depth_squashed = depth_squashed.clip(0, 1)
 
     # Map to a color scale
-    depth_long = (depth_squashed * 255).astype(xnp.int32).clip(0, 255)
-    colormap = matplotlib.colormaps[pallete]
-    assert isinstance(colormap, matplotlib.colors.ListedColormap)
-    out = xnp.array(colormap.colors, dtype=xnp.float32)[255 - depth_long]
-    return (out * 255).astype(xnp.uint8)
+    return apply_colormap(depth_squashed, pallete)
 
 
 def run_on_host():
@@ -735,3 +774,43 @@ def flatten_hparams(hparams: Dict[str, Any], *, separator: str = "/", _prefix: s
         else:
             flat[k] = v
     return flat
+
+
+MetricAccumulationMode = Literal["average", "last", "sum"]
+
+
+class MetricsAccumulator:
+    def __init__(
+        self,
+        options: Optional[Dict[str, MetricAccumulationMode]] = None,
+    ):
+        self.options = options or {}
+        self._state = None
+
+    def update(self, metrics: Dict[str, Union[int, float]]) -> None:
+        if self._state is None:
+            self._state = {}
+        state = self._state
+        n_iters_since_update = state["n_iters_since_update"] = state.get("n_iters_since_update", {})
+        for k, v in metrics.items():
+            accumulation_mode = self.options.get(k, "average")
+            n_iters_since_update[k] = n = n_iters_since_update.get(k, 0) + 1
+            if k not in state:
+                state[k] = 0
+            if accumulation_mode == "last":
+                state[k] = v
+            elif accumulation_mode == "average":
+                state[k] = state[k] * ((n - 1) / n) + v / n
+            elif accumulation_mode == "sum":
+                state[k] += v
+            else:
+                raise ValueError(f"Unknown accumulation mode {accumulation_mode}")
+
+    def pop(self) -> Dict[str, Union[int, float]]:
+        if self._state is None:
+            return {}
+        state = self._state
+        self._state = None
+        state.pop("n_iters_since_update", None)
+        return state
+

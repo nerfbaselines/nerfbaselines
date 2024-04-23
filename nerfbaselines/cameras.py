@@ -6,16 +6,16 @@ from .types import Protocol, runtime_checkable, CameraModel, camera_model_to_int
 from .types import Cameras, GenericCameras, TTensor, _get_xnp
 
 
-def _xnp_copy(tensor: TTensor, xnp: Any = np) -> TTensor:
-    if xnp.__name__ == "torch":
-        return tensor.clone()  # type: ignore
-    return xnp.copy(tensor)  # type: ignore
-
-
 def _xnp_astype(tensor: TTensor, dtype, xnp: Any) -> TTensor:
     if xnp.__name__ == "torch":
         return tensor.to(dtype)  # type: ignore
     return tensor.astype(dtype)  # type: ignore
+
+
+def _xnp_copy(tensor: TTensor, xnp: Any = np) -> TTensor:
+    if xnp.__name__ == "torch":
+        return tensor.clone()  # type: ignore
+    return xnp.copy(tensor)  # type: ignore
 
 
 @runtime_checkable

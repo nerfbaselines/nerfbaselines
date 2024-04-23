@@ -14,7 +14,7 @@ from ..utils import padded_stack
 from ..pose_utils import rotation_matrix, pad_poses, unpad_poses, viewmatrix, apply_transform
 
 
-TDataset = TypeVar("TDataset", Dataset, UnloadedDataset)
+TDataset = TypeVar("TDataset", bound=Union[Dataset, UnloadedDataset])
 
 
 def single(xs):
@@ -286,8 +286,8 @@ class MultiDatasetError(DatasetNotFoundError):
         logging.error(message)
 
 
-def dataset_index_select(dataset: TDataset, i: Union[slice, int, np.ndarray]) -> TDataset:
-    assert isinstance(i, (slice, int, np.ndarray))
+def dataset_index_select(dataset: TDataset, i: Union[slice, int, list, np.ndarray]) -> TDataset:
+    assert isinstance(i, (slice, int, list, np.ndarray))
     dataset_len = len(dataset["file_paths"])
 
     def index(key, obj):

@@ -17,7 +17,7 @@ from .datasets import load_dataset, Dataset, dataset_index_select
 from .utils import Indices, setup_logging, image_to_srgb, visualize_depth, handle_cli_error
 from .utils import remap_error, get_resources_utilization_info, assert_not_none
 from .utils import IndicesClickType, SetParamOptionType
-from .utils import make_image_grid
+from .utils import make_image_grid, MetricsAccumulator
 from .types import Method, Literal, FrozenSet
 from .render import render_all_images
 from .evaluate import EvaluationProtocol
@@ -202,45 +202,6 @@ def eval_all(method: Method, logger: Logger, dataset: Dataset, *, output: str, s
                          description="left: gt, right: prediction", 
                          step=step)
 
-
-
-MetricAccumulationMode = Literal["average", "last", "sum"]
-
-
-class MetricsAccumulator:
-    def __init__(
-        self,
-        options: Optional[Dict[str, MetricAccumulationMode]] = None,
-    ):
-        self.options = options or {}
-        self._state = None
-
-    def update(self, metrics: Dict[str, Union[int, float]]) -> None:
-        if self._state is None:
-            self._state = {}
-        state = self._state
-        n_iters_since_update = state["n_iters_since_update"] = state.get("n_iters_since_update", {})
-        for k, v in metrics.items():
-            accumulation_mode = self.options.get(k, "average")
-            n_iters_since_update[k] = n = n_iters_since_update.get(k, 0) + 1
-            if k not in state:
-                state[k] = 0
-            if accumulation_mode == "last":
-                state[k] = v
-            elif accumulation_mode == "average":
-                state[k] = state[k] * ((n - 1) / n) + v / n
-            elif accumulation_mode == "sum":
-                state[k] += v
-            else:
-                raise ValueError(f"Unknown accumulation mode {accumulation_mode}")
-
-    def pop(self) -> Dict[str, Union[int, float]]:
-        if self._state is None:
-            return {}
-        state = self._state
-        self._state = None
-        state.pop("n_iters_since_update", None)
-        return state
 
 
 Visualization = Literal["none", "wandb", "tensorboard"]

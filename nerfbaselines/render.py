@@ -177,7 +177,7 @@ def render_all_images(
     if evaluation_protocol is None:
         from .evaluate import get_evaluation_protocol
 
-        evaluation_protocol = get_evaluation_protocol(dataset_name=dataset["metadata"].get("name"))
+        evaluation_protocol = get_evaluation_protocol(name=dataset["metadata"].get("evaluation_protocol", "default"))
     logging.info(f"Rendering images with evaluation protocol {evaluation_protocol.get_name()}")
     background_color =  dataset["metadata"].get("background_color", None)
     if background_color is not None:
