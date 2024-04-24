@@ -78,6 +78,16 @@ exclude = ["**/node_modules",
     "**/__pycache__",
     "**/build",
     "nerfbaselines/viewer/nerfstudio.py",
+    "nerfbaselines/methods/camp_zipnerf.py",
+    "nerfbaselines/methods/gaussian_splatting.py",
+    "nerfbaselines/methods/instant_ngp.py",
+    "nerfbaselines/methods/mip_splatting.py",
+    "nerfbaselines/methods/multinerf.py",
+    "nerfbaselines/methods/nerf.py",
+    "nerfbaselines/methods/nerfstudio.py",
+    "nerfbaselines/methods/tensorf.py",
+    "nerfbaselines/methods/tetranerf.py",
+    "nerfbaselines/methods/trips/**/*",
 ]
 defineConstant = { DEBUG = true }
 

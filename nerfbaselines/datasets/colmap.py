@@ -320,7 +320,7 @@ def load_colmap_dataset(path: Union[Path, str],
         if test_indices is None and ((path / "train_list.txt").exists() or (path / "test_list.txt").exists()):
             logging.info(f"colmap dataloader is loading split data from {path / f'{split}_list.txt'}")
             train_indices = None
-            for split in set(("train", split)):
+            for split in ("train", split):
                 split_image_names = set((path / f"{split}_list.txt").read_text().splitlines())
                 indices = np.ndarray([name in split_image_names for i, name in enumerate(image_names)], dtype=bool)
                 if indices.sum() == 0:
