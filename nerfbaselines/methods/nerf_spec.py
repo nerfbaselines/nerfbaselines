@@ -5,7 +5,7 @@ from ..registry import MethodSpec, register
 NeRFSpec: MethodSpec = {
     "method": ".nerf:NeRF",
     "conda": {
-        "environment_name": os.path.split(__file__[:-3])[-1].replace("_", "-"),
+        "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.7",
         "install_script": r"""# Clone the repo.
 git clone https://github.com/bmild/nerf

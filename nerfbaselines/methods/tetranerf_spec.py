@@ -5,7 +5,7 @@ from ..registry import MethodSpec, register
 TetraNeRFSpec: MethodSpec = {
     "method": ".tetranerf:TetraNeRF",
     "docker": {
-        "environment_name": os.path.split(__file__[:-3])[-1].replace("_", "-"),
+        "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "image": "kulhanek/tetra-nerf:latest",
         "python_path": "python3",
         "home_path": "/home/user",

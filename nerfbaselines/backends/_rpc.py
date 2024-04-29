@@ -640,6 +640,7 @@ _SAFE_ENV = (
     "TORCH_CUDA_ARCH_LIST",
     "CUDAARCHS",
     "GITHUB_ACTIONS",
+    "CI",
     "CONDA_PKGS_DIRS",
     "PIP_CACHE_DIR",
     "TORCH_HOME",

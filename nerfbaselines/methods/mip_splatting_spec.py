@@ -23,7 +23,7 @@ paper_results = {
 MipSplattingSpec: MethodSpec = {
     "method": ".mip_splatting:MipSplatting",
     "conda": {
-        "environment_name": os.path.split(__file__[:-3])[-1].replace("_", "-"),
+        "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.8",
         "install_script": """# Install mip-splatting
 git clone https://github.com/autonomousvision/mip-splatting.git

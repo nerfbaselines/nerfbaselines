@@ -309,6 +309,10 @@ class MultiNeRF(Method):
         self._dataparser_transform = dataset.dataparser_transform
         assert self._dataparser_transform is not None
 
+        # Fail on CI if no GPU is available to avoid expensive CPU training.
+        if os.environ.get("CI", "") == "" and jax.device_count() == 0:
+            raise ValueError("Found no NVIDIA driver on your system.")
+
         def np_to_jax(x):
             return jnp.array(x) if isinstance(x, np.ndarray) else x
 

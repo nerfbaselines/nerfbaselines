@@ -27,7 +27,7 @@ class ApptainerBackendSpec(TypedDict, total=False):
 
 def apptainer_get_safe_environment():
     env = get_safe_environment()
-    allowed = {"APPTAINER_IMAGES", "APPTAINER_CACHEDIR"}
+    allowed = {"APPTAINER_IMAGES", "APPTAINER_CACHEDIR", "CI", "NB_USE_GPU", "GITHUB_ACTIONS"}
     env.update({k: v for k, v in os.environ.items() if k in allowed})
     return env
 
@@ -84,7 +84,7 @@ def apptainer_run(spec: ApptainerBackendSpec, args, env,
     torch_home = os.path.expanduser(env.get("TORCH_HOME", "~/.cache/torch/hub"))
     os.makedirs(torch_home, exist_ok=True)
     image = spec.get("image") or f"docker://{BASE_IMAGE}"
-    export_envs = ["TCNN_CUDA_ARCHITECTURES", "TORCH_CUDA_ARCH_LIST", "CUDAARCHS", "GITHUB_ACTIONS", "NB_AUTHKEY"]
+    export_envs = ["TCNN_CUDA_ARCHITECTURES", "TORCH_CUDA_ARCH_LIST", "CUDAARCHS", "GITHUB_ACTIONS", "NB_AUTHKEY", "CI"]
     package_path = str(Path(nerfbaselines.__file__).absolute().parent.parent)
     return [
         "apptainer",

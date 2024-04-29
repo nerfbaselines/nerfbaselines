@@ -5,7 +5,7 @@ from ..registry import MethodSpec, register
 MultiNeRFSpec: MethodSpec = {
     "method": ".multinerf:MultiNeRF",
     "conda": {
-        "environment_name": os.path.split(__file__[:-3])[-1].replace("_", "-"),
+        "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9",
         "install_script": """# Clone the repo.
 git clone https://github.com/jkulhanek/multinerf.git

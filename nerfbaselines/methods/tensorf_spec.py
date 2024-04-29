@@ -27,7 +27,7 @@ official_results = {
 TensoRFSpec: MethodSpec = {
     "method": ".tensorf:TensoRF",
     "conda": {
-        "environment_name": os.path.split(__file__[:-3])[-1].replace("_", "-"),
+        "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.11",
         "install_script": """# Install TensoRF
 git clone https://github.com/apchenstu/TensoRF.git tensorf

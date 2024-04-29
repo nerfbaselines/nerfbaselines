@@ -9,7 +9,7 @@ NerfStudioSpec: MethodSpec = {
         "require_points3D": False,
     },
     "conda": {
-        "environment_name": os.path.split(__file__[:-3])[-1].replace("_", "-"),
+        "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.10",
         "install_script": r"""
 conda install -y cuda -c "nvidia/label/cuda-11.8.0"

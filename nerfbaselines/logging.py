@@ -65,7 +65,7 @@ class LoggerEvent(Protocol):
                  **kwargs) -> None:
         ...
 
-    def add_histogram(self, tag: str, values: np.ndarray) -> None:
+    def add_histogram(self, tag: str, values: np.ndarray, *, num_bins: Optional[int] = None) -> None:
         ...
 
 
@@ -196,9 +196,12 @@ class WandbLoggerEvent(BaseLoggerEvent):
         import wandb
         self._commit[tag] = [wandb.Image(image, caption=description)]
 
-    def add_histogram(self, tag: str, values: np.ndarray) -> None:
+    def add_histogram(self, tag: str, values: np.ndarray, *, num_bins: Optional[int] = None) -> None:
         import wandb
-        self._commit[tag] = wandb.Histogram(cast(Any, values))
+        if num_bins is not None:
+            self._commit[tag] = wandb.Histogram(cast(Any, values), num_bins=num_bins)
+        else:
+            self._commit[tag] = wandb.Histogram(cast(Any, values))
 
     def add_embedding(self, tag: str, embeddings: np.ndarray, *, 
                       images: Optional[List[np.ndarray]] = None, 
@@ -508,7 +511,9 @@ class TensorboardLoggerEvent(BaseLoggerEvent):
 
     def add_histogram(self,
                       tag: str,
-                      values: np.ndarray):
+                      values: np.ndarray,
+                      *,
+                      num_bins: Optional[int] = None):
         """Add histogram to summary.
 
         Args:
@@ -517,7 +522,7 @@ class TensorboardLoggerEvent(BaseLoggerEvent):
         """
         from tensorboard.compat.proto.summary_pb2 import Summary, HistogramProto
 
-        max_bins = None
+        max_bins = num_bins
         bins = self.default_bins
 
         def make_histogram(values, bins, max_bins=None):

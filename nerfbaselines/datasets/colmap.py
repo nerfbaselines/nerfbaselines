@@ -322,7 +322,7 @@ def load_colmap_dataset(path: Union[Path, str],
             train_indices = None
             for split in ("train", split):
                 split_image_names = set((path / f"{split}_list.txt").read_text().splitlines())
-                indices = np.ndarray([name in split_image_names for i, name in enumerate(image_names)], dtype=bool)
+                indices = np.array([name in split_image_names for i, name in enumerate(image_names)], dtype=bool)
                 if indices.sum() == 0:
                     raise DatasetNotFoundError(f"no images found for split {split} in {path / f'{split}_list.txt'}")
                 if indices.sum() < len(split_image_names):

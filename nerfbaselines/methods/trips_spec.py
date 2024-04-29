@@ -5,7 +5,7 @@ from ..registry import MethodSpec, register
 TRIPSSpec: MethodSpec = {
     "method": "trips_python:TRIPSMethod",
     "conda": {
-        "environment_name": os.path.split(__file__[:-3])[-1].replace("_", "-"),
+        "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9.7",
         "install_script": r"""# Install trips
 # Dependencies and environment setup

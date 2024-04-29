@@ -47,7 +47,7 @@ def test_method_conda(blender_dataset_path, method_name):
     try:
         with registry.build_method(method_name, backend="conda") as method_cls:
             info = method_cls.get_method_info()
-            dataset = load_dataset(blender_dataset_path, "train", features=info["required_features"], supported_camera_models=info["supported_camera_models"])
+            dataset = load_dataset(blender_dataset_path, "train", features=info.get("required_features"), supported_camera_models=info.get("supported_camera_models"))
             assert Backend.current is not None
             assert Backend.current.name == "conda"
             assert method_cls.get_method_info()["name"] == method_name
@@ -68,7 +68,7 @@ def test_method_docker(blender_dataset_path, method_name):
     try:
         with registry.build_method(method_name, backend="docker") as method_cls:
             info = method_cls.get_method_info()
-            dataset = load_dataset(blender_dataset_path, "train", features=info["required_features"], supported_camera_models=info["supported_camera_models"])
+            dataset = load_dataset(blender_dataset_path, "train", features=info.get("required_features"), supported_camera_models=info.get("supported_camera_models"))
             assert Backend.current is not None
             assert Backend.current.name == "docker"
             assert method_cls.get_method_info()["name"] == method_name
@@ -88,7 +88,7 @@ def test_method_apptainer(blender_dataset_path, method_name):
     try:
         with registry.build_method(method_name, backend="apptainer") as method_cls:
             info = method_cls.get_method_info()
-            dataset = load_dataset(blender_dataset_path, "train", features=info["required_features"], supported_camera_models=info["supported_camera_models"])
+            dataset = load_dataset(blender_dataset_path, "train", features=info.get("required_features"), supported_camera_models=info.get("supported_camera_models"))
             assert Backend.current is not None
             assert Backend.current.name == "apptainer"
             assert method_cls.get_method_info()["name"] == method_name

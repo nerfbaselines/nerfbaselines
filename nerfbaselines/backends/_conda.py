@@ -7,7 +7,7 @@ import hashlib
 
 import nerfbaselines
 from ..types import NB_PREFIX, TypedDict, Required
-from ..utils import get_package_dependencies
+from ..utils import get_package_dependencies, shlex_join
 from ._rpc import RemoteProcessRPCBackend, get_safe_environment
 
 
@@ -72,14 +72,14 @@ eval "$(conda shell.bash hook)"
 if [ ! -e {shlex.quote(env_path + ".ack.txt")} ]; then
 rm -rf {shlex.quote(env_path)}
 conda deactivate
-{shlex.join(["conda", "create", "--prefix", env_path, "-y", "-c", "conda-forge", "--override-channels"] + args)}
+{shlex_join(["conda", "create", "--prefix", env_path, "-y", "-c", "conda-forge", "--override-channels"] + args)}
 conda activate {shlex.quote(env_path)}
 echo -e 'channels:\n  - conda-forge\n' > {shlex.quote(os.path.join(env_path, ".condarc"))}
 conda install -y pip conda-build
 mkdir -p {shlex.quote(os.path.join(env_path, "src"))}
 cd {shlex.quote(os.path.join(env_path, "src"))}
 {spec.get('install_script') or ''}
-if ! python -c 'import torch'; then conda install -y {shlex.join(_DEFAULT_TORCH_INSTALL_COMMAND.split())}; fi
+if ! python -c 'import torch'; then conda install -y {shlex_join(_DEFAULT_TORCH_INSTALL_COMMAND.split())}; fi
 if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
 {install_dependencies_script}
 if [ -e {shlex.quote(str(package_path))} ]; then

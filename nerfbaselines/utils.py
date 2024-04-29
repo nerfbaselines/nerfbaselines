@@ -1,3 +1,4 @@
+import shlex
 import dataclasses
 import threading
 from collections import deque
@@ -34,6 +35,11 @@ except ImportError:
     from typing_extensions import NotRequired  # noqa: F401
     from typing_extensions import Required  # noqa: F401
     from typing_extensions import TypedDict
+try:
+    from shlex import join as shlex_join
+except ImportError:
+    def shlex_join(split_command):
+        return ' '.join(shlex.quote(arg) for arg in split_command)
 
 if TYPE_CHECKING:
     import torch
@@ -506,7 +512,7 @@ def _zipnerf_power_transformation(x, lam: float):
     return (((x / abs(lam - 1)) + 1) ** lam - 1) * m
 
 
-def apply_colormap(array: TTensor, pallete: str = "viridis") -> TTensor:
+def apply_colormap(array: TTensor, *, pallete: str = "viridis", invert: bool = False) -> TTensor:
     xnp = _get_xnp(array)
     # TODO: remove matplotlib dependency
     import matplotlib
@@ -525,7 +531,9 @@ def apply_colormap(array: TTensor, pallete: str = "viridis") -> TTensor:
         pallete_array = cast(TTensor, torch.tensor(colormap_colors, dtype=torch.float32, device=cast(torch.Tensor, array).device))
     else:
         pallete_array = cast(TTensor, xnp.array(colormap_colors, dtype=xnp.float32))  # type: ignore
-    out = cast(TTensor, pallete_array[255 - array_long])
+    if invert:
+        array_long = 255 - array_long
+    out = cast(TTensor, pallete_array[array_long])
     return _xnp_astype(out * 255, xnp.uint8, xnp=xnp)
 
 
@@ -545,7 +553,7 @@ def visualize_depth(depth: np.ndarray, expected_scale: Optional[float] = None, n
     depth_squashed = depth_squashed.clip(0, 1)
 
     # Map to a color scale
-    return apply_colormap(depth_squashed, pallete)
+    return apply_colormap(depth_squashed, pallete=pallete)
 
 
 def run_on_host():

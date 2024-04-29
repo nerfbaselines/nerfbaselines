@@ -14,7 +14,7 @@ import nerfbaselines
 
 from ._conda import CondaBackendSpec, conda_get_environment_hash, conda_get_install_script
 from ..types import NB_PREFIX, TypedDict
-from ..utils import get_package_dependencies
+from ..utils import get_package_dependencies, shlex_join
 from ._rpc import RemoteProcessRPCBackend, get_safe_environment, customize_wrapper_separated_fs
 from .._constants import DOCKER_REPOSITORY
 from ._common import get_mounts
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from ..registry import MethodSpec
 
 
-EXPORT_ENVS = ["TCNN_CUDA_ARCHITECTURES", "TORCH_CUDA_ARCH_LIST", "CUDAARCHS", "GITHUB_ACTIONS", "NB_PORT", "NB_PATH", "NB_AUTHKEY", "NB_ARGS"]
+EXPORT_ENVS = ["TCNN_CUDA_ARCHITECTURES", "TORCH_CUDA_ARCH_LIST", "CUDAARCHS", "GITHUB_ACTIONS", "NB_PORT", "NB_PATH", "NB_AUTHKEY", "NB_ARGS", "CI"]
 DEFAULT_CUDA_ARCHS = "7.0 7.5 8.0 8.6+PTX"
 DOCKER_TAG_HASH_LENGTH = 10
 
@@ -120,7 +120,7 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
         run_command = out
 
         script += f'RUN /bin/bash -c "$(echo {run_command})" && \\\n'
-        script += shlex.join(shell_args) + " bash -c 'conda clean -afy && rm -Rf /root/.cache/pip'\n"
+        script += shlex_join(shell_args) + " bash -c 'conda clean -afy && rm -Rf /root/.cache/pip'\n"
         # Fix permissions when changing the user inside the container
         script += "RUN chmod -R og=u /var/conda-envs\n"
         script += "ENTRYPOINT " + json.dumps(shell_args) + "\n"
@@ -129,10 +129,10 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
     else:
         # If not inside conda env, we install the dependencies
         python_path = spec.get("python_path") or "python"
-        script += f"RUN if ! {python_path} -c 'import torch'; then {python_path} -m pip install --no-cache-dir " + shlex.join(_DEFAULT_TORCH_INSTALL_COMMAND.split()) + "; fi && \\\n"
+        script += f"RUN if ! {python_path} -c 'import torch'; then {python_path} -m pip install --no-cache-dir " + shlex_join(_DEFAULT_TORCH_INSTALL_COMMAND.split()) + "; fi && \\\n"
         package_dependencies = get_package_dependencies()
         if package_dependencies:
-            script += "    " + shlex.join([python_path, "-m", "pip", "--no-cache-dir", "install"] + package_dependencies)+ " && \\\n"
+            script += "    " + shlex_join([python_path, "-m", "pip", "--no-cache-dir", "install"] + package_dependencies)+ " && \\\n"
         script += f"    if ! {python_path} -c 'import cv2'; then {python_path} -m pip install opencv-python-headless; fi\n"
         script += f'RUN if ! nerfbaselines >/dev/null 2>&1; then echo -e \'#!/usr/bin/env {python_path}\\nfrom nerfbaselines.__main__ import main\\nif __name__ == "__main__":\\n  main()\\n\'>"/usr/bin/nerfbaselines" && chmod +x "/usr/bin/nerfbaselines" || echo "Failed to create nerfbaselines in the bin folder"; fi\n'
 
@@ -140,7 +140,7 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
     def is_method_allowed(method_spec: "MethodSpec"):
         return json.dumps(get_docker_spec(method_spec)) == json.dumps(spec)
 
-    allowed_methods = ",".join((k for k, v in registry.registry.items() if is_method_allowed(v)))
+    allowed_methods = ",".join((k for k, v in registry.methods_registry.items() if is_method_allowed(v)))
     script += f"ENV NERFBASELINES_ALLOWED_METHODS={allowed_methods}\n"
     script += f'ENV PYTHONPATH="{package_path}:$PYTHONPATH"\n'
     # Add nerfbaselines to the path
