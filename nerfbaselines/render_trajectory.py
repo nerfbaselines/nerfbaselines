@@ -1,6 +1,6 @@
 import sys
 from dataclasses import dataclass
-from typing import Union, Dict, IO, Optional, Any
+from typing import Union, Dict, IO, Optional, Any, TypedDict, List, cast
 import time
 import io
 import os
@@ -21,7 +21,7 @@ except ImportError:
 from .utils import setup_logging, image_to_srgb, save_image, visualize_depth, handle_cli_error
 from .render import with_supported_camera_models
 from .utils import convert_image_dtype
-from .types import Method, Literal, Cameras, CameraModel, camera_model_to_int, new_cameras
+from .types import Method, Literal, Cameras, CameraModel, camera_model_to_int, new_cameras, UnloadedDataset
 from .backends import ALL_BACKENDS
 
 from .io import open_any_directory, deserialize_nb_info
@@ -37,6 +37,7 @@ def render_frames(
     cameras: Cameras,
     output: Union[str, Path],
     fps: float,
+    embeddings: Optional[List[np.ndarray]] = None,
     description: str = "rendering frames",
     output_type: OutputType = "color",
     nb_info: Optional[dict] = None,
@@ -51,7 +52,7 @@ def render_frames(
     allow_transparency = True
 
     def _predict_all():
-        predictions = render(cameras)
+        predictions = render(cameras, embeddings=embeddings)
         for i, pred in enumerate(tqdm(predictions, desc=description, total=len(cameras), dynamic_ncols=True)):
             pred_image = image_to_srgb(pred["color"], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
             if output_type == "color":
@@ -118,14 +119,17 @@ def read_nerfstudio_trajectory(data: Dict[str, Any]) -> "Trajectory":
 
     h = data["render_height"]
     w = data["render_width"]
+    is_nerfstudio = False
 
     if "camera_type" not in data:
         camera_type = "pinhole"
     else:
-        camera_type_name = data["camera_type"].upper().replace("-", "_")
-        if camera_type_name == "PERSPECTIVE":
+        camera_type_name = data["camera_type"]
+        if camera_type_name == "perspective":
+            is_nerfstudio = True
             camera_type = "pinhole"
-        elif camera_type_name == "FISHEYE":
+        elif camera_type_name == "fisheye":
+            is_nerfstudio = True
             camera_type = "pinhole"
         elif camera_type_name in get_args(CameraModel):
             camera_type = camera_type_name
@@ -137,9 +141,13 @@ def read_nerfstudio_trajectory(data: Dict[str, Any]) -> "Trajectory":
     fys = []
     cxs = []
     cys = []
+    appearances = []
     for camera in data["camera_path"]:
         # pose
         c2w = np.array(camera["camera_to_world"], dtype=np.float32).reshape(4, 4)[:3]
+        if is_nerfstudio:
+            # Convert from OpenGL to OpenCV coordinate system
+            c2w[0:3, 1:3] *= -1
         c2ws.append(c2w)
 
         # field of view
@@ -149,6 +157,7 @@ def read_nerfstudio_trajectory(data: Dict[str, Any]) -> "Trajectory":
         fys.append(focal_length)
         cxs.append(w / 2)
         cys.append(h / 2)
+        appearances.append(camera.get("appearance") or {})
 
     camera_to_worlds = np.stack(c2ws, 0)
     fx = np.array(fxs, dtype=np.float32)
@@ -165,13 +174,20 @@ def read_nerfstudio_trajectory(data: Dict[str, Any]) -> "Trajectory":
             distortion_parameters=np.zeros((len(camera_to_worlds), 0), dtype=np.float32),
             nears_fars=None,
         ),
+        appearances=appearances,
         fps=fps,
     )
+
+
+class TrajectoryFrameAppearance(TypedDict, total=False):
+    embedding: Optional[np.ndarray]
+    embedding_train_index: Optional[int]
 
 
 @dataclass
 class Trajectory:
     cameras: Cameras
+    appearances: List[TrajectoryFrameAppearance]
     fps: float
 
     @classmethod
@@ -184,6 +200,43 @@ class Trajectory:
             else:
                 return cls.from_json(json.load(data))
         return read_nerfstudio_trajectory(data)
+
+
+def trajectory_get_embeddings(method: Method, trajectory: Trajectory) -> Optional[List[np.ndarray]]:
+    appearances = list(trajectory.appearances)
+
+    # Fill in embedding images
+    for i, appearance in enumerate(appearances):
+        if appearance.get("embedding") is not None:
+            continue
+        if appearance.get("embedding_train_index") is not None:
+            appearances[i] = {
+                "embedding": method.get_train_embedding(appearance["embedding_train_index"]), 
+                **appearance}
+
+    # Interpolate embeddings
+    steps = []
+    embeddings = []
+    for i, appearance in enumerate(appearances):
+        if appearance.get("embedding") is not None:
+            embeddings.append(appearance.get("embedding"))
+            steps.append(i)
+    if not steps:
+        return None
+    steps.append(steps[0] + len(appearances))
+    embeddings.append(embeddings[0])
+
+    all_embeddings = [None] * len(appearances)
+    for i, (step, embedding) in enumerate(zip(steps[:-1], embeddings[:-1])):
+        next_step = steps[i + 1]
+        next_embedding = embeddings[i + 1]
+        for j in range(step, next_step):
+            if step == next_step:
+                alpha = 0.5
+            else:
+                alpha = (j - step) / (next_step - step)
+            all_embeddings[j%len(appearances)] = alpha * next_embedding + (1 - alpha) * embedding
+    return cast(List[np.ndarray], all_embeddings)
 
 
 @click.command("render-trajectory")
@@ -219,5 +272,9 @@ def main(checkpoint: Union[str, Path], trajectory: Path, output: Union[str, Path
         backends.mount(checkpoint_path, checkpoint_path)
         with registry.build_method(method_name, backend=backend_name) as method_cls:
             method = method_cls(checkpoint=str(checkpoint_path))
-            render_frames(method, _trajectory.cameras, output, output_type=output_type, nb_info=nb_info, fps=_trajectory.fps)
+
+            # Embed the appearance
+            embeddings = trajectory_get_embeddings(method, _trajectory)
+
+            render_frames(method, _trajectory.cameras, embeddings=embeddings, output=output, output_type=output_type, nb_info=nb_info, fps=_trajectory.fps)
             logging.info(f"Output saved to {output}")

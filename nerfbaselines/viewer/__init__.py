@@ -88,7 +88,7 @@ def main(checkpoint: str, data, verbose, backend, viewer="viser", port=6006):
             if viewer == "viser":
                 from .viser import run_viser_viewer
 
-                run_viser_viewer(method=method, port=port, data=data, nb_info=nb_info)
+                run_viser_viewer(method, port=port, data=data, nb_info=nb_info)
             elif viewer == "nerfstudio":
                 from .nerfstudio import run_nerfstudio_viewer
 
