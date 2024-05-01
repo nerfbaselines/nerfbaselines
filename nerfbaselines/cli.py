@@ -64,7 +64,7 @@ main.add_command(render_command)
 
 
 @main.command("shell")
-@click.option("--method", type=click.Choice(list(registry.supported_methods())), required=True)
+@click.option("--method", type=click.Choice(list(registry.get_supported_methods())), required=True)
 @click.option("--backend", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @click.option("--verbose", "-v", is_flag=True)
 def shell_command(method, backend, verbose):
@@ -142,7 +142,7 @@ def render_dataset_results_command(results: Optional[str], dataset: str, output_
 
 
 @main.command("docker-build-image", hidden=True)
-@click.option("--method", type=click.Choice(list(registry.supported_methods())), required=False)
+@click.option("--method", type=click.Choice(list(registry.get_supported_methods())), required=False)
 @click.option("--skip-if-exists-remotely", is_flag=True)
 @click.option("--push", is_flag=True)
 def build_docker_image_command(method=None, push=False, skip_if_exists_remotely=False):

@@ -1,10 +1,10 @@
-import contextlib
 import types
 import sys
 import logging
 import inspect
 import os
 import importlib
+import contextlib
 from typing import Optional, Type, Any, Tuple, Dict, List, cast, Union, Sequence, TYPE_CHECKING
 
 if sys.version_info < (3, 10):
@@ -161,6 +161,7 @@ def _auto_register(force=False):
         if package.endswith("_spec.py") and not package.startswith("_"):
             package = package[:-3]
             importlib.import_module(f".methods.{package}", __package__)
+
     # Dataset registration
     _registration_fastpath = __package__ + ".datasets"
     for package in os.listdir(os.path.dirname(datasets.__file__)):
@@ -249,7 +250,7 @@ def get(name: str) -> MethodSpec:
     return methods_registry[name]
 
 
-def supported_methods(backend_name: Optional[BackendName] = None) -> FrozenSet[str]:
+def get_supported_methods(backend_name: Optional[BackendName] = None) -> FrozenSet[str]:
     from . import backends
     _auto_register()
     if backend_name is None:
@@ -299,9 +300,14 @@ def build_method(method: str, backend: Optional[BackendName] = None):
         raise RuntimeError(f"Could not find method {method} in registry. Supported methods: {','.join(methods_registry.keys())}")
     backend_impl = backends.get_backend(method_spec, backend)
     logging.info(f"Using method: {method}, backend: {backend_impl.name}")
-    with backend_impl as _backend_imple_active:
+    with backend_impl:
         backend_impl.install()
         yield cast(Type[Method], backend_impl.wrap(_build_method)(method, method_spec))
+
+
+def get_supported_datasets() -> FrozenSet[str]:
+    _auto_register()
+    return frozenset(datasets_registry.keys())
 
 
 def get_dataset_loaders() -> Sequence[Tuple[str, LoadDatasetFunction]]:
@@ -309,6 +315,13 @@ def get_dataset_loaders() -> Sequence[Tuple[str, LoadDatasetFunction]]:
     datasets = list(datasets_registry.items())
     datasets.sort(key=lambda x: -x[1]["priority"])
     return [(name, _import_type(spec["load_dataset_function"])) for name, spec in datasets]
+
+
+def get_dataset_spec(name: str) -> DatasetSpec:
+    _auto_register()
+    if name not in datasets_registry:
+        raise RuntimeError(f"Could not find dataset {name} in registry. Supported datasets: {','.join(datasets_registry.keys())}")
+    return datasets_registry[name]
 
 
 def get_dataset_downloaders() -> Sequence[Tuple[str, DownloadDatasetFunction]]:

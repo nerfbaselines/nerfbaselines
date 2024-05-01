@@ -51,12 +51,12 @@ def get_dataset_info(dataset: str) -> DatasetInfo:
     Returns:
         The dataset info.
     """
-    from .registry import datasets_registry
+    from .registry import get_dataset_spec
     metrics_info_path = Path(metrics.__file__).with_suffix(".json")
     assert metrics_info_path.exists(), f"Metrics info file {metrics_info_path} does not exist"
     metrics_info = json.loads(metrics_info_path.read_text(encoding="utf8"))
-    dataset_info = cast(Optional[DatasetSpecMetadata], datasets_registry.get(dataset, {}).get("metadata", None))
-    assert dataset_info is not None, f"Dataset {dataset} not found in the registry"
+    dataset_info = cast(Optional[DatasetSpecMetadata], get_dataset_spec(dataset).get("metadata", None))
+    assert dataset_info is not None, f"Dataset {dataset} does not have metadata"
 
     # Fill metrics into dataset info
     metrics_dict = {v["id"]: v for v in metrics_info}
@@ -137,7 +137,7 @@ def get_benchmark_datasets() -> List[str]:
     """
     Get the list of registered benchmark datasets.
     """
-    return [name for name, spec in registry.datasets_registry.items() if spec.get("metadata") is not None] 
+    return [name for name in registry.get_supported_datasets() if registry.get_dataset_spec(name).get("metadata") is not None] 
 
 
 def format_duration(seconds: Optional[float]) -> str:

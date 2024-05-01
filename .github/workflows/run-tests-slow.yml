@@ -97,9 +97,9 @@ jobs:
           import nerfbaselines.registry as r;
           blacklist=("trips",)
           import json; 
-          print("docker_methods=" + json.dumps([x for x in r.supported_methods() if not ":" in x and x not in blacklist]))
-          print("conda_methods=" + json.dumps([x for x in r.supported_methods() if not ":" in x and x not in blacklist]))
-          print("apptainer_methods=" + json.dumps([x for x in r.supported_methods() if not ":" in x and x not in blacklist]))
+          print("docker_methods=" + json.dumps([x for x in r.get_supported_methods() if not ":" in x and x not in blacklist]))
+          print("conda_methods=" + json.dumps([x for x in r.get_supported_methods() if not ":" in x and x not in blacklist]))
+          print("apptainer_methods=" + json.dumps([x for x in r.get_supported_methods() if not ":" in x and x not in blacklist]))
           ' >> $GITHUB_OUTPUT
 
   docker-tests:

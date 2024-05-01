@@ -230,7 +230,7 @@ def get_docker_image_name(spec: DockerBackendSpec):
 def get_docker_methods_to_build():
     from .. import registry
 
-    methods = registry.supported_methods()
+    methods = registry.get_supported_methods()
     methods_to_install = {}
     for mname in methods:
         m = registry.get(mname)

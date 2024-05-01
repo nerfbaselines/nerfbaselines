@@ -501,7 +501,7 @@ class Trainer:
 
 
 @click.command("train")
-@click.option("--method", "method_name", type=click.Choice(sorted(registry.supported_methods())), required=True, help="Method to use")
+@click.option("--method", "method_name", type=click.Choice(sorted(registry.get_supported_methods())), required=True, help="Method to use")
 @click.option("--checkpoint", type=click.Path(exists=True, path_type=str), default=None)
 @click.option("--data", type=str, required=True)
 @click.option("--output", type=str, default=".")

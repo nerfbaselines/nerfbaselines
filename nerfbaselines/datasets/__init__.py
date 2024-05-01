@@ -57,7 +57,7 @@ def load_dataset(
         load_features: bool = True,
         **kwargs,
         ) -> Union[Dataset, UnloadedDataset]:
-    from ..registry import get_dataset_loaders, datasets_registry
+    from ..registry import get_dataset_loaders, get_dataset_spec
 
     if features is None:
         features = frozenset(("color",))
@@ -86,7 +86,7 @@ def load_dataset(
         raise MultiDatasetError(errors, f"no supported dataset found in path {path}")
 
     # Set correct eval protocol
-    eval_protocol = datasets_registry[name].get("evaluation_protocol", "default")
+    eval_protocol = get_dataset_spec(name).get("evaluation_protocol", "default")
     if dataset_instance["metadata"].get("evaluation_protocol", "default") != eval_protocol:
         raise RuntimeError(f"evaluation protocol mismatch: {dataset_instance['metadata']['evaluation_protocol']} != {eval_protocol}")
     dataset_instance["metadata"]["evaluation_protocol"] = eval_protocol

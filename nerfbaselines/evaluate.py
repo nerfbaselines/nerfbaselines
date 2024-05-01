@@ -220,13 +220,11 @@ class DefaultEvaluationProtocol(EvaluationProtocol):
 
 
 def get_evaluation_protocol(name: Optional[str] = None, dataset_name: Optional[str] = None, **kwargs) -> EvaluationProtocol:
-    from .registry import datasets_registry, resolve_evaluation_protocol
+    from .registry import get_dataset_spec, resolve_evaluation_protocol
     if name is None:
         if dataset_name is None:
             raise ValueError("Either name or dataset_name must be provided")
-        if dataset_name not in datasets_registry:
-            raise ValueError(f"Dataset {dataset_name} is not registered")
-        eval_protocol = datasets_registry[dataset_name].get("evaluation_protocol", "default")
+        eval_protocol = get_dataset_spec(dataset_name).get("evaluation_protocol", "default")
         name = eval_protocol["name"] if isinstance(eval_protocol, dict) else eval_protocol
     if name == "default":
         return DefaultEvaluationProtocol(**kwargs)

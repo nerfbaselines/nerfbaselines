@@ -1,5 +1,5 @@
 import pytest
-from nerfbaselines.registry import supported_methods
+from nerfbaselines.registry import get_supported_methods
 from nerfbaselines import registry
 from nerfbaselines.datasets import load_dataset
 from nerfbaselines.types import Method
@@ -9,7 +9,7 @@ import tempfile
 
 
 def test_supported_methods():
-    methods = supported_methods()
+    methods = get_supported_methods()
     assert len(methods) > 0
     assert "nerf" in methods
     assert "mipnerf360" in methods
@@ -42,7 +42,7 @@ def test_supported_methods():
 # 
 
 @pytest.mark.conda
-@pytest.mark.parametrize("method_name", [pytest.param(k, marks=[pytest.mark.method(k)]) for k in supported_methods()])
+@pytest.mark.parametrize("method_name", [pytest.param(k, marks=[pytest.mark.method(k)]) for k in get_supported_methods()])
 def test_method_conda(blender_dataset_path, method_name):
     try:
         with registry.build_method(method_name, backend="conda") as method_cls:
@@ -63,7 +63,7 @@ def test_method_conda(blender_dataset_path, method_name):
 
 
 @pytest.mark.docker
-@pytest.mark.parametrize("method_name", [pytest.param(k, marks=[pytest.mark.method(k)]) for k in supported_methods()])
+@pytest.mark.parametrize("method_name", [pytest.param(k, marks=[pytest.mark.method(k)]) for k in get_supported_methods()])
 def test_method_docker(blender_dataset_path, method_name):
     try:
         with registry.build_method(method_name, backend="docker") as method_cls:
@@ -83,7 +83,7 @@ def test_method_docker(blender_dataset_path, method_name):
 
 
 @pytest.mark.apptainer
-@pytest.mark.parametrize("method_name", [pytest.param(k, marks=[pytest.mark.method(k)]) for k in supported_methods()])
+@pytest.mark.parametrize("method_name", [pytest.param(k, marks=[pytest.mark.method(k)]) for k in get_supported_methods()])
 def test_method_apptainer(blender_dataset_path, method_name):
     try:
         with registry.build_method(method_name, backend="apptainer") as method_cls:
