@@ -1,6 +1,6 @@
 import sys
 from abc import abstractmethod
-from typing import Optional, Iterable, List, Dict, Any, cast, Union, Sequence, TYPE_CHECKING, overload, TypeVar, Iterator
+from typing import Optional, Iterable, List, Dict, Any, cast, Union, Sequence, TYPE_CHECKING, overload, TypeVar, Iterator, Callable
 from dataclasses import dataclass
 import dataclasses
 import os
@@ -154,6 +154,9 @@ class GenericCameras(Protocol[TTensor_co]):
     def replace(self, **changes) -> Self:
         ...
 
+    def apply(self, fn: Callable[[TTensor_co, str], TTensor]) -> 'GenericCameras[TTensor]':
+        ...
+
 
 @runtime_checkable
 class Cameras(GenericCameras[np.ndarray], Protocol):
@@ -210,8 +213,8 @@ class GenericCamerasImpl(Generic[TTensor_co]):
     @classmethod
     def cat(cls, values: Sequence[Self]) -> Self:
         xnp = _get_xnp(values[0].poses)
-        nears_fars = None
-        metadata = None
+        nears_fars: Optional[TTensor_co] = None
+        metadata: Optional[TTensor_co] = None
         if any(v.nears_fars is not None for v in values):
             assert all(v.nears_fars is not None for v in values), "Either all or none of the cameras must have nears and fars"
             nears_fars = xnp.concatenate([cast(TTensor_co, v.nears_fars) for v in values])
@@ -230,6 +233,17 @@ class GenericCamerasImpl(Generic[TTensor_co]):
 
     def replace(self, **changes) -> Self:
         return dataclasses.replace(self, **changes)
+
+    def apply(self, fn: Callable[[TTensor_co, str], TTensor]) -> 'GenericCamerasImpl[TTensor]':
+        return GenericCamerasImpl[TTensor](
+            poses=fn(self.poses, "poses"),
+            intrinsics=fn(self.intrinsics, "intrinsics"),
+            camera_types=fn(self.camera_types, "camera_types"),
+            distortion_parameters=fn(self.distortion_parameters, "distortion_parameters"),
+            image_sizes=fn(self.image_sizes, "image_sizes"),
+            nears_fars=fn(cast(TTensor_co, self.nears_fars), "nears_fars") if self.nears_fars is not None else None,
+            metadata=fn(cast(TTensor_co, self.metadata), "metadata") if self.metadata is not None else None,
+        )
 
 
 def new_cameras(
