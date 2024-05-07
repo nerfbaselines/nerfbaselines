@@ -8,7 +8,6 @@ import logging
 import tarfile
 from pathlib import Path
 import json
-import mediapy
 import click
 from tqdm import tqdm
 import numpy as np
@@ -21,7 +20,7 @@ except ImportError:
 from .utils import setup_logging, image_to_srgb, save_image, visualize_depth, handle_cli_error
 from .render import with_supported_camera_models
 from .utils import convert_image_dtype
-from .types import Method, Literal, Cameras, CameraModel, camera_model_to_int, new_cameras, UnloadedDataset
+from .types import Method, Literal, Cameras, CameraModel, camera_model_to_int, new_cameras
 from .backends import ALL_BACKENDS
 
 from .io import open_any_directory, deserialize_nb_info
@@ -78,6 +77,7 @@ def render_frames(
                     tar.addfile(tarinfo=tarinfo, fileobj=f)
     elif str(output).endswith(".mp4"):
         # Handle video
+        import mediapy
 
         w, h = cameras.image_sizes[0]
         with mediapy.VideoWriter(output, (h, w), metadata=mediapy.VideoMetadata(len(cameras), (h, w), fps, bps=None)) as writer:
@@ -209,10 +209,11 @@ def trajectory_get_embeddings(method: Method, trajectory: Trajectory) -> Optiona
     for i, appearance in enumerate(appearances):
         if appearance.get("embedding") is not None:
             continue
-        if appearance.get("embedding_train_index") is not None:
-            appearances[i] = {
-                "embedding": method.get_train_embedding(appearance["embedding_train_index"]), 
-                **appearance}
+        embedding_train_index = appearance.get("embedding_train_index")
+        if embedding_train_index is not None:
+            appearances[i] = TrajectoryFrameAppearance(
+                embedding=method.get_train_embedding(embedding_train_index), 
+                **{k: cast(Any, v) for k, v in appearance.items() if k not in {"embedding", "embedding_train_index"}})
 
     # Interpolate embeddings
     steps = []

@@ -5,10 +5,12 @@ import contextlib
 from pathlib import Path
 from collections import deque
 from time import perf_counter
-from typing import Optional, Tuple, TYPE_CHECKING, Any, Callable
+from typing import Optional, Tuple, TYPE_CHECKING, Any, Callable, Dict, cast
 
 import numpy as np
 import viser
+import viser.theme
+import viser.transforms as vtf
 from viser import ViserServer
 
 from ..types import Method, Dataset, FrozenSet, DatasetFeature, Literal, TypeVar
@@ -81,7 +83,7 @@ class BindableState(_ViewerState):
 
         return BindableState(self._initial_state, _get_value, _update_value)
 
-    def update_value(self, state, value):
+    def update_value(self, state, value: T) -> T:
         if self._update_value is None:
             return value
         return self._update_value(state, value)
@@ -97,18 +99,18 @@ class BindableState(_ViewerState):
     def with_default(self, default):
         return BindableState(self._initial_state, lambda state: self.get_value(state) if self.get_value(state) is not None else default, lambda state, value: self.update_value(state, value))
 
-    def map(self, fn):
+    def map(self: Any, fn):
         def set(*args, **kwargs):
             raise ValueError("Cannot update a mapped state")
 
-        return BindableState(self._initial_state, lambda state: fn(self.get_value(state)), set)
+        return cast(Any, BindableState(self._initial_state, lambda state: fn(self.get_value(state)), set))
 
     def __not__(self):
         return self.map(lambda x: not x)
 
 
 class BindableViserServer(ViserServer):
-    def __init__(self, server: ViserServer, update_state: Callable[[T], T], on_update_state: Callable[[Callable[[T], None]], None]):
+    def __init__(self, server: ViserServer, update_state: Callable[[Callable[[T], T]], T], on_update_state: Callable[[Callable[[T], None]], None]):
         for name, value in inspect.getmembers(server):
             if name.startswith("add_gui_"):
                 setattr(self, name, self._bindable_add_gui(value))
@@ -124,7 +126,7 @@ class BindableViserServer(ViserServer):
         arg_names = list(signature.parameters.keys())
 
         def _add_gui(*args, **kwargs):
-            prop_bindings = {}
+            prop_bindings: Dict[str, BindableState] = {}
 
             def map_arg(name, value):
                 if isinstance(value, BindableState):
@@ -148,7 +150,7 @@ class BindableViserServer(ViserServer):
 
         return _add_gui
 
-    def _set_new_state(self, state: T):
+    def _set_new_state(self, state: Any):
         for fn in self._update_fn:
             fn(state)
 
@@ -165,13 +167,13 @@ def add_control_panel(state: BindableState, server: BindableViserServer):
         )
         server.add_gui_dropdown(
             "Output type",
-            state.output_type_options.map(lambda x: x or ("not set",)),
+            BindableState.map(state.output_type_options, lambda x: x or ("not set",)),
             hint="The output to render",
         )
         server.add_gui_rgb("Background color", state.background_color, hint="Color of the background")
 
     # split options
-    with server.add_gui_folder("Split Screen", visible=state.output_type_options.map(lambda x: len(x) > 1)):
+    with server.add_gui_folder("Split Screen", visible=BindableState.map(state.output_type_options, lambda x: len(x) > 1)):
         server.add_gui_checkbox(
             "Enable",
             False,
@@ -181,7 +183,7 @@ def add_control_panel(state: BindableState, server: BindableViserServer):
         server.add_gui_slider("Split percentage", initial_value=state.split_percentage, min=0.0, max=1.0, step=0.01, hint="Where to split")
         server.add_gui_dropdown(
             "Output render split",
-            options=state.output_type_options.map(lambda x: x or ("not set",)),
+            options=BindableState.map(state.output_type_options, lambda x: x or ("not set",)),
             initial_value=state.split_output_type,
             hint="The second output",
         )
@@ -384,10 +386,11 @@ class ViserViewer:
             W, H = cam.image_sizes.tolist()
             fy = cam.intrinsics[1]
             downsample_factor = max(1, min(W//max_img_size, H//max_img_size))
-            image = image[::downsample_factor, ::downsample_factor]
-            image = image_to_srgb(image, dtype=np.uint8, 
-                                  color_space="srgb", 
-                                  background_color=np.array(self._initial_background_color, dtype=np.uint8))
+            if image is not None:
+                image = image[::downsample_factor, ::downsample_factor]
+                image = image_to_srgb(image, dtype=np.uint8, 
+                                      color_space="srgb", 
+                                      background_color=np.array(self._initial_background_color, dtype=np.uint8))
             handle = self.server.add_camera_frustum(
                 f"/dataset-{split}/{path}/frustum",
                 fov=2 * np.arctan2(H / 2, fy),
@@ -461,6 +464,7 @@ class ViserViewer:
                 interval = perf_counter() - start
 
                 def render_single(name):
+                    assert outputs is not None, "Method did not return any outputs"
                     name = name or "color"
                     image = outputs[name]
                     if name == "color":

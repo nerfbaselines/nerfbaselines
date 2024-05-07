@@ -6,7 +6,7 @@ import subprocess
 import shlex
 import logging
 import copy
-from typing import Optional, Iterable
+from typing import Optional, Iterable, Sequence
 import os
 import tempfile
 import numpy as np
@@ -526,7 +526,7 @@ node /tmp/gaussian-splats-3d/util/create-ksplat.js {shlex.quote(ply_file)} {shle
     def optimize_embeddings(
         self, 
         dataset: Dataset,
-        embeddings: Optional[np.ndarray] = None
+        embeddings: Optional[Sequence[np.ndarray]] = None
     ) -> Iterable[OptimizeEmbeddingsOutput]:
         """
         Optimize embeddings for each image in the dataset.
@@ -536,3 +536,12 @@ node /tmp/gaussian-splats-3d/util/create-ksplat.js {shlex.quote(ply_file)} {shle
             embeddings: Optional initial embeddings.
         """
         raise NotImplementedError()
+
+    def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
+        """
+        Get the embedding for a training image.
+
+        Args:
+            index: Index of the image.
+        """
+        return None

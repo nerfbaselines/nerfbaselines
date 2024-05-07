@@ -355,6 +355,19 @@ class Method(Protocol):
         raise NotImplementedError()
 
     @abstractmethod
+    def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
+        """
+        Get the embedding for the given image index.
+
+        Args:
+            index: Image index.
+
+        Returns:
+            Image embedding.
+        """
+        return None
+
+    @abstractmethod
     def optimize_embeddings(
         self, 
         dataset: Dataset,

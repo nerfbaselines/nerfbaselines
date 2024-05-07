@@ -1,6 +1,6 @@
 import warnings
 import os
-from typing import Optional, Iterable
+from typing import Optional, Iterable, Sequence
 from pathlib import Path
 import numpy as np
 import functools
@@ -462,7 +462,7 @@ class MultiNeRF(Method):
     def optimize_embeddings(
         self, 
         dataset: Dataset,
-        embeddings: Optional[np.ndarray] = None
+        embeddings: Optional[Sequence[np.ndarray]] = None
     ) -> Iterable[OptimizeEmbeddingsOutput]:
         """
         Optimize embeddings for each image in the dataset.
@@ -472,3 +472,13 @@ class MultiNeRF(Method):
             embeddings: Optional initial embeddings.
         """
         raise NotImplementedError()
+
+    def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
+        """
+        Get the embedding for a training image.
+
+        Args:
+            index: Index of the image.
+        """
+        return None
+
