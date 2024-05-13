@@ -215,6 +215,8 @@ def load_colmap_dataset(path: Union[Path, str],
     # Load COLMAP dataset
     if colmap_path is None:
         colmap_path = Path("sparse") / "0"
+        if not (path / colmap_path).exists():
+            colmap_path = Path("sparse")
     colmap_path = path / colmap_path
     if images_path is None:
         images_path = Path("images")
