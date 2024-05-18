@@ -568,7 +568,7 @@ node /tmp/gaussian-splats-3d/util/create-ksplat.js {shlex.quote(ply_file)} {shle
             dataset: Dataset.
             embeddings: Optional initial embeddings.
         """
-        raise NotImplementedError()
+        return None
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
         """

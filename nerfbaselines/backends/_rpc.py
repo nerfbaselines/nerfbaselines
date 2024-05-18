@@ -57,7 +57,7 @@ def send(connection: Connection, message):
     msgo = message.copy()
     msgo.pop("kwargs", None)
     msgo.pop("args", None)
-    print("send", time.monotonic(), msgo)
+    # print("send", time.monotonic(), msgo)
     message_bytes = pickle.dumps(message)
     for i in range(0, len(message_bytes), MESSAGE_SIZE):
         connection.send_bytes(message_bytes[i : i + MESSAGE_SIZE])
@@ -75,7 +75,7 @@ def build_recv(connection: Connection):
         msgo = pickle.loads(message_bytes)
         msgo.pop("kwargs", None)
         msgo.pop("args", None)
-        print("recv", time.monotonic(), msgo)
+        # print("recv", time.monotonic(), msgo)
         return pickle.loads(message_bytes)
     return recv
 

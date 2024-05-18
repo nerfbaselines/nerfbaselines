@@ -588,6 +588,7 @@ def train_command(
                                             load_features=True)
                 test_dataset["metadata"]["expected_scene_scale"] = train_dataset["metadata"].get("expected_scene_scale")
 
+
                 # Build the method
                 method = method_cls(
                     checkpoint=os.path.abspath(checkpoint_path) if checkpoint_path else None,

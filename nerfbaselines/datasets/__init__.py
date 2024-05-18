@@ -59,24 +59,32 @@ def load_dataset(
         ) -> Union[Dataset, UnloadedDataset]:
     from ..registry import get_dataset_loaders, get_dataset_spec
 
+    path = str(path)
     if features is None:
         features = frozenset(("color",))
     if supported_camera_models is None:
         supported_camera_models = frozenset(("pinhole",))
     # If path is and external path, we download the dataset first
-    if isinstance(path, str) and path.startswith("external://"):
+    if path.startswith("external://"):
         dataset = path.split("://", 1)[1]
         path = Path(NB_PREFIX) / "datasets" / dataset
         if not path.exists():
             download_dataset(dataset, path)
 
-    path = Path(path)
+    loaders = list(get_dataset_loaders())
+    if "://" in path:
+        # We assume the 
+        loader, path = path.split("://", 1)
+        if loader not in dict(loaders):
+            raise ValueError(f"unknown dataset loader {loader}")
+        loaders = [(loader, dict(loaders)[loader])]
+
     errors = {}
     dataset_instance = None
-    for name, load_fn in get_dataset_loaders():
+    for name, load_fn in loaders:
         try:
-            dataset_instance = load_fn(str(path), split=split, features=features, **kwargs)
-            logging.info(f"loaded {name} dataset from path {path}")
+            dataset_instance = load_fn(path, split=split, features=features, **kwargs)
+            logging.info(f"loaded {name} dataset from path {path} using loader {name}")
             break
         except DatasetNotFoundError as e:
             logging.debug(e)

@@ -55,7 +55,7 @@ def load_phototourism_dataset(path: Union[Path, str], split: str, use_nerfw_spli
     )
     dataset["metadata"]["name"] = DATASET_NAME
     dataset["metadata"]["scene"] = scene
-    dataset["metadata"]["expected_scene_scale"] = get_scene_scale(dataset["cameras"], None),
+    dataset["metadata"]["expected_scene_scale"] = get_scene_scale(dataset["cameras"], None)
     dataset["metadata"]["type"] = None
     dataset["metadata"]["evaluation_protocol"] = "nerfw"
     viewer_transform, viewer_pose = get_default_viewer_transform(dataset["cameras"].poses, None)
@@ -219,7 +219,14 @@ class NerfWEvaluationProtocol(EvaluationProtocol):
 
     def render(self, method: Method, dataset: Dataset) -> Iterable[RenderOutput]:
         optimization_dataset = horizontal_half_dataset(dataset, left=True)
-        for i, optim_result in enumerate(method.optimize_embeddings(optimization_dataset)):
+        optim_iterator = method.optimize_embeddings(optimization_dataset)
+        if optim_iterator is None:
+            # Method does not support optimization
+            for pred in method.render(dataset["cameras"]):
+                yield pred
+            return
+
+        for i, optim_result in enumerate(optim_iterator):
             # Render with the optimzied result
             for pred in method.render(dataset["cameras"][i:i+1], embeddings=[optim_result["embedding"]]):
                 yield pred
