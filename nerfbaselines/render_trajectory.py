@@ -117,61 +117,29 @@ def read_nerfstudio_trajectory(data: Dict[str, Any]) -> "Trajectory":
     else:
         raise RuntimeError("Either fps or seconds must be included in the trajectory file")
 
-    h = data["render_height"]
-    w = data["render_width"]
-    is_nerfstudio = False
+    w, h = data["image_size"]
+    camera_type = data["camera_type"]
+    if camera_type not in get_args(CameraModel):
+        raise RuntimeError(f"Unsupported camera type {camera_type}.")
 
-    if "camera_type" not in data:
-        camera_type = "pinhole"
-    else:
-        camera_type_name = data["camera_type"]
-        if camera_type_name == "perspective":
-            is_nerfstudio = True
-            camera_type = "pinhole"
-        elif camera_type_name == "fisheye":
-            is_nerfstudio = True
-            camera_type = "pinhole"
-        elif camera_type_name in get_args(CameraModel):
-            camera_type = camera_type_name
-        else:
-            raise RuntimeError(f"Unsupported camera type {data['camera_type']}.")
-
-    c2ws = []
-    fxs = []
-    fys = []
-    cxs = []
-    cys = []
+    poses = []
     appearances = []
+    intrinsics = []
     for camera in data["camera_path"]:
         # pose
-        c2w = np.array(camera["camera_to_world"], dtype=np.float32).reshape(4, 4)[:3]
-        if is_nerfstudio:
-            # Convert from OpenGL to OpenCV coordinate system
-            c2w[0:3, 1:3] *= -1
-        c2ws.append(c2w)
-
-        # field of view
-        fov = camera["fov"]
-        focal_length = three_js_perspective_camera_focal_length(fov, h)
-        fxs.append(focal_length)
-        fys.append(focal_length)
-        cxs.append(w / 2)
-        cys.append(h / 2)
+        poses.append(np.array(camera["pose"], dtype=np.float32).reshape(-1, 4)[:3])
+        intrinsics.append(np.array(camera["intrinsics"], dtype=np.float32))
         appearances.append(camera.get("appearance") or {})
 
-    camera_to_worlds = np.stack(c2ws, 0)
-    fx = np.array(fxs, dtype=np.float32)
-    fy = np.array(fys, dtype=np.float32)
-    cx = np.array(cxs, dtype=np.float32)
-    cy = np.array(cys, dtype=np.float32)
-    intrinsics = np.stack([fx, fy, cx, cy], -1)
+    poses=np.stack(poses, 0)
+    intrinsics = np.stack(intrinsics, 0)
     return Trajectory(
         cameras=new_cameras(
-            poses=camera_to_worlds,
-            intrinsics=intrinsics,
-            image_sizes=np.array((w, h), dtype=np.int32)[None].repeat(len(camera_to_worlds), 0),
-            camera_types=np.array([camera_model_to_int(camera_type)] * len(camera_to_worlds), dtype=np.int32),
-            distortion_parameters=np.zeros((len(camera_to_worlds), 0), dtype=np.float32),
+            poses=poses,
+            intrinsics=np.stack(intrinsics, 0),
+            image_sizes=np.array((w, h), dtype=np.int32)[None].repeat(len(poses), 0),
+            camera_types=np.array([camera_model_to_int(camera_type)] * len(poses), dtype=np.int32),
+            distortion_parameters=np.zeros((len(poses), 0), dtype=np.float32),
             nears_fars=None,
         ),
         appearances=appearances,
@@ -192,6 +160,16 @@ class Trajectory:
 
     @classmethod
     def from_json(cls, data: Union[Dict[str, Any], IO, str, Path]) -> "Trajectory":
+        """
+        Trajectory format is similar to nerfstudio with the following differences:
+          - "render_width" and "render_height" are replaced with "image_size"
+          - "camera_type" are different "perspective" -> "pinhole" ("opencv"), ...
+          - "camera_to_world" is replaced with "pose"
+          - "intrinsics" is added
+          - removed "fov" and "aspect_ratio"
+          - "appearance" is added
+          - coordinate system changed from OpenGL to OpenCV
+        """
         if not isinstance(data, dict):
             # Load the data from IO
             if isinstance(data, (str, Path)):

@@ -70,6 +70,7 @@ def load_dataset(
         path = Path(NB_PREFIX) / "datasets" / dataset
         if not path.exists():
             download_dataset(dataset, path)
+        path = str(path)
 
     loaders = list(get_dataset_loaders())
     if "://" in path:

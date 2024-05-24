@@ -71,10 +71,9 @@ def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np
         poses = apply_transform(transform, poses)
         lookat = focus_point_fn(poses)
 
-        # Get random camera positioned at the first dataset's camera origin and looking at the scene origin
-        center = poses[0, :3, 3]
-        camera = viewmatrix(lookat - center, np.array([0, 1, 0], dtype=lookat.dtype), center)
-        return transform, camera
+        poses[:, :3, 3] -= lookat
+        transform[:3, 3] -= lookat
+        return transform, poses[0]
 
     elif dataset_type == "forward-facing":
         raise NotImplementedError("Forward-facing dataset type is not supported")
