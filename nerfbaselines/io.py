@@ -1,3 +1,4 @@
+import json
 import numpy as np
 import time
 import tarfile
@@ -15,6 +16,7 @@ try:
     from typing import Literal
 except ImportError:
     from typing_extensions import Literal
+from .types import Trajectory
 from .utils import assert_not_none
 
 
@@ -251,3 +253,76 @@ def deserialize_nb_info(info: dict) -> dict:
         if "viewer_transform" in dm:
             dm["viewer_transform"] = np.array(dm["viewer_transform"], dtype=np.float32)
     return info
+
+
+def save_trajectory(trajectory: Trajectory, file) -> None:
+    data = trajectory.copy()
+    data["format"] = "nerfbaselines-v1"
+
+    # Replace arrays with flat lists
+    def _fix_appearance(appearance):
+        if not appearance:
+            return appearance
+        appearance = appearance.copy()
+        if appearance.get("embedding") is not None:
+            appearance["embedding"] = appearance["embedding"].tolist()
+        return appearance
+
+    if data.get("source"):
+        data["source"] = data["source"].copy()
+        data["source"]["keyframes"] = data["source"]["keyframes"].copy()
+        for i, kf in enumerate(data["source"].get("keyframes", [])):
+            kf = data["source"]["keyframes"][i] = kf.copy()
+            kf["pose"] = kf["pose"].flatten().tolist()
+            if "appearance" in kf:
+                kf["appearance"] = _fix_appearance(kf["appearance"])
+        if data["source"]["default_appearance"]:
+            data["source"]["default_appearance"] = _fix_appearance(data["source"]["default_appearance"])
+    if data.get("frames"):
+        data["frames"] = data["frames"].copy()
+        for i, frame in enumerate(data["frames"]):
+            frame = data["frames"][i] = frame.copy()
+            frame["pose"] = frame["pose"].flatten().tolist()
+            frame["intrinsics"] = frame["intrinsics"].tolist()
+            frame["appearance_weights"] = frame["appearance_weights"].tolist()
+    if data.get("appearances"):
+        data["appearances"] = list(map(_fix_appearance, data["appearances"]))
+    json.dump(data, file, indent=2)
+
+
+def load_trajectory(file) -> Trajectory:
+    data = json.load(file)
+    if data.pop("format", None) != "nerfbaselines-v1":
+        raise RuntimeError("Trajectory format is not supported")
+    
+    # Fix np arrays
+    def _fix_appearance(appearance):
+        if not appearance:
+            return appearance
+        appearance = appearance.copy()
+        if appearance.get("embedding") is not None:
+            appearance["embedding"] = np.array(appearance["embedding"], dtype=np.float32)
+        return appearance
+
+    data["image_size"] = tuple(data["image_size"])
+
+    if data.get("source"):
+        data["source"] = data["source"].copy()
+        data["source"]["keyframes"] = data["source"]["keyframes"].copy()
+        for i, kf in enumerate(data["source"].get("keyframes", [])):
+            kf = data["source"]["keyframes"][i] = kf.copy()
+            kf["pose"] = np.array(kf["pose"], dtype=np.float32).reshape(-1, 4)
+            if "appearance" in kf:
+                kf["appearance"] = _fix_appearance(kf["appearance"])
+        if data["source"]["default_appearance"]:
+            data["source"]["default_appearance"] = _fix_appearance(data["source"]["default_appearance"])
+    if data.get("frames"):
+        data["frames"] = data["frames"].copy()
+        for i, frame in enumerate(data["frames"]):
+            frame = data["frames"][i] = frame.copy()
+            frame["pose"] = np.array(frame["pose"], dtype=np.float32).reshape(-1, 4)
+            frame["intrinsics"] = np.array(frame["intrinsics"], dtype=np.float32)
+            frame["appearance_weights"] = np.array(frame["appearance_weights"], dtype=np.float32)
+    if data.get("appearances"):
+        data["appearances"] = list(map(_fix_appearance, data["appearances"]))
+    return data

@@ -20,10 +20,10 @@ except ImportError:
 from .utils import setup_logging, image_to_srgb, save_image, visualize_depth, handle_cli_error
 from .render import with_supported_camera_models
 from .utils import convert_image_dtype
-from .types import Method, Literal, Cameras, CameraModel, camera_model_to_int, new_cameras
+from .types import Method, Literal, Cameras, CameraModel, camera_model_to_int, new_cameras, Trajectory
 from .backends import ALL_BACKENDS
 
-from .io import open_any_directory, deserialize_nb_info
+from .io import open_any_directory, deserialize_nb_info, load_trajectory
 from . import registry
 from . import backends
 
@@ -91,131 +91,48 @@ def render_frames(
                 save_image(f, frame)
 
 
-def three_js_perspective_camera_focal_length(fov: float, image_height: int):
-    """Returns the focal length of a three.js perspective camera.
-
-    Args:
-        fov: the field of view of the camera in degrees.
-        image_height: the height of the image in pixels.
-    See:
-        https://github.com/nerfstudio-project/nerfstudio/blob/1aba4ea7a29b05e86f5d223245a573e7dcd86caa/nerfstudio/viewer_legacy/server/utils.py#L52
-    """
-    if fov is None:
-        print("Warning: fov is None, using default value")
-        return 50
-    pp_h = image_height / 2.0
-    focal_length = pp_h / np.tan(fov * (np.pi / 180.0) / 2.0)
-    return focal_length
-
-
-def read_nerfstudio_trajectory(data: Dict[str, Any]) -> "Trajectory":
-    if "seconds" in data:
-        seconds = data["seconds"]
-        fps = len(data["camera_path"]) / seconds
-    elif "fps" in data:
-        fps = data["fps"]
-    else:
-        raise RuntimeError("Either fps or seconds must be included in the trajectory file")
-
-    w, h = data["image_size"]
-    camera_type = data["camera_type"]
-    if camera_type not in get_args(CameraModel):
-        raise RuntimeError(f"Unsupported camera type {camera_type}.")
-
-    poses = []
-    appearances = []
-    intrinsics = []
-    for camera in data["camera_path"]:
-        # pose
-        poses.append(np.array(camera["pose"], dtype=np.float32).reshape(-1, 4)[:3])
-        intrinsics.append(np.array(camera["intrinsics"], dtype=np.float32))
-        appearances.append(camera.get("appearance") or {})
-
-    poses=np.stack(poses, 0)
-    intrinsics = np.stack(intrinsics, 0)
-    return Trajectory(
-        cameras=new_cameras(
-            poses=poses,
-            intrinsics=np.stack(intrinsics, 0),
-            image_sizes=np.array((w, h), dtype=np.int32)[None].repeat(len(poses), 0),
-            camera_types=np.array([camera_model_to_int(camera_type)] * len(poses), dtype=np.int32),
-            distortion_parameters=np.zeros((len(poses), 0), dtype=np.float32),
-            nears_fars=None,
-        ),
-        appearances=appearances,
-        fps=fps,
-    )
-
-
-class TrajectoryFrameAppearance(TypedDict, total=False):
-    embedding: Optional[np.ndarray]
-    embedding_train_index: Optional[int]
-
-
-@dataclass
-class Trajectory:
-    cameras: Cameras
-    appearances: List[TrajectoryFrameAppearance]
-    fps: float
-
-    @classmethod
-    def from_json(cls, data: Union[Dict[str, Any], IO, str, Path]) -> "Trajectory":
-        """
-        Trajectory format is similar to nerfstudio with the following differences:
-          - "render_width" and "render_height" are replaced with "image_size"
-          - "camera_type" are different "perspective" -> "pinhole" ("opencv"), ...
-          - "camera_to_world" is replaced with "pose"
-          - "intrinsics" is added
-          - removed "fov" and "aspect_ratio"
-          - "appearance" is added
-          - coordinate system changed from OpenGL to OpenCV
-        """
-        if not isinstance(data, dict):
-            # Load the data from IO
-            if isinstance(data, (str, Path)):
-                with open(data, "r", encoding="utf8") as f:
-                    return cls.from_json(f)
-            else:
-                return cls.from_json(json.load(data))
-        return read_nerfstudio_trajectory(data)
+def trajectory_get_cameras(trajectory: Trajectory) -> Cameras:
+    if trajectory["camera_model"] != "pinhole":
+        raise NotImplementedError("Only pinhole camera model is supported")
+    poses = np.stack([x["pose"] for x in trajectory["frames"]])
+    intrinsics = np.stack([x["intrinsics"] for x in trajectory["frames"]])
+    camera_types = np.array([camera_model_to_int(trajectory["camera_model"])]*len(poses), dtype=np.int32)
+    image_sizes = np.array([list(trajectory["image_size"])]*len(poses), dtype=np.int32)
+    return new_cameras(poses=poses, 
+                       intrinsics=intrinsics, 
+                       camera_types=camera_types, 
+                       image_sizes=image_sizes,
+                       distortion_parameters=np.zeros((len(poses), 0), dtype=np.float32),
+                       nears_fars=None, 
+                       metadata=None)
 
 
 def trajectory_get_embeddings(method: Method, trajectory: Trajectory) -> Optional[List[np.ndarray]]:
-    appearances = list(trajectory.appearances)
+    appearances = list(trajectory.get("appearances") or [])
+    appearance_embeddings = [None] * len(appearances)
 
     # Fill in embedding images
     for i, appearance in enumerate(appearances):
         if appearance.get("embedding") is not None:
-            continue
-        embedding_train_index = appearance.get("embedding_train_index")
-        if embedding_train_index is not None:
-            appearances[i] = TrajectoryFrameAppearance(
-                embedding=method.get_train_embedding(embedding_train_index), 
-                **{k: cast(Any, v) for k, v in appearance.items() if k not in {"embedding", "embedding_train_index"}})
+            appearance_embeddings[i] = appearance.get("embedding")
+        elif appearance.get("embedding_train_index") is not None:
+            appearance_embeddings[i] = method.get_train_embedding(appearance.get("embedding_train_index"))
+    if all(x is None for x in appearance_embeddings):
+        return [None] * len(appearances)
+    if not all(x is not None for x in appearance_embeddings):
+        raise ValueError("Either all embeddings must be provided or all must be missing")
+    if all(x.get("appearance_weights") is None for x in trajectory["frames"]):
+        return [None] * len(appearances)
+    if not all(x.get("appearance_weights") is not None for x in trajectory["frames"]):
+        raise ValueError("Either all appearance weights must be provided or all must be missing")
+    appearance_embeddings = np.stack(appearance_embeddings)
 
     # Interpolate embeddings
-    steps = []
-    embeddings = []
-    for i, appearance in enumerate(appearances):
-        if appearance.get("embedding") is not None:
-            embeddings.append(appearance.get("embedding"))
-            steps.append(i)
-    if not steps:
-        return None
-    steps.append(steps[0] + len(appearances))
-    embeddings.append(embeddings[0])
-
-    all_embeddings = [None] * len(appearances)
-    for i, (step, embedding) in enumerate(zip(steps[:-1], embeddings[:-1])):
-        next_step = steps[i + 1]
-        next_embedding = embeddings[i + 1]
-        for j in range(step, next_step):
-            if step == next_step:
-                alpha = 0.5
-            else:
-                alpha = (j - step) / (next_step - step)
-            all_embeddings[j%len(appearances)] = alpha * next_embedding + (1 - alpha) * embedding
-    return cast(List[np.ndarray], all_embeddings)
+    out = []
+    for frame in trajectory["frames"]:
+        embedding = frame.get("appearance_weights") @ appearance_embeddings
+        out.append(embedding)
+    return out
 
 
 @click.command("render-trajectory")
@@ -235,7 +152,9 @@ def main(checkpoint: Union[str, Path], trajectory: Path, output: Union[str, Path
         sys.exit(1)
 
     # Parse trajectory
-    _trajectory = Trajectory.from_json(trajectory)
+    with trajectory.open("r") as f:
+        _trajectory = load_trajectory(f)
+    cameras = trajectory_get_cameras(_trajectory)
 
     # Read method nb-info
     logging.info(f"Loading checkpoint {checkpoint}")
@@ -255,5 +174,5 @@ def main(checkpoint: Union[str, Path], trajectory: Path, output: Union[str, Path
             # Embed the appearance
             embeddings = trajectory_get_embeddings(method, _trajectory)
 
-            render_frames(method, _trajectory.cameras, embeddings=embeddings, output=output, output_type=output_type, nb_info=nb_info, fps=_trajectory.fps)
+            render_frames(method, cameras, embeddings=embeddings, output=output, output_type=output_type, nb_info=nb_info, fps=_trajectory["fps"])
             logging.info(f"Output saved to {output}")

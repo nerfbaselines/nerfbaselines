@@ -1,4 +1,8 @@
+import logging
+import io
+import math
 import os
+from functools import partial, wraps
 import inspect
 from dataclasses import dataclass
 import dataclasses
@@ -15,7 +19,6 @@ import viser.transforms as vtf
 from viser import ViserServer
 import colorsys
 import dataclasses
-import json
 import threading
 import time
 from pathlib import Path
@@ -31,6 +34,7 @@ from scipy import interpolate
 
 from ..types import Method, Dataset, FrozenSet, DatasetFeature, Literal, TypeVar
 from ..types import new_cameras
+from ..types import TrajectoryFrameAppearance, TrajectoryFrame, TrajectoryKeyframe, Trajectory
 from ..datasets import dataset_load_features, dataset_index_select
 from ..datasets._colmap_utils import qvec2rotmat, rotmat2qvec
 from ..utils import CancelledException, assert_not_none
@@ -38,11 +42,44 @@ from ..pose_utils import apply_transform, get_transform_and_scale, invert_transf
 from ..datasets import load_dataset
 from ..backends._rpc import EventCancellationToken
 from ..utils import image_to_srgb, visualize_depth
+from ..io import load_trajectory, save_trajectory
 
 
 ControlType = Literal["object-centric", "default"]
 VISER_SCALE_RATIO = 10.0
 T = TypeVar("T")
+
+
+def simple_cache(fn):
+    cache_key_val = None
+
+    @wraps(fn)
+    def inner(*args, **kwargs):
+        nonlocal cache_key_val
+        if cache_key_val is not None and safe_eq(cache_key_val[0], (args, kwargs)):
+            return cache_key_val[1]
+        cache_key_val = (args, kwargs), fn(*args, **kwargs)
+        return cache_key_val[1]
+    return inner
+
+
+def pad_to_aspect_ratio(img, aspect_ratio):
+    h, w = img.shape[:2]
+    newh, neww = h, w
+    aspect = w / h
+    if aspect_ratio == aspect:
+        return img
+    if aspect_ratio > aspect:
+        neww = int(h * aspect_ratio)
+        newimg = np.zeros((h, neww, 3), dtype=img.dtype)
+        pad = (neww - w) // 2
+        newimg[:, pad:pad + w] = img
+    else:
+        newh = int(w / aspect_ratio)
+        newimg = np.zeros((newh, w, 3), dtype=img.dtype)
+        pad = (newh - h) // 2
+        newimg[pad:pad + h] = img
+    return newimg
 
 
 def transform_points(transform, points):
@@ -53,10 +90,10 @@ def transform_points(transform, points):
     return points
 
 
-def get_c2w(camera):
+def get_c2w(position, wxyz):
     c2w = np.eye(4, dtype=np.float32)
-    c2w[:3, :3] = qvec2rotmat(camera.wxyz)
-    c2w[:3, 3] = camera.position
+    c2w[:3, :3] = qvec2rotmat(wxyz)
+    c2w[:3, 3] = position
     return c2w
 
 
@@ -92,10 +129,10 @@ class BindableSource:
                 if isinstance(old, dict):
                     value = old.copy()
                     value.update(changes)
-                elif isinstance(old, dataclasses):
-                    value = dataclasses.replace(old, **changes)
                 elif hasattr(old, "update"):
                     value = old.update(**changes)
+                elif dataclasses.is_dataclass(old):
+                    value = dataclasses.replace(old, **changes)
                 else:
                     raise ValueError("Cannot update value")
             else:
@@ -115,7 +152,7 @@ class BindableSource:
                     return
                 last_value = new
                 return callback(new)
-            self.on_update(wrapped)
+            return self.on_update(wrapped)
 
         return BindableSource(_get, _update, _on_update)
 
@@ -124,19 +161,39 @@ class BindableSource:
             value = self.get()
             return value if value is not None else default
         def _on_update(callback):
-            self.on_update(lambda state: callback(state) if state is not None else callback(default))
+            return self.on_update(lambda state: callback(state) if state is not None else callback(default))
         return BindableSource(_get, self.update, _on_update)
 
-    def map(self: Any, fn):
+    def map(self: Any, fn, fn_back=None):
+        if isinstance(fn, (list, tuple)):
+            def fntuple(value):
+                if isinstance(value, dict):
+                    out = tuple(value[n] for n in fn)
+                else:
+                    out = tuple(getattr(value, n) for n in fn)
+                return out
+            return self.map(fntuple)
+
+        def _get():
+            return fn(self.get())
+
         def _set(*args, **kwargs):
-            raise ValueError("Cannot update a mapped state")
+            if fn_back is None:
+                raise ValueError("Cannot update a mapped state")
+            self.update(fn_back(*args, **kwargs))
     
         def _on_update(callback):
+            last_value = object()
+
             def wrapped(state):
-                if fn(self.get()) != fn(state):
-                    callback(fn(state))
-            self.on_update(wrapped)
-        return BindableSource(lambda: fn(self.get()), _set, _on_update)
+                nonlocal last_value
+                nval = fn(state)
+                if safe_eq(nval, last_value):
+                    return
+                last_value = nval
+                callback(nval)
+            return self.on_update(wrapped)
+        return BindableSource(_get, _set, _on_update)
 
     def __not__(self):
         out = self.map(lambda x: not x)
@@ -144,6 +201,20 @@ class BindableSource:
             self.update(value=not value)
         out.update = _set
         return out
+
+
+def autobind(fn):
+    signature = inspect.signature(fn)
+    names = list(signature.parameters.keys())
+
+    def wrapped(state):
+        if isinstance(state, BindableSource):
+            inner = lambda args: fn(*args)
+            inner.__wrapped__ = fn
+            return state.map(names).map(inner)
+        else:
+            return wrapped(state.b).get()
+    return wrapped
 
 
 def three_js_perspective_camera_focal_length(fov: float, image_height: int):
@@ -163,478 +234,51 @@ def three_js_perspective_camera_focal_length(fov: float, image_height: int):
     return focal_length
 
 
-@dataclasses.dataclass
+def safe_eq(a, b) -> bool:
+    """Check if a and b are equal, even if they are numpy arrays"""
+    if type(a) != type(b):
+        return False
+    if isinstance(a, np.ndarray) and isinstance(b, np.ndarray):
+        return a.shape == b.shape and (a == b).all()
+    if isinstance(a, (list, tuple)):
+        return len(a) == len(b) and all(safe_eq(x, y) for x, y in zip(a, b))
+    if isinstance(a, dict):
+        return len(a) == len(b) and all(k in b and safe_eq(v, b[k]) for k, v in a.items())
+    if hasattr(a, "__eq__"):
+        return a == b
+    return False
+
+
+@dataclasses.dataclass(frozen=True, eq=False)
 class Keyframe:
     position: np.ndarray
     wxyz: np.ndarray
-    override_fov_enabled: bool
-    override_fov_rad: float
-    override_time_enabled: bool
-    override_time_val: float
-    aspect: float
-    override_transition_enabled: bool
-    override_transition_sec: Optional[float]
+    fov: Optional[float] = None
+    transition_duration: Optional[float] = None
+    appearance_train_index: Optional[int] = None
 
-    @staticmethod
-    def from_camera(camera: viser.CameraHandle, aspect: float) -> "Keyframe":
-        return Keyframe(
-            camera.position,
-            camera.wxyz,
-            override_fov_enabled=False,
-            override_fov_rad=camera.fov,
-            override_time_enabled=False,
-            override_time_val=0.0,
-            aspect=aspect,
-            override_transition_enabled=False,
-            override_transition_sec=None,
-        )
+    def __eq__(self, other):
+       if self is other:
+            return True
+       if self.__class__ is not other.__class__:
+           return NotImplemented  # better than False
+       t1 = dataclasses.astuple(self)
+       t2 = dataclasses.astuple(other)
+       return all(safe_eq(a1, a2) for a1, a2 in zip(t1, t2))
 
 
-class CameraPath:
-    def __init__(
-        self, server: viser.ViserServer, duration_element: viser.GuiInputHandle[float], time_enabled: bool = False,
-        transform=None,
-    ):
-        self._server = server
-        self._keyframes: Dict[int, Tuple[Keyframe, viser.CameraFrustumHandle]] = {}
-        self._keyframe_counter: int = 0
-        self._spline_nodes: List[viser.SceneNodeHandle] = []
-        self._camera_edit_panel: Optional[viser.Gui3dContainerHandle] = None
-
-        self._orientation_spline: Optional[splines.quaternion.KochanekBartels] = None
-        self._position_spline: Optional[splines.KochanekBartels] = None
-        self._fov_spline: Optional[splines.KochanekBartels] = None
-        self._keyframes_visible: bool = True
-
-        self._duration_element = duration_element
-
-        # These parameters should be overridden externally.
-        self.loop: bool = False
-        self.framerate: float = 30.0
-        self.tension: float = 0.5  # Tension / alpha term.
-        self.default_fov: float = 0.0
-        self.time_enabled = time_enabled
-        self.default_render_time: float = 0.0
-        self.default_transition_sec: float = 0.0
-        self.show_spline: bool = True
-        self.transform = transform
-
-    def set_keyframes_visible(self, visible: bool) -> None:
-        self._keyframes_visible = visible
-        for keyframe in self._keyframes.values():
-            keyframe[1].visible = visible
-
-    def add_camera(self, keyframe: Keyframe, keyframe_index: Optional[int] = None) -> None:
-        """Add a new camera, or replace an old one if `keyframe_index` is passed in."""
-        server = self._server
-
-        # Add a keyframe if we aren't replacing an existing one.
-        if keyframe_index is None:
-            keyframe_index = self._keyframe_counter
-            self._keyframe_counter += 1
-
-        frustum_handle = server.add_camera_frustum(
-            f"/render_cameras/{keyframe_index}",
-            fov=keyframe.override_fov_rad if keyframe.override_fov_enabled else self.default_fov,
-            aspect=keyframe.aspect,
-            scale=0.1,
-            color=(200, 10, 30),
-            wxyz=keyframe.wxyz,
-            position=keyframe.position,
-            visible=self._keyframes_visible,
-        )
-        self._server.add_icosphere(
-            f"/render_cameras/{keyframe_index}/sphere",
-            radius=0.03,
-            color=(200, 10, 30),
-        )
-
-        @frustum_handle.on_click
-        def _(_) -> None:
-            if self._camera_edit_panel is not None:
-                self._camera_edit_panel.remove()
-                self._camera_edit_panel = None
-
-            with server.add_3d_gui_container(
-                "/camera_edit_panel",
-                position=keyframe.position,
-            ) as camera_edit_panel:
-                self._camera_edit_panel = camera_edit_panel
-                override_fov = server.add_gui_checkbox("Override FOV", initial_value=keyframe.override_fov_enabled)
-                override_fov_degrees = server.add_gui_slider(
-                    "Override FOV (degrees)",
-                    5.0,
-                    175.0,
-                    step=0.1,
-                    initial_value=keyframe.override_fov_rad * 180.0 / np.pi,
-                    disabled=not keyframe.override_fov_enabled,
-                )
-                if self.time_enabled:
-                    override_time = server.add_gui_checkbox(
-                        "Override Time", initial_value=keyframe.override_time_enabled
-                    )
-                    override_time_val = server.add_gui_slider(
-                        "Override Time",
-                        0.0,
-                        1.0,
-                        step=0.01,
-                        initial_value=keyframe.override_time_val,
-                        disabled=not keyframe.override_time_enabled,
-                    )
-
-                    @override_time.on_update
-                    def _(_) -> None:
-                        keyframe.override_time_enabled = override_time.value
-                        override_time_val.disabled = not override_time.value
-                        self.add_camera(keyframe, keyframe_index)
-
-                    @override_time_val.on_update
-                    def _(_) -> None:
-                        keyframe.override_time_val = override_time_val.value
-                        self.add_camera(keyframe, keyframe_index)
-
-                delete_button = server.add_gui_button("Delete", color="red", icon=viser.Icon.TRASH)
-                go_to_button = server.add_gui_button("Go to")
-                close_button = server.add_gui_button("Close")
-
-            @override_fov.on_update
-            def _(_) -> None:
-                keyframe.override_fov_enabled = override_fov.value
-                override_fov_degrees.disabled = not override_fov.value
-                self.add_camera(keyframe, keyframe_index)
-
-            @override_fov_degrees.on_update
-            def _(_) -> None:
-                keyframe.override_fov_rad = override_fov_degrees.value / 180.0 * np.pi
-                self.add_camera(keyframe, keyframe_index)
-
-            @delete_button.on_click
-            def _(event: viser.GuiEvent) -> None:
-                assert event.client is not None
-                with event.client.add_gui_modal("Confirm") as modal:
-                    event.client.add_gui_markdown("Delete keyframe?")
-                    confirm_button = event.client.add_gui_button("Yes", color="red", icon=viser.Icon.TRASH)
-                    exit_button = event.client.add_gui_button("Cancel")
-
-                    @confirm_button.on_click
-                    def _(_) -> None:
-                        assert camera_edit_panel is not None
-
-                        keyframe_id = None
-                        for i, keyframe_tuple in self._keyframes.items():
-                            if keyframe_tuple[1] is frustum_handle:
-                                keyframe_id = i
-                                break
-                        assert keyframe_id is not None
-
-                        self._keyframes.pop(keyframe_id)
-                        frustum_handle.remove()
-                        camera_edit_panel.remove()
-                        self._camera_edit_panel = None
-                        modal.close()
-                        self.update_spline()
-
-                    @exit_button.on_click
-                    def _(_) -> None:
-                        modal.close()
-
-            @go_to_button.on_click
-            def _(event: viser.GuiEvent) -> None:
-                assert event.client is not None
-                client = event.client
-                T_world_current = tf.SE3.from_rotation_and_translation(
-                    tf.SO3(client.camera.wxyz), client.camera.position
-                )
-                T_world_target = tf.SE3.from_rotation_and_translation(
-                    tf.SO3(keyframe.wxyz), keyframe.position
-                ) @ tf.SE3.from_translation(np.array([0.0, 0.0, -0.5]))
-
-                T_current_target = T_world_current.inverse() @ T_world_target
-
-                for j in range(10):
-                    T_world_set = T_world_current @ tf.SE3.exp(T_current_target.log() * j / 9.0)
-
-                    # Important bit: we atomically set both the orientation and the position
-                    # of the camera.
-                    with client.atomic():
-                        client.camera.wxyz = T_world_set.rotation().wxyz
-                        client.camera.position = T_world_set.translation()
-                    time.sleep(1.0 / 30.0)
-
-            @close_button.on_click
-            def _(_) -> None:
-                assert camera_edit_panel is not None
-                camera_edit_panel.remove()
-                self._camera_edit_panel = None
-
-        self._keyframes[keyframe_index] = (keyframe, frustum_handle)
-
-    def update_aspect(self, aspect: float) -> None:
-        for keyframe_index, frame in self._keyframes.items():
-            frame = dataclasses.replace(frame[0], aspect=aspect)
-            self.add_camera(frame, keyframe_index=keyframe_index)
-
-    def get_aspect(self) -> float:
-        """Get W/H aspect ratio, which is shared across all keyframes."""
-        assert len(self._keyframes) > 0
-        return next(iter(self._keyframes.values()))[0].aspect
-
-    def reset(self) -> None:
-        for frame in self._keyframes.values():
-            frame[1].remove()
-        self._keyframes.clear()
-        self.update_spline()
-
-    def spline_t_from_t_sec(self, time: np.ndarray) -> np.ndarray:
-        """From a time value in seconds, compute a t value for our geometric
-        spline interpolation. An increment of 1 for the latter will move the
-        camera forward by one keyframe.
-
-        We use a PCHIP spline here to guarantee monotonicity.
-        """
-        transition_times_cumsum = self.compute_transition_times_cumsum()
-        spline_indices = np.arange(transition_times_cumsum.shape[0])
-
-        if self.loop:
-            # In the case of a loop, we pad the spline to match the start/end
-            # slopes.
-            interpolator = interpolate.PchipInterpolator(
-                x=np.concatenate(
-                    [
-                        [-(transition_times_cumsum[-1] - transition_times_cumsum[-2])],
-                        transition_times_cumsum,
-                        transition_times_cumsum[-1:] + transition_times_cumsum[1:2],
-                    ],
-                    axis=0,
-                ),
-                y=np.concatenate([[-1], spline_indices, [spline_indices[-1] + 1]], axis=0),
-            )
-        else:
-            interpolator = interpolate.PchipInterpolator(x=transition_times_cumsum, y=spline_indices)
-
-        # Clip to account for floating point error.
-        return np.clip(interpolator(time), 0, spline_indices[-1])
-
-    def interpolate_pose_and_fov_rad(
-        self, normalized_t: float
-    ) -> Optional[Union[Tuple[tf.SE3, float], Tuple[tf.SE3, float, float]]]:
-        if len(self._keyframes) < 2:
-            return None
-
-        self._fov_spline = splines.KochanekBartels(
-            [
-                keyframe[0].override_fov_rad if keyframe[0].override_fov_enabled else self.default_fov
-                for keyframe in self._keyframes.values()
-            ],
-            tcb=(self.tension, 0.0, 0.0),
-            endconditions="closed" if self.loop else "natural",
-        )
-
-        self._time_spline = splines.KochanekBartels(
-            [
-                keyframe[0].override_time_val if keyframe[0].override_time_enabled else self.default_render_time
-                for keyframe in self._keyframes.values()
-            ],
-            tcb=(self.tension, 0.0, 0.0),
-            endconditions="closed" if self.loop else "natural",
-        )
-
-        assert self._orientation_spline is not None
-        assert self._position_spline is not None
-        assert self._fov_spline is not None
-        if self.time_enabled:
-            assert self._time_spline is not None
-        max_t = self.compute_duration()
-        t = max_t * normalized_t
-        spline_t = float(self.spline_t_from_t_sec(np.array(t)))
-
-        quat = self._orientation_spline.evaluate(spline_t)
-        assert isinstance(quat, splines.quaternion.UnitQuaternion)
-        if self.time_enabled:
-            return (
-                tf.SE3.from_rotation_and_translation(
-                    tf.SO3(np.array([quat.scalar, *quat.vector])),
-                    self._position_spline.evaluate(spline_t),
-                ),
-                float(self._fov_spline.evaluate(spline_t)),
-                float(self._time_spline.evaluate(spline_t)),
-            )
-        else:
-            return (
-                tf.SE3.from_rotation_and_translation(
-                    tf.SO3(np.array([quat.scalar, *quat.vector])),
-                    self._position_spline.evaluate(spline_t),
-                ),
-                float(self._fov_spline.evaluate(spline_t)),
-            )
-
-    def update_spline(self) -> None:
-        num_frames = int(self.compute_duration() * self.framerate)
-        keyframes = list(self._keyframes.values())
-
-        if num_frames <= 0 or not self.show_spline or len(keyframes) < 2:
-            for node in self._spline_nodes:
-                node.remove()
-            self._spline_nodes.clear()
-            return
-
-        transition_times_cumsum = self.compute_transition_times_cumsum()
-
-        self._orientation_spline = splines.quaternion.KochanekBartels(
-            [
-                splines.quaternion.UnitQuaternion.from_unit_xyzw(np.roll(keyframe[0].wxyz, shift=-1))
-                for keyframe in keyframes
-            ],
-            tcb=(self.tension, 0.0, 0.0),
-            endconditions="closed" if self.loop else "natural",
-        )
-        self._position_spline = splines.KochanekBartels(
-            [keyframe[0].position for keyframe in keyframes],
-            tcb=(self.tension, 0.0, 0.0),
-            endconditions="closed" if self.loop else "natural",
-        )
-
-        # Update visualized spline.
-        points_array = self._position_spline.evaluate(
-            self.spline_t_from_t_sec(np.linspace(0, transition_times_cumsum[-1], num_frames))
-        )
-        colors_array = np.array([colorsys.hls_to_rgb(h, 0.5, 1.0) for h in np.linspace(0.0, 1.0, len(points_array))])
-
-        # Clear prior spline nodes.
-        for node in self._spline_nodes:
-            node.remove()
-        self._spline_nodes.clear()
-
-        self._spline_nodes.append(
-            self._server.add_spline_catmull_rom(
-                "/render_camera_spline",
-                positions=points_array,
-                color=(220, 220, 220),
-                closed=self.loop,
-                line_width=1.0,
-                segments=points_array.shape[0] + 1,
-            )
-        )
-        self._spline_nodes.append(
-            self._server.add_point_cloud(
-                "/render_camera_spline/points",
-                points=points_array,
-                colors=colors_array,
-                point_size=0.04,
-            )
-        )
-
-        def make_transition_handle(i: int) -> None:
-            assert self._position_spline is not None
-            transition_pos = self._position_spline.evaluate(
-                float(
-                    self.spline_t_from_t_sec(
-                        (transition_times_cumsum[i] + transition_times_cumsum[i + 1]) / 2.0,
-                    )
-                )
-            )
-            transition_sphere = self._server.add_icosphere(
-                f"/render_camera_spline/transition_{i}",
-                radius=0.04,
-                color=(255, 0, 0),
-                position=transition_pos,
-            )
-            self._spline_nodes.append(transition_sphere)
-
-            @transition_sphere.on_click
-            def _(_) -> None:
-                server = self._server
-
-                if self._camera_edit_panel is not None:
-                    self._camera_edit_panel.remove()
-                    self._camera_edit_panel = None
-
-                keyframe_index = (i + 1) % len(self._keyframes)
-                keyframe = keyframes[keyframe_index][0]
-
-                with server.add_3d_gui_container(
-                    "/camera_edit_panel",
-                    position=transition_pos,
-                ) as camera_edit_panel:
-                    self._camera_edit_panel = camera_edit_panel
-                    override_transition_enabled = server.add_gui_checkbox(
-                        "Override transition",
-                        initial_value=keyframe.override_transition_enabled,
-                    )
-                    override_transition_sec = server.add_gui_number(
-                        "Override transition (sec)",
-                        initial_value=keyframe.override_transition_sec
-                        if keyframe.override_transition_sec is not None
-                        else self.default_transition_sec,
-                        min=0.001,
-                        max=30.0,
-                        step=0.001,
-                        disabled=not override_transition_enabled.value,
-                    )
-                    close_button = server.add_gui_button("Close")
-
-                @override_transition_enabled.on_update
-                def _(_) -> None:
-                    keyframe.override_transition_enabled = override_transition_enabled.value
-                    override_transition_sec.disabled = not override_transition_enabled.value
-                    self._duration_element.value = self.compute_duration()
-
-                @override_transition_sec.on_update
-                def _(_) -> None:
-                    keyframe.override_transition_sec = override_transition_sec.value
-                    self._duration_element.value = self.compute_duration()
-
-                @close_button.on_click
-                def _(_) -> None:
-                    assert camera_edit_panel is not None
-                    camera_edit_panel.remove()
-                    self._camera_edit_panel = None
-
-        (num_transitions_plus_1,) = transition_times_cumsum.shape
-        for i in range(num_transitions_plus_1 - 1):
-            make_transition_handle(i)
-
-        # for i in range(transition_times.shape[0])
-
-    def compute_duration(self) -> float:
-        """Compute the total duration of the trajectory."""
-        total = 0.0
-        for i, (keyframe, frustum) in enumerate(self._keyframes.values()):
-            if i == 0 and not self.loop:
-                continue
-            del frustum
-            total += (
-                keyframe.override_transition_sec
-                if keyframe.override_transition_enabled and keyframe.override_transition_sec is not None
-                else self.default_transition_sec
-            )
-        return total
-
-    def compute_transition_times_cumsum(self) -> np.ndarray:
-        """Compute the total duration of the trajectory."""
-        total = 0.0
-        out = [0.0]
-        for i, (keyframe, frustum) in enumerate(self._keyframes.values()):
-            if i == 0:
-                continue
-            del frustum
-            total += (
-                keyframe.override_transition_sec
-                if keyframe.override_transition_enabled and keyframe.override_transition_sec is not None
-                else self.default_transition_sec
-            )
-            out.append(total)
-
-        if self.loop:
-            keyframe = next(iter(self._keyframes.values()))[0]
-            total += (
-                keyframe.override_transition_sec
-                if keyframe.override_transition_enabled and keyframe.override_transition_sec is not None
-                else self.default_transition_sec
-            )
-            out.append(total)
-
-        return np.array(out)
+@autobind
+@simple_cache
+def state_compute_duration(camera_path_loop, camera_path_keyframes, camera_path_default_transition_duration) -> float:
+    kf = camera_path_keyframes
+    if not camera_path_loop:
+        kf = kf[1:]
+    return sum(
+        k.transition_duration
+        if k.transition_duration is not None
+        else camera_path_default_transition_duration
+        for k in kf
+    )
 
 
 @dataclass(eq=True)
@@ -644,7 +288,6 @@ class ViewerState:
     output_type: Optional[str] = None
     output_type_options: Tuple[str, ...] = ()
     composite_depth: bool = False
-    is_time_enabled: bool = False
 
     output_split: bool = False
     split_percentage: float = 0.5
@@ -656,13 +299,29 @@ class ViewerState:
     fps: str = ""
 
     preview_render: bool = False
-    preview_fov: float = 0.0
     preview_time: float = 0.0
-    preview_aspect: float = 1.0
+    preview_current_frame: int = 0
+    preview_is_playing: bool = False
+    render_resolution: Tuple[int, int] = 1920, 1080
+    render_fov: float = 75.0
+    render_appearance_train_index: Optional[int] = None
+    _temporary_appearance_train_index: Optional[int] = None
+
+    camera_path_loop: bool = False
+    camera_path_tension: float = 0.0
+    camera_path_keyframes: Tuple[Keyframe,...] = ()
+    camera_path_default_transition_duration: float = 2.0
+    camera_path_framerate: float = 30.0
+    camera_path_show_keyframes: bool = True
+    camera_path_move_keyframes: bool = False
+    camera_path_show_spline: bool = True
 
     input_points: Optional[Tuple[np.ndarray, Optional[np.ndarray]]] = None
     camera_frustums_train: Optional[Any] = None
     camera_frustums_test: Optional[Any] = None
+    image_names_train: Tuple[str,...] = ()
+
+    supports_appearance_from_train_images: bool = False
 
     _update_callbacks: List = dataclasses.field(default_factory=list)
 
@@ -671,6 +330,7 @@ class ViewerState:
 
     def on_update(self, callback):
         self._update_callbacks.append(callback)
+        return lambda: self._update_callbacks.remove(callback)
 
     def update(self, **kwargs):
         has_change = False
@@ -692,6 +352,505 @@ class ViewerState:
     @property
     def b(self) -> 'ViewerState':
         return cast(ViewerState, BindableSource(lambda: self, self.update, self.on_update))
+
+    def load_trajectory(self, trajectory: Trajectory, transform) -> None:
+        if trajectory.get("camera_model", None) != "pinhole":
+            raise RuntimeError("Only pinhole camera model is supported")
+        if trajectory.get("source") is None:
+            raise RuntimeError("Trajectory does not contain 'source'. It is not editable.")
+        source = trajectory["source"]
+        if source.get("type") != "interpolation" or source.get("interpolation") != "kochanek-bartels":
+            raise RuntimeError("The viewer only supports 'kochanek-bartels' interpolation for the camera trajectory")
+            raise RuntimeError("Setting appearance is not supported by the viewer")
+        def validate_appearance(appearance):
+            if appearance and not appearance.get("embedding_train_index"):
+                raise RuntimeError("Setting appearance is only supported through embedding_train_index")
+            return appearance
+        validate_appearance(source.get("default_appearance"))
+        self.render_resolution = trajectory["image_size"]
+        self.camera_path_framerate = trajectory["fps"]
+        self.camera_path_tension = source["tension"]
+        self.is_cycle = source["is_cycle"]
+        self.render_fov = source["default_fov"]
+        if source.get("default_appearance"):
+            self.render_appearance_train_index = source["default_appearance"]["embedding_train_index"]
+        self.camera_path_default_transition_duration = source["default_transition_duration"]
+        keyframes = []
+        for k in source["keyframes"]:
+            pose_np = apply_transform(transform, k["pose"])
+            pose_np = pad_poses(pose_np)
+            pose = tf.SE3.from_matrix(pose_np)
+            pos, wxyz = pose.translation(), pose.rotation().wxyz
+            appearance = validate_appearance(k.get("appearance"))
+            appearance_train_index = appearance["embedding_train_index"] if appearance else None
+            keyframes.append(Keyframe(pos, wxyz, k["fov"], k["transition_duration"], appearance_train_index))
+        self.camera_path_keyframes = tuple(keyframes)
+
+    def get_trajectory(self, inv_transform) -> Trajectory:
+        w, h = int(self.render_resolution[0]), int(self.render_resolution[1])
+        appearances: List[TrajectoryFrameAppearance] = []
+        keyframes: List[TrajectoryKeyframe] = []
+        for keyframe in self.camera_path_keyframes:
+            pose = tf.SE3.from_rotation_and_translation(
+                tf.SO3(keyframe.wxyz),
+                keyframe.position,
+            ).as_matrix()
+            pose = apply_transform(inv_transform, pose)
+            appearance = None
+            if keyframe.appearance_train_index is not None:
+                appearance = {
+                    "embedding_train_index": keyframe.appearance_train_index,
+                }
+            keyframe_dict = {
+                "pose": pose[:3, :],
+                "fov": keyframe.fov,
+                "transition_duration": keyframe.transition_duration,
+                "appearance": appearance,
+            }
+            keyframes.append(keyframe_dict)
+            appearances.append(appearance)
+
+        # now populate the camera path:
+        frames: Optional[List[TrajectoryFrame]] = None
+        trajectory_frames = _compute_camera_path_splines(self)
+        if trajectory_frames is not None:
+            frames = []
+            for pos, wxyz, fov, keyframe_weight in zip(*trajectory_frames):
+                pose = tf.SE3.from_rotation_and_translation(
+                    tf.SO3(wxyz),
+                    pos,
+                ).as_matrix()
+                pose = apply_transform(inv_transform, pose)
+                focal_length = three_js_perspective_camera_focal_length(fov, h)
+                intrinsics = np.array([focal_length, focal_length, w / 2, h / 2], dtype=np.float32)
+                frame_appearance = np.zeros(len(appearances), dtype=np.float32)
+                frame_appearance[int(keyframe_weight)] = 1 - (keyframe_weight % 1.0)
+                frame_appearance[(int(keyframe_weight)+1)%len(appearances)] = keyframe_weight % 1.0
+                frames.append({
+                    "pose": pose[:3, :],
+                    "intrinsics": intrinsics,
+                    "appearance_weights": frame_appearance,
+                })
+        data = {
+            "format": "nerfbaselines",
+            "version": "1",
+            "camera_model": "pinhole",
+            "image_size": (w, h),
+            "fps": self.camera_path_framerate,
+            "source": {
+                "type": "interpolation",
+                "interpolation": "kochanek-bartels",
+                "is_cycle": self.camera_path_loop,
+                "tension": self.camera_path_tension,
+                "keyframes": keyframes,
+                "default_fov": self.render_fov,
+                "default_transition_duration": self.camera_path_default_transition_duration,
+                "default_appearance": None if self.render_appearance_train_index is None else {
+                    "embedding_train_index": self.render_appearance_train_index,
+                },
+            },
+            "frames": frames,
+            "appearances": appearances,
+        }
+        return data
+
+
+_camera_edit_panel = None
+
+def _add_keypoint_onclick_callback(server: ViserServer, state, index, handle):
+    global _camera_edit_panel
+
+    @handle.on_click
+    def _(_):
+        global _camera_edit_panel
+        keyframe = state.camera_path_keyframes[index]
+
+        if _camera_edit_panel is not None:
+            _camera_edit_panel.remove()
+            _camera_edit_panel = None
+
+
+        state._temporary_appearance_train_index = keyframe.appearance_train_index
+
+        with server.add_3d_gui_container(
+            "/camera_edit_panel",
+            position=keyframe.position,
+        ) as camera_edit_panel:
+            _camera_edit_panel = camera_edit_panel
+            override_fov = server.add_gui_checkbox("Override FOV", initial_value=keyframe.fov is not None)
+            override_fov_degrees = server.add_gui_slider(
+                "FOV (degrees)",
+                5.0,
+                175.0,
+                step=0.1,
+                initial_value=keyframe.fov if keyframe.fov is not None else state.render_fov,
+                disabled=keyframe.fov is None,
+            )
+            override_transition_enabled = server.add_gui_checkbox(
+                "Override transition",
+                initial_value=keyframe.transition_duration is not None,
+            )
+            override_transition_sec = server.add_gui_number(
+                "Transition (sec)",
+                initial_value=keyframe.transition_duration
+                if keyframe.transition_duration is not None
+                else state.camera_path_default_transition_duration,
+                min=0.001,
+                max=30.0,
+                step=0.001,
+                disabled=not override_transition_enabled.value,
+            )
+            if state.supports_appearance_from_train_images:
+                # TODO: fix this
+                # Note, we do not do bindable here, because remove() does not remove it at the moment!
+                train_image_names = state.b.image_names_train.get()
+                init_val = "none"
+                options = train_image_names
+                if keyframe.appearance_train_index is not None:
+                    if keyframe.appearance_train_index < len(train_image_names):
+                        init_val = train_image_names[keyframe.appearance_train_index]
+                    else:
+                        init_val = "unknown #" + str(keyframe.appearance_train_index)
+                        options = (init_val,) + train_image_names
+                else:
+                    options = (init_val,) + train_image_names
+
+                train_embed_dropdown = server.add_gui_dropdown(
+                    "Appearance from train image",
+                    options=options,
+                    initial_value=init_val,
+                    hint="Select images to visualize embeddings for",
+                    disabled=state.b.image_names_train.map(lambda x: len(x) == 0).get(),
+                )
+
+                @train_embed_dropdown.on_update
+                def _(_) -> None:
+                    val = None
+                    if train_embed_dropdown.value != "none" and train_embed_dropdown.value in state.image_names_train:
+                        val = state.image_names_train.index(train_embed_dropdown.value)
+                    state.camera_path_keyframes = tuple(
+                        dataclasses.replace(key, appearance_train_index=val if key.appearance_train_index is None or i == index else key.appearance_train_index)
+                        for i, key in enumerate(state.camera_path_keyframes)
+                    )
+                    state._temporary_appearance_train_index = val
+
+            delete_button = server.add_gui_button("Delete", color="red", icon=viser.Icon.TRASH)
+            go_to_button = server.add_gui_button("Go to")
+            close_button = server.add_gui_button("Close")
+
+
+        @override_transition_sec.on_update
+        @override_transition_enabled.on_update
+        def _(_) -> None:
+            state.camera_path_keyframes = tuple(
+                key if i != index else dataclasses.replace(key, transition_duration=None if not override_transition_enabled.value else override_transition_sec.value)
+                for i, key in enumerate(state.camera_path_keyframes)
+            )
+            override_transition_sec.disabled = not override_transition_enabled.value
+
+        @override_fov.on_update
+        def _(_) -> None:
+            override_fov_degrees.disabled = not override_fov.value
+            state.camera_path_keyframes = tuple(
+                key if i != index else dataclasses.replace(key, fov=None if not override_fov.value else key.fov)
+                for i, key in enumerate(state.camera_path_keyframes)
+            )
+
+        @override_fov_degrees.on_update
+        def _(_) -> None:
+            fov = override_fov_degrees.value
+            state.camera_path_keyframes = tuple(
+                key if i != index else dataclasses.replace(key, fov=None if not override_fov.value else fov)
+                for i, key in enumerate(state.camera_path_keyframes)
+            )
+
+        @delete_button.on_click
+        def _(event: viser.GuiEvent) -> None:
+            global _camera_edit_panel
+            assert event.client is not None
+            with event.client.add_gui_modal("Confirm") as modal:
+                event.client.add_gui_markdown("Delete keyframe?")
+                confirm_button = event.client.add_gui_button("Yes", color="red", icon=viser.Icon.TRASH)
+                exit_button = event.client.add_gui_button("Cancel")
+
+                @confirm_button.on_click
+                def _(_) -> None:
+                    global _camera_edit_panel
+                    assert camera_edit_panel is not None
+
+                    state._temporary_appearance_train_index = None
+                    camera_edit_panel.remove()
+                    _camera_edit_panel = None
+                    modal.close()
+                    state.camera_path_keyframes = tuple(key for i, key in enumerate(state.camera_path_keyframes) if i != index)
+
+                @exit_button.on_click
+                def _(_) -> None:
+                    modal.close()
+
+        @go_to_button.on_click
+        def _(event: viser.GuiEvent) -> None:
+            assert event.client is not None
+            client = event.client
+            T_world_target = tf.SE3.from_rotation_and_translation(
+                tf.SO3(keyframe.wxyz), keyframe.position
+            )
+            # Important bit: we atomically set both the orientation and the position
+            # of the camera.
+            with client.atomic():
+                client.camera.wxyz = T_world_target.rotation().wxyz
+                client.camera.position = T_world_target.translation()
+
+        @close_button.on_click
+        def _(_) -> None:
+            global _camera_edit_panel
+            assert _camera_edit_panel is not None
+            state._temporary_appearance_train_index = None
+            _camera_edit_panel.remove()
+            _camera_edit_panel = None
+
+
+def _add_keyframe_camera_frustum(server: ViserServer, index: int, keyframe: Keyframe, default_fov: float, aspect: float, visible: bool, move_handle_visible: bool):
+    frustum_handle = server.add_camera_frustum(
+        f"/render_cameras/{index}",
+        fov=(keyframe.fov if keyframe.fov is not None else default_fov) / 180.0 * math.pi,
+        aspect=aspect,
+        scale=0.1,
+        color=(200, 10, 30),
+        wxyz=keyframe.wxyz,
+        position=keyframe.position,
+        visible=visible,
+    )
+    server.add_icosphere(
+        f"/render_cameras/{index}/sphere",
+        radius=0.03,
+        color=(200, 10, 30),
+    )
+    controls = None
+    if move_handle_visible:
+        controls = server.add_transform_controls(
+            f"/keyframe_move/{index}",
+            scale=0.4,
+            wxyz=keyframe.wxyz,
+            position=keyframe.position,
+        )
+    return frustum_handle, controls
+
+
+def _add_keypoint_move_callback(state: ViewerState, index: int, handle):
+    if handle is None:
+        return
+
+    @handle.on_update
+    def _(_) -> None:
+        state.camera_path_keyframes = tuple(
+            k if i != index else dataclasses.replace(k, wxyz=handle.wxyz, position=handle.position)
+            for i, k in enumerate(state.camera_path_keyframes)
+        )
+
+
+def _add_keyframe_frustums_to_camera_path(server: ViserServer, state: ViewerState):
+    keyframe_handles = []
+
+    def update_keyframes(args):
+        nonlocal keyframe_handles
+        keyframes, render_fov, render_resolution, camera_path_move_keyframes = args
+
+        aspect = render_resolution[0] / render_resolution[1]
+        handles_to_remove = []
+        handles_to_add = []
+        for i, keyframe in enumerate(keyframes):
+            cachekey = (keyframe, render_fov, aspect, camera_path_move_keyframes)
+            if i < len(keyframe_handles):
+                if keyframe_handles[i][0] == cachekey:
+                    continue
+                cachekey_diffpos = (dataclasses.replace(keyframe_handles[i][0][0],
+                                                       position=keyframe.position,
+                                                       wxyz=keyframe.wxyz),) + keyframe_handles[i][0][1:]
+                if cachekey == cachekey_diffpos:
+                    if keyframe_handles[i][1] is not None:
+                        keyframe_handles[i][1].position = keyframe.position
+                        keyframe_handles[i][1].wxyz = keyframe.wxyz
+                    continue
+                if keyframe_handles[i][1] is not None:
+                    handles_to_remove.append(keyframe_handles[i][1])
+                if keyframe_handles[i][2] is not None:
+                    handles_to_remove.append(keyframe_handles[i][2])
+            else:
+                keyframe_handles.append((cachekey, None, None))
+            keyframe_handles[i] = cachekey, None, None
+            handles_to_add.append((i, keyframe, cachekey))
+
+        while len(keyframes) < len(keyframe_handles):
+            _, h1, h2 = keyframe_handles.pop(-1)
+            if h1 is not None:
+                handles_to_remove.append(h1)
+            if h2 is not None:
+                handles_to_remove.append(h2)
+
+        for handle in handles_to_remove:
+            handle.remove()
+
+        for i, keyframe, cachekey in handles_to_add:
+            if i >= len(keyframe_handles) or keyframe_handles[i][0] != cachekey:
+                # Newer update has occurred, remove this handle.
+                continue
+            handle1, handle2 = _add_keyframe_camera_frustum(server, i, keyframe, 
+                                                            render_fov, 
+                                                            aspect, 
+                                                            state.camera_path_show_keyframes,
+                                                            camera_path_move_keyframes)
+            if i >= len(keyframe_handles) or keyframe_handles[i][0] != cachekey:
+                # Newer update has occurred, remove this handle.
+                if handle1 is not None:
+                    handle1.remove()
+                if handle2 is not None:
+                    handle2.remove()
+                continue
+            keyframe_handles[i] = cachekey, handle1, handle2
+            _add_keypoint_onclick_callback(server, state, i, handle1)
+            _add_keypoint_move_callback(state, i, handle2)
+
+
+    binding = state.b.map(["camera_path_keyframes", "render_fov", "render_resolution", "camera_path_move_keyframes"])
+    binding.on_update(update_keyframes)
+    state.b.camera_path_show_keyframes.on_update(lambda show: [setattr(h[1], "visible", show) for h in keyframe_handles if h[1] is not None])
+    update_keyframes(binding.get())
+
+
+@autobind
+@simple_cache
+def _compute_camera_path_splines(camera_path_keyframes, 
+                                 camera_path_loop, 
+                                 camera_path_tension, 
+                                 render_fov,
+                                 camera_path_default_transition_duration, 
+                                 camera_path_framerate):
+    if len(camera_path_keyframes) < 2:
+        return None
+    # Compute transition times cumsum
+    times = np.array([
+        k.transition_duration if k.transition_duration is not None else camera_path_default_transition_duration 
+        for k in camera_path_keyframes], dtype=np.float32)
+    transition_times_cumsum = np.cumsum(np.roll(times, -1)) if camera_path_loop else np.cumsum(times[:-1])
+    transition_times_cumsum = np.insert(transition_times_cumsum, 0, 0.0)
+    del times
+
+    num_frames = int(transition_times_cumsum[-1] * camera_path_framerate)
+    if num_frames <= 0 or len(camera_path_keyframes) < 2:
+        return None
+
+    orientation_spline = splines.quaternion.KochanekBartels(
+        [
+            splines.quaternion.UnitQuaternion.from_unit_xyzw(np.roll(k.wxyz, shift=-1))
+            for k in camera_path_keyframes
+        ],
+        tcb=(camera_path_tension, 0.0, 0.0),
+        endconditions="closed" if camera_path_loop else "natural",
+    )
+    position_spline = splines.KochanekBartels(
+        [k.position for k in camera_path_keyframes],
+        tcb=(camera_path_tension, 0.0, 0.0),
+        endconditions="closed" if camera_path_loop else "natural",
+    )
+    fov_spline = splines.KochanekBartels(
+        [
+            k.fov if k.fov is not None else render_fov
+            for k in camera_path_keyframes
+        ],
+        tcb=(camera_path_tension, 0.0, 0.0),
+        endconditions="closed" if camera_path_loop else "natural",
+    )
+    time_spline = splines.KochanekBartels(
+        [
+            i for i in range(len(camera_path_keyframes))
+        ],
+        tcb=(camera_path_tension, 0.0, 0.0),
+        endconditions="closed" if camera_path_loop else "natural",
+    )
+
+    # Get time splines
+    spline_indices = np.arange(transition_times_cumsum.shape[0])
+    gtime = np.linspace(0, transition_times_cumsum[-1], num_frames)
+    if camera_path_loop:
+        # In the case of a loop, we pad the spline to match the start/end
+        # slopes.
+        interpolator = interpolate.PchipInterpolator(
+            x=np.concatenate(
+                [
+                    [-(transition_times_cumsum[-1] - transition_times_cumsum[-2])],
+                    transition_times_cumsum,
+                    transition_times_cumsum[-1:] + transition_times_cumsum[1:2],
+                ],
+                axis=0,
+            ),
+            y=np.concatenate([[-1], spline_indices, [spline_indices[-1] + 1]], axis=0),
+        )
+    else:
+        interpolator = interpolate.PchipInterpolator(x=transition_times_cumsum, y=spline_indices)
+    gtime_splines = np.clip(interpolator(gtime), 0, spline_indices[-1])
+
+    # Update visualized spline.
+    points_array = position_spline.evaluate(gtime_splines)
+    orientation_array = orientation_spline.evaluate(gtime_splines)
+    orientation_array = np.stack([np.array([quat.scalar, *quat.vector]) for quat in orientation_array])
+    fovs = fov_spline.evaluate(gtime_splines)
+    times = time_spline.evaluate(gtime_splines)
+    return points_array, orientation_array, fovs, times
+
+
+def _add_spline_to_camera_path(server: ViserServer, state: ViewerState, interpolated_camera_path):
+    # Clear prior spline nodes.
+    spline_nodes = []
+
+    def add_path_spline(args):
+        for node in spline_nodes:
+            node.remove()
+        spline_nodes.clear()
+        if args is None or not state.camera_path_show_spline:
+            return
+        points = args[0]
+        colors = np.array([colorsys.hls_to_rgb(h, 0.5, 1.0) for h in np.linspace(0.0, 1.0, len(points))])
+        spline_nodes.append(
+            server.add_spline_catmull_rom(
+                "/render_camera_spline",
+                positions=points,
+                color=(220, 220, 220),
+                closed=state.camera_path_loop,
+                line_width=1.0,
+                segments=points.shape[0] + 1,
+            )
+        )
+        spline_nodes.append(
+            server.add_point_cloud(
+                "/render_camera_spline/points",
+                points=points,
+                colors=colors,
+                point_size=0.04,
+            )
+        )
+
+    interpolated_camera_path.on_update(add_path_spline)
+    state.b.camera_path_show_spline.on_update(lambda _: add_path_spline(interpolated_camera_path.get()))
+    add_path_spline(interpolated_camera_path.get())
+
+
+def _make_train_image_embedding_dropdown(server: ViserServer, state: ViewerState, binding: BindableSource = None):
+    if binding is None:
+        binding = state.b.render_appearance_train_index
+    value_binding = binding.map(
+        lambda x: ("none" if x is None else (state.image_names_train[x] 
+                                            if state.image_names_train is not None and x < len(state.image_names_train) 
+                                            else "none")),
+        lambda x: None if x == "none" else state.image_names_train.index(x) if x in state.image_names_train else None,
+    )
+    server.add_gui_dropdown(
+        "Appearance from train image",
+        options=state.b.image_names_train.map(lambda x: ("none",) + (x or ())),
+        initial_value=value_binding,
+        hint="Select images to visualize embeddings for",
+        disabled=state.b.image_names_train.map(lambda x: len(x) == 0),
+    )
 
 
 class BindableViserServer(ViserServer):
@@ -730,24 +889,80 @@ class BindableViserServer(ViserServer):
                 return _args, _kwargs
 
             handle = None
+            handle_update = None
+            updatable = ("value", "initial_value", "disabled", "enabled", "visible")
 
-            def _build_component():
+            # Capture container_id
+            gui = getattr(self.server, "gui", self.server)
+            container_id = gui._get_container_id()
+
+            def _update_component(name, value):
                 nonlocal handle
+                if name is not None:
+                    if name == "initial_value":
+                        name = "value"
+                    if handle is not None and hasattr(handle, name) and name in updatable:
+                        if getattr(handle, name) != value:
+                            setattr(handle, name, value)
+                        logging.debug("Updating component", add_gui, name, "->", value)
+                        return
+                if handle is not None:
+                    handle.remove()
+                    handle = None
                 _args, _kwargs = _current_args()
-                handle = add_gui(*_args, **_kwargs)
+                try:
+                    # Mock the container_id
+                    old_container_id = gui._get_container_id()
+                    gui._set_container_id(container_id)
+                    handle = add_gui(*_args, **_kwargs)
+                finally:
+                    gui._set_container_id(old_container_id)
+                logging.debug("Creating component", add_gui, name, "->", value)
+                if handle_update is not None:
+                    handle.on_update(handle_update)
+                return handle
 
-            _build_component()
-            assert handle is not None, "Failed to build component"
+            def _update_binding(binding, event):
+                binding.update(event.target.value)
+
+            bindings_to_remove = []
             for name, binding in prop_bindings.items():
-                if name == "initial_value":
-                    name = "value"
-                if hasattr(handle, name):
-                    binding.on_update(lambda value: setattr(handle, name, value) if getattr(handle, name) != value else None)
-                else:
-                    binding.on_update(lambda _: _build_component())
-                if name == "value":
-                    handle.on_update(lambda e: binding.update(e.target.value))
-            return handle
+                bindings_to_remove.append(binding.on_update(partial(_update_component, name)))
+                if name in ("value", "initial_value"):
+                    handle_update = partial(_update_binding, binding)
+            _update_component(None, None)
+            if "order" not in kwargs:
+                kwargs["order"] = handle.order
+            assert handle is not None, "Failed to build component"
+
+            if not bindings_to_remove:
+                return handle
+
+            class ProxyHandle:
+                def __getattr__(self, name):
+                    return getattr(handle, name)
+
+                def __setattr__(self, name, value):
+                    setattr(handle, name, value)
+
+                def __enter__(self):
+                    out = handle.__enter__()
+                    if out == handle:
+                        return self
+                    return out
+
+                def __exit__(self, *args):
+                    return handle.__exit__(*args)
+
+                def remove(self):
+                    for remove in bindings_to_remove:
+                        remove()
+                    bindings_to_remove.clear()
+                    if handle is not None:
+                        handle.remove()
+                        handle = None
+
+            return ProxyHandle()
 
         return _add_gui
 
@@ -775,11 +990,19 @@ class ViserViewer:
         self.port = port
         self.method = method
 
-        self._render_state = {}
         self.state = state or ViewerState()
-
+        try:
+            self.state.supports_appearance_from_train_images = self.method.get_train_embedding(0) is not None
+        except (AttributeError, NotImplementedError):
+            pass
+        if self.state.supports_appearance_from_train_images:
+            logging.info("Supports appearance from train embeddings")
+        else:
+            logging.info("Does not support appearance from train embeddings")
+        self._render_state = {}
         self._update_state_callbacks = []
         self._render_times = deque(maxlen=3)
+        self._preview_camera = None
         self.server = BindableViserServer(viser.ViserServer(port=self.port))
         self.server.world_axes.visible = True
 
@@ -815,65 +1038,36 @@ class ViserViewer:
         self._initial_background_color = self.state.background_color
         self.server.set_background_image(init_bg_image)
 
-        self._cancellation_token = None
+        self._current_embedding = None
 
         self._camera_frustrum_handles = {}
-        self._render_context = {}
+        self._camera_path_binding = _compute_camera_path_splines(self.state.b)
         self._build_gui()
-        self._add_state_handlers()
+        self._start_preview_timer()
 
     def _build_render_tab(self):
-        server = self.server
+        server: ViserServer = self.server
 
-        fov_degrees = server.add_gui_slider(
+        server.add_gui_slider(
             "Default FOV",
-            initial_value=75.0,
+            initial_value=self.state.b.render_fov,
             min=0.1,
             max=175.0,
             step=0.01,
             hint="Field-of-view for rendering, which can also be overridden on a per-keyframe basis.",
         )
 
-        render_time = None
-        if self.state.is_time_enabled:
-            render_time = server.add_gui_slider(
-                "Default Time",
-                initial_value=0.0,
-                min=0.0,
-                max=1.0,
-                step=0.01,
-                hint="Rendering time step, which can also be overridden on a per-keyframe basis.",
-            )
-
-            @render_time.on_update
-            def _(_) -> None:
-                camera_path.default_render_time = render_time.value
-
-        @fov_degrees.on_update
-        def _(_) -> None:
-            fov_radians = fov_degrees.value / 180.0 * np.pi
-            for client in server.get_clients().values():
-                client.camera.fov = fov_radians
-            camera_path.default_fov = fov_radians
-
-            # Updating the aspect ratio will also re-render the camera frustums.
-            # Could rethink this.
-            camera_path.update_aspect(resolution.value[0] / resolution.value[1])
-            compute_and_update_preview_camera_state()
-
-        resolution = server.add_gui_vector2(
+        server.add_gui_vector2(
             "Resolution",
-            initial_value=(1920, 1080),
+            initial_value=self.state.b.render_resolution,
             min=(50, 50),
             max=(10_000, 10_000),
             step=1,
             hint="Render output resolution in pixels.",
         )
 
-        @resolution.on_update
-        def _(_) -> None:
-            camera_path.update_aspect(resolution.value[0] / resolution.value[1])
-            compute_and_update_preview_camera_state()
+        if self.state.supports_appearance_from_train_images:
+            _make_train_image_embedding_dropdown(server, self.state, self.state.b.render_appearance_train_index)
 
         add_button = server.add_gui_button(
             "Add Keyframe",
@@ -887,14 +1081,14 @@ class ViserViewer:
             camera = server.get_clients()[event.client_id].camera
 
             # Add this camera to the path.
-            camera_path.add_camera(
-                Keyframe.from_camera(
-                    camera,
-                    aspect=resolution.value[0] / resolution.value[1],
-                ),
-            )
-            duration_number.value = camera_path.compute_duration()
-            camera_path.update_spline()
+            apperance_train_index = self.state.render_appearance_train_index
+            if apperance_train_index is not None and len(self.state.camera_path_keyframes) > 0:
+                apperance_train_index = self.state.camera_path_keyframes[-1].appearance_train_index
+            self.state.camera_path_keyframes = self.state.camera_path_keyframes + (Keyframe(
+                position=camera.position,
+                wxyz=camera.wxyz,
+                appearance_train_index=apperance_train_index,
+            ),)
 
         clear_keyframes_button = server.add_gui_button(
             "Clear Keyframes",
@@ -913,319 +1107,102 @@ class ViserViewer:
 
                 @confirm_button.on_click
                 def _(_) -> None:
-                    camera_path.reset()
+                    self.state.camera_path_keyframes = ()
                     modal.close()
-
-                    duration_number.value = camera_path.compute_duration()
-
-                    # Clear move handles.
-                    if len(transform_controls) > 0:
-                        for t in transform_controls:
-                            t.remove()
-                        transform_controls.clear()
-                        return
 
                 @exit_button.on_click
                 def _(_) -> None:
                     modal.close()
 
-        loop = server.add_gui_checkbox("Loop", False, hint="Add a segment between the first and last keyframes.")
+        server.add_gui_checkbox(
+            "Loop",
+            initial_value=self.state.b.camera_path_loop,
+            hint="Add a segment between the first and last keyframes.")
 
-        @loop.on_update
-        def _(_) -> None:
-            camera_path.loop = loop.value
-            duration_number.value = camera_path.compute_duration()
-
-        tension_slider = server.add_gui_slider(
+        server.add_gui_slider(
             "Spline tension",
             min=0.0,
             max=1.0,
-            initial_value=0.0,
+            initial_value=self.state.b.camera_path_tension,
             step=0.01,
             hint="Tension parameter for adjusting smoothness of spline interpolation.",
         )
 
-        @tension_slider.on_update
-        def _(_) -> None:
-            camera_path.tension = tension_slider.value
-            camera_path.update_spline()
-
-        move_checkbox = server.add_gui_checkbox(
+        server.add_gui_checkbox(
             "Move keyframes",
-            initial_value=False,
+            initial_value=self.state.b.camera_path_move_keyframes,
             hint="Toggle move handles for keyframes in the scene.",
         )
 
-        transform_controls: List[viser.SceneNodeHandle] = []
-
-        @move_checkbox.on_update
-        def _(event: viser.GuiEvent) -> None:
-            # Clear move handles when toggled off.
-            if move_checkbox.value is False:
-                for t in transform_controls:
-                    t.remove()
-                transform_controls.clear()
-                return
-
-            def _make_transform_controls_callback(
-                keyframe: Tuple[Keyframe, viser.SceneNodeHandle],
-                controls: viser.TransformControlsHandle,
-            ) -> None:
-                @controls.on_update
-                def _(_) -> None:
-                    keyframe[0].wxyz = controls.wxyz
-                    keyframe[0].position = controls.position
-
-                    keyframe[1].wxyz = controls.wxyz
-                    keyframe[1].position = controls.position
-
-                    camera_path.update_spline()
-
-            # Show move handles.
-            assert event.client is not None
-            for keyframe_index, keyframe in camera_path._keyframes.items():
-                controls = event.client.add_transform_controls(
-                    f"/keyframe_move/{keyframe_index}",
-                    scale=0.4,
-                    wxyz=keyframe[0].wxyz,
-                    position=keyframe[0].position,
-                )
-                transform_controls.append(controls)
-                _make_transform_controls_callback(keyframe, controls)
-
-        show_keyframe_checkbox = server.add_gui_checkbox(
+        server.add_gui_checkbox(
             "Show keyframes",
-            initial_value=True,
+            initial_value=self.state.b.camera_path_show_keyframes,
             hint="Show keyframes in the scene.",
         )
 
-        @show_keyframe_checkbox.on_update
-        def _(_: viser.GuiEvent) -> None:
-            camera_path.set_keyframes_visible(show_keyframe_checkbox.value)
-
-        show_spline_checkbox = server.add_gui_checkbox(
+        server.add_gui_checkbox(
             "Show spline",
-            initial_value=True,
+            initial_value=self.state.b.camera_path_show_spline,
             hint="Show camera path spline in the scene.",
         )
 
-        @show_spline_checkbox.on_update
-        def _(_) -> None:
-            camera_path.show_spline = show_spline_checkbox.value
-            camera_path.update_spline()
-
         playback_folder = server.add_gui_folder("Playback")
+        preview_disabled_b = self._camera_path_binding.map(lambda x: x is None or x[0].shape[0] <= 1)
         with playback_folder:
-            play_button = server.add_gui_button("Play", icon=viser.Icon.PLAYER_PLAY)
-            pause_button = server.add_gui_button("Pause", icon=viser.Icon.PLAYER_PAUSE, visible=False)
+            play_button = server.add_gui_button(
+                "Play", 
+                icon=viser.Icon.PLAYER_PLAY,
+                disabled=preview_disabled_b,
+                visible=self.state.b.preview_is_playing.map(lambda x: not x))
+            play_button.on_click(lambda _: setattr(self.state, "preview_is_playing", True))
+            pause_button = server.add_gui_button("Pause", 
+                icon=viser.Icon.PLAYER_PAUSE, 
+                visible=self.state.b.preview_is_playing)
+            pause_button.on_click(lambda _: setattr(self.state, "preview_is_playing", False))
             preview_render_button = server.add_gui_button(
-                "Preview Render", hint="Show a preview of the render in the viewport."
+                "Preview Render", 
+                hint="Show a preview of the render in the viewport.",
+                disabled=preview_disabled_b,
+                visible=self.state.b.preview_render.map(lambda x: not x),
             )
-            preview_render_stop_button = server.add_gui_button("Exit Render Preview", color="red", visible=False)
-
-            transition_sec_number = server.add_gui_number(
+            preview_render_button.on_click(lambda _: setattr(self.state, "preview_render", True))
+            preview_render_stop_button = server.add_gui_button(
+                "Exit Render Preview", 
+                color="red", 
+                visible=self.state.b.preview_render)
+            preview_render_stop_button.on_click(lambda _: setattr(self.state, "preview_render", False))
+            server.add_gui_number(
                 "Transition (sec)",
                 min=0.001,
                 max=30.0,
                 step=0.001,
-                initial_value=2.0,
+                initial_value=self.state.b.camera_path_default_transition_duration,
                 hint="Time in seconds between each keyframe, which can also be overridden on a per-transition basis.",
             )
-            framerate_number = server.add_gui_number("FPS", min=0.1, max=240.0, step=1e-2, initial_value=30.0)
+            server.add_gui_number(
+                "FPS", min=0.1, max=240.0, step=1e-2, 
+                initial_value=self.state.b.camera_path_framerate)
             framerate_buttons = server.add_gui_button_group("", ("24", "30", "60"))
-            duration_number = server.add_gui_number(
+            framerate_buttons.on_click(lambda _: self.state.b.camera_path_framerate.update(float(framerate_buttons.value)))
+            server.add_gui_number(
                 "Duration (sec)",
                 min=0.0,
                 max=1e8,
                 step=0.001,
-                initial_value=0.0,
                 disabled=True,
+                initial_value=state_compute_duration(self.state.b),
             )
 
-            @framerate_buttons.on_click
-            def _(_) -> None:
-                framerate_number.value = float(framerate_buttons.value)
-
-        @transition_sec_number.on_update
-        def _(_) -> None:
-            camera_path.default_transition_sec = transition_sec_number.value
-            duration_number.value = camera_path.compute_duration()
-
-        def get_max_frame_index() -> int:
-            return max(1, int(framerate_number.value * duration_number.value) - 1)
-
-        preview_camera_handle: Optional[viser.SceneNodeHandle] = None
-
-        def remove_preview_camera() -> None:
-            nonlocal preview_camera_handle
-            if preview_camera_handle is not None:
-                preview_camera_handle.remove()
-                preview_camera_handle = None
-
-        def compute_and_update_preview_camera_state() -> Optional[Union[Tuple[tf.SE3, float], Tuple[tf.SE3, float, float]]]:
-            """Update the render tab state with the current preview camera pose.
-            Returns current camera pose + FOV if available."""
-
-            if preview_frame_slider is None:
-                return
-            maybe_pose_and_fov_rad = camera_path.interpolate_pose_and_fov_rad(
-                preview_frame_slider.value / get_max_frame_index()
+            server.add_gui_slider(
+                "Preview frame",
+                min=0,
+                max=self._camera_path_binding.map(lambda x: x[0].shape[0] - 1 if x is not None else 1),
+                step=1,
+                # Place right after the pause button.
+                order=preview_render_stop_button.order + 0.01,
+                disabled=preview_disabled_b,
+                initial_value=self.state.b.preview_current_frame,
             )
-            if maybe_pose_and_fov_rad is None:
-                remove_preview_camera()
-                return
-            time = None
-            if len(maybe_pose_and_fov_rad) == 3:  # Time is enabled.
-                pose, fov_rad, time = maybe_pose_and_fov_rad
-                self.state.preview_time = time
-            else:
-                pose, fov_rad = maybe_pose_and_fov_rad
-            self.state.preview_fov = fov_rad
-            self.state.preview_aspect = camera_path.get_aspect()
-
-            if time is not None:
-                return pose, fov_rad, time
-            else:
-                return pose, fov_rad
-
-        def add_preview_frame_slider() -> Optional[viser.GuiInputHandle[int]]:
-            """Helper for creating the current frame # slider. This is removed and
-            re-added anytime the `max` value changes."""
-
-            with playback_folder:
-                preview_frame_slider = server.add_gui_slider(
-                    "Preview frame",
-                    min=0,
-                    max=get_max_frame_index(),
-                    step=1,
-                    initial_value=0,
-                    # Place right after the pause button.
-                    order=preview_render_stop_button.order + 0.01,
-                    disabled=get_max_frame_index() == 1,
-                )
-                play_button.disabled = preview_frame_slider.disabled
-                preview_render_button.disabled = preview_frame_slider.disabled
-
-            @preview_frame_slider.on_update
-            def _(_) -> None:
-                nonlocal preview_camera_handle
-                maybe_pose_and_fov_rad = compute_and_update_preview_camera_state()
-                if maybe_pose_and_fov_rad is None:
-                    return
-                if len(maybe_pose_and_fov_rad) == 3:  # Time is enabled.
-                    pose, fov_rad, time = maybe_pose_and_fov_rad
-                else:
-                    pose, fov_rad = maybe_pose_and_fov_rad
-
-                preview_camera_handle = server.add_camera_frustum(
-                    "/preview_camera",
-                    fov=fov_rad,
-                    aspect=resolution.value[0] / resolution.value[1],
-                    scale=0.35,
-                    wxyz=pose.rotation().wxyz,
-                    position=pose.translation(),
-                    color=(10, 200, 30),
-                )
-                if self.state.preview_render:
-                    for client in server.get_clients().values():
-                        client.camera.wxyz = pose.rotation().wxyz
-                        client.camera.position = pose.translation()
-
-            return preview_frame_slider
-
-        # We back up the camera poses before and after we start previewing renders.
-        camera_pose_backup_from_id: Dict[int, tuple] = {}
-
-        @preview_render_button.on_click
-        def _(_) -> None:
-            self.state.preview_render = True
-            preview_render_button.visible = False
-            preview_render_stop_button.visible = True
-
-            maybe_pose_and_fov_rad = compute_and_update_preview_camera_state()
-            if maybe_pose_and_fov_rad is None:
-                remove_preview_camera()
-                return
-            if len(maybe_pose_and_fov_rad) == 3:  # Time is enabled.
-                pose, fov, time = maybe_pose_and_fov_rad
-            else:
-                pose, fov = maybe_pose_and_fov_rad
-            del fov
-
-            # Hide all scene nodes when we're previewing the render.
-            server.set_global_scene_node_visibility(False)
-
-            # Back up and then set camera poses.
-            for client in server.get_clients().values():
-                camera_pose_backup_from_id[client.client_id] = (
-                    client.camera.position,
-                    client.camera.look_at,
-                    client.camera.up_direction,
-                )
-                client.camera.wxyz = pose.rotation().wxyz
-                client.camera.position = pose.translation()
-
-        @preview_render_stop_button.on_click
-        def _(_) -> None:
-            self.state.preview_render = False
-            preview_render_button.visible = True
-            preview_render_stop_button.visible = False
-
-            # Revert camera poses.
-            for client in server.get_clients().values():
-                if client.client_id not in camera_pose_backup_from_id:
-                    continue
-                cam_position, cam_look_at, cam_up = camera_pose_backup_from_id.pop(client.client_id)
-                client.camera.position = cam_position
-                client.camera.look_at = cam_look_at
-                client.camera.up_direction = cam_up
-                client.flush()
-
-            # Un-hide scene nodes.
-            server.set_global_scene_node_visibility(True)
-
-        preview_frame_slider = add_preview_frame_slider()
-
-        # Update the # of frames.
-        @duration_number.on_update
-        @framerate_number.on_update
-        def _(_) -> None:
-            remove_preview_camera()  # Will be re-added when slider is updated.
-
-            nonlocal preview_frame_slider
-            old = preview_frame_slider
-            assert old is not None
-
-            preview_frame_slider = add_preview_frame_slider()
-            if preview_frame_slider is not None:
-                old.remove()
-            else:
-                preview_frame_slider = old
-
-            camera_path.framerate = framerate_number.value
-            camera_path.update_spline()
-
-        # Play the camera trajectory when the play button is pressed.
-        @play_button.on_click
-        def _(_) -> None:
-            play_button.visible = False
-            pause_button.visible = True
-
-            def play() -> None:
-                while not play_button.visible:
-                    max_frame = int(framerate_number.value * duration_number.value)
-                    if max_frame > 0:
-                        assert preview_frame_slider is not None
-                        preview_frame_slider.value = (preview_frame_slider.value + 1) % max_frame
-                    time.sleep(1.0 / framerate_number.value)
-
-            threading.Thread(target=play).start()
-
-        # Play the camera trajectory when the play button is pressed.
-        @pause_button.on_click
-        def _(_) -> None:
-            play_button.visible = True
-            pause_button.visible = False
 
         # add button for loading existing path
         load_camera_path_button = server.add_gui_upload_button(
@@ -1239,42 +1216,9 @@ class ViserViewer:
             data = event.target.value.content
             
             # Read trajectory json
-            json_data = json.loads(data.decode("utf-8"))
-
-            keyframes = json_data["keyframes"]
-            camera_path.reset()
-            for i in range(len(keyframes)):
-                frame = keyframes[i]
-                pose_np = np.array(frame["matrix"]).reshape(-1, 4)
-                pose_np = apply_transform(self.transform, pose_np)
-                pose_np = pad_poses(pose_np)
-                pose = tf.SE3.from_matrix(pose_np)
-                # apply the x rotation by 180 deg
-                pose = tf.SE3.from_rotation_and_translation(
-                    pose.rotation(),
-                    pose.translation(),
-                )
-                camera_path.add_camera(
-                    Keyframe(
-                        position=pose.translation(),
-                        wxyz=pose.rotation().wxyz,
-                        # There are some floating point conversions between degrees and radians, so the fov and
-                        # default_Fov values will not be exactly matched.
-                        override_fov_enabled=abs(frame["fov"] - json_data.get("default_fov", 0.0)) > 1e-3,
-                        override_fov_rad=frame["fov"] / 180.0 * np.pi,
-                        override_time_enabled=frame.get("override_time_enabled", False),
-                        override_time_val=frame.get("render_time", None),
-                        aspect=frame["aspect"],
-                        override_transition_enabled=frame.get("override_transition_enabled", None),
-                        override_transition_sec=frame.get("override_transition_sec", None),
-                    ),
-                )
-
-            transition_sec_number.value = json_data.get("default_transition_sec", 0.5)
-
-            # update the render name
-            camera_path.update_spline()
-
+            with io.TextIOWrapper(io.BytesIO(data), encoding="utf8") as file:
+                trajectory = load_trajectory(file)
+            self.state.load_trajectory(trajectory, self.transform)
 
         export_button = server.add_gui_button(
             "Export trajectory",
@@ -1283,110 +1227,18 @@ class ViserViewer:
             hint="Export trajectory file.",
         )
 
-        reset_up_button = server.add_gui_button(
-            "Reset up direction",
-            icon=viser.Icon.ARROW_BIG_UP_LINES,
-            color="gray",
-            hint="Set the up direction of the camera orbit controls to the camera's current up direction.",
-        )
-
-        def get_trajectory():
-            num_frames = int(framerate_number.value * duration_number.value)
-            json_data = {}
-            # json data has the properties:
-            # keyframes: list of keyframes with
-            #     matrix : flattened 4x4 matrix
-            #     fov: float in degrees
-            #     aspect: float
-            # camera_type: string of camera type
-            # image_size: [int, int]
-            # fps: int
-            # seconds: float
-            # is_cycle: bool
-            # smoothness_value: float
-            # camera_path: list of frames with properties
-            #     pose: flattened 4x4 matrix
-            #     intrinsics: [fx: float, fy: float, cx: float, cy: float]
-            keyframes = []
-            for keyframe, dummy in camera_path._keyframes.values():
-                pose = tf.SE3.from_rotation_and_translation(
-                    tf.SO3(keyframe.wxyz),
-                    keyframe.position,
-                ).as_matrix()
-                pose = apply_transform(self._inv_transform, pose)
-                keyframe_dict = {
-                    "matrix": pose.flatten().tolist(),
-                    "fov": np.rad2deg(keyframe.override_fov_rad) if keyframe.override_fov_enabled else fov_degrees.value,
-                    "aspect": keyframe.aspect,
-                    "override_transition_enabled": keyframe.override_transition_enabled,
-                    "override_transition_sec": keyframe.override_transition_sec,
-                }
-                if render_time is not None:
-                    keyframe_dict["render_time"] = (
-                        keyframe.override_time_val if keyframe.override_time_enabled else render_time.value
-                    )
-                    keyframe_dict["override_time_enabled"] = keyframe.override_time_enabled
-                keyframes.append(keyframe_dict)
-            json_data["default_fov"] = fov_degrees.value
-            if render_time is not None:
-                json_data["default_time"] = render_time.value if render_time is not None else None
-            json_data["format"] = "nerfbaselines"
-            json_data["version"] = 1
-            json_data["default_transition_sec"] = transition_sec_number.value
-            json_data["keyframes"] = keyframes
-            json_data["camera_type"] = "pinhole"
-            json_data["image_size"] = w, h = int(resolution.value[0]), int(resolution.value[1])
-            json_data["fps"] = framerate_number.value
-            json_data["seconds"] = duration_number.value
-            json_data["is_cycle"] = loop.value
-            json_data["smoothness_value"] = tension_slider.value
-            # now populate the camera path:
-            camera_path_list = []
-            for i in range(num_frames):
-                maybe_pose_and_fov = camera_path.interpolate_pose_and_fov_rad(i / num_frames)
-                if maybe_pose_and_fov is None:
-                    return
-                time = None
-                if len(maybe_pose_and_fov) == 3:  # Time is enabled.
-                    pose, fov, time = maybe_pose_and_fov
-                else:
-                    pose, fov = maybe_pose_and_fov
-                # rotate the axis of the camera 180 about x axis
-                pose = tf.SE3.from_rotation_and_translation(
-                    pose.rotation(),
-                    pose.translation(),
-                ).as_matrix()
-                pose = apply_transform(self._inv_transform, pose)
-
-                fov_deg = np.rad2deg(keyframe.override_fov_rad) if keyframe.override_fov_enabled else fov_degrees.value
-                focal_length = three_js_perspective_camera_focal_length(fov_deg, h)
-                camera_path_list_dict = {
-                    "pose": pose.flatten().tolist(),
-                    "intrinsics": [focal_length, focal_length, w / 2, h / 2],
-                }
-                if time is not None:
-                    camera_path_list_dict["render_time"] = time
-                camera_path_list.append(camera_path_list_dict)
-            json_data["camera_path"] = camera_path_list
-            return json_data
-
-        @reset_up_button.on_click
-        def _(event: viser.GuiEvent) -> None:
-            assert event.client is not None
-            event.client.camera.up_direction = tf.SO3(event.client.camera.wxyz) @ np.array([0.0, -1.0, 0.0])
-
         @export_button.on_click
         def _(event: viser.GuiEvent) -> None:
             assert event.client is not None
-            json_data = get_trajectory()
+
+            trajectory = self.state.get_trajectory(self._inv_transform)
+            with io.BytesIO() as file, io.TextIOWrapper(file, encoding="utf8") as textfile:
+                save_trajectory(trajectory, textfile)
+                textfile.flush()
+                data = file.getvalue()
 
             # now write the json file
-            data = json.dumps(json_data, indent=2).encode("utf-8")
             self.server.send_file_download("trajectory.json", data)
-
-        camera_path = CameraPath(server, duration_number, self.state.is_time_enabled, self.transform)
-        camera_path.default_fov = fov_degrees.value / 180.0 * np.pi
-        camera_path.default_transition_sec = transition_sec_number.value
 
     def _build_control_panel(self):
         state = self.state
@@ -1435,39 +1287,11 @@ class ViserViewer:
         ).on_click(_reset_camera_cb)
 
     def _build_gui(self):
-        buttons = (
-            viser.theme.TitlebarButton(
-                text="Getting Started",
-                icon=None,
-                href="https://jkulhanek.com/nerfbaselines",
-            ),
-            viser.theme.TitlebarButton(
-                text="Github",
-                icon="GitHub",
-                href="https://github.com/jkulhanek/nerfbaselines",
-            ),
-        )
-        image = viser.theme.TitlebarImage(
-            image_url_light="https://docs.nerf.studio/_static/imgs/logo.png",
-            image_url_dark="https://docs.nerf.studio/_static/imgs/logo-dark.png",
-            image_alt="Nerfbaselines Logo",
-            href="https://jkulhanek.com/nerfbaselines/",
-        )
-        titlebar_theme = viser.theme.TitlebarConfig(buttons=buttons, image=image)
         self.server.configure_theme(
-            titlebar_content=titlebar_theme,
             control_layout="collapsible",
             dark_mode=True,
             brand_color=(255, 211, 105),
         )
-
-        def make_stats_markdown(state: ViewerState) -> str:
-            # if either are None, read it from the current stats_markdown content
-            step = 0
-            res = state.resolution
-            return f"Step: {step}  \nResolution: {res}"
-
-        self.server.add_gui_markdown(self.state.b.map(make_stats_markdown))
         self.server.add_gui_text("FPS", initial_value=self.state.b.fps, disabled=True)
 
         tabs = self.server.add_gui_tab_group()
@@ -1484,6 +1308,38 @@ class ViserViewer:
 
         with tabs.add_tab("Render", viser.Icon.CAMERA):
             self._build_render_tab()
+
+        _add_spline_to_camera_path(self.server, self.state, self._camera_path_binding)
+        self._add_state_handlers()
+
+    def _start_preview_timer(self):
+        # Add preview_is_playing timer
+        max_frame_b = self._camera_path_binding.map(lambda x: x[0].shape[0] - 1 if x is not None else 1)
+        max_fps = 30
+
+        def play() -> None:
+            start = None
+            start_frame = None
+            i = 0
+            # while self.state is not None:
+            while True:
+                i+=1
+                max_frame = max_frame_b.get()
+                if not self.state.preview_is_playing:
+                    start = None
+                elif start is None:
+                    start = time.time()
+                    start_frame = self.state.preview_current_frame 
+                if self.state.preview_is_playing and max_frame > 0:
+                    frame = int((time.time() - start) * target_fps)
+                    self.state.preview_current_frame = (start_frame + frame) % max_frame
+                target_fps = self.state.camera_path_framerate
+                wait = 1.0 / min(target_fps, max_fps)
+                if start is not None:
+                    wait = max(wait / 2, (start - time.time()) % wait)
+                time.sleep(wait)
+
+        threading.Thread(target=play, daemon=True).start()
 
     def _add_state_handlers(self):
         # Add bindings
@@ -1582,9 +1438,139 @@ class ViserViewer:
         self.state.b.camera_frustums_train.on_update(lambda _: _update_frustums("train", True))
         self.state.b.camera_frustums_test.on_update(lambda _: _update_frustums("test", True))
 
-    def _update_render_context(self, context):
-        self._render_context = context
-        self._reset_render()
+        # Add preview camera handler
+        preview_camera_handle = None
+        
+        def _update_preview_handle(_) -> None:
+            nonlocal preview_camera_handle
+            trajectory = self._camera_path_binding.get()
+            if trajectory is None:
+                if preview_camera_handle is not None:
+                    preview_camera_handle.remove()
+                    preview_camera_handle = None
+                return
+            poses, quats, fovs, _ = trajectory
+            pos = poses[self.state.preview_current_frame % len(poses)]
+            quat = quats[self.state.preview_current_frame % len(quats)]
+            fov = fovs[self.state.preview_current_frame % len(fovs)]
+            if preview_camera_handle is None:
+                preview_camera_handle = self.server.add_camera_frustum(
+                    "/preview_camera",
+                    fov=fov / 180 * math.pi,
+                    aspect=self.state.render_resolution[0] / self.state.render_resolution[1],
+                    scale=0.35,
+                    wxyz=quat,
+                    position=pos,
+                    color=(10, 200, 30),
+                )
+            else:
+                preview_camera_handle.position = pos
+                preview_camera_handle.wxyz = quat
+                preview_camera_handle.fov = fov / 180 * math.pi
+        self._camera_path_binding.on_update(_update_preview_handle)
+        self.state.b.preview_current_frame.on_update(_update_preview_handle)
+        self.state.b.render_resolution.on_update(_update_preview_handle)
+
+        # Add preview render handler
+        # It hides all scene nodes and backup/restores the camera states before/after preview
+        camera_pose_backup = {}
+
+        def _update_preview(_) -> None:
+            if self.state.preview_render:
+                # Back up and then set camera poses.
+                points, quats, fovs, keypoint_weights, *_ = self._camera_path_binding.get()
+                num_points = len(points)
+                position = points[self.state.preview_current_frame % num_points]
+                wxyz = quats[self.state.preview_current_frame % num_points]
+                fov = fovs[self.state.preview_current_frame % num_points]
+                kweight = keypoint_weights[self.state.preview_current_frame % num_points]
+                embedding = None
+                k1 = self.state.camera_path_keyframes[int(kweight)]
+                k2 = self.state.camera_path_keyframes[(int(kweight) + 1) % len(self.state.camera_path_keyframes)]
+                if k1.appearance_train_index is not None and k2.appearance_train_index is not None:
+                    weight = kweight - int(kweight)
+                    embedding = (
+                        self.method.get_train_embedding(k1.appearance_train_index) * (1 - weight) + 
+                        self.method.get_train_embedding(k2.appearance_train_index) * weight
+                    )
+                self._preview_camera = (
+                    position,
+                    wxyz,
+                    fov / 180 * math.pi,
+                    embedding,
+                )
+                for client in self.server.get_clients().values():
+                    if client.client_id not in camera_pose_backup:
+                        with client.atomic():
+                            camera_pose_backup[client.client_id] = (
+                                client.camera.wxyz,
+                                client.camera.position,
+                                client.camera.fov,
+                            )
+
+                    # Important bit: we atomically set both the orientation and the position
+                    # of the camera.
+                    # if not self.state.preview_is_playing:
+                    #     with client.atomic():
+                    #         client.camera.fov = fov / 180 * math.pi
+                    #         client.camera.wxyz = wxyz
+                    #         client.camera.position = position
+
+            elif camera_pose_backup:
+                self._preview_camera = None
+                # Revert camera poses.
+                for client in self.server.get_clients().values():
+                    if client.client_id not in camera_pose_backup:
+                        continue
+                    with client.atomic():
+                        (
+                            client.camera.wxyz,
+                            client.camera.position,
+                            client.camera.fov,
+                        ) = camera_pose_backup.pop(client.client_id)
+                        client.flush()
+                        camera_pose_backup.pop(client.client_id, None)
+            else:
+                self._preview_camera = None
+
+        def _show_hide_preview_render(preview_render):
+            # Hide all scene nodes when we're previewing the render.
+            self.server.set_global_scene_node_visibility(not preview_render)
+
+        self.state.b.preview_render.on_update(_show_hide_preview_render)
+        _show_hide_preview_render(self.state.b.preview_render.get())
+
+        self._camera_path_binding.on_update(_update_preview)
+        self.state.b.preview_render.on_update(_update_preview)
+        self.state.b.preview_current_frame.on_update(_update_preview)
+        self.state.b.preview_is_playing.on_update(_update_preview)
+
+        # Add keypoint handles
+        _add_keyframe_frustums_to_camera_path(self.server, self.state)
+
+        # if self.state.preview_render:
+        #     for client in server.get_clients().values():
+        #         client.camera.wxyz = pose.rotation().wxyz
+        #         client.camera.position = pose.translation()
+
+        # return preview_frame_slider
+
+        def _update_fov(fov):
+            if not self.state.preview_render:
+                for client in self.server.get_clients().values():
+                    client.camera.fov = fov / 180 * math.pi
+        self.state.b.render_fov.on_update(_update_fov)
+
+        def _update_render_appearance_train_index(args):
+            index, temp_index = args
+            if temp_index is not None:
+                self._current_embedding = self.method.get_train_embedding(temp_index)
+            elif index is not None:
+                self._current_embedding = self.method.get_train_embedding(index)
+            else:
+                self._current_embedding = None
+            self._reset_render()
+        self.state.b.map(("render_appearance_train_index", "_temporary_appearance_train_index")).on_update(_update_render_appearance_train_index)
 
     def _reset_render(self):
         self._render_state = {}
@@ -1606,26 +1592,8 @@ class ViserViewer:
         self.state.input_points = points, colors
 
     def add_dataset_views(self, dataset: Dataset, split: str):
-        if split == "train" and self.method is not None:
-            try:
-                if self.method.get_train_embedding(0) is not None:
-                    options = ["none"] + [os.path.relpath(x, dataset.get("file_paths_root") or "") for x in dataset.get("file_paths")]
-                    dropdown = self.server.add_gui_dropdown(
-                        "Train embedding images",
-                        options,
-                        "none",
-                        hint="Select images to visualize embeddings for",
-                    )
-                    @dropdown.on_update
-                    def _(_):
-                        selected_image = dropdown.value
-                        train_id = options.index(selected_image)
-                        self._update_render_context({
-                            "embedding": self.method.get_train_embedding(train_id-1) if train_id > 0 else None,
-                            "embedding_train_index": train_id-1 if train_id > 0 else None,
-                        })
-            except (AttributeError, NotImplementedError):
-                pass
+        if split == "train":
+            self.state.image_names_train = tuple([os.path.relpath(x, dataset.get("file_paths_root") or "") for x in dataset.get("file_paths")])
 
         max_img_size = 64
         images = []
@@ -1658,11 +1626,19 @@ class ViserViewer:
             render_state = self._render_state.get(client.client_id, 0)
             if render_state < 2:
                 start = perf_counter()
-                camera = client.camera
+
+                if self._preview_camera is not None:
+                    cam_pos, cam_wxyz, cam_fov, cam_embedding = self._preview_camera
+                    cam_aspect = self.state.render_resolution[0] / self.state.render_resolution[1]
+                else:
+                    camera = client.camera
+                    cam_pos, cam_wxyz, cam_fov = camera.position, camera.wxyz, camera.fov
+                    cam_aspect = camera.aspect
+                    cam_embedding = self._current_embedding
 
                 w_total = self.resolution_slider.value
-                h_total = int(self.resolution_slider.value / camera.aspect)
-                focal = h_total / 2 / np.tan(camera.fov / 2)
+                h_total = int(self.resolution_slider.value / cam_aspect)
+                focal = h_total / 2 / np.tan(cam_fov / 2)
 
                 num_rays_total = num_rays = w_total * h_total
                 w, h = w_total, h_total
@@ -1674,13 +1650,13 @@ class ViserViewer:
                     if fps >= target_fps:
                         render_state = 1
                     else:
-                        h = (fps * num_rays_total / target_fps / camera.aspect) ** 0.5
+                        h = (fps * num_rays_total / target_fps / cam_aspect) ** 0.5
                         h = int(round(h, -1))
                         h = max(min(h_total, h), 30)
-                        w = int(h * camera.aspect)
+                        w = int(h * cam_aspect)
                         if w > w_total:
                             w = w_total
-                            h = int(w / camera.aspect)
+                            h = int(w / cam_aspect)
                         num_rays = w * h
                 self._render_state[client.client_id] = render_state + 1
                 cancellation_token = self._cancellation_token = None
@@ -1688,7 +1664,7 @@ class ViserViewer:
                     cancellation_token = EventCancellationToken()
                     self._cancellation_token = cancellation_token
 
-                c2w = get_c2w(camera)
+                c2w = get_c2w(cam_pos, cam_wxyz)
                 c2w = apply_transform(self._inv_transform, c2w)
                 nb_camera = new_cameras(
                     poses=c2w[None, :3, :4],
@@ -1701,7 +1677,7 @@ class ViserViewer:
                 outputs = None
                 try:
                     with self._cancellation_token or contextlib.nullcontext():
-                        for outputs in self.method.render(nb_camera, embeddings=[self._render_context.get("embedding")]):
+                        for outputs in self.method.render(nb_camera, embeddings=[cam_embedding]):
                             pass
                 except CancelledException:
                     # if we got interrupted, don't send the output to the viewer
@@ -1730,6 +1706,9 @@ class ViserViewer:
                     split_point = int(render.shape[1] * self.state.split_percentage)
                     render[:, :split_point] = split_render[:, split_point:]
                     
+                if self._preview_camera is not None:
+                    # If the preview camera is set, we correct the aspect ratio to match client's viewport
+                    render = pad_to_aspect_ratio(render, client.camera.aspect)
 
                 client.set_background_image(render, format="jpeg")
                 self._render_state[client.client_id] = min(self._render_state.get(client.client_id, 0), render_state + 1)
@@ -1741,7 +1720,6 @@ class ViserViewer:
 
 def run_viser_viewer(method: Optional[Method] = None, 
                      data=None, 
-                     max_num_views: Optional[int] = 100,
                      port=6006,
                      nb_info=None):
     state = ViewerState()
@@ -1768,15 +1746,10 @@ def run_viser_viewer(method: Optional[Method] = None,
             bg_color = tuple(int(x) for x in bg_color)
             state.background_color = bg_color
 
-        # if max_num_views is not None and len(train_dataset) > max_num_views:
-        #     train_dataset = dataset_index_select(train_dataset, np.random.choice(len(train_dataset), 100))
-
         if train_dataset.get("points3D_xyz") is not None:
             server.add_initial_point_cloud(train_dataset["points3D_xyz"], train_dataset["points3D_rgb"])
 
         test_dataset = load_dataset(data, split="test", features=features, load_features=False)
-        # if max_num_views is not None and len(test_dataset) > max_num_views:
-        #     test_dataset = dataset_index_select(test_dataset, np.random.choice(len(test_dataset), 100))
 
         server.add_dataset_views(dataset_load_features(test_dataset, features), "test")
         server.add_dataset_views(dataset_load_features(train_dataset, features), "train")

@@ -1,6 +1,6 @@
 import sys
 from abc import abstractmethod
-from typing import Optional, Iterable, List, Dict, Any, cast, Union, Sequence, TYPE_CHECKING, overload, TypeVar, Iterator, Callable
+from typing import Optional, Iterable, List, Dict, Any, cast, Union, Sequence, TYPE_CHECKING, overload, TypeVar, Iterator, Callable, Tuple
 from dataclasses import dataclass
 import dataclasses
 import os
@@ -456,3 +456,44 @@ class DownloadDatasetFunction(Protocol):
                  path: str, 
                  output: str) -> None:
         ...
+
+
+class TrajectoryFrameAppearance(TypedDict, total=False):
+    embedding: Optional[np.ndarray]
+    embedding_train_index: Optional[int]
+
+
+class TrajectoryFrame(TypedDict, total=True):
+    pose: np.ndarray
+    intrinsics: np.ndarray
+    appearance_weights: NotRequired[np.ndarray]
+
+
+class TrajectoryKeyframe(TypedDict, total=True):
+    pose: np.ndarray
+    fov: Optional[float]
+    transition_duration: Optional[float]
+    appearance: NotRequired[TrajectoryFrameAppearance]
+
+
+TrajectoryInterpolationType = Literal["kochanek-bartels"]
+
+
+class TrajectoryInterpolationSource(TypedDict, total=True):
+    type: Literal["interpolation"]
+    interpolation: TrajectoryInterpolationType
+    is_cycle: bool
+    tension: float
+    keyframes: List[TrajectoryKeyframe]
+    default_fov: float
+    default_transition_duration: float
+    default_appearance: NotRequired[TrajectoryFrameAppearance]
+
+
+class Trajectory(TypedDict, total=True):
+    camera_model: CameraModel
+    image_size: Tuple[int, int]
+    frames: List[TrajectoryFrame]
+    appearances: NotRequired[List[TrajectoryFrameAppearance]]
+    fps: float
+    source: NotRequired[Optional[TrajectoryInterpolationSource]]
