@@ -28,6 +28,10 @@ class _TestMethod(Method):
     def save(self, *args, **kwargs):
         raise NotImplementedError()
 
+    def get_train_embedding(self, *args, **kwargs):
+        raise NotImplementedError()
+
+
 
 def test_registry_build_method():
     from nerfbaselines.registry import build_method, MethodSpec, methods_registry as registry

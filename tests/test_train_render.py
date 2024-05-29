@@ -97,6 +97,10 @@ class _TestMethod(Method):
     def save(self, path: str):
         self._save_paths.append(path)
 
+    def get_train_embedding(self, *args, **kwargs):
+        raise NotImplementedError()
+
+
 
 def _patch_wandb_for_py37():
     try:

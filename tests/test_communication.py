@@ -35,6 +35,9 @@ def test_render(use_remote_method):
         def save(self, path):
             pass
 
+        def get_train_embedding(self, *args, **kwargs):
+            raise NotImplementedError()
+
     with use_remote_method(TestMethodRenderCancellable) as remote_method_cls:
         remote_method = remote_method_cls()
         all_cameras = new_cameras(
@@ -173,6 +176,10 @@ def test_render_cancellable(use_remote_method):
 
         def save(self, path):
             pass
+
+        def get_train_embedding(self, *args, **kwargs):
+            raise NotImplementedError()
+
 
     with use_remote_method(TestMethodRenderCancellable) as remote_method_cls:
         remote_method = remote_method_cls()

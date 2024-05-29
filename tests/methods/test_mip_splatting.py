@@ -112,6 +112,7 @@ def mock_mip_splatting(mock_torch):
         def GaussianModel(*args, **kwargs):
             out = mock.MagicMock()
             out.capture.return_value = None
+            out.compute_3D_filter.side_effect = lambda cameras: setattr(out, "filter_3D", np.zeros((124, 3), dtype=np.float32))
             return out
 
         cast(mock.MagicMock, sys.modules["scene"]).GaussianModel = GaussianModel
