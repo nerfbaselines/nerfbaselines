@@ -370,7 +370,7 @@ class ViewerState:
         self.render_resolution = trajectory["image_size"]
         self.camera_path_framerate = trajectory["fps"]
         self.camera_path_tension = source["tension"]
-        self.is_cycle = source["is_cycle"]
+        self.camera_path_loop = source["is_cycle"]
         self.render_fov = source["default_fov"]
         if source.get("default_appearance"):
             self.render_appearance_train_index = source["default_appearance"]["embedding_train_index"]
@@ -415,7 +415,7 @@ class ViewerState:
         trajectory_frames = _compute_camera_path_splines(self)
         if trajectory_frames is not None:
             frames = []
-            for pos, wxyz, fov, keyframe_weight in zip(*trajectory_frames):
+            for pos, wxyz, fov, weights in zip(*trajectory_frames):
                 pose = tf.SE3.from_rotation_and_translation(
                     tf.SO3(wxyz),
                     pos,
@@ -423,13 +423,10 @@ class ViewerState:
                 pose = apply_transform(inv_transform, pose)
                 focal_length = three_js_perspective_camera_focal_length(fov, h)
                 intrinsics = np.array([focal_length, focal_length, w / 2, h / 2], dtype=np.float32)
-                frame_appearance = np.zeros(len(appearances), dtype=np.float32)
-                frame_appearance[int(keyframe_weight)] = 1 - (keyframe_weight % 1.0)
-                frame_appearance[(int(keyframe_weight)+1)%len(appearances)] = keyframe_weight % 1.0
                 frames.append({
                     "pose": pose[:3, :],
                     "intrinsics": intrinsics,
-                    "appearance_weights": frame_appearance,
+                    "appearance_weights": weights,
                 })
         data = {
             "format": "nerfbaselines",
@@ -718,6 +715,12 @@ def _add_keyframe_frustums_to_camera_path(server: ViserServer, state: ViewerStat
     update_keyframes(binding.get())
 
 
+def _onehot(index, length):
+    out = np.zeros(length, dtype=np.float32)
+    out[index] = 1.0
+    return out
+
+
 @autobind
 @simple_cache
 def _compute_camera_path_splines(camera_path_keyframes, 
@@ -761,9 +764,9 @@ def _compute_camera_path_splines(camera_path_keyframes,
         tcb=(camera_path_tension, 0.0, 0.0),
         endconditions="closed" if camera_path_loop else "natural",
     )
-    time_spline = splines.KochanekBartels(
+    weight_spline = splines.KochanekBartels(
         [
-            i for i in range(len(camera_path_keyframes))
+            _onehot(i, len(camera_path_keyframes)) for i in range(len(camera_path_keyframes))
         ],
         tcb=(camera_path_tension, 0.0, 0.0),
         endconditions="closed" if camera_path_loop else "natural",
@@ -795,8 +798,8 @@ def _compute_camera_path_splines(camera_path_keyframes,
     orientation_array = orientation_spline.evaluate(gtime_splines)
     orientation_array = np.stack([np.array([quat.scalar, *quat.vector]) for quat in orientation_array])
     fovs = fov_spline.evaluate(gtime_splines)
-    times = time_spline.evaluate(gtime_splines)
-    return points_array, orientation_array, fovs, times
+    weights = weight_spline.evaluate(gtime_splines)
+    return points_array, orientation_array, fovs, weights
 
 
 def _add_spline_to_camera_path(server: ViserServer, state: ViewerState, interpolated_camera_path):
@@ -1042,6 +1045,12 @@ class ViserViewer:
 
         self._camera_frustrum_handles = {}
         self._camera_path_binding = _compute_camera_path_splines(self.state.b)
+
+        def _fix_current_frame(camera_path):
+            max_frame = camera_path[0].shape[0] - 1 if camera_path is not None else 0
+            if self.state.preview_current_frame > max_frame:
+                self.state.preview_current_frame = max_frame
+        self._camera_path_binding.on_update(_fix_current_frame)
         self._build_gui()
         self._start_preview_timer()
 
@@ -1196,12 +1205,12 @@ class ViserViewer:
             server.add_gui_slider(
                 "Preview frame",
                 min=0,
-                max=self._camera_path_binding.map(lambda x: x[0].shape[0] - 1 if x is not None else 1),
                 step=1,
+                initial_value=self.state.b.preview_current_frame,
                 # Place right after the pause button.
                 order=preview_render_stop_button.order + 0.01,
                 disabled=preview_disabled_b,
-                initial_value=self.state.b.preview_current_frame,
+                max=self._camera_path_binding.map(lambda x: x[0].shape[0] - 1 if x is not None else 1),
             )
 
         # add button for loading existing path
@@ -1478,21 +1487,20 @@ class ViserViewer:
         def _update_preview(_) -> None:
             if self.state.preview_render:
                 # Back up and then set camera poses.
-                points, quats, fovs, keypoint_weights, *_ = self._camera_path_binding.get()
+                points, quats, fovs, weights, *_ = self._camera_path_binding.get()
                 num_points = len(points)
                 position = points[self.state.preview_current_frame % num_points]
                 wxyz = quats[self.state.preview_current_frame % num_points]
                 fov = fovs[self.state.preview_current_frame % num_points]
-                kweight = keypoint_weights[self.state.preview_current_frame % num_points]
+                kweight = weights[self.state.preview_current_frame % num_points]
                 embedding = None
-                k1 = self.state.camera_path_keyframes[int(kweight)]
-                k2 = self.state.camera_path_keyframes[(int(kweight) + 1) % len(self.state.camera_path_keyframes)]
-                if k1.appearance_train_index is not None and k2.appearance_train_index is not None:
-                    weight = kweight - int(kweight)
-                    embedding = (
-                        self.method.get_train_embedding(k1.appearance_train_index) * (1 - weight) + 
-                        self.method.get_train_embedding(k2.appearance_train_index) * weight
-                    )
+                for i, val in enumerate(kweight):
+                    if val > 1e-5 and self.state.camera_path_keyframes[i].appearance_train_index is not None:
+                        _embedding = self.method.get_train_embedding(self.state.camera_path_keyframes[i].appearance_train_index)
+                        if embedding is None:
+                            embedding = _embedding * val
+                        else:
+                            embedding += _embedding * val
                 self._preview_camera = (
                     position,
                     wxyz,

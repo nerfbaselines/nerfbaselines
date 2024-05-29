@@ -16,6 +16,7 @@ from .datasets import download_dataset
 from .evaluate import evaluate, run_inside_eval_container
 from .results import MethodLink
 from .types import Optional, get_args, NB_PREFIX
+from .train import Trainer
 from . import backends
 
 
@@ -158,3 +159,4 @@ def build_docker_image_command(method=None, push=False, skip_if_exists_remotely=
 main.add_lazy_command("nerfbaselines.export_demo", "export-demo")
 main.add_lazy_command("nerfbaselines.viewer", "viewer")
 main.add_lazy_command("nerfbaselines.render_trajectory", "render-trajectory")
+main.add_lazy_command("nerfbaselines._test_method", "test-method")

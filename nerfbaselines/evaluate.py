@@ -232,7 +232,7 @@ def get_evaluation_protocol(name: Optional[str] = None, dataset_name: Optional[s
 
 
 @contextlib.contextmanager
-def run_inside_eval_container():
+def run_inside_eval_container(backend_name: Optional[str] = None):
     """
     Ensures PyTorch is available to compute extra metrics (lpips)
     """
@@ -244,12 +244,14 @@ def run_inside_eval_container():
         pass
 
     logging.warning("PyTorch is not available in the current environment, we will create a new environment to compute extra metrics (lpips)")
+    if backend_name is None:
+        backend_name = os.environ.get("NERFBASELINES_BACKEND", None)
     backend = get_backend({
         "method": "base",
         "conda": {
             "environment_name": "_metrics", 
             "install_script": ""
-        }}, os.environ.get("NERFBASELINES_BACKEND", None))
+        }}, backend_name=backend_name)
     with backend:
         backend.install()
         yield None
