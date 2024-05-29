@@ -139,38 +139,47 @@ def main(method_name: str,
                 mark_success("Saving works")
 
                 # Load from checkpoint
-                model2 = method_cls(
-                    checkpoint=tmpdir,
-                    train_dataset=train_dataset,
-                    config_overrides=config_overrides,
-                )
-                model2_info = model2.get_info()
-                print("Loaded model info: \n", pprint.pformat(model2_info))
-                assert model2_info["loaded_step"] == 13
-                mark_success("Loading from checkpoint passes")
-                del model2_info
-
-                for render2_out in model2.render(test_dataset["cameras"][:1]):
-                    pass
-                logging.info("Render loaded model output: \n" + pprint.pformat({
-                    k: v.shape 
-                    for k, v in render2_out.items()}))
-
-                # Compare the outputs
+                model2 = None
                 try:
-                    assert len(render_out) == len(render2_out)
-                    for k, v in render_out.items():
-                        assert k in render2_out
-                        assert v.shape == render2_out[k].shape
-                        v2 = render2_out[k]
-                        np.testing.assert_allclose(v, v2)
-                    mark_success("Restored model matches original")
-                except AssertionError:
+                    model2 = method_cls(
+                        checkpoint=tmpdir,
+                        train_dataset=train_dataset,
+                        config_overrides=config_overrides,
+                    )
+                    model2_info = model2.get_info()
+                    print("Loaded model info: \n", pprint.pformat(model2_info))
+                    assert model2_info["loaded_step"] == 13
+                    mark_success("Loading from checkpoint passes")
+                    del model2_info
+                except Exception:
                     traceback.print_exc()
-                    mark_error("Restored model does not match original")
-                del model2
-                del render_out
-                del render2_out
+                    mark_error("Loading from checkpoint fails")
+
+                if model2 is not None:
+                    for render2_out in model2.render(test_dataset["cameras"][:1]):
+                        pass
+                    logging.info("Render loaded model output: \n" + pprint.pformat({
+                        k: v.shape 
+                        for k, v in render2_out.items()}))
+
+                    # Compare the outputs
+                    try:
+                        assert len(render_out) == len(render2_out)
+                        for k, v in render_out.items():
+                            assert k in render2_out
+                            assert v.shape == render2_out[k].shape
+                            v2 = render2_out[k]
+                            np.testing.assert_allclose(v, v2)
+                        mark_success("Restored model matches original")
+                    except AssertionError:
+                        traceback.print_exc()
+                        mark_error("Restored model does not match original")
+                    del model2
+                    del render_out
+                    del render2_out
+
+                else:
+                    mark_skip("Skipping render comparison")
 
             model = method_cls(
                 checkpoint=None,

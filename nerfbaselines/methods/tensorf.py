@@ -156,7 +156,7 @@ class TensoRFDataset:
                 directions = torch.nn.functional.normalize(directions, 2, dim=-1)
             self.all_rays.append(torch.cat([origins, directions], -1).float())
 
-            if dataset["images"] is not None:
+            if dataset.get("images") is not None:
                 rgbs = dataset["images"][i][xy[..., 1], xy[..., 0]]
                 if rgbs.dtype == np.uint8:
                     rgbs = rgbs.astype(np.float32) / 255.0
@@ -169,13 +169,17 @@ class TensoRFDataset:
 
         if not self.is_stack:
             self.all_rays = torch.cat(self.all_rays, 0)  # (len(self.meta['frames])*h*w, 3)
-            self.all_rgbs = torch.cat(self.all_rgbs, 0)  # (len(self.meta['frames])*h*w, 3)
+            if dataset.get("images") is not None:
+                self.all_rgbs = torch.cat(self.all_rgbs, 0)  # (len(self.meta['frames])*h*w, 3)
 
     def __len__(self):
-        return len(self.all_rgbs)
+        return len(self.all_rays)
 
     def __getitem__(self, idx):
-        return {"rays": self.all_rays[idx], "rgbs": self.all_rgbs[idx]}
+        out = {"rays": self.all_rays[idx]}
+        if self.all_rgbs is not None:
+            out["rgbs"] = self.all_rgbs[idx]
+        return out
 
 
 class TensoRF(Method):
@@ -263,7 +267,6 @@ class TensoRF(Method):
         self.tensorf.load(ckpt)
 
     def _setup_train(self, train_dataset: Dataset, *, config_overrides: Optional[Dict[str, Any]] = None):
-        config_overrides = (config_overrides or {}).copy()
         if self.checkpoint is not None:
             raise NotImplementedError("Loading from checkpoint is not supported for TensoRF")
 
@@ -282,10 +285,12 @@ class TensoRF(Method):
         config_file = Path(opt.__file__).absolute().parent.joinpath("configs", config_name)
         logging.info(f"Loading config from {config_file}")
         with config_file.open("r", encoding="utf8") as f:
-            config_overrides.update(configargparse.DefaultConfigFileParser().parse(f))
+            config = dict(configargparse.DefaultConfigFileParser().parse(f))
+            if config_overrides:
+                config.update(config_overrides)
 
         # config_overrides["n_iters"] = str(num_iterations)
-        for k, v in config_overrides.items():
+        for k, v in config.items():
             if isinstance(v, list):
                 for vs in v:
                     self._arg_list += (f"--{k}", str(vs))
