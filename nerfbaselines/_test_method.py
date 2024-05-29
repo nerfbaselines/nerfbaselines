@@ -1,22 +1,23 @@
+import traceback
+import sys
 import json
 import glob
 import pprint
 import logging
-from pathlib import Path
 import os
-from typing import Optional, cast, Callable
+import numpy as np
 from .datasets import load_dataset, dataset_index_select
 from .evaluate import run_inside_eval_container
-from .registry import BackendName
 from .utils import SetParamOptionType, handle_cli_error, setup_logging, Indices
 from .logging import TensorboardLogger
+from .io import open_any_directory
 from . import registry
 from . import backends
 import click
 from . import registry
-from .types import Method
-from .train import train_command, Trainer, eval_few, eval_all
+from .train import Trainer, eval_few, eval_all
 from .evaluate import evaluate, get_evaluation_protocol
+from PIL import Image
 import tempfile
 
 
@@ -29,7 +30,7 @@ import tempfile
 @handle_cli_error
 def main(method_name: str, 
          dataset: str, *, 
-         backend_name: Optional[BackendName] = None, 
+         backend_name=None, 
          verbose: bool = False,
          config_overrides=None):
     logging.basicConfig(level=logging.INFO)
@@ -156,13 +157,17 @@ def main(method_name: str,
                     for k, v in render2_out.items()}))
 
                 # Compare the outputs
-                assert len(render_out) == len(render2_out)
-                for k, v in render_out.items():
-                    assert k in render2_out
-                    assert v.shape == render2_out[k].shape
-                    assert (v == render2_out[k]).all()
-                
-                mark_success("Restored model matches original")
+                try:
+                    assert len(render_out) == len(render2_out)
+                    for k, v in render_out.items():
+                        assert k in render2_out
+                        assert v.shape == render2_out[k].shape
+                        v2 = render2_out[k]
+                        np.testing.assert_allclose(v, v2)
+                    mark_success("Restored model matches original")
+                except AssertionError:
+                    traceback.print_exc()
+                    mark_error("Restored model does not match original")
                 del model2
                 del render_out
                 del render2_out
@@ -195,11 +200,17 @@ def main(method_name: str,
             predictions_files = glob.glob(os.path.join(output, "predictions-*.tar.gz"))
             if not result_files:
                 raise RuntimeError("predictions-*.tar.gz not found")
+            checkpoints_files = glob.glob(os.path.join(output, "checkpoint-*"))
+            if not checkpoints_files:
+                raise RuntimeError("checkpoint-* not found")
             results_filename = max(
                 result_files,
                 key=lambda x: int(x.split("-")[-1].split(".")[0]))
             predictions_filename = max(
                 predictions_files,
+                key=lambda x: int(x.split("-")[-1].split(".")[0]))
+            checkpoint_filename = max(
+                checkpoints_files,
                 key=lambda x: int(x.split("-")[-1].split(".")[0]))
             with open(results_filename, "r") as f:
                 results = json.load(f)
@@ -207,6 +218,25 @@ def main(method_name: str,
             del trainer
             mark_success("Full training works")
             del model
+
+            # Test if the results can be reproduced from the checkpoint
+            try:
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    model2 = method_cls(checkpoint=checkpoint_filename)
+                    eval_all(model2, None, test_dataset, step=30, evaluation_protocol=eval_protocol, split="test", nb_info={}, output=tmpdir)
+                    assert os.path.exists(os.path.join(tmpdir, "predictions-30.tar.gz"))
+
+                    with open_any_directory(os.path.join(tmpdir, "predictions-30.tar.gz")) as preddir, open_any_directory(predictions_filename) as predrefdir:
+                        for k in glob.glob(preddir + "/color/*"):
+                            assert os.path.exists(os.path.join(predrefdir, "color", k.split("/")[-1]))
+                            im1 = np.array(Image.open(k))
+                            im2 = np.array(Image.open(os.path.join(predrefdir, "color", k.split("/")[-1])))
+                            np.testing.assert_equal(im1, im2)
+                    del model2
+                mark_success("Checkpoint reproduces results")
+            except Exception:
+                traceback.print_exc()
+                mark_error("Checkpoint does not reproduce results")
 
         metrics = results["metrics"]
         logging.info("Metrics: \n" + pprint.pformat(metrics))
@@ -233,6 +263,7 @@ def main(method_name: str,
             mark_success("Final evaluation works and matches predictions")
         else:
             mark_error("Final evaluation does not match predictions")
+
 
         # Collect the metrics and compare with the expected values
         # Test evaluation command - if the results match the expected values 
@@ -277,3 +308,4 @@ def main(method_name: str,
             print(f"  \033[93m\u26A0 {message}\033[0m")
         for message in errors:
             print(f"  \033[91m\u2717 {message}\033[0m")
+        sys.exit(1 if errors else 0)
