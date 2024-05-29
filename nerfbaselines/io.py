@@ -3,7 +3,7 @@ import numpy as np
 import time
 import tarfile
 import os
-from typing import Union, Iterator, IO
+from typing import Union, Iterator, IO, Any
 import zipfile
 import contextlib
 from pathlib import Path
@@ -256,7 +256,7 @@ def deserialize_nb_info(info: dict) -> dict:
 
 
 def save_trajectory(trajectory: Trajectory, file) -> None:
-    data = trajectory.copy()
+    data: Any = trajectory.copy()
     data["format"] = "nerfbaselines-v1"
 
     # Replace arrays with flat lists

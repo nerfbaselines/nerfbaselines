@@ -123,18 +123,22 @@ def main(method_name: str,
                 mark_success("Eval all passes")
 
 
+            render_out = None
             for render_out in model.render(test_dataset["cameras"][:1]):
                 pass
+            assert render_out is not None, "Render output is None" 
             logging.info("Render output: " + pprint.pformat({
-                k: v.shape 
+                k: getattr(v, "shape", None)
                 for k, v in render_out.items()}))
             mark_success("Render works")
 
             with tempfile.TemporaryDirectory() as tmpdir:
                 # Test running the evaluation
                 model.save(tmpdir)
-                if hasattr(model, "close"):
-                    model.close()
+                close_method = getattr(model, "close", None)
+                if close_method is not None:
+                    close_method()
+                del close_method
                 del model
                 mark_success("Saving works")
 
@@ -148,7 +152,7 @@ def main(method_name: str,
                     )
                     model2_info = model2.get_info()
                     print("Loaded model info: \n", pprint.pformat(model2_info))
-                    assert model2_info["loaded_step"] == 13
+                    assert model2_info.get("loaded_step", None) == 13
                     mark_success("Loading from checkpoint passes")
                     del model2_info
                 except Exception:
@@ -156,10 +160,12 @@ def main(method_name: str,
                     mark_error("Loading from checkpoint fails")
 
                 if model2 is not None:
+                    render2_out = None
                     for render2_out in model2.render(test_dataset["cameras"][:1]):
                         pass
+                    assert render2_out is not None, "Render output is None"
                     logging.info("Render loaded model output: \n" + pprint.pformat({
-                        k: v.shape 
+                        k: getattr(v, "shape", v)
                         for k, v in render2_out.items()}))
 
                     # Compare the outputs
@@ -167,8 +173,10 @@ def main(method_name: str,
                         assert len(render_out) == len(render2_out)
                         for k, v in render_out.items():
                             assert k in render2_out
-                            assert v.shape == render2_out[k].shape
                             v2 = render2_out[k]
+                            assert getattr(v, "shape", v) == getattr(v2, "shape", v2)
+                            assert isinstance(v, np.ndarray)
+                            assert isinstance(v2, np.ndarray)
                             np.testing.assert_allclose(v, v2)
                         mark_success("Restored model matches original")
                     except AssertionError:
@@ -192,7 +200,7 @@ def main(method_name: str,
                 test_dataset=test_dataset,
                 method=model,
                 output=output,
-                save_iters=(),
+                save_iters=Indices([]),
                 eval_all_iters=Indices([-1]),
                 eval_few_iters=Indices([2]),
                 loggers=frozenset(("tensorboard",)),

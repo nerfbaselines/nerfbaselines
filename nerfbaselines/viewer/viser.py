@@ -10,7 +10,7 @@ import contextlib
 from pathlib import Path
 from collections import deque
 from time import perf_counter
-from typing import Optional, Tuple, Any, Dict, cast, List
+from typing import Optional, Tuple, Any, Dict, cast, List, Callable, Union
 
 import numpy as np
 import viser
@@ -22,7 +22,7 @@ import dataclasses
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Tuple, Union
+from typing import Dict, List, Literal, Optional, Tuple
 
 import numpy as np
 import splines
@@ -34,7 +34,7 @@ from scipy import interpolate
 
 from ..types import Method, Dataset, FrozenSet, DatasetFeature, Literal, TypeVar
 from ..types import new_cameras
-from ..types import TrajectoryFrameAppearance, TrajectoryFrame, TrajectoryKeyframe, Trajectory
+from ..types import TrajectoryFrameAppearance, TrajectoryFrame, TrajectoryKeyframe, Trajectory, TrajectoryInterpolationSource
 from ..datasets import dataset_load_features, dataset_index_select
 from ..datasets._colmap_utils import qvec2rotmat, rotmat2qvec
 from ..utils import CancelledException, assert_not_none
@@ -203,14 +203,13 @@ class BindableSource:
         return out
 
 
-def autobind(fn):
+def autobind(fn) -> Callable[[Union[BindableSource, 'ViewerState']], Any]:
     signature = inspect.signature(fn)
     names = list(signature.parameters.keys())
 
     def wrapped(state):
         if isinstance(state, BindableSource):
             inner = lambda args: fn(*args)
-            inner.__wrapped__ = fn
             return state.map(names).map(inner)
         else:
             return wrapped(state.b).get()
@@ -350,18 +349,18 @@ class ViewerState:
         self.update(**{name: value})
 
     @property
-    def b(self) -> 'ViewerState':
-        return cast(ViewerState, BindableSource(lambda: self, self.update, self.on_update))
+    def b(self) -> 'BindableSource':
+        return BindableSource(lambda: self, self.update, self.on_update)
 
     def load_trajectory(self, trajectory: Trajectory, transform) -> None:
         if trajectory.get("camera_model", None) != "pinhole":
             raise RuntimeError("Only pinhole camera model is supported")
         if trajectory.get("source") is None:
             raise RuntimeError("Trajectory does not contain 'source'. It is not editable.")
-        source = trajectory["source"]
+        source = trajectory.get("source")
+        assert source is not None  # pyright legacy
         if source.get("type") != "interpolation" or source.get("interpolation") != "kochanek-bartels":
             raise RuntimeError("The viewer only supports 'kochanek-bartels' interpolation for the camera trajectory")
-            raise RuntimeError("Setting appearance is not supported by the viewer")
         def validate_appearance(appearance):
             if appearance and not appearance.get("embedding_train_index"):
                 raise RuntimeError("Setting appearance is only supported through embedding_train_index")
@@ -372,8 +371,9 @@ class ViewerState:
         self.camera_path_tension = source["tension"]
         self.camera_path_loop = source["is_cycle"]
         self.render_fov = source["default_fov"]
-        if source.get("default_appearance"):
-            self.render_appearance_train_index = source["default_appearance"]["embedding_train_index"]
+        def_app = source.get("default_appearance")
+        if def_app:
+            self.render_appearance_train_index = def_app.get("embedding_train_index", None)
         self.camera_path_default_transition_duration = source["default_transition_duration"]
         keyframes = []
         for k in source["keyframes"]:
@@ -382,7 +382,7 @@ class ViewerState:
             pose = tf.SE3.from_matrix(pose_np)
             pos, wxyz = pose.translation(), pose.rotation().wxyz
             appearance = validate_appearance(k.get("appearance"))
-            appearance_train_index = appearance["embedding_train_index"] if appearance else None
+            appearance_train_index = appearance.get("embedding_train_index") if appearance else None
             keyframes.append(Keyframe(pos, wxyz, k["fov"], k["transition_duration"], appearance_train_index))
         self.camera_path_keyframes = tuple(keyframes)
 
@@ -396,22 +396,25 @@ class ViewerState:
                 keyframe.position,
             ).as_matrix()
             pose = apply_transform(inv_transform, pose)
-            appearance = None
+            appearance: Optional[TrajectoryFrameAppearance] = None
+            keyframe_dict: TrajectoryKeyframe = {
+                "pose": pose[:3, :],
+                "fov": keyframe.fov,
+                "transition_duration": keyframe.transition_duration,
+            }
             if keyframe.appearance_train_index is not None:
                 appearance = {
                     "embedding_train_index": keyframe.appearance_train_index,
                 }
-            keyframe_dict = {
-                "pose": pose[:3, :],
-                "fov": keyframe.fov,
-                "transition_duration": keyframe.transition_duration,
-                "appearance": appearance,
-            }
+                keyframe_dict["appearance"] = appearance
             keyframes.append(keyframe_dict)
-            appearances.append(appearance)
+            if appearance is not None:
+                appearances.append(appearance)
 
+        if len(appearances) != 0 and len(appearances) != len(keyframes):
+            raise RuntimeError("Appearances must be set for all keyframes or none")
         # now populate the camera path:
-        frames: Optional[List[TrajectoryFrame]] = None
+        frames: List[TrajectoryFrame] = []
         trajectory_frames = _compute_camera_path_splines(self)
         if trajectory_frames is not None:
             frames = []
@@ -423,32 +426,32 @@ class ViewerState:
                 pose = apply_transform(inv_transform, pose)
                 focal_length = three_js_perspective_camera_focal_length(fov, h)
                 intrinsics = np.array([focal_length, focal_length, w / 2, h / 2], dtype=np.float32)
-                frames.append({
+                frames.append(TrajectoryFrame({
                     "pose": pose[:3, :],
                     "intrinsics": intrinsics,
                     "appearance_weights": weights,
-                })
-        data = {
-            "format": "nerfbaselines",
-            "version": "1",
+                }))
+        source: TrajectoryInterpolationSource = {
+            "type": "interpolation",
+            "interpolation": "kochanek-bartels",
+            "is_cycle": self.camera_path_loop,
+            "tension": self.camera_path_tension,
+            "keyframes": keyframes,
+            "default_fov": self.render_fov,
+            "default_transition_duration": self.camera_path_default_transition_duration,
+            "default_appearance": None if self.render_appearance_train_index is None else {
+                "embedding_train_index": self.render_appearance_train_index,
+            },
+        }
+        data: Trajectory = {
             "camera_model": "pinhole",
             "image_size": (w, h),
             "fps": self.camera_path_framerate,
-            "source": {
-                "type": "interpolation",
-                "interpolation": "kochanek-bartels",
-                "is_cycle": self.camera_path_loop,
-                "tension": self.camera_path_tension,
-                "keyframes": keyframes,
-                "default_fov": self.render_fov,
-                "default_transition_duration": self.camera_path_default_transition_duration,
-                "default_appearance": None if self.render_appearance_train_index is None else {
-                    "embedding_train_index": self.render_appearance_train_index,
-                },
-            },
+            "source": source,
             "frames": frames,
-            "appearances": appearances,
         }
+        if len(appearances) != 0:
+            data["appearances"] = appearances
         return data
 
 
@@ -536,14 +539,15 @@ def _add_keypoint_onclick_callback(server: ViserServer, state, index, handle):
             close_button = server.add_gui_button("Close")
 
 
-        @override_transition_sec.on_update
-        @override_transition_enabled.on_update
-        def _(_) -> None:
+        def _override_transition_changed(_) -> None:
             state.camera_path_keyframes = tuple(
                 key if i != index else dataclasses.replace(key, transition_duration=None if not override_transition_enabled.value else override_transition_sec.value)
                 for i, key in enumerate(state.camera_path_keyframes)
             )
             override_transition_sec.disabled = not override_transition_enabled.value
+
+        override_transition_sec.on_update(_override_transition_changed)
+        override_transition_enabled.on_update(_override_transition_changed)
 
         @override_fov.on_update
         def _(_) -> None:
@@ -838,9 +842,10 @@ def _add_spline_to_camera_path(server: ViserServer, state: ViewerState, interpol
     add_path_spline(interpolated_camera_path.get())
 
 
-def _make_train_image_embedding_dropdown(server: ViserServer, state: ViewerState, binding: BindableSource = None):
+def _make_train_image_embedding_dropdown(server: ViserServer, state: ViewerState, binding: Optional[BindableSource] = None):
     if binding is None:
         binding = state.b.render_appearance_train_index
+    assert binding is not None
     value_binding = binding.map(
         lambda x: ("none" if x is None else (state.image_names_train[x] 
                                             if state.image_names_train is not None and x < len(state.image_names_train) 
@@ -913,9 +918,9 @@ class BindableViserServer(ViserServer):
                     handle.remove()
                     handle = None
                 _args, _kwargs = _current_args()
+                old_container_id = gui._get_container_id()
                 try:
                     # Mock the container_id
-                    old_container_id = gui._get_container_id()
                     gui._set_container_id(container_id)
                     handle = add_gui(*_args, **_kwargs)
                 finally:
@@ -934,9 +939,9 @@ class BindableViserServer(ViserServer):
                 if name in ("value", "initial_value"):
                     handle_update = partial(_update_binding, binding)
             _update_component(None, None)
+            assert handle is not None, "Failed to build component"
             if "order" not in kwargs:
                 kwargs["order"] = handle.order
-            assert handle is not None, "Failed to build component"
 
             if not bindings_to_remove:
                 return handle
@@ -949,15 +954,18 @@ class BindableViserServer(ViserServer):
                     setattr(handle, name, value)
 
                 def __enter__(self):
+                    assert handle is not None
                     out = handle.__enter__()
                     if out == handle:
                         return self
                     return out
 
                 def __exit__(self, *args):
+                    assert handle is not None
                     return handle.__exit__(*args)
 
                 def remove(self):
+                    nonlocal handle
                     for remove in bindings_to_remove:
                         remove()
                     bindings_to_remove.clear()
@@ -994,18 +1002,19 @@ class ViserViewer:
         self.method = method
 
         self.state = state or ViewerState()
-        try:
-            self.state.supports_appearance_from_train_images = self.method.get_train_embedding(0) is not None
-        except (AttributeError, NotImplementedError):
-            pass
-        if self.state.supports_appearance_from_train_images:
-            logging.info("Supports appearance from train embeddings")
-        else:
-            logging.info("Does not support appearance from train embeddings")
+        if self.method is not None:
+            try:
+                self.state.supports_appearance_from_train_images = self.method.get_train_embedding(0) is not None
+            except (AttributeError, NotImplementedError):
+                pass
+            if self.state.supports_appearance_from_train_images:
+                logging.info("Supports appearance from train embeddings")
+            else:
+                logging.info("Does not support appearance from train embeddings")
         self._render_state = {}
         self._update_state_callbacks = []
         self._render_times = deque(maxlen=3)
-        self._preview_camera = None
+        self._preview_camera: Any = None
         self.server = BindableViserServer(viser.ViserServer(port=self.port))
         self.server.world_axes.visible = True
 
@@ -1334,15 +1343,17 @@ class ViserViewer:
             while True:
                 i+=1
                 max_frame = max_frame_b.get()
+                target_fps = self.state.camera_path_framerate
                 if not self.state.preview_is_playing:
                     start = None
-                elif start is None:
-                    start = time.time()
-                    start_frame = self.state.preview_current_frame 
-                if self.state.preview_is_playing and max_frame > 0:
-                    frame = int((time.time() - start) * target_fps)
-                    self.state.preview_current_frame = (start_frame + frame) % max_frame
-                target_fps = self.state.camera_path_framerate
+                else:
+                    if start is None:
+                        start = time.time()
+                        start_frame = self.state.preview_current_frame 
+                    if max_frame > 0:
+                        assert start_frame is not None
+                        frame = int((time.time() - start) * target_fps)
+                        self.state.preview_current_frame = (start_frame + frame) % max_frame
                 wait = 1.0 / min(target_fps, max_fps)
                 if start is not None:
                     wait = max(wait / 2, (start - time.time()) % wait)
@@ -1380,6 +1391,8 @@ class ViserViewer:
                 points = np.concatenate([points, np.ones((len(points), 1))], -1) @ transform.T
                 points = points[..., :-1] / points[..., -1:]
                 points *= scale
+                if rgb is None:
+                    rgb = np.full((len(points), 3), 255, dtype=np.uint8)
                 pc = self.server.add_point_cloud(
                     "/initial-point-cloud",
                      points=points,
@@ -1495,8 +1508,8 @@ class ViserViewer:
                 kweight = weights[self.state.preview_current_frame % num_points]
                 embedding = None
                 for i, val in enumerate(kweight):
-                    if val > 1e-5 and self.state.camera_path_keyframes[i].appearance_train_index is not None:
-                        _embedding = self.method.get_train_embedding(self.state.camera_path_keyframes[i].appearance_train_index)
+                    if val > 1e-5 and self.method is not None and self.state.camera_path_keyframes[i].appearance_train_index is not None:
+                        _embedding = self.method.get_train_embedding(cast(int, self.state.camera_path_keyframes[i].appearance_train_index))
                         if embedding is None:
                             embedding = _embedding * val
                         else:
@@ -1571,6 +1584,10 @@ class ViserViewer:
 
         def _update_render_appearance_train_index(args):
             index, temp_index = args
+            if self.method is None:
+                self._current_embedding = None
+                return
+
             if temp_index is not None:
                 self._current_embedding = self.method.get_train_embedding(temp_index)
             elif index is not None:
@@ -1685,7 +1702,7 @@ class ViserViewer:
                 outputs = None
                 try:
                     with self._cancellation_token or contextlib.nullcontext():
-                        for outputs in self.method.render(nb_camera, embeddings=[cam_embedding]):
+                        for outputs in self.method.render(nb_camera, embeddings=[cam_embedding] if cam_embedding is not None else None):
                             pass
                 except CancelledException:
                     # if we got interrupted, don't send the output to the viewer
@@ -1735,7 +1752,7 @@ def run_viser_viewer(method: Optional[Method] = None,
         if nb_info.get("dataset_background_color") is not None:
             bg_color = nb_info["dataset_background_color"]
             bg_color = tuple(int(x) for x in bg_color)
-            state.background_color = bg_color
+            state.background_color = cast(Tuple[int, int, int], bg_color)
 
     def build_server(dataset_metadata=None, **kwargs):
         return ViserViewer(**kwargs, 
@@ -1752,7 +1769,7 @@ def run_viser_viewer(method: Optional[Method] = None,
         bg_color = train_dataset["metadata"].get("background_color", None)
         if bg_color is not None:
             bg_color = tuple(int(x) for x in bg_color)
-            state.background_color = bg_color
+            state.background_color = cast(Tuple[int, int, int], bg_color)
 
         if train_dataset.get("points3D_xyz") is not None:
             server.add_initial_point_cloud(train_dataset["points3D_xyz"], train_dataset["points3D_rgb"])

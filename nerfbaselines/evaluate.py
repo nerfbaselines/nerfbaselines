@@ -251,7 +251,7 @@ def run_inside_eval_container(backend_name: Optional[str] = None):
         "conda": {
             "environment_name": "_metrics", 
             "install_script": ""
-        }}, backend_name=backend_name)
+        }}, backend=backend_name)
     with backend:
         backend.install()
         yield None

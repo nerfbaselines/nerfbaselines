@@ -487,7 +487,7 @@ class TrajectoryInterpolationSource(TypedDict, total=True):
     keyframes: List[TrajectoryKeyframe]
     default_fov: float
     default_transition_duration: float
-    default_appearance: NotRequired[TrajectoryFrameAppearance]
+    default_appearance: NotRequired[Optional[TrajectoryFrameAppearance]]
 
 
 class Trajectory(TypedDict, total=True):

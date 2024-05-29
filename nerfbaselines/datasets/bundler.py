@@ -134,7 +134,7 @@ def load_bundler_dataset(path: str,
     if split:
         assert split in {"train", "test"}
     images_root = os.path.join(path, "images") if images_path is None else os.path.join(path, images_path)
-    images_masks_root = os.path.join(path, "sampling_masks") if images_path is None else os.path.join(path, sampling_masks_path)
+    images_masks_root = os.path.join(path, "sampling_masks") if sampling_masks_path is None else os.path.join(path, sampling_masks_path)
     image_names = [
         os.path.relpath(x, images_root) for x in glob(os.path.join(images_root, "**/*"), recursive=True)
         if x.lower().endswith((".jpg", ".jpeg", ".png"))

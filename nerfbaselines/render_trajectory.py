@@ -19,7 +19,7 @@ except ImportError:
 
 from .utils import setup_logging, image_to_srgb, save_image, visualize_depth, handle_cli_error
 from .render import with_supported_camera_models
-from .utils import convert_image_dtype
+from .utils import convert_image_dtype, assert_not_none
 from .types import Method, Literal, Cameras, CameraModel, camera_model_to_int, new_cameras, Trajectory
 from .backends import ALL_BACKENDS
 
@@ -109,28 +109,28 @@ def trajectory_get_cameras(trajectory: Trajectory) -> Cameras:
 
 def trajectory_get_embeddings(method: Method, trajectory: Trajectory) -> Optional[List[np.ndarray]]:
     appearances = list(trajectory.get("appearances") or [])
-    appearance_embeddings = [None] * len(appearances)
+    appearance_embeddings: List[Optional[np.ndarray]] = [None] * len(appearances)
 
     # Fill in embedding images
     for i, appearance in enumerate(appearances):
         if appearance.get("embedding") is not None:
             appearance_embeddings[i] = appearance.get("embedding")
         elif appearance.get("embedding_train_index") is not None:
-            appearance_embeddings[i] = method.get_train_embedding(appearance.get("embedding_train_index"))
+            appearance_embeddings[i] = method.get_train_embedding(assert_not_none(appearance.get("embedding_train_index")))
     if all(x is None for x in appearance_embeddings):
-        return [None] * len(appearances)
+        return None
     if not all(x is not None for x in appearance_embeddings):
         raise ValueError("Either all embeddings must be provided or all must be missing")
     if all(x.get("appearance_weights") is None for x in trajectory["frames"]):
-        return [None] * len(appearances)
+        return None
     if not all(x.get("appearance_weights") is not None for x in trajectory["frames"]):
         raise ValueError("Either all appearance weights must be provided or all must be missing")
-    appearance_embeddings = np.stack(appearance_embeddings)
+    appearance_embeddings_np = np.stack(cast(List[np.ndarray], appearance_embeddings))
 
     # Interpolate embeddings
     out = []
     for frame in trajectory["frames"]:
-        embedding = frame.get("appearance_weights") @ appearance_embeddings
+        embedding = frame.get("appearance_weights") @ appearance_embeddings_np
         out.append(embedding)
     return out
 

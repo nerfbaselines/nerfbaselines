@@ -117,7 +117,7 @@ def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, st
                 )
 
 
-def eval_all(method: Method, logger: Logger, dataset: Dataset, *, output: str, step: int, evaluation_protocol: EvaluationProtocol, split: str, nb_info):
+def eval_all(method: Method, logger: Optional[Logger], dataset: Dataset, *, output: str, step: int, evaluation_protocol: EvaluationProtocol, split: str, nb_info):
     total_rays = 0
     metrics: Optional[Dict[str, float]] = {} if logger else None
     expected_scene_scale = dataset["metadata"].get("expected_scene_scale")
