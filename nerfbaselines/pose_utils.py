@@ -93,7 +93,7 @@ def invert_transform(transform, has_scale=False):
     t = transform[..., :3, 3]
     transform[..., :3, :] = np.concatenate([R.T, -np.matmul(R.T, t[..., None])], axis=-1)
     if scale is not None:
-        transform[..., :3, :] *= 1/scale
+        transform[..., :3, :3] *= 1/scale
     return transform
 
 

@@ -5,7 +5,7 @@ import inspect
 import os
 import importlib
 import contextlib
-from typing import Optional, Type, Any, Tuple, Dict, List, cast, Union, Sequence, TYPE_CHECKING
+from typing import Optional, Type, Any, Tuple, Dict, List, cast, Union, Sequence, TYPE_CHECKING, Callable
 
 if sys.version_info < (3, 10):
     from importlib_metadata import entry_points
@@ -13,7 +13,9 @@ else:
     from importlib.metadata import entry_points
 from .types import Method, TypedDict, Required, FrozenSet, NotRequired, LoadDatasetFunction, DownloadDatasetFunction, EvaluationProtocol
 from .types import DatasetSpecMetadata
+from .logging import Logger
 from .utils import assert_not_none
+from . import logging as _nb_logging
 
 if TYPE_CHECKING:
     from .backends import BackendName, CondaBackendSpec, DockerBackendSpec, ApptainerBackendSpec
@@ -51,6 +53,9 @@ class DatasetSpec(TypedDict, total=False):
 methods_registry: Dict[str, 'MethodSpec'] = {}
 datasets_registry: Dict[str, 'DatasetSpec'] = {}
 evaluation_protocols_registry: Dict[str, 'EvaluationProtocolSpec'] = {}
+loggers_registry: Dict[str, Callable[..., Logger]] = {}
+loggers_registry["wandb"] = _nb_logging.WandbLogger
+loggers_registry["tensorboard"] = lambda path, **kwargs: _nb_logging.TensorboardLogger(os.path.join(path, "tensorboard"), **kwargs)
 
 
 def _discover_specs() -> List[Tuple[str, "MethodSpec"]]:
@@ -238,6 +243,10 @@ def register(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"],
         evaluation_protocols_registry[name] = spec
     else:
         raise ValueError(f"Could not determine type of object {spec}")
+
+
+def register_logger(name: str, logger: Callable[..., Logger]) -> None:
+    loggers_registry[name] = logger
 
 
 def get(name: str) -> MethodSpec:

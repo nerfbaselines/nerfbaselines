@@ -144,11 +144,11 @@ def test_train_command(mock_extras, tmp_path, wandb_init_run, vis):
         }
         registry["_test"] = spec
 
-        # train_command.callback(method, checkpoint, data, output, verbose, backend, eval_single_iters, eval_all_iters, vis="none")
+        # train_command.callback(method, checkpoint, data, output, verbose, backend, eval_single_iters, eval_all_iters, logger="none")
         make_dataset(tmp_path / "data")
         (tmp_path / "output").mkdir()
         assert train_command.callback is not None
-        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), vis=vis)
+        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), logger=vis)
 
         # Test if model was saved at the end
         assert len(_TestMethod._save_paths) > 0
@@ -234,7 +234,7 @@ def test_train_command_extras(tmp_path):
         # train_command.callback(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters)
         make_dataset(tmp_path / "data")
         (tmp_path / "output").mkdir()
-        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), vis="tensorboard")
+        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), logger="tensorboard")
 
         # By default, the model should render all images at the end
         print(os.listdir(tmp_path / "output"))
@@ -252,7 +252,7 @@ def test_train_command_extras(tmp_path):
         shutil.rmtree(tmp_path / "output")
         (tmp_path / "output").mkdir()
         train_command.callback(
-            "_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), generate_output_artifact=False, vis="tensorboard"
+            "_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), generate_output_artifact=False, logger="tensorboard"
         )
         print(os.listdir(tmp_path / "output"))
         assert (tmp_path / "output" / "checkpoint-13").exists()
@@ -269,7 +269,7 @@ def test_train_command_extras(tmp_path):
         _TestMethod._reset()
         shutil.rmtree(tmp_path / "output")
         (tmp_path / "output").mkdir()
-        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), generate_output_artifact=True, vis="tensorboard")
+        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), generate_output_artifact=True, logger="tensorboard")
         assert (tmp_path / "output" / "checkpoint-13").exists()
         assert (tmp_path / "output" / "predictions-13.tar.gz").exists()
         assert (tmp_path / "output" / "results-13.json").exists()
@@ -328,7 +328,7 @@ def test_train_command_undistort(tmp_path, wandb_init_run):
         # train_command.callback(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters)
         make_dataset(tmp_path / "data")
         (tmp_path / "output").mkdir()
-        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(9), Indices([1]), Indices([]), vis="none")
+        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(9), Indices([1]), Indices([]), logger="none")
         assert render_was_called
     finally:
         _TestMethod._reset()
@@ -392,7 +392,7 @@ def test_render_command(tmp_path, output_type):
         # Generate checkpoint
         assert train_command.callback is not None
         train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, 
-                               "python", Indices([]), Indices([]), Indices([]), vis="none")
+                               "python", Indices([]), Indices([]), Indices([]), logger="none")
 
         # render_command(checkpoint, data, output, split, verbose, backend)
         if output_type == "folder":

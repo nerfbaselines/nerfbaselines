@@ -22,7 +22,8 @@ from .types import Method, Literal, FrozenSet
 from .render import render_all_images
 from .evaluate import EvaluationProtocol
 from .upload_results import prepare_results_for_upload
-from .logging import TensorboardLogger, WandbLogger, ConcatLogger, Logger
+from .logging import ConcatLogger, Logger
+from .registry import loggers_registry
 from . import backends
 from . import __version__
 from . import registry
@@ -219,7 +220,7 @@ class Trainer:
         save_iters: Indices = Indices.every_iters(10_000, zero=True),
         eval_few_iters: Indices = Indices.every_iters(2_000),
         eval_all_iters: Indices = Indices([-1]),
-        loggers: FrozenSet[Visualization] = frozenset(),
+        loggers: FrozenSet[str] = frozenset(),
         generate_output_artifact: Optional[bool] = None,
         config_overrides: Optional[Dict[str, Any]] = None,
     ):
@@ -384,10 +385,8 @@ class Trainer:
         if self._logger is None:
             loggers = []
             for logger in self.loggers:
-                if "tensorboard" == logger:
-                    loggers.append(TensorboardLogger(os.path.join(self.output, "tensorboard")))
-                elif "wandb" == logger:
-                    loggers.append(WandbLogger(self.output))
+                if logger in loggers_registry:
+                    loggers.append(loggers_registry[logger](self.output))
                 else:
                     raise ValueError(f"Unknown logger {logger}")
             self._logger = ConcatLogger(loggers)
@@ -505,7 +504,7 @@ class Trainer:
 @click.option("--checkpoint", type=click.Path(exists=True, path_type=str), default=None)
 @click.option("--data", type=str, required=True)
 @click.option("--output", type=str, default=".")
-@click.option("--vis", type=click.Choice(["none", "wandb", "tensorboard", "wandb+tensorboard"]), default="tensorboard", help="Logger to use. Defaults to tensorboard.")
+@click.option("--logger", type=click.Choice(["none", "wandb", "tensorboard", "wandb+tensorboard"]), default="tensorboard", help="Logger to use. Defaults to tensorboard.")
 @click.option("--verbose", "-v", is_flag=True)
 @click.option("--save-iters", type=IndicesClickType(), default=Indices.every_iters(10_000), help="When to save the model")
 @click.option("--eval-few-iters", type=IndicesClickType(), default=Indices.every_iters(2_000), help="When to evaluate on few images")
@@ -526,20 +525,20 @@ def train_command(
     eval_few_iters,
     eval_all_iters,
     generate_output_artifact=None,
-    vis="none",
+    logger="none",
     config_overrides=None,
 ):
-    loggers: FrozenSet[Visualization]
-    if vis == "wandb":
-        loggers = frozenset(("wandb",))
-    elif vis == "tensorboard":
-        loggers = frozenset(("tensorboard",))
-    elif vis in {"wandb+tensorboard", "tensorboard+wandb"}:
-        loggers = frozenset(("wandb", "tensorboard"))
-    elif vis == "none":
-        loggers = frozenset()
-    else:
-        raise ValueError(f"unknown visualization tool {vis}")
+    _loggers = set()
+    for _vis in logger.split("+"):
+        if _vis == "none":
+            pass
+        elif _vis in loggers_registry:
+            _loggers.add(_vis)
+        else:
+            raise RuntimeError(f"unknown logging tool {_vis}")
+    loggers = frozenset(_loggers)
+    del logger
+    del _loggers
 
     logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)

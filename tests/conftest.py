@@ -119,7 +119,7 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python", config
                 if isinstance(v, Indices):
                     v.total = self.num_iterations + 1
         with mock.patch.object(Trainer, '__init__', __init__):
-            train_cmd(method_name, None, str(dataset_path), str(tmp_path / "output"), False, backend, Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), vis="none", config_overrides=config_overrides)
+            train_cmd(method_name, None, str(dataset_path), str(tmp_path / "output"), False, backend, Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), logger="none", config_overrides=config_overrides)
     except NoGPUError:
         pytest.skip("no GPU available")
 
@@ -172,7 +172,7 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python", config
             Indices.every_iters(9), 
             Indices.every_iters(5),
             Indices([-1]),
-            vis="none",
+            logger="none",
         )
     assert (tmp_path / "output" / "checkpoint-14").exists()
     assert (tmp_path / "output" / "predictions-14.tar.gz").exists()

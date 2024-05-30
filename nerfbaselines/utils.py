@@ -544,7 +544,7 @@ def visualize_depth(depth: np.ndarray, expected_scale: Optional[float] = None, n
     if near_far is not None:
         depth_squashed = (depth - near_far[0]) / (near_far[1] - near_far[0])
     elif expected_scale is not None:
-        depth = depth / max(2 * expected_scale, eps)
+        depth = depth / max(0.3 * expected_scale, eps)
 
         # We use the power series -> for lam=-1.5 the limit is 5/3
         depth_squashed = _zipnerf_power_transformation(depth, -1.5) / (5 / 3)

@@ -41,7 +41,7 @@ from ..utils import CancelledException, assert_not_none
 from ..pose_utils import apply_transform, get_transform_and_scale, invert_transform, pad_poses
 from ..datasets import load_dataset
 from ..backends._rpc import EventCancellationToken
-from ..utils import image_to_srgb, visualize_depth
+from ..utils import image_to_srgb, visualize_depth, apply_colormap
 from ..io import load_trajectory, save_trajectory
 
 
@@ -284,8 +284,8 @@ def state_compute_duration(camera_path_loop, camera_path_keyframes, camera_path_
 class ViewerState:
     resolution: int = 512
     background_color: Tuple[int, int, int] = (38, 42, 55)
-    output_type: Optional[str] = None
-    output_type_options: Tuple[str, ...] = ()
+    output_type: Optional[str] = "color"
+    output_type_options: Tuple[str, ...] = ("color",)
     composite_depth: bool = False
 
     output_split: bool = False
@@ -987,13 +987,16 @@ class ViserViewer:
 
         self.transform = self._inv_transform = np.eye(4, dtype=np.float32)
         self.initial_pose = None
+        self._dataset_metadata = dataset_metadata
 
         control_type = "default"
+        self._expected_depth_scale = 0.5
         if dataset_metadata is not None:
             self.transform = dataset_metadata.get("viewer_transform").copy()
             self.initial_pose = dataset_metadata.get("viewer_initial_pose").copy()
             control_type = "object-centric" if dataset_metadata.get("type") == "object-centric" else "default"
             self.initial_pose[:3, 3] *= VISER_SCALE_RATIO
+            self._expected_depth_scale = dataset_metadata.get("expected_scene_scale", 0.5)
 
         self.transform[:3, :] *= VISER_SCALE_RATIO
         self._inv_transform = invert_transform(self.transform, True)
@@ -1012,6 +1015,7 @@ class ViserViewer:
             else:
                 logging.info("Does not support appearance from train embeddings")
         self._render_state = {}
+        self._last_poses = {}
         self._update_state_callbacks = []
         self._render_times = deque(maxlen=3)
         self._preview_camera: Any = None
@@ -1032,7 +1036,8 @@ class ViserViewer:
         def _(client: viser.ClientHandle):
             @client.camera.on_update
             def _(_camera_handle: viser.CameraHandle):
-                self._reset_render()
+                self._render_state.pop(client.client_id, None)
+                self._reset_render(False)
 
             if self.initial_pose is not None:
                 pos, quat = get_position_quaternion(
@@ -1273,16 +1278,16 @@ class ViserViewer:
             server.add_gui_dropdown(
                 "Output type",
                 state.b.output_type_options.map(lambda x: x or ("not set",)),
+                initial_value=state.b.output_type,
                 hint="The output to render",
             )
             server.add_gui_rgb("Background color", state.b.background_color, hint="Color of the background")
 
         # split options
-        with server.add_gui_folder("Split Screen", visible=state.b.output_type_options.map(lambda x: len(x) > 1)):
+        with server.add_gui_folder("Split Screen"):#, visible=state.b.output_type_options.map(lambda x: len(x) > 1)):
             server.add_gui_checkbox(
                 "Enable",
-                False,
-                state.b.output_split,
+                initial_value=state.b.output_split,
                 hint="Render two outputs",
             )
             server.add_gui_slider("Split percentage", initial_value=state.b.split_percentage, min=0.0, max=1.0, step=0.01, hint="Where to split")
@@ -1368,7 +1373,14 @@ class ViserViewer:
                 handle.visible = visible
         self.state.b.show_train_cameras.on_update(lambda x: _update_handles_visibility("train", x))
         self.state.b.show_test_cameras.on_update(lambda x: _update_handles_visibility("test", x))
-        self.state.on_update(lambda _: self._reset_render())
+
+        # Add handler to update render on render panel change
+        self.state.b.render_fov.on_update(lambda _: self._reset_render())
+        self.state.b.output_type.on_update(lambda _: self._reset_render())
+        self.state.b.resolution.on_update(lambda _: self._reset_render())
+        self.state.b.output_split.on_update(lambda _: self._reset_render())
+        self.state.b.split_output_type.on_update(lambda _: self._reset_render())
+        self.state.b.background_color.on_update(lambda _: self._reset_render())
 
         pc = None
         pc_points = None
@@ -1597,11 +1609,12 @@ class ViserViewer:
             self._reset_render()
         self.state.b.map(("render_appearance_train_index", "_temporary_appearance_train_index")).on_update(_update_render_appearance_train_index)
 
-    def _reset_render(self):
-        self._render_state = {}
-        if self._cancellation_token is not None:
-            self._cancellation_token.cancel()
-            self._cancellation_token = None
+    def _reset_render(self, reset_state=True):
+        if reset_state:
+            self._render_state = {}
+        token, self._cancellation_token = self._cancellation_token, None
+        if token is not None:
+            token.cancel()
 
     def run(self):
         while True:
@@ -1668,9 +1681,13 @@ class ViserViewer:
                 num_rays_total = num_rays = w_total * h_total
                 w, h = w_total, h_total
 
+                c2w = get_c2w(cam_pos, cam_wxyz)
+                c2w = apply_transform(self._inv_transform, c2w)
+                outputs = None
+
                 # In state 0, we render a low resolution image to display it fast
                 if render_state == 0:
-                    target_fps = 24
+                    target_fps = 12
                     fps = 1 if not self._render_times else 1.0 / np.mean(self._render_times)
                     if fps >= target_fps:
                         render_state = 1
@@ -1684,13 +1701,7 @@ class ViserViewer:
                             h = int(w / cam_aspect)
                         num_rays = w * h
                 self._render_state[client.client_id] = render_state + 1
-                cancellation_token = self._cancellation_token = None
-                if render_state == 1:
-                    cancellation_token = EventCancellationToken()
-                    self._cancellation_token = cancellation_token
 
-                c2w = get_c2w(cam_pos, cam_wxyz)
-                c2w = apply_transform(self._inv_transform, c2w)
                 nb_camera = new_cameras(
                     poses=c2w[None, :3, :4],
                     intrinsics=np.array([[focal * w/w_total, focal* h/h_total, w / 2, h / 2]], dtype=np.float32),
@@ -1699,14 +1710,20 @@ class ViserViewer:
                     image_sizes=np.array([[w, h]], dtype=np.int32),
                     nears_fars=None,
                 )
-                outputs = None
+
                 try:
-                    with self._cancellation_token or contextlib.nullcontext():
+                    if render_state == 1:
+                        scope = self._cancellation_token = EventCancellationToken()
+                    else:
+                        scope = contextlib.nullcontext()
+                    with scope:
                         for outputs in self.method.render(nb_camera, embeddings=[cam_embedding] if cam_embedding is not None else None):
                             pass
+                    self._cancellation_token = None
+                    
                 except CancelledException:
                     # if we got interrupted, don't send the output to the viewer
-                    self._render_state[client.client_id] = 0
+                    self._render_state.pop(client.client_id, None)
                     continue
                 assert outputs is not None, "Method did not return any outputs"
                 interval = perf_counter() - start
@@ -1720,16 +1737,27 @@ class ViserViewer:
                         render = image_to_srgb(image, np.uint8, color_space="srgb", allow_alpha=False, background_color=bg_color)
                     elif name == "depth":
                         # Blend depth with correct color pallete
-                        render = visualize_depth(image)
+                        render = visualize_depth(image, expected_scale=self._expected_depth_scale)
+                    elif name == "accumulation":
+                        render = apply_colormap(image, pallete="coolwarm")
                     else:
                         render = image
                     return render
+
+                # Update output options
+                if set(self.state.output_type_options) != set(outputs.keys()):
+                    self.state.output_type_options = tuple(sorted(outputs.keys()))
+                    if self.state.split_output_type is None:
+                        self.state.split_output_type = next(
+                            (x for x in self.state.output_type_options if x != self.state.output_type), 
+                        self.state.output_type)
+
                 render = render_single(self.state.output_type)
                 if self.state.output_split:
                     split_render = render_single(self.state.split_output_type)
                     assert render.shape == split_render.shape
                     split_point = int(render.shape[1] * self.state.split_percentage)
-                    render[:, :split_point] = split_render[:, split_point:]
+                    render[:, split_point:] = split_render[:, split_point:]
                     
                 if self._preview_camera is not None:
                     # If the preview camera is set, we correct the aspect ratio to match client's viewport
@@ -1741,6 +1769,7 @@ class ViserViewer:
                 if render_state == 1 or len(self._render_times) < assert_not_none(self._render_times.maxlen):
                     self._render_times.append(interval / num_rays * num_rays_total)
                 self.state.fps = f"{1.0 / np.mean(self._render_times):.3g}"
+                del outputs
 
 
 def run_viser_viewer(method: Optional[Method] = None, 

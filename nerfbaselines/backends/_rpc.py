@@ -393,7 +393,7 @@ class RPCWorker:
                         self._client_instances[dep] = self._client_instances.get(dep, 0) + 1
             return {"message": "result", "thread_end": True, "result": result, "freed_instances": freed_instances}
         except Exception as e:
-            if not isinstance(e, CancelledException):
+            if not isinstance(e, (CancelledException, StopIteration)):
                 traceback.print_exc()
             return {"message": "error", "thread_end": True, "error": _remap_error(e), "freed_instances": freed_instances}
 
@@ -671,6 +671,7 @@ class RPCBackend(Backend):
                 result_or_error = (True, msg["error"])
                 return False
             else:
+                print("getattr", attr, instance, msg['message'])
                 raise RuntimeError(f"Unexpected message {msg['message']}")
         self._send({
             "message": "getattr", 
@@ -728,6 +729,7 @@ class RPCBackend(Backend):
                 callback(*msg["args"], **msg["kwargs"])
                 return True
             else:
+                print(function, instance, msg['message'])
                 raise RuntimeError(f"Unexpected message {msg['message']}")
 
         # 1) Replace callables from the function call
@@ -746,9 +748,19 @@ class RPCBackend(Backend):
                     "cancellation_token_id": cancellation_token_id}))
             
             def del_hook(token):
-                self._send({
-                    "message": "del", 
-                    "instance": id(token)})
+                try:
+                    def callback(msg):
+                        if msg["message"] != "del_ack":
+                            raise RuntimeError(f"Unexpected message {msg['message']}")
+                    return self._send({
+                        "message": "del", 
+                        "instance": id(token)}, callback=callback)
+                except ConnectionError:
+                    pass
+                except Exception as _:
+                    traceback.print_exc()
+                    # The instance might have already been removed
+                    pass
             cancellation_token.del_hooks.append(del_hook)
         message = {
             "message": "call", 

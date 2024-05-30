@@ -179,7 +179,6 @@ class MNDataset(datasets.Dataset):
         assert not config.rawnerf_mode, "RawNeRF mode is not supported for the ZipNeRF method yet"
         assert not config.forward_facing, "Forward facing scenes are not supported for the ZipNeRF method yet"
         poses, pixtocams, distortion_params, camtype = convert_posedata(self.dataset)
-        self.points = self.dataset["points3D_xyz"]
         if self.verbose:
             print(f"*** Loaded camera parameters for {len(poses)} images")
 
@@ -190,7 +189,7 @@ class MNDataset(datasets.Dataset):
         images = []
         for img in self.dataset["images"]:
             img = img.astype(np.float32) / 255.0
-            if self.dataset["metadata"].get("name") == "blender" and img.shape[-1] == 4:
+            if config.dataset_loader == 'blender' and img.shape[-1] == 4:
                 # Blend with white background.
                 img = img[..., :3] * img[..., 3:] + (1 - img[..., 3:])
             images.append(img)
@@ -209,7 +208,7 @@ class MNDataset(datasets.Dataset):
             transform, scale = get_transform_and_scale(self.colmap_to_world_transform)
             poses = unpad_poses(transform @ pad_poses(poses))
             poses[:, :3, 3] *= scale
-        elif self.dataset["metadata"].get("name") == "blender":
+        elif config.dataset_loader == 'blender':
             self.dataparser_transform = (None, np.eye(4))
             meters_per_colmap = self.dataparser_transform[0]
         elif self.dataparser_transform is None:

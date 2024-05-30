@@ -389,8 +389,8 @@ class NerfStudio(Method):
     def _transform_poses(self, poses):
         assert poses.dim() == 3
         poses = (
-            self.dataparser_params["dataparser_transform"]
-            @ torch.cat([poses, torch.tensor([[[0, 0, 0, 1]]], dtype=self.dataparser_params["dataparser_transform"].dtype).expand((len(poses), 1, 4))], -2)
+            self.dataparser_params["dataparser_transform"].to(poses.dtype)
+            @ torch.cat([poses, torch.tensor([[[0, 0, 0, 1]]], dtype=poses.dtype).expand((len(poses), 1, 4))], -2)
         )[:, :3, :].contiguous()
         poses[:, :3, 3] *= self.dataparser_params["dataparser_scale"]
         return poses
