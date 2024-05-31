@@ -1,6 +1,6 @@
 import glob
 import sys
-from typing import Optional
+from typing import Optional, Dict
 import json
 import subprocess
 import os
@@ -25,7 +25,7 @@ def _get_repository_source():
         return online_repo_path
 
 
-def _install_sandboxed_node(environ=None) -> str:
+def _install_sandboxed_node(environ=None) -> Dict[str, str]:
     client_dir = os.path.join(NB_PREFIX, "nodeenv")
 
     def get_node_bin_dir() -> str:
@@ -38,18 +38,19 @@ def _install_sandboxed_node(environ=None) -> str:
     node_bin_dir = get_node_bin_dir()
     if os.path.exists(os.path.join(node_bin_dir, "npx")):
         logging.info("Sandboxed nodejs is set up")
-        return node_bin_dir
 
-    env_dir = os.path.join(client_dir, ".nodeenv")
-    try:
-        subprocess.check_call(
-            [sys.executable, "-m", "nodeenv", "--node=20.4.0", env_dir]
-        )
-    except subprocess.CalledProcessError as e:
-        logging.error("Failed to install sandboxed nodejs. Make sure nodeenv is installed.")
-        raise click.exceptions.Exit(1) from e
+    else:
+        env_dir = os.path.join(client_dir, ".nodeenv")
+        try:
+            subprocess.check_call(
+                [sys.executable, "-m", "nodeenv", "--node=20.4.0", env_dir]
+            )
+        except subprocess.CalledProcessError as e:
+            logging.error("Failed to install sandboxed nodejs. Make sure nodeenv is installed.")
+            raise click.exceptions.Exit(1) from e
 
-    node_bin_dir = get_node_bin_dir()
+        node_bin_dir = get_node_bin_dir()
+
     npx_path = os.path.join(node_bin_dir, "npx")
     assert os.path.join(npx_path), f"npx not found at {node_bin_dir}"
 
