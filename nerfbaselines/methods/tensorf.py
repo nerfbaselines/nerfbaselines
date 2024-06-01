@@ -301,6 +301,7 @@ class TensoRF(Method):
                 self._arg_list += (f"--{k}", str(v))
         logging.info("Using arguments: " + shlex.join(self._arg_list))
         self._load_config()
+        print(self.args)
 
         torch.set_default_dtype(torch.float32)
         torch.manual_seed(20211202)

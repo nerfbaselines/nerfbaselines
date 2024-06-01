@@ -14,7 +14,7 @@ from ._common import DatasetNotFoundError, get_default_viewer_transform, constru
 
 
 BLENDER_SCENES = {"lego", "ship", "drums", "hotdog", "materials", "mic", "chair", "ficus"}
-BLENDER_SPLITS = {"train", "test", "val"}
+BLENDER_SPLITS = {"train", "test"}
 
 
 def load_blender_dataset(path: Union[Path, str], split: str, **kwargs):
@@ -28,7 +28,7 @@ def load_blender_dataset(path: Union[Path, str], split: str, **kwargs):
         if not (path / f"transforms_{dsplit}.json").exists():
             raise DatasetNotFoundError(f"Path {path} does not contain a blender dataset. Missing file: {path / f'transforms_{dsplit}.json'}")
 
-    assert split in BLENDER_SPLITS, "split must be one of 'train', 'test' or 'val'"
+    assert split in BLENDER_SPLITS, "split must be one of 'train' or 'test'"
 
     with (path / f"transforms_{split}.json").open("r", encoding="utf8") as fp:
         meta = json.load(fp)

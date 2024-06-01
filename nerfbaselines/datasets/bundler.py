@@ -130,6 +130,8 @@ def load_bundler_dataset(path: str,
                          sampling_masks_path: Optional[str] = None):
     if features is None:
         features = typing.cast(FrozenSet[DatasetFeature], {})
+    if not os.path.exists(os.path.join(path, "cameras.out")):
+        raise DatasetNotFoundError(f"Could not find cameras.out in {path}")
     load_points = "points3D_xyz" in features or "points3D_rgb" in features
     if split:
         assert split in {"train", "test"}

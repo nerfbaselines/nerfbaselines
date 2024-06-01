@@ -118,21 +118,6 @@ class CameraInfo(_old_CameraInfo):
 scene.dataset_readers.CameraInfo = CameraInfo
 
 
-def normalize_ssim(ssim_value, mask_percentage):
-    # SSIM is in the range [-1, 1], 1 is perfect match
-    # Move to [0, 1]
-    ssim_value = ssim_value / 2.0 + 0.5
-    # Invert, 0 is perfect match
-    ssim_value = 1.0 - ssim_value
-    # Normalize by mask percentage
-    ssim_value = ssim_value / mask_percentage
-    # Undo inversion, 1 is perfect match
-    ssim_value = 1.0 - ssim_value
-    # Move to [-1, 1]
-    ssim_value = ssim_value * 2.0 - 1.0
-    return ssim_value
-
-
 def _load_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, image_path=None, sampling_mask=None):
     pose = np.copy(pose)
     pose = np.concatenate([pose, np.array([[0, 0, 0, 1]], dtype=pose.dtype)], axis=0)
@@ -155,9 +140,9 @@ def _load_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, ima
         cx=cx, cy=cy)
 
 
-def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: str, white_background: bool = False):
+def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: str, white_background: bool = False, scale_coords=None):
     if dataset is None:
-        return SceneInfo(None, [], [], nerf_normalization=dict(radius=None), ply_path=None)
+        return SceneInfo(None, [], [], nerf_normalization=dict(radius=None, translate=None), ply_path=None)
     assert np.all(dataset["cameras"].camera_types == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
 
     cam_infos = []
@@ -194,6 +179,7 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
             image_size=(w, h),
             image=image,
             sampling_mask=sampling_mask,
+            scale_coords=scale_coords,
         )
         cam_infos.append(cam_info)
 
@@ -201,6 +187,8 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
     nerf_normalization = getNerfppNorm(cam_infos)
 
     points3D_xyz = dataset["points3D_xyz"]
+    if scale_coords is not None:
+        points3D_xyz = points3D_xyz * scale_coords
     points3D_rgb = dataset["points3D_rgb"]
     if points3D_xyz is None and dataset["metadata"].get("name", None) == "blender":
         # https://github.com/graphdeco-inria/gaussian-splatting/blob/2eee0e26d2d5fd00ec462df47752223952f6bf4e/scene/dataset_readers.py#L221C4-L221C4
@@ -224,8 +212,8 @@ class MipSplatting(Method):
     @remap_error
     def __init__(self, *,
                  checkpoint: Optional[str] = None, 
-                 config_overrides: Optional[dict] = None,
-                 train_dataset: Optional[Dataset] = None):
+                 train_dataset: Optional[Dataset] = None,
+                 config_overrides: Optional[dict] = None):
         self.checkpoint = checkpoint
         self.gaussians = None
         self.background = None
@@ -238,54 +226,49 @@ class MipSplatting(Method):
         if checkpoint is not None:
             with open(os.path.join(checkpoint, "args.txt"), "r", encoding="utf8") as f:
                 self._args_list = shlex.split(f.read())
+
+        # Setup config
+        if self.checkpoint is None:
+            if train_dataset["metadata"].get("name") == "blender":
+                # Blender scenes have white background
+                self._args_list.append("--white_background")
+                logging.info("overriding default background color to white for blender dataset")
+
+        if self.checkpoint is None and config_overrides is not None:
+            for k, v in config_overrides.items():
+                if f'--{k}' in self._args_list:
+                    self._args_list[self._args_list.index(f'--{k}') + 1] = str(v)
+                else:
+                    self._args_list.append(f"--{k}")
+                    self._args_list.append(str(v))
+
         self._load_config()
 
-        self._viewpoint_stack = []
-        self._input_points = None
+        if self.checkpoint is None:
+            # Verify parameters are set correctly
+            if train_dataset["metadata"].get("name") == "blender":
+                assert self.dataset.white_background, "white_background should be True for blender dataset"
 
         self.trainCameras = None
         self.highresolution_index = None
 
-        self._setup(train_dataset, config_overrides=config_overrides)
+        self._setup(train_dataset)
 
     def _load_config(self):
         parser = ArgumentParser(description="Training script parameters")
         lp = ModelParams(parser)
         op = OptimizationParams(parser)
         pp = PipelineParams(parser)
+        parser.add_argument("--scale_coords", type=float, default=None, help="Scale the coords")
         args = parser.parse_args(self._args_list)
         self.dataset = lp.extract(args)
+        self.dataset.scale_coords = args.scale_coords
         self.opt = op.extract(args)
         self.pipe = pp.extract(args)
 
-    def _setup(self, train_dataset=None, *, config_overrides=None):
+    def _setup(self, train_dataset):
         # Initialize system state (RNG)
         safe_state(False)
-
-        if train_dataset is not None:
-            # Train setup
-            if self.checkpoint is None:
-                if train_dataset["metadata"].get("name") == "blender":
-                    # Blender scenes have white background
-                    self._args_list.append("--white_background")
-                    logging.info("overriding default background color to white for blender dataset")
-
-                assert "--iterations" not in self._args_list, "iterations should not be specified when loading from checkpoint"
-
-                if config_overrides is not None:
-                    for k, v in config_overrides.items():
-                        if f'--{k}' in self._args_list:
-                            self._args_list[self._args_list.index(f'--{k}') + 1] = str(v)
-                        else:
-                            self._args_list.append(f"--{k}")
-                            self._args_list.append(str(v))
-
-                self._load_config()
-
-            if self.checkpoint is None:
-                # Verify parameters are set correctly
-                if train_dataset["metadata"].get("name") == "blender":
-                    assert self.dataset.white_background, "white_background should be True for blender dataset"
 
         # Setup model
         self.gaussians = GaussianModel(self.dataset.sh_degree)
@@ -293,7 +276,7 @@ class MipSplatting(Method):
         if train_dataset is not None:
             self.gaussians.training_setup(self.opt)
         filter_3D = None
-        if self.checkpoint or train_dataset is None:
+        if train_dataset is None or self.checkpoint:
             info = self.get_info()
             (model_params, filter_3D, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{info.get('loaded_step')}.pth")
             self.gaussians.restore(model_params, self.opt)
@@ -302,10 +285,11 @@ class MipSplatting(Method):
 
         bg_color = [1, 1, 1] if self.dataset.white_background else [0, 0, 0]
         self.background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
+        self._viewpoint_stack = []
+        self._input_points = None
         if train_dataset is not None:
             self._input_points = (train_dataset["points3D_xyz"], train_dataset["points3D_rgb"])
-            self._viewpoint_stack = []
-
+        if train_dataset is not None:
             self.trainCameras = self.scene.getTrainCameras().copy()
             if any(not getattr(cam, "_patched", False) for cam in self._viewpoint_stack):
                 raise RuntimeError("could not patch loadCam!")
@@ -338,16 +322,15 @@ class MipSplatting(Method):
         )
 
     def get_info(self) -> ModelInfo:
-        info = ModelInfo(
+        return ModelInfo(
             num_iterations=self.opt.iterations,
             loaded_step=self._loaded_step,
-            loaded_checkpoint=str(self.checkpoint) if self.checkpoint is not None else None,
+            loaded_checkpoint=self.checkpoint,
             hparams=(
                 flatten_hparams(dict(itertools.chain(vars(self.dataset).items(), vars(self.opt).items(), vars(self.pipe).items())))
                 if self.dataset is not None else {}),
             **self.get_method_info(),
         )
-        return info
 
     def _build_scene(self, dataset):
         opt = copy.copy(self.dataset)
@@ -358,8 +341,10 @@ class MipSplatting(Method):
             backup = sceneLoadTypeCallbacks["Colmap"]
             try:
                 info = self.get_info()
-                sceneLoadTypeCallbacks["Colmap"] = lambda *args, **kwargs: _convert_dataset_to_gaussian_splatting(dataset, td, white_background=self.dataset.white_background)
-                scene = Scene(opt, self.gaussians, load_iteration=info.get('loaded_step') if dataset is None else None)
+                def colmap_loader(*args, **kwargs):
+                    return _convert_dataset_to_gaussian_splatting(dataset, td, white_background=self.dataset.white_background, scale_coords=self.dataset.scale_coords)
+                sceneLoadTypeCallbacks["Colmap"] = colmap_loader
+                scene = Scene(opt, self.gaussians, load_iteration=info["loaded_step"] if dataset is None else None)
                 # NOTE: This is a hack to match the RNG state of GS on 360 scenes
                 _tmp = list(range((len(next(iter(scene.train_cameras.values()))) + 6) // 7))
                 random.shuffle(_tmp)
@@ -369,7 +354,7 @@ class MipSplatting(Method):
 
     def render(self, cameras: Cameras, embeddings=None) -> Iterable[RenderOutput]:
         if embeddings is not None:
-            raise NotImplementedError("Optimizing embeddings is not supported")
+            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
         assert np.all(cameras.camera_types == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
         sizes = cameras.image_sizes
         poses = cameras.poses
@@ -377,7 +362,7 @@ class MipSplatting(Method):
 
         with torch.no_grad():
             for i, pose in enumerate(poses):
-                viewpoint_cam = _load_caminfo(i, pose, intrinsics[i], f"{i:06d}.png", sizes[i])
+                viewpoint_cam = _load_caminfo(i, pose, intrinsics[i], f"{i:06d}.png", sizes[i], scale_coords=self.dataset.scale_coords)
                 viewpoint = loadCam(self.dataset, i, viewpoint_cam, 1.0)
                 image = torch.clamp(render(viewpoint, self.gaussians, self.pipe, self.background, kernel_size=self.dataset.kernel_size)["render"], 0.0, 1.0)
                 color = image.detach().permute(1, 2, 0).cpu().numpy()
@@ -398,7 +383,10 @@ class MipSplatting(Method):
 
         # Pick a random Camera
         if not self._viewpoint_stack:
+            loadCam.was_called = False
             self._viewpoint_stack = self.scene.getTrainCameras().copy()
+            if any(not getattr(cam, "_patched", False) for cam in self._viewpoint_stack):
+                raise RuntimeError("could not patch loadCam!")
         viewpoint_cam = self._viewpoint_stack.pop(randint(0, len(self._viewpoint_stack) - 1))
 
         # Pick a random high resolution camera
@@ -408,16 +396,15 @@ class MipSplatting(Method):
                 raise RuntimeError("could not patch loadCam!")
 
         # Render
-        # NOTE: random background color is not supported
-        bg_color = [1, 1, 1] if self.dataset.white_background else [0, 0, 0]
-        background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
+        bg = torch.rand((3), device="cuda") if getattr(self.opt, 'random_background', False) else self.background
 
         if self.dataset.ray_jitter:
             subpixel_offset = torch.rand((int(viewpoint_cam.image_height), int(viewpoint_cam.image_width), 2), dtype=torch.float32, device="cuda") - 0.5
             # subpixel_offset *= 0.0
         else:
             subpixel_offset = None
-        render_pkg = render(viewpoint_cam, self.gaussians, self.pipe, background, kernel_size=self.dataset.kernel_size, subpixel_offset=subpixel_offset)
+
+        render_pkg = render(viewpoint_cam, self.gaussians, self.pipe, bg, kernel_size=self.dataset.kernel_size, subpixel_offset=subpixel_offset)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
         # Loss
@@ -430,23 +417,21 @@ class MipSplatting(Method):
             sampling_mask = create_offset_gt(sampling_mask, subpixel_offset) if sampling_mask is not None else None
 
         # Apply mask
-        mask_percentage = 1.0
         if sampling_mask is not None:
-            image *= sampling_mask
-            gt_image *= sampling_mask
-            mask_percentage = sampling_mask.mean()
+            image = image * sampling_mask + (1.0 - sampling_mask) * image.detach()
 
-        Ll1 = l1_loss(image, gt_image) / mask_percentage
+        Ll1 = l1_loss(image, gt_image)
         ssim_value = ssim(image, gt_image)
-        if sampling_mask is not None:
-            ssim_value = normalize_ssim(ssim_value, mask_percentage)
-
         loss = (1.0 - self.opt.lambda_dssim) * Ll1 + self.opt.lambda_dssim * (1.0 - ssim_value)
         loss.backward()
 
         with torch.no_grad():
-            psnr_value = 10 * torch.log10(1 / torch.mean((image - gt_image) ** 2) / mask_percentage)
-            metrics = {"l1_loss": Ll1.detach().cpu().item(), "loss": loss.detach().cpu().item(), "psnr": psnr_value.detach().cpu().item()}
+            psnr_value = 10 * torch.log10(1 / torch.mean((image - gt_image) ** 2))
+            metrics = {
+                "l1_loss": Ll1.detach().cpu().item(), 
+                "loss": loss.detach().cpu().item(), 
+                "psnr": psnr_value.detach().cpu().item(),
+            }
 
             # Densification
             if iteration < self.opt.densify_until_iter:
@@ -477,8 +462,7 @@ class MipSplatting(Method):
 
     def save(self, path: str):
         self.gaussians.save_ply(os.path.join(str(path), f"point_cloud/iteration_{self.step}", "point_cloud.ply"))
-        filter_3D = self.gaussians.filter_3D
-        torch.save((self.gaussians.capture(), filter_3D, self.step), str(path) + f"/chkpnt-{self.step}.pth")
+        torch.save((self.gaussians.capture(), self.gaussians.filter_3D, self.step), str(path) + f"/chkpnt-{self.step}.pth")
         with open(str(path) + "/args.txt", "w", encoding="utf8") as f:
             f.write(shlex_join(self._args_list))
 

@@ -108,21 +108,6 @@ class CameraInfo(_old_CameraInfo):
 scene.dataset_readers.CameraInfo = CameraInfo
 
 
-def normalize_ssim(ssim_value, mask_percentage):
-    # SSIM is in the range [-1, 1], 1 is perfect match
-    # Move to [0, 1]
-    ssim_value = ssim_value / 2.0 + 0.5
-    # Invert, 0 is perfect match
-    ssim_value = 1.0 - ssim_value
-    # Normalize by mask percentage
-    ssim_value = ssim_value / mask_percentage
-    # Undo inversion, 1 is perfect match
-    ssim_value = 1.0 - ssim_value
-    # Move to [-1, 1]
-    ssim_value = ssim_value * 2.0 - 1.0
-    return ssim_value
-
-
 def _load_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, image_path=None, sampling_mask=None, scale_coords=None):
     pose = np.copy(pose)
     pose = np.concatenate([pose, np.array([[0, 0, 0, 1]], dtype=pose.dtype)], axis=0)
@@ -217,12 +202,11 @@ class GaussianSplatting(Method):
     _method_name: str = "gaussian-splatting"
 
     @remap_error
-    def __init__(self, 
-                 *,
+    def __init__(self, *,
                  checkpoint: Optional[str] = None,
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
-        self.checkpoint = str(checkpoint) if checkpoint is not None else None
+        self.checkpoint = checkpoint
         self.gaussians = None
         self.background = None
         self.step = 0
@@ -235,9 +219,6 @@ class GaussianSplatting(Method):
             with open(os.path.join(checkpoint, "args.txt"), "r", encoding="utf8") as f:
                 self._args_list = shlex.split(f.read())
 
-        self._viewpoint_stack = []
-        self._input_points = None
-
         # Setup config
         if self.checkpoint is None:
             if train_dataset["metadata"].get("name") == "blender":
@@ -245,7 +226,7 @@ class GaussianSplatting(Method):
                 self._args_list.append("--white_background")
                 logging.info("overriding default background color to white for blender dataset")
 
-        if config_overrides is not None:
+        if self.checkpoint is None and config_overrides is not None:
             for k, v in config_overrides.items():
                 if f'--{k}' in self._args_list:
                     self._args_list[self._args_list.index(f'--{k}') + 1] = str(v)
@@ -260,10 +241,7 @@ class GaussianSplatting(Method):
             if train_dataset["metadata"].get("name") == "blender":
                 assert self.dataset.white_background, "white_background should be True for blender dataset"
 
-        if train_dataset is not None:
-            self._setup_train(train_dataset)
-        else:
-            self._setup_eval()
+        self._setup(train_dataset)
 
     def _load_config(self):
         parser = ArgumentParser(description="Training script parameters")
@@ -277,15 +255,16 @@ class GaussianSplatting(Method):
         self.opt = op.extract(args)
         self.pipe = pp.extract(args)
 
-    def _setup_train(self, train_dataset: Dataset):
+    def _setup(self, train_dataset):
         # Initialize system state (RNG)
         safe_state(False)
 
         # Setup model
         self.gaussians = GaussianModel(self.dataset.sh_degree)
         self.scene = self._build_scene(train_dataset)
-        self.gaussians.training_setup(self.opt)
-        if self.checkpoint:
+        if train_dataset is not None:
+            self.gaussians.training_setup(self.opt)
+        if train_dataset is None or self.checkpoint:
             info = self.get_info()
             loaded_step = info["loaded_step"]
             (model_params, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{loaded_step}.pth")
@@ -293,23 +272,10 @@ class GaussianSplatting(Method):
 
         bg_color = [1, 1, 1] if self.dataset.white_background else [0, 0, 0]
         self.background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
-        self._input_points = (train_dataset["points3D_xyz"], train_dataset["points3D_rgb"])
         self._viewpoint_stack = []
-
-    def _setup_eval(self):
-        # Initialize system state (RNG)
-        safe_state(False)
-
-        # Setup model
-        self.gaussians = GaussianModel(self.dataset.sh_degree)
-        self.scene = self._build_scene(None)
-        info = self.get_info()
-        loaded_step = info["loaded_step"]
-        (model_params, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{loaded_step}.pth")
-        self.gaussians.restore(model_params, self.opt)
-
-        bg_color = [1, 1, 1] if self.dataset.white_background else [0, 0, 0]
-        self.background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
+        self._input_points = None
+        if train_dataset is not None:
+            self._input_points = (train_dataset["points3D_xyz"], train_dataset["points3D_rgb"])
 
     @cached_property
     def _loaded_step(self):
@@ -352,7 +318,7 @@ class GaussianSplatting(Method):
                 def colmap_loader(*args, **kwargs):
                     return _convert_dataset_to_gaussian_splatting(dataset, td, white_background=self.dataset.white_background, scale_coords=self.dataset.scale_coords)
                 sceneLoadTypeCallbacks["Colmap"] = colmap_loader
-                scene =  Scene(opt, self.gaussians, load_iteration=info["loaded_step"] if dataset is None else None)
+                scene = Scene(opt, self.gaussians, load_iteration=info["loaded_step"] if dataset is None else None)
                 # NOTE: This is a hack to match the RNG state of GS on 360 scenes
                 _tmp = list(range((len(next(iter(scene.train_cameras.values()))) + 6) // 7))
                 random.shuffle(_tmp)
@@ -374,7 +340,6 @@ class GaussianSplatting(Method):
                 viewpoint = loadCam(self.dataset, i, viewpoint_cam, 1.0)
                 image = torch.clamp(render(viewpoint, self.gaussians, self.pipe, self.background)["render"], 0.0, 1.0)
                 color = image.detach().permute(1, 2, 0).cpu().numpy()
-
                 yield {
                     "color": color,
                 }
@@ -409,21 +374,16 @@ class GaussianSplatting(Method):
         sampling_mask = viewpoint_cam.sampling_mask.cuda() if viewpoint_cam.sampling_mask is not None else None
 
         # Apply mask
-        mask_percentage = 1.0
         if sampling_mask is not None:
-            image *= sampling_mask
-            gt_image *= sampling_mask
-            mask_percentage = sampling_mask.mean()
+            image = image * sampling_mask + (1.0 - sampling_mask) * image.detach()
 
-        Ll1 = l1_loss(image, gt_image) / mask_percentage
+        Ll1 = l1_loss(image, gt_image)
         ssim_value = ssim(image, gt_image)
-        if sampling_mask is not None:
-            ssim_value = normalize_ssim(ssim_value, mask_percentage)
-
         loss = (1.0 - self.opt.lambda_dssim) * Ll1 + self.opt.lambda_dssim * (1.0 - ssim_value)
         loss.backward()
+        
         with torch.no_grad():
-            psnr_value = 10 * torch.log10(1 / torch.mean((image - gt_image) ** 2) / mask_percentage)
+            psnr_value = 10 * torch.log10(1 / torch.mean((image - gt_image) ** 2))
             metrics = {
                 "l1_loss": Ll1.detach().cpu().item(), 
                 "loss": loss.detach().cpu().item(), 
@@ -447,13 +407,14 @@ class GaussianSplatting(Method):
             if iteration < self.opt.iterations + 1:
                 self.gaussians.optimizer.step()
                 self.gaussians.optimizer.zero_grad(set_to_none=True)
+
         self.step = self.step + 1
         return metrics
 
     def save(self, path: str):
         self.gaussians.save_ply(os.path.join(str(path), f"point_cloud/iteration_{self.step}", "point_cloud.ply"))
         torch.save((self.gaussians.capture(), self.step), str(path) + f"/chkpnt-{self.step}.pth")
-        with open(str(path) + "/args.txt", "w") as f:
+        with open(str(path) + "/args.txt", "w", encoding="utf8") as f:
             f.write(shlex_join(self._args_list))
 
     def export_demo(self, path: str, *, viewer_transform, viewer_initial_pose):

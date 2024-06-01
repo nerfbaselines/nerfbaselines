@@ -40,6 +40,7 @@ conda install -y cudatoolkit-dev=11.7 gcc_linux-64=11 gxx_linux-64=11 make=4.3 c
 conda install -c conda-forge -y nodejs==20.9.0
 
 pip install -r requirements.txt
+pip install -U pip 'setuptools<70.0.0'
 pip install lpips==0.1.4
 
 pip install submodules/diff-gaussian-rasterization
@@ -57,7 +58,11 @@ pip install submodules/simple-knn/
 }
 
 
-register(MipSplattingSpec, name="mip-splatting")
+register(MipSplattingSpec, 
+         name="mip-splatting", 
+         metadata={
+    "paper_results": paper_results,
+})
 register(
     MipSplattingSpec,
     name="mip-splatting:large", 
