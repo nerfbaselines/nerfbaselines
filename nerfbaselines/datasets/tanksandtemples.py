@@ -6,39 +6,69 @@ from typing import Union
 import zipfile
 from tqdm import tqdm
 import tempfile
+import numpy as np
 from ..types import UnloadedDataset
-from ._common import DatasetNotFoundError, single, get_scene_scale, get_default_viewer_transform
+from ._common import DatasetNotFoundError, get_scene_scale, get_default_viewer_transform, dataset_index_select
 from .colmap import load_colmap_dataset
 
 
 DATASET_NAME = "tanksandtemples"
 BASE_URL = "https://data.ciirc.cvut.cz/public/projects/2023NerfBaselines/datasets/tanksandtemples"
 SCENES = {
+    "auditorium": None,
+    "ballroom": None,
+    "barn": None,
+    "caterpillar": None,
+    "courthouse": None,
+    "courtroom": None,
+    "family": None,
+    "francis": None,
+    "horse": None,
+    "ignatius": None,
+    "lighthouse": None,
+    "m60": None,
+    "meetingroom": None,
+    "museum": None,
+    "palace": None,
+    "panther": None,
+    "playground": None,
+    "temple": None,
     "train": f"{BASE_URL}/train_2down.zip",
     "truck": f"{BASE_URL}/truck_2down.zip",
 }
+
+
+def _select_indices_llff(image_names, llffhold=8):
+    inds = np.argsort(image_names)
+    all_indices = np.arange(len(image_names))
+    indices_train = inds[all_indices % llffhold != 0]
+    indices_test = inds[all_indices % llffhold == 0]
+    return indices_train, indices_test
 
 
 def load_tanksandtemples_dataset(path: Union[Path, str], split: str, downscale_factor: int = 2, **kwargs) -> UnloadedDataset:
     path = Path(path)
     if split:
         assert split in {"train", "test"}
-    if DATASET_NAME not in str(path) or not any(s in str(path) for s in SCENES):
+    if DATASET_NAME not in str(path) or not any(s in str(path).lower() for s in SCENES):
         raise DatasetNotFoundError(f"{DATASET_NAME} and {set(SCENES.keys())} is missing from the dataset path: {path}")
 
     # Load TT dataset
     images_path = Path("images") if downscale_factor == 1 else Path(f"images_{downscale_factor}")
-    scene = single(x for x in SCENES if x in str(path))
+    scene = any(x for x in SCENES if x in str(path))
 
     dataset = load_colmap_dataset(path, images_path=images_path, split=None, **kwargs)
     dataset["metadata"]["name"] = DATASET_NAME
     dataset["metadata"]["scene"] = scene
-    dataset["metadata"]["expected_scene_scale"] = get_scene_scale(dataset["cameras"], None),
+    dataset["metadata"]["downscale_factor"] = downscale_factor
+    dataset["metadata"]["expected_scene_scale"] = get_scene_scale(dataset["cameras"], None)
     dataset["metadata"]["type"] = None
     viewer_transform, viewer_pose = get_default_viewer_transform(dataset["cameras"].poses, None)
     dataset["metadata"]["viewer_transform"] = viewer_transform
     dataset["metadata"]["viewer_initial_pose"] = viewer_pose
-    return dataset
+    indices_train, indices_test = _select_indices_llff(dataset["file_paths"])
+    indices = indices_train if split == "train" else indices_test
+    return dataset_index_select(dataset, indices)
 
 
 def download_tanksandtemples_dataset(path: str, output: Union[Path, str]) -> None:
@@ -52,7 +82,7 @@ def download_tanksandtemples_dataset(path: str, output: Union[Path, str]) -> Non
         return
 
     scene = path.split("/")[-1]
-    if scene not in SCENES:
+    if SCENES.get(scene) is None:
         raise RuntimeError(f"Unknown scene {scene}")
     url = SCENES[scene]
     response = requests.get(url, stream=True)

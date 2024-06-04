@@ -472,22 +472,34 @@ class TrajectoryFrame(TypedDict, total=True):
 class TrajectoryKeyframe(TypedDict, total=True):
     pose: np.ndarray
     fov: Optional[float]
-    transition_duration: Optional[float]
+    transition_duration: NotRequired[Optional[float]]
     appearance: NotRequired[TrajectoryFrameAppearance]
 
 
-TrajectoryInterpolationType = Literal["kochanek-bartels"]
+TrajectoryInterpolationType = Literal["kochanek-bartels", "none"]
 
 
-class TrajectoryInterpolationSource(TypedDict, total=True):
+class ImageSetInterpolationSource(TypedDict, total=True):
     type: Literal["interpolation"]
-    interpolation: TrajectoryInterpolationType
+    interpolation: Literal["none"]
+    keyframes: List[TrajectoryKeyframe]
+    default_fov: float
+    default_transition_duration: float
+    default_appearance: NotRequired[Optional[TrajectoryFrameAppearance]]
+
+
+class KochanekBartelsInterpolationSource(TypedDict, total=True):
+    type: Literal["interpolation"]
+    interpolation: Literal["kochanek-bartels"]
     is_cycle: bool
     tension: float
     keyframes: List[TrajectoryKeyframe]
     default_fov: float
     default_transition_duration: float
     default_appearance: NotRequired[Optional[TrajectoryFrameAppearance]]
+
+
+TrajectoryInterpolationSource = Union[ImageSetInterpolationSource, KochanekBartelsInterpolationSource]
 
 
 class Trajectory(TypedDict, total=True):

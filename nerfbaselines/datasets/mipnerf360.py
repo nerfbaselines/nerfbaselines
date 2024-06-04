@@ -25,7 +25,7 @@ _scenes360_res = {
 }
 
 
-def load_mipnerf360_dataset(path: Union[Path, str], split: str, **kwargs):
+def load_mipnerf360_dataset(path: Union[Path, str], split: str, resize_full_image: bool = False, **kwargs):
     path = Path(path)
     if split:
         assert split in {"train", "test"}
@@ -35,13 +35,19 @@ def load_mipnerf360_dataset(path: Union[Path, str], split: str, **kwargs):
     # Load MipNerf360 dataset
     scene = single(res for res in _scenes360_res if str(res) in path.name)
     res = _scenes360_res[scene]
-    images_path = Path(f"images_{res}")
+    if resize_full_image:
+        images_path = Path(f"images")
+    else:
+        images_path = Path(f"images_{res}")
 
     # Use split=None to load all images
     # We then select the same images as in the LLFF multinerf dataset loader
     dataset = load_colmap_dataset(path, images_path=images_path, split=None, **kwargs)
     dataset["metadata"]["name"] = "mipnerf360"
     dataset["metadata"]["scene"] = scene
+    dataset["metadata"]["downscale_factor"] = res
+    if resize_full_image:
+        dataset["metadata"]["downscale_loaded_factor"] = res
     dataset["metadata"]["expected_scene_scale"] = get_scene_scale(dataset["cameras"], "object-centric")
     dataset["metadata"]["type"] = "object-centric"
     dataset["metadata"]["color_space"] = "srgb"

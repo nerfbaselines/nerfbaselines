@@ -72,9 +72,11 @@ def load_llff_dataset(path: Union[Path, str], split: str, downscale_factor: int 
         file_paths_root=str(path),
         file_paths=[str(x) for i, x in enumerate(image_paths) if i in indices],
         sampling_mask_paths=None,
+        sampling_mask_paths_root=None,
         metadata={
             "name": "llff",
             "scene": scene,
+            "downscale_factor": downscale_factor,
             "color_space": "srgb",
             "expected_scene_scale": 0.5,
             "type": "forward-facing",

@@ -268,7 +268,9 @@ class Keyframe:
 
 @autobind
 @simple_cache
-def state_compute_duration(camera_path_loop, camera_path_keyframes, camera_path_default_transition_duration) -> float:
+def state_compute_duration(camera_path_loop, camera_path_interpolation, camera_path_keyframes, camera_path_default_transition_duration) -> float:
+    if camera_path_interpolation == "none":
+        return len(camera_path_keyframes) * camera_path_default_transition_duration
     kf = camera_path_keyframes
     if not camera_path_loop:
         kf = kf[1:]
@@ -306,6 +308,7 @@ class ViewerState:
     render_appearance_train_index: Optional[int] = None
     _temporary_appearance_train_index: Optional[int] = None
 
+    camera_path_interpolation: str = "kochanek-bartels"
     camera_path_loop: bool = False
     camera_path_tension: float = 0.0
     camera_path_keyframes: Tuple[Keyframe,...] = ()
@@ -359,22 +362,25 @@ class ViewerState:
             raise RuntimeError("Trajectory does not contain 'source'. It is not editable.")
         source = trajectory.get("source")
         assert source is not None  # pyright legacy
-        if source.get("type") != "interpolation" or source.get("interpolation") != "kochanek-bartels":
-            raise RuntimeError("The viewer only supports 'kochanek-bartels' interpolation for the camera trajectory")
+        if source.get("type") != "interpolation" or source.get("interpolation") not in {"none", "kochanek-bartels"}:
+            raise RuntimeError("The viewer only supports 'kochanek-bartels', 'none' interpolation for the camera trajectory")
         def validate_appearance(appearance):
             if appearance and not appearance.get("embedding_train_index"):
                 raise RuntimeError("Setting appearance is only supported through embedding_train_index")
             return appearance
         validate_appearance(source.get("default_appearance"))
+        self.camera_path_interpolation = source["interpolation"]
         self.render_resolution = trajectory["image_size"]
-        self.camera_path_framerate = trajectory["fps"]
-        self.camera_path_tension = source["tension"]
-        self.camera_path_loop = source["is_cycle"]
+        if self.camera_path_interpolation != "none":
+            self.camera_path_framerate = trajectory["fps"]
+            self.camera_path_tension = source["tension"]
+            self.camera_path_loop = source["is_cycle"]
         self.render_fov = source["default_fov"]
         def_app = source.get("default_appearance")
         if def_app:
             self.render_appearance_train_index = def_app.get("embedding_train_index", None)
-        self.camera_path_default_transition_duration = source["default_transition_duration"]
+        if "default_transition_duration" in source:
+            self.camera_path_default_transition_duration = source["default_transition_duration"]
         keyframes = []
         for k in source["keyframes"]:
             pose_np = apply_transform(transform, k["pose"])
@@ -383,13 +389,16 @@ class ViewerState:
             pos, wxyz = pose.translation(), pose.rotation().wxyz
             appearance = validate_appearance(k.get("appearance"))
             appearance_train_index = appearance.get("embedding_train_index") if appearance else None
-            keyframes.append(Keyframe(pos, wxyz, k["fov"], k["transition_duration"], appearance_train_index))
+            keyframes.append(Keyframe(pos, wxyz, k["fov"], k.get("transition_duration"), appearance_train_index))
         self.camera_path_keyframes = tuple(keyframes)
 
     def get_trajectory(self, inv_transform) -> Trajectory:
         w, h = int(self.render_resolution[0]), int(self.render_resolution[1])
         appearances: List[TrajectoryFrameAppearance] = []
         keyframes: List[TrajectoryKeyframe] = []
+        supports_transition_duration = (
+            self.camera_path_interpolation == "kochanek-bartels"
+        )
         for keyframe in self.camera_path_keyframes:
             pose = tf.SE3.from_rotation_and_translation(
                 tf.SO3(keyframe.wxyz),
@@ -400,8 +409,9 @@ class ViewerState:
             keyframe_dict: TrajectoryKeyframe = {
                 "pose": pose[:3, :],
                 "fov": keyframe.fov,
-                "transition_duration": keyframe.transition_duration,
             }
+            if supports_transition_duration:
+                keyframe_dict["transition_duration"] = keyframe.transition_duration
             if keyframe.appearance_train_index is not None:
                 appearance = {
                     "embedding_train_index": keyframe.appearance_train_index,
@@ -433,20 +443,25 @@ class ViewerState:
                 }))
         source: TrajectoryInterpolationSource = {
             "type": "interpolation",
-            "interpolation": "kochanek-bartels",
-            "is_cycle": self.camera_path_loop,
-            "tension": self.camera_path_tension,
+            "interpolation": self.camera_path_interpolation,
             "keyframes": keyframes,
             "default_fov": self.render_fov,
-            "default_transition_duration": self.camera_path_default_transition_duration,
             "default_appearance": None if self.render_appearance_train_index is None else {
                 "embedding_train_index": self.render_appearance_train_index,
             },
         }
+        fps = self.camera_path_framerate
+        if source["interpolation"] == "kochanek-bartels":
+            source["is_cycle"] = self.camera_path_loop
+            source["tension"] = self.camera_path_tension
+            source["default_transition_duration"] = self.camera_path_default_transition_duration
+        if source["interpolation"] == "none":
+            source["default_transition_duration"] = self.camera_path_default_transition_duration
+            fps = 1.0 / self.camera_path_default_transition_duration
         data: Trajectory = {
             "camera_model": "pinhole",
             "image_size": (w, h),
-            "fps": self.camera_path_framerate,
+            "fps": fps,
             "source": source,
             "frames": frames,
         }
@@ -486,20 +501,24 @@ def _add_keypoint_onclick_callback(server: ViserServer, state, index, handle):
                 initial_value=keyframe.fov if keyframe.fov is not None else state.render_fov,
                 disabled=keyframe.fov is None,
             )
-            override_transition_enabled = server.add_gui_checkbox(
-                "Override transition",
-                initial_value=keyframe.transition_duration is not None,
-            )
-            override_transition_sec = server.add_gui_number(
-                "Transition (sec)",
-                initial_value=keyframe.transition_duration
-                if keyframe.transition_duration is not None
-                else state.camera_path_default_transition_duration,
-                min=0.001,
-                max=30.0,
-                step=0.001,
-                disabled=not override_transition_enabled.value,
-            )
+            if state.camera_path_interpolation != "none":
+                override_transition_enabled = server.add_gui_checkbox(
+                    "Override transition",
+                    initial_value=keyframe.transition_duration is not None,
+                )
+                override_transition_sec = server.add_gui_number(
+                    "Transition (sec)",
+                    initial_value=keyframe.transition_duration
+                    if keyframe.transition_duration is not None
+                    else state.camera_path_default_transition_duration,
+                    min=0.001,
+                    max=30.0,
+                    step=0.001,
+                    disabled=not override_transition_enabled.value,
+                )
+                override_transition_sec.on_update(_override_transition_changed)
+                override_transition_enabled.on_update(_override_transition_changed)
+
             if state.supports_appearance_from_train_images:
                 # TODO: fix this
                 # Note, we do not do bindable here, because remove() does not remove it at the moment!
@@ -545,9 +564,6 @@ def _add_keypoint_onclick_callback(server: ViserServer, state, index, handle):
                 for i, key in enumerate(state.camera_path_keyframes)
             )
             override_transition_sec.disabled = not override_transition_enabled.value
-
-        override_transition_sec.on_update(_override_transition_changed)
-        override_transition_enabled.on_update(_override_transition_changed)
 
         @override_fov.on_update
         def _(_) -> None:
@@ -732,9 +748,22 @@ def _compute_camera_path_splines(camera_path_keyframes,
                                  camera_path_tension, 
                                  render_fov,
                                  camera_path_default_transition_duration, 
+                                 camera_path_interpolation,
                                  camera_path_framerate):
     if len(camera_path_keyframes) < 2:
         return None
+
+    # For none interpolation, we just return the keyframes.
+    if camera_path_interpolation == "none":
+        return (
+            np.array([k.position for k in camera_path_keyframes], dtype=np.float32),
+            np.array([k.wxyz for k in camera_path_keyframes], dtype=np.float32),
+            np.array([k.fov if k.fov is not None else render_fov for k in camera_path_keyframes], dtype=np.float32),
+            np.array([_onehot(i, len(camera_path_keyframes)) for i in range(len(camera_path_keyframes))],
+            dtype=np.float32),
+        )
+
+
     # Compute transition times cumsum
     times = np.array([
         k.transition_duration if k.transition_duration is not None else camera_path_default_transition_duration 
@@ -815,6 +844,8 @@ def _add_spline_to_camera_path(server: ViserServer, state: ViewerState, interpol
             node.remove()
         spline_nodes.clear()
         if args is None or not state.camera_path_show_spline:
+            return
+        if state.camera_path_interpolation == "none":
             return
         points = args[0]
         colors = np.array([colorsys.hls_to_rgb(h, 0.5, 1.0) for h in np.linspace(0.0, 1.0, len(points))])
@@ -1137,9 +1168,16 @@ class ViserViewer:
                 def _(_) -> None:
                     modal.close()
 
+        server.add_gui_dropdown(
+            "Interpolation",
+            initial_value=self.state.b.camera_path_interpolation,
+            options=("kochanek-bartels", "none"),
+            hint="Camera path interpolation.")
+
         server.add_gui_checkbox(
             "Loop",
             initial_value=self.state.b.camera_path_loop,
+            visible=self.state.b.camera_path_interpolation.map(lambda x: x == "kochanek-bartels"),
             hint="Add a segment between the first and last keyframes.")
 
         server.add_gui_slider(
@@ -1147,6 +1185,7 @@ class ViserViewer:
             min=0.0,
             max=1.0,
             initial_value=self.state.b.camera_path_tension,
+            visible=self.state.b.camera_path_interpolation.map(lambda x: x == "kochanek-bartels"),
             step=0.01,
             hint="Tension parameter for adjusting smoothness of spline interpolation.",
         )
@@ -1166,6 +1205,7 @@ class ViserViewer:
         server.add_gui_checkbox(
             "Show spline",
             initial_value=self.state.b.camera_path_show_spline,
+            visible=self.state.b.camera_path_interpolation.map(lambda x: x == "kochanek-bartels"),
             hint="Show camera path spline in the scene.",
         )
 
@@ -1204,8 +1244,12 @@ class ViserViewer:
             )
             server.add_gui_number(
                 "FPS", min=0.1, max=240.0, step=1e-2, 
+                visible=self.state.b.camera_path_interpolation.map(lambda x: x != "none"),
                 initial_value=self.state.b.camera_path_framerate)
-            framerate_buttons = server.add_gui_button_group("", ("24", "30", "60"))
+            framerate_buttons = server.add_gui_button_group(
+                "",
+                ("24", "30", "60"),
+                visible=self.state.b.camera_path_interpolation.map(lambda x: x != "none"))
             framerate_buttons.on_click(lambda _: self.state.b.camera_path_framerate.update(float(framerate_buttons.value)))
             server.add_gui_number(
                 "Duration (sec)",
@@ -1349,6 +1393,8 @@ class ViserViewer:
                 i+=1
                 max_frame = max_frame_b.get()
                 target_fps = self.state.camera_path_framerate
+                if self.state.camera_path_interpolation == "none":
+                    target_fps = 1. / self.state.camera_path_default_transition_duration
                 if not self.state.preview_is_playing:
                     start = None
                 else:
@@ -1358,7 +1404,7 @@ class ViserViewer:
                     if max_frame > 0:
                         assert start_frame is not None
                         frame = int((time.time() - start) * target_fps)
-                        self.state.preview_current_frame = (start_frame + frame) % max_frame
+                        self.state.preview_current_frame = (start_frame + frame) % (max_frame + 1)
                 wait = 1.0 / min(target_fps, max_fps)
                 if start is not None:
                     wait = max(wait / 2, (start - time.time()) % wait)
@@ -1540,6 +1586,9 @@ class ViserViewer:
                                 client.camera.position,
                                 client.camera.fov,
                             )
+
+                # Preview camera changed, reset render
+                self._reset_render()
 
                     # Important bit: we atomically set both the orientation and the position
                     # of the camera.

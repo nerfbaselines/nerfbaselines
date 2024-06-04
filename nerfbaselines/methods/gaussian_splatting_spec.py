@@ -88,4 +88,9 @@ register(
         "name": "Gaussian Splatting (large)",
         "description": """A version of Gaussian Splatting designed for larger scenes."""
     },
+    dataset_overrides={
+        "blender": {
+            "white_background": True,
+        },
+    },
 )

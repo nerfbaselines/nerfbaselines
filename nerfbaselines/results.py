@@ -56,7 +56,8 @@ def get_dataset_info(dataset: str) -> DatasetInfo:
     assert metrics_info_path.exists(), f"Metrics info file {metrics_info_path} does not exist"
     metrics_info = json.loads(metrics_info_path.read_text(encoding="utf8"))
     dataset_info = cast(Optional[DatasetSpecMetadata], get_dataset_spec(dataset).get("metadata", None))
-    assert dataset_info is not None, f"Dataset {dataset} does not have metadata"
+    if dataset_info is None:
+        raise RuntimeError(f"Dataset {dataset} does not have metadata")
 
     # Fill metrics into dataset info
     metrics_dict = {v["id"]: v for v in metrics_info}
@@ -90,14 +91,23 @@ def load_metrics_from_results(results: Dict) -> Dict[str, List[float]]:
     return out
 
 
-def compile_dataset_results(results_path: Union[Path, str], dataset: str) -> Dict[str, Any]:
+def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes: Optional[List[str]] = None) -> Dict[str, Any]:
     """
     Compile the results.json file from the results repository.
     """
     results_path = Path(results_path)
     from . import registry
 
-    dataset_info = cast(Dict[str, Any], get_dataset_info(dataset))
+    try:
+        dataset_info = cast(Dict[str, Any], get_dataset_info(dataset))
+    except RuntimeError as e:
+        if "does not have metadata" in str(e):
+            dataset_info = {}
+        else:
+            raise e
+    dataset_info_scenes = dataset_info.get("scenes", None)
+    if scenes is not None:
+        dataset_info_scenes = dataset_info["scenes"] = [(dataset_info_scenes or {}).get(x, dict(id=x)) for x in scenes]
     dataset_info["methods"] = []
     for method_id in os.listdir(results_path):
         # Skip methods not evaluated on the dataset
@@ -111,7 +121,12 @@ def compile_dataset_results(results_path: Union[Path, str], dataset: str) -> Dic
 
         # Load the results
         agg_metrics = {}
-        for scene in dataset_info["scenes"]:
+
+        local_scenes = dataset_info_scenes
+        if local_scenes is None:
+            local_scenes = [dict(id=x.stem) for x in results_path.joinpath(method_id, dataset).glob("*.json")]
+
+        for scene in local_scenes:
             scene_id = scene["id"]
             scene_results_path = results_path.joinpath(method_id, dataset, scene_id + ".json")
             if not scene_results_path.exists():
@@ -126,9 +141,10 @@ def compile_dataset_results(results_path: Union[Path, str], dataset: str) -> Dic
                     agg_metrics[k] = []
                 agg_metrics[k].append(mv)
 
-        for k, v in agg_metrics.items():
-            if len(v) == len(dataset_info["scenes"]):
-                method_data[k] = round(np.mean(v), 5)
+        if dataset_info_scenes is not None:
+            for k, v in agg_metrics.items():
+                if len(v) == len(dataset_info["scenes"]):
+                    method_data[k] = round(np.mean(v), 5)
         dataset_info["methods"].append(method_data)
     return dataset_info
 
