@@ -9,6 +9,7 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+import warnings
 import itertools
 import subprocess
 import random
@@ -163,15 +164,15 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
         w, h = dataset["cameras"].image_sizes[idx]
         im_data = dataset["images"][idx][:h, :w]
         assert im_data.dtype == np.uint8, "Gaussian Splatting supports images as uint8"
-        if dataset["metadata"].get("name", None) == "blender":
-            assert white_background, "white_background must be set for blender scenes"
-            assert im_data.shape[-1] == 4
+        if white_background and im_data.shape[-1] == 4:
             bg = np.array([1, 1, 1])
             norm_data = im_data / 255.0
             arr = norm_data[:, :, :3] * norm_data[:, :, 3:4] + (1 - norm_data[:, :, 3:4]) * bg
             im_data = np.array(arr * 255.0, dtype=np.uint8)
-        else:
-            assert not white_background, "white_background is only supported for blender scenes"
+        if not white_background and dataset["metadata"].get("name") == "blender":
+            warnings.warn("Blender scenes are expected to have white background. If the background is not white, please set white_background=True in the dataset loader.")
+        elif white_background and dataset["metadata"].get("name") != "blender":
+            warnings.warn("white_background=True is set, but the dataset is not a blender scene. The background may not be white.")
         image = Image.fromarray(im_data)
         sampling_mask = None
         if dataset["sampling_masks"] is not None:
@@ -211,6 +212,30 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
     return scene_info
 
 
+def _config_overrides_to_args_list(args_list, config_overrides):
+    for k, v in config_overrides.items():
+        if str(v).lower() == "true":
+            v = True
+        if str(v).lower() == "false":
+            v = False
+        if isinstance(v, bool):
+            if v:
+                if f'--no-{k}' in args_list:
+                    args_list.remove(f'--no-{k}')
+                if f'--{k}' not in args_list:
+                    args_list.append(f'--{k}')
+            else:
+                if f'--{k}' in args_list:
+                    args_list.remove(f'--{k}')
+                else:
+                    args_list.append(f"--no-{k}")
+        elif f'--{k}' in args_list:
+            args_list[args_list.index(f'--{k}') + 1] = str(v)
+        else:
+            args_list.append(f"--{k}")
+            args_list.append(str(v))
+
+
 class GaussianOpacityFields(Method):
     _method_name: str = "gaussian-opacity-fields"
 
@@ -232,68 +257,15 @@ class GaussianOpacityFields(Method):
             with open(os.path.join(checkpoint, "args.txt"), "r", encoding="utf8") as f:
                 self._args_list = shlex.split(f.read())
 
-        if self.checkpoint is None:
-            self._override_for_dataset(train_dataset["metadata"].get("name", None))
-
-        # Setup config
-        if self.checkpoint is None:
-            if train_dataset["metadata"].get("name") == "blender":
-                # Blender scenes have white background
-                self._args_list.append("--white_background")
-                logging.info("overriding default background color to white for blender dataset")
-
         if self.checkpoint is None and config_overrides is not None:
-            for k, v in config_overrides.items():
-                if str(v).lower() == "true":
-                    v = True
-                if str(v).lower() == "false":
-                    v = False
-                if isinstance(v, bool):
-                    if v:
-                        if f'--no-{k}' in self._args_list:
-                            self._args_list.remove(f'--no-{k}')
-                        if f'--{k}' not in self._args_list:
-                            self._args_list.append(f'--{k}')
-                    else:
-                        if f'--{k}' in self._args_list:
-                            self._args_list.remove(f'--{k}')
-                        else:
-                            self._args_list.append(f"--no-{k}")
-                elif f'--{k}' in self._args_list:
-                    self._args_list[self._args_list.index(f'--{k}') + 1] = str(v)
-                else:
-                    self._args_list.append(f"--{k}")
-                    self._args_list.append(str(v))
+            _config_overrides_to_args_list(self._args_list, config_overrides)
 
         self._load_config()
-
-        if self.checkpoint is None:
-            # Verify parameters are set correctly
-            if train_dataset["metadata"].get("name") == "blender":
-                assert self.dataset.white_background, "white_background should be True for blender dataset"
 
         self.trainCameras = None
         self.highresolution_index = None
 
         self._setup(train_dataset)
-
-    def _override_for_dataset(self, dataset):
-        override = ""
-        if dataset == "blender":
-            # Blender scenes have white background
-            override = "--white_background"
-        elif dataset == "dtu":
-            override = "--use_decoupled_appearance --lambda_distortion 100"
-        elif dataset == "mipnerf360":
-            pass
-        elif dataset == "tanksandtemples":
-            override = "--use_decoupled_appearance"
-        elif dataset == "phototourism":
-            override = "--use_decoupled_appearance"
-        if override:
-            self._args_list.extend(override.split())
-            logging.info(f"overriding args for {dataset} dataset with: {override}")
-
 
     def _load_config(self):
         parser = ArgumentParser(description="Training script parameters")

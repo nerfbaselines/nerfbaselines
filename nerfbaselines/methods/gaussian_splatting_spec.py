@@ -62,7 +62,10 @@ pip install lpips==0.1.4 importlib_metadata typing_extensions
         "paper_authors": ["Bernhard Kerbl", "Georgios Kopanas", "Thomas Leimkühler", "George Drettakis"],
         "paper_link": "https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/3d_gaussian_splatting_low.pdf",
         "link": "https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/",
-    }
+    },
+    "dataset_overrides": {
+        "blender": { "white_background": True, },
+    },
 }
 
 register(GaussianSplattingSpec, name="gaussian-splatting", metadata={
@@ -87,10 +90,5 @@ register(
     metadata={
         "name": "Gaussian Splatting (large)",
         "description": """A version of Gaussian Splatting designed for larger scenes."""
-    },
-    dataset_overrides={
-        "blender": {
-            "white_background": True,
-        },
     },
 )

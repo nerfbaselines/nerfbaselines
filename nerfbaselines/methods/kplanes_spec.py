@@ -1,0 +1,33 @@
+import os
+from ..registry import MethodSpec, register
+
+KPlanesSpec: MethodSpec = {
+    "method": ".kplanes:KPlanes",
+    "conda": {
+        "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
+        "python_version": "3.11",
+        "install_script": """git clone https://github.com/sarafridov/K-Planes.git kplanes --recursive
+cd kplanes
+git checkout 7e3a82dbdda31eddbe2a160bc9ef89e734d9fc54
+
+conda install -y --override-channels -c nvidia/label/cuda-11.8.0 cuda-toolkit
+conda install -y pytorch==2.3.0 torchvision==0.18.0 pytorch-cuda=11.8 -c pytorch -c nvidia
+conda install -y gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
+LIBRARY_PATH="$CONDA_PREFIX/lib/stubs" pip install ninja git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
+pip install tqdm pillow opencv-python pandas lpips==0.1.4 imageio torchmetrics scikit-image tensorboard matplotlib
+conda install -y conda-build;conda develop .
+pip install lpips==0.1.4 importlib_metadata typing_extensions
+""",
+    },
+    "metadata": {
+        "name": "K-Planes",
+        "description": """K-Planes is a NeRF-based method representing d-dimensional space using 2 planes allowing for a seamless way to go from static (d=3) to dynamic (d=4) scenes.""",
+        "paper_title": "K-Planes: Explicit Radiance Fields in Space, Time, and Appearance",
+        "paper_authors": ["Sara Fridovich-Keil", "Giacomo Meanti", "Frederik Warburg", "Benjamin Recht", "Angjoo Kanazawa"],
+        "paper_link": "https://arxiv.org/pdf/2301.10241",
+        "link": "https://sarafridov.github.io/K-Planes/",
+    }
+}
+
+# register(KPlanesSpec, name="kplanes", metadata={
+# })

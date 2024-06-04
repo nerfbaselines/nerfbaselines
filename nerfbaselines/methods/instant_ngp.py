@@ -1,3 +1,4 @@
+import warnings
 import pprint
 import logging
 import struct
@@ -358,25 +359,18 @@ class InstantNGP(Method):
                 self._loaded_step = current_step
                 self.dataparser_params["dataparser_transform"] = np.array(self.dataparser_params["dataparser_transform"], dtype=np.float32)
         else:
-            loader = train_dataset["metadata"].get("name")
-            if loader == "blender":
-                # Prior nerf papers accumulate/blend in the sRGB
-                # color space. This messes not only with background
-                # alpha, but also with DOF effects and the likes.
-                # We support this behavior, but we only enable it
-                # for the case of synthetic nerf data where we need
-                # to compare PSNR numbers to results of prior work.
-                config_overrides["testbed.color_space"] = config_overrides.get("testbed.color_space", "SRGB")
-                # No exponential cone tracing. Slightly increases
-                # quality at the cost of speed. This is done by
-                # default on scenes with AABB 1 (like the synthetic
-                # ones), but not on larger scenes. So force the
-                # setting here.
-                config_overrides["testbed.nerf.cone_angle_constant"] = config_overrides.get("testbed.nerf.cone_angle_constant", 0)
-                # Match nerf paper behaviour and train on a fixed bg.
-                config_overrides["testbed.nerf.training.random_bg_color"] = config_overrides.get("testbed.nerf.training.random_bg_color", False)
-                config_overrides["aabb_scale"] = config_overrides.get("aabb_scale", None)
-                config_overrides["keep_coords"] = config_overrides.get("keep_coords", True)
+            # Verify blender config
+            if train_dataset["metadata"].get("name") == "blender":
+                if config_overrides.get("testbed.color_space") != "SRGB":
+                    warnings.warn("Blender dataset is expected to have 'testbed.color_space=SRGB' in config_overrides.")
+                if config_overrides.get("testbed.nerf.cone_angle_constant") != 0:
+                    warnings.warn("Blender dataset is expected to have 'cone_angle_constant=0' in config_overrides.")
+                if config_overrides.get("testbed.nerf.training.random_bg_color") is not False:
+                    warnings.warn("Blender dataset is expected to have 'random_bg_color=False' in config_overrides.")
+                if config_overrides.get("aabb_scale") is not None:
+                    warnings.warn("Blender dataset is expected to have 'aabb_scale=None' in config_overrides.")
+                if config_overrides.get("keep_coords") is not True:
+                    warnings.warn("Blender dataset is expected to have 'keep_coords=True' in config_overrides.")
 
             aabb_scale = cast_value(Optional[int], config_overrides.get("aabb_scale", 32))
             keep_coords = cast_value(bool, config_overrides.get("keep_coords", False))

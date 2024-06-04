@@ -1,3 +1,4 @@
+import pprint
 import shutil
 import struct
 import sys
@@ -570,6 +571,7 @@ def train_command(
             os.chdir(str(output_path))
 
             with registry.build_method(method_name, backend_name) as method_cls:
+                method_spec = registry.get(method_name)
 
                 # Load train dataset
                 logging.info("loading train dataset")
@@ -592,6 +594,14 @@ def train_command(
                                             load_features=True)
                 test_dataset["metadata"]["expected_scene_scale"] = train_dataset["metadata"].get("expected_scene_scale")
 
+                # Apply config overrides for the train dataset
+                _dataset_overrides = method_spec.get("dataset_overrides", {}).get(train_dataset["metadata"].get("name"), {})
+                for k, v in _dataset_overrides.items():
+                    if k not in config_overrides:
+                        config_overrides[k] = v
+
+                # Log the current set of config overrides
+                logging.info(f"Using config overrides: {pprint.pformat(config_overrides)}")
 
                 # Build the method
                 method = method_cls(

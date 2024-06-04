@@ -244,8 +244,6 @@ class NerfStudio(Method):
         self._mode = None
         self.dataparser_params = None
 
-        if train_dataset is not None:
-            self._apply_config_patch_for_dataset(self._original_config, train_dataset)
         for k, v in (config_overrides or {}).items():
             if not _config_safe_set(self._original_config, k, v):
                 raise ValueError(f"Invalid config key {k}")
@@ -256,49 +254,6 @@ class NerfStudio(Method):
 
     def _patch_dataparser_params(self):
         pass
-
-    def _apply_config_patch_for_dataset(self, config, dataset: Dataset):
-        # See https://github.com/nerfstudio-project/nerfstudio/tree/SIGGRAPH-2023-Code
-        # NOTE: we change the average_init_density!!
-        use_original_average_init_density = False
-        if dataset["metadata"].get("name") == "blender":
-            logging.info("Applying config patch for dataset type blender")
-            if not _config_safe_set(config, "pipeline.model.near_plane", 2.0):
-                logging.warning("Flag pipeline.model.near_plane is not set (required for blender-type dataset)")
-            if not _config_safe_set(config, "pipeline.model.far_plane", 6.0):
-                logging.warning("Flag pipeline.model.far_plane is not set (required for blender-type dataset)")
-            if not _config_safe_set(config, "pipeline.datamanager.camera_optimizer.mode", "off") and not _config_safe_set(config, "pipeline.model.camera_optimizer.mode", "off"):
-                logging.warning("Flag pipeline.datamanager.camera_optimizer.mode is not set (required for blender-type dataset)")
-            if not _config_safe_set(config, "pipeline.model.use_appearance_embedding", False):
-                logging.warning("Flag pipeline.model.use_appearance_embedding is not set (required for mipnerf360-type dataset)")
-            if not _config_safe_set(config, "pipeline.model.background_color", "white"):
-                logging.warning("Flag pipeline.model.background_color is not set (required for blender-type dataset)")
-            if not _config_safe_set(config, "pipeline.model.proposal_initial_sampler", "uniform"):
-                logging.warning("Flag pipeline.model.proposal_initial_sampler is not set (required for blender-type dataset)")
-            if not _config_safe_set(config, "pipeline.model.distortion_loss_mult", 0.0):
-                logging.warning("Flag pipeline.model.distortion_loss_mult is not set (required for blender-type dataset)")
-            if not _config_safe_set(config, "pipeline.model.disable_scene_contraction", True):
-                logging.warning("Flag pipeline.model.disable_scene_contraction is not set (required for blender-type dataset)")
-            if not _config_safe_set(config, "pipeline.model.average_init_density", 1.0):
-                logging.warning("Flag pipeline.model.average_init_density is not set (required for blender-type dataset)")
-
-        if dataset["metadata"].get("name") in ("mipnerf360", "tanksandtemples"):
-            old_num_iter = getattr(config, "max_num_iterations", 0)
-            if old_num_iter < 70000:
-                if not _config_safe_set(config, "max_num_iterations", 70000):
-                    logging.warning("Flag max_num_iterations is not set (required for mipnerf360-type dataset)")
-            if not _config_safe_set(config, "pipeline.datamanager.camera_optimizer.mode", "off") and not _config_safe_set(config, "pipeline.model.camera_optimizer.mode", "off"):
-                logging.warning("Flag pipeline.datamanager.camera_optimizer.mode is not set (required for mipnerf360-type dataset)")
-            if not _config_safe_set(config, "pipeline.model.use_appearance_embedding", False):
-                logging.warning("Flag pipeline.model.use_appearance_embedding is not set (required for mipnerf360-type dataset)")
-            if use_original_average_init_density:
-                if not _config_safe_set(config, "pipeline.model.average_init_density", 1.0):
-                    logging.warning("Flag pipeline.model.average_init_density is not set (required for mipnerf360-type dataset)")
-
-        if dataset["metadata"].get("name") == "nerfstudio":
-            if use_original_average_init_density:
-                if not _config_safe_set(config, "pipeline.model.average_init_density", 1.0):
-                    logging.warning("Flag pipeline.model.average_init_density is not set (required for nerfstudio-type dataset)")
 
     @property
     def batch_size(self):

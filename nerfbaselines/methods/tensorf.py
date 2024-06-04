@@ -274,12 +274,18 @@ class TensoRF(Method):
             "type": train_dataset["metadata"].get("type"),
             "name": train_dataset["metadata"].get("name"),
         }
+        config_overrides = (config_overrides or {}).copy()
+        base_config = config_overrides.pop("base_config", "your_own_data")
 
         # Load dataset-specific config
+        config_name = f"{base_config}.txt"
         dataset_name = train_dataset["metadata"].get("name")
-        config_name = "your_own_data.txt"
-        if dataset_name == "blender":
+        if dataset_name == "blender" and config_name != "lego.txt":
+            warnings.warn(f"Using wrong config for blender dataset, set 'base_config=lego' in config overrides.")
             config_name = "lego.txt"
+        if dataset_name == "llff" and config_name != "flower.txt":
+            warnings.warn(f"Using wrong config for llff dataset, set 'base_config=flower' in config overrides.")
+            config_name = "flower.txt"
         elif dataset_name == "llff":
             config_name = "flower.txt"
         config_file = Path(opt.__file__).absolute().parent.joinpath("configs", config_name)

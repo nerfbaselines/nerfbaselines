@@ -63,7 +63,11 @@ conda develop "$PWD/internal/pycolmap/pycolmap"
 # ./scripts/run_all_unit_tests.sh
 """,
     },
-    "metadata": {},
+    "metadata": {
+    },
+    "dataset_overrides": {
+        "blender": {"base_config": "zipnerf/blender"},
+    },
 }
 
 register(
