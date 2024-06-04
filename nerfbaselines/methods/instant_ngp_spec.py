@@ -68,10 +68,6 @@ echo "export PATH=\"$CONDA_PREFIX/src/instant-ngp/build:\$PATH\"" >> "$CONDA_PRE
 # Test pyngp is available
 function nb-post-install () {
     # If not in CI, test the installation
-    env
-    env | grep -q GITHUB
-    env | grep -q GITHUB_ACTIONS
-    env | grep -q CI
     if [ "$GITHUB_ACTIONS" != "true" ]; then
         conda deactivate; conda activate "$_prefix"; 
         echo "Testing pyngp"
@@ -98,6 +94,15 @@ This method trains very fast (~6 min) and renders also fast ~3 FPS.""",
         "paper_results": paper_results,
     },
     "backends_order": ["docker", "conda"],
+    "dataset_overrides": {
+        "blender": {
+            "testbed.color_space": "SRGB",
+            "testbed.nerf.cone_angle_constant": 0,
+            "testbed.nerf.training.random_bg_color": False,
+            "aabb_scale": None,
+            "keep_coords": True,
+        },
+    },
 }
 
 register(InstantNGPSpec, name="instant-ngp")

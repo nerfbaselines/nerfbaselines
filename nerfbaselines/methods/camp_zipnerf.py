@@ -212,7 +212,7 @@ class MNDataset(datasets.Dataset):
             self.dataparser_transform = (None, np.eye(4))
             meters_per_colmap = self.dataparser_transform[0]
         elif self.dataparser_transform is None:
-            meters_per_colmap = camera_utils.get_meters_per_colmap_from_calibration_images(config, poses, [x.name for x in self.dataset["file_paths"]])
+            meters_per_colmap = camera_utils.get_meters_per_colmap_from_calibration_images(config, poses, [os.path.split(x)[-1] for x in self.dataset["file_paths"]])
 
             # Rotate/scale poses to align ground with xy plane and fit to unit cube.
             if config.transform_poses_fn is None:

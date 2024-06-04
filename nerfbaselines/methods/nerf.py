@@ -30,8 +30,13 @@ from nerfbaselines.types import Optional
 from nerfbaselines.utils import padded_stack, convert_image_dtype
 from nerfbaselines.pose_utils import pad_poses, apply_transform, unpad_poses, invert_transform
 
-
+# Setup TF GPUs
+physical_devices = tf.config.experimental.list_physical_devices('GPU')
+for device in physical_devices:
+    tf.config.experimental.set_memory_growth(device, True)
 tf.compat.v1.enable_eager_execution()
+
+
 def shlex_join(split_command):
     """Return a shell-escaped string from *split_command*."""
     return ' '.join(shlex.quote(arg) for arg in split_command)

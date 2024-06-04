@@ -118,12 +118,14 @@ class CameraInfo(_old_CameraInfo):
 scene.dataset_readers.CameraInfo = CameraInfo
 
 
-def _load_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, image_path=None, sampling_mask=None):
+def _load_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, image_path=None, sampling_mask=None, scale_coords=None):
     pose = np.copy(pose)
     pose = np.concatenate([pose, np.array([[0, 0, 0, 1]], dtype=pose.dtype)], axis=0)
     pose = np.linalg.inv(pose)
     R = pose[:3, :3]
     T = pose[:3, 3]
+    if scale_coords is not None:
+        T = T * scale_coords
     R = np.transpose(R)
 
     width, height = image_size
@@ -222,10 +224,16 @@ class MipSplatting(Method):
         self.scene = None
 
         # Setup parameters
-        self._args_list = ["--source_path", "<empty>"]
+        self._args_list = ["--source_path", "<empty>", "--resolution", "1", "--eval"]
         if checkpoint is not None:
             with open(os.path.join(checkpoint, "args.txt"), "r", encoding="utf8") as f:
                 self._args_list = shlex.split(f.read())
+
+        # Fix rendering for old checkpoints
+        # TODO: remove after redoing the checkpoints
+        if "--resolution" not in self._args_list:
+            self._args_list.append("--resolution")
+            self._args_list.append("1")
 
         # Setup config
         if self.checkpoint is None:

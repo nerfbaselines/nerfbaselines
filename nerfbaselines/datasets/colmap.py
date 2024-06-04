@@ -220,10 +220,10 @@ def load_colmap_dataset(path: Union[Path, str],
     colmap_path = path / colmap_path
     if images_path is None:
         images_path = Path("images")
-    images_path = path / images_path
+    images_path = (path / images_path).resolve()
     if sampling_masks_path is None:
         sampling_masks_path = Path("sampling_masks")
-    sampling_masks_path = path / sampling_masks_path
+    sampling_masks_path = (path / sampling_masks_path).resolve()
     if not colmap_path.exists():
         raise DatasetNotFoundError("Missing 'sparse/0' folder in COLMAP dataset")
     if not (colmap_path / "cameras.bin").exists() and not (colmap_path / "cameras.txt").exists():
@@ -345,10 +345,11 @@ def load_colmap_dataset(path: Union[Path, str],
     dataset = construct_dataset(
         cameras=all_cameras,
         file_paths=image_paths,
+        file_paths_root=str(images_path),
+        sampling_mask_paths=sampling_mask_paths,
+        sampling_mask_paths_root=str(sampling_masks_path),
         points3D_xyz=points3D_xyz,
         points3D_rgb=points3D_rgb,
-        sampling_mask_paths=sampling_mask_paths,
-        file_paths_root=str(images_path),
         metadata={
             "name": "colmap",
             "color_space": "srgb",

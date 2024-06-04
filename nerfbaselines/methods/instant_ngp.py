@@ -1,3 +1,4 @@
+import pprint
 import logging
 import struct
 import math
@@ -161,7 +162,33 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
     out = {"frames": frames}
     if aabb_scale is not None:
         out["aabb_scale"] = aabb_scale
-    return out, dict(dataparser_transform=dataparser_transform, dataparser_scale=dataparser_scale, aabb_scale=aabb_scale, keep_coords=keep_coords, **kwargs)
+    return out, dict(dataparser_transform=dataparser_transform, 
+                     dataparser_scale=dataparser_scale, 
+                     aabb_scale=aabb_scale, 
+                     keep_coords=keep_coords, 
+                     **kwargs)
+
+
+def _config_overrides_fix_types(config_overrides):
+    out = {}
+    for k, v in config_overrides.items():
+        if isinstance(v, str):
+            if v.lower() == "true":
+                v = True
+            elif v.lower() == "false":
+                v = False
+            elif v.lower() in {"none", "null"}:
+                v = None
+            else:
+                try:
+                    v = int(v)
+                except ValueError:
+                    try:
+                        v = float(v)
+                    except ValueError:
+                        pass
+        out[k] = v
+    return out
 
 
 class InstantNGP(Method):
@@ -205,11 +232,11 @@ class InstantNGP(Method):
             num_iterations=self.num_iterations, 
             loaded_step=self._loaded_step,
             loaded_checkpoint=str(self.checkpoint) if self.checkpoint is not None else None,
-            hparams=flatten_hparams(self._config or {}),
+            hparams=flatten_hparams(self._config or {}, separator="."),
             **self.get_method_info(),
         )
 
-    def _setup(self, train_transforms):
+    def _setup(self, train_transforms, config_overrides=None, background_color=None):
         import pyngp as ngp  # Depends on GPU
 
         self.RenderMode = ngp.RenderMode
@@ -224,6 +251,7 @@ class InstantNGP(Method):
             package_root = Path(os.path.dirname(os.path.dirname(os.path.abspath(ngp.__file__))))
             testbed.reload_network_from_file(str(package_root / "configs" / "nerf" / "base.json"))
             self._config = json.loads((package_root / "configs" / "nerf" / "base.json").read_text())
+
         self._config["testbed"] = testbed_cfg = self._config.get("testbed", {})
         testbed_cfg["nerf"] = testbed_cfg.get("nerf", {})
         testbed_cfg["nerf"]["training"] = testbed_cfg["nerf"].get("training", {})
@@ -233,31 +261,24 @@ class InstantNGP(Method):
         testbed_cfg["exposure"] = 0.0
         testbed_cfg["nerf"]["sharpen"] = 0.0
         testbed_cfg["nerf"]["render_with_lens_distortion"] = True
-        testbed_cfg["shall_train"] = True
-        if self.dataparser_params.get("nerf_compatibility", False):
-            logging.info("NeRF compatibility mode enabled")
 
-            # Prior nerf papers accumulate/blend in the sRGB
-            # color space. This messes not only with background
-            # alpha, but also with DOF effects and the likes.
-            # We support this behavior, but we only enable it
-            # for the case of synthetic nerf data where we need
-            # to compare PSNR numbers to results of prior work.
-            testbed_cfg["color_space"] = ngp.ColorSpace.SRGB.name
+        # Blender uses background_color = [255, 255, 255, 255]
+        # NOTE: this is different from ingp official implementation
+        if background_color is not None:
+            testbed_cfg["background_color"] = [float(x)/255. for x in background_color] + [1.0]
 
-            # No exponential cone tracing. Slightly increases
-            # quality at the cost of speed. This is done by
-            # default on scenes with AABB 1 (like the synthetic
-            # ones), but not on larger scenes. So force the
-            # setting here.
-            testbed_cfg["nerf"]["cone_angle_constant"] = 0
-
-            # Match nerf paper behaviour and train on a fixed bg.
-            testbed_cfg["nerf"]["training"]["random_bg_color"] = False
-
-            # Blender uses background_color = [255, 255, 255, 255]
-            # NOTE: this is different from ingp official implementation
-            testbed_cfg["background_color"] = [1.0, 1.0, 1.0, 1.000]
+        # Update with config overrides
+        if config_overrides is not None:
+            config_overrides = _config_overrides_fix_types(config_overrides)
+            for k, v in config_overrides.items():
+                if not k.startswith("testbed."):
+                    continue
+                parts = k.split(".")[1:]
+                obj = testbed_cfg
+                for part in parts[:-1]:
+                    obj[part] = obj.get(part, {})
+                    obj = obj[part]
+                obj[parts[-1]] = v
 
         def set_params(obj, cfg):
             for k, v in cfg.items():
@@ -268,45 +289,55 @@ class InstantNGP(Method):
                 else:
                     setattr(obj, k, v)
         set_params(testbed, testbed_cfg)
+
+        print("Config:")
+        pprint.pprint(testbed_cfg)
+
+        testbed.shall_train = True
         self.testbed = testbed
 
     def _write_images(self, dataset: Dataset, tmpdir: str):
         from tqdm import tqdm
 
-        for i, impath_source in enumerate(tqdm(dataset["file_paths"], desc="caching images", dynamic_ncols=True)):
-            impath_source = Path(impath_source)
-            impath_target = Path(tmpdir) / str(impath_source.relative_to(dataset["file_paths_root"])).replace("/", "__")
-            dataset["file_paths"][i] = str(impath_target)
-            impath_target.parent.mkdir(parents=True, exist_ok=True)
-            if impath_target.exists():
-                continue
-            width, height = dataset["cameras"].image_sizes[i]
-            if impath_source.exists():
-                impath_target.symlink_to(impath_source)
-                logging.debug(f"symlinked {impath_source} to {impath_target}")
-            else:
-                img = dataset["images"][i][:height, :width]
-                if dataset["metadata"]["color_space"] == "srgb":
-                    impath_target = impath_target.with_suffix(".png")
-                    dataset["file_paths"][i] = str(impath_target)
-                    image = Image.fromarray(img)
-                    image.save(str(impath_target))
-                elif dataset["metadata"]["color_space"] == "linear":
-                    impath_target = impath_target.with_suffix(".bin")
-                    dataset["file_paths"][i] = str(impath_target)
-                    if img.shape[2] < 4:
-                        img = np.dstack((img, np.ones([img.shape[0], img.shape[1], 4 - img.shape[2]])))
-                    with open(str(impath_target), "wb") as f:
-                        f.write(struct.pack("ii", img.shape[0], img.shape[1]))
-                        f.write(img.astype(np.float16).tobytes())
-                logging.debug(f"copied {impath_source} to {impath_target}")
-            if dataset["sampling_masks"] is not None:
-                mask = dataset["sampling_masks"][i]
-                mask = Image.fromarray(mask[:height, :width], mode="L")
-                mask = ImageOps.invert(mask)
-                maskname = impath_target.with_name(f"dynamic_mask_{impath_target.name}")
-                dataset["sampling_masks"][i] = maskname
-                mask.save(str(maskname))
+        linked, copied = 0, 0
+        with tqdm(dataset["file_paths"], desc="caching images", dynamic_ncols=True) as progress:
+            for i, impath_source in enumerate(progress):
+                impath_source = Path(impath_source)
+                impath_target = Path(tmpdir) / str(impath_source.relative_to(dataset["file_paths_root"])).replace("/", "__")
+                dataset["file_paths"][i] = str(impath_target)
+                impath_target.parent.mkdir(parents=True, exist_ok=True)
+                if impath_target.exists():
+                    continue
+                width, height = dataset["cameras"].image_sizes[i]
+                if impath_source.exists():
+                    impath_target.resolve().symlink_to(impath_source)
+                    logging.info(f"symlinked {impath_source} to {impath_target}")
+                    linked += 1
+                else:
+                    img = dataset["images"][i][:height, :width]
+                    if dataset["metadata"]["color_space"] == "srgb":
+                        impath_target = impath_target.with_suffix(".png")
+                        dataset["file_paths"][i] = str(impath_target)
+                        image = Image.fromarray(img)
+                        image.save(str(impath_target))
+                    elif dataset["metadata"]["color_space"] == "linear":
+                        impath_target = impath_target.with_suffix(".bin")
+                        dataset["file_paths"][i] = str(impath_target)
+                        if img.shape[2] < 4:
+                            img = np.dstack((img, np.ones([img.shape[0], img.shape[1], 4 - img.shape[2]])))
+                        with open(str(impath_target), "wb") as f:
+                            f.write(struct.pack("ii", img.shape[0], img.shape[1]))
+                            f.write(img.astype(np.float16).tobytes())
+                    logging.info(f"copied {impath_source} to {impath_target}")
+                    copied += 1
+                progress.set_postfix(linked=linked, copied=copied)
+                if dataset["sampling_masks"] is not None:
+                    mask = dataset["sampling_masks"][i]
+                    mask = Image.fromarray(mask[:height, :width], mode="L")
+                    mask = ImageOps.invert(mask)
+                    maskname = impath_target.with_name(f"dynamic_mask_{impath_target.name}")
+                    dataset["sampling_masks"][i] = maskname
+                    mask.save(str(maskname))
         dataset["file_paths_root"] = str(tmpdir)
 
     def _setup_train(self, train_dataset: Dataset, config_overrides):
@@ -314,6 +345,7 @@ class InstantNGP(Method):
         self._eval_setup_step = None
         tmpdir = self._tempdir.name
         self._write_images(train_dataset, tmpdir)
+        config_overrides = _config_overrides_fix_types(config_overrides or {}).copy()
 
         current_step = 0
         if self.checkpoint is not None:
@@ -327,27 +359,36 @@ class InstantNGP(Method):
                 self.dataparser_params["dataparser_transform"] = np.array(self.dataparser_params["dataparser_transform"], dtype=np.float32)
         else:
             loader = train_dataset["metadata"].get("name")
-            nerf_compatibility = False
             if loader == "blender":
-                aabb_scale = None
-                keep_coords = True
-                nerf_compatibility = True
-            else:
-                aabb_scale = 32
-                keep_coords = False
-                nerf_compatibility = False
+                # Prior nerf papers accumulate/blend in the sRGB
+                # color space. This messes not only with background
+                # alpha, but also with DOF effects and the likes.
+                # We support this behavior, but we only enable it
+                # for the case of synthetic nerf data where we need
+                # to compare PSNR numbers to results of prior work.
+                config_overrides["testbed.color_space"] = config_overrides.get("testbed.color_space", "SRGB")
+                # No exponential cone tracing. Slightly increases
+                # quality at the cost of speed. This is done by
+                # default on scenes with AABB 1 (like the synthetic
+                # ones), but not on larger scenes. So force the
+                # setting here.
+                config_overrides["testbed.nerf.cone_angle_constant"] = config_overrides.get("testbed.nerf.cone_angle_constant", 0)
+                # Match nerf paper behaviour and train on a fixed bg.
+                config_overrides["testbed.nerf.training.random_bg_color"] = config_overrides.get("testbed.nerf.training.random_bg_color", False)
+                config_overrides["aabb_scale"] = config_overrides.get("aabb_scale", None)
+                config_overrides["keep_coords"] = config_overrides.get("keep_coords", True)
 
-            config_overrides = config_overrides or {}
-            aabb_scale = cast_value(Optional[int], config_overrides.get("aabb_scale", aabb_scale))
-            keep_coords = cast_value(bool, config_overrides.get("keep_coords", keep_coords))
-            nerf_compatibility = cast_value(bool, config_overrides.get("nerf_compatibility", nerf_compatibility))
+            aabb_scale = cast_value(Optional[int], config_overrides.get("aabb_scale", 32))
+            keep_coords = cast_value(bool, config_overrides.get("keep_coords", False))
             self._train_transforms, self.dataparser_params = get_transforms(
-                train_dataset, aabb_scale=aabb_scale, keep_coords=keep_coords, nerf_compatibility=nerf_compatibility, color_space=train_dataset["metadata"]["color_space"]
+                train_dataset, 
+                aabb_scale=aabb_scale, 
+                keep_coords=keep_coords, 
+                color_space=train_dataset["metadata"].get("color_space", "srgb"),
             )
         with (Path(tmpdir) / "transforms.json").open("w") as f:
             json.dump(self._train_transforms, f)
-        assert "nerf_compatibility" in self.dataparser_params
-        self._setup(Path(tmpdir) / "transforms.json")
+        self._setup(Path(tmpdir) / "transforms.json", config_overrides, background_color=train_dataset["metadata"].get("background_color"))
         assert self.testbed.training_step == current_step, "Training step mismatch"
 
     def _setup_eval(self):
@@ -435,14 +476,6 @@ class InstantNGP(Method):
             old_testbed_shall_train = self.testbed.shall_train
             try:
                 self.testbed.load_training_data(str(Path(tmpdir) / "transforms.json"))
-
-                if self.dataparser_params.get("nerf_compatibility", False):
-                    # Blender uses background_color = [255, 255, 255, 255]
-                    # NOTE: this is different from ingp official implementation
-                    self.testbed.background_color = [1.0, 1.0, 1.0, 1.000]
-                else:
-                    # Evaluate metrics on black background
-                    self.testbed.background_color = [0.0, 0.0, 0.0, 1.0]
 
                 # Prior nerf papers don't typically do multi-sample anti aliasing.
                 # So snap all pixels to the pixel centers.

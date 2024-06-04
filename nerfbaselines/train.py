@@ -353,6 +353,9 @@ class Trainer:
             "color_space": self._dataset_metadata.get("color_space"),  # TODO: remove
             "expected_scene_scale": expected_scene_scale,  # TODO: remove
             "dataset_background_color": dataset_metadata["background_color"],  # TODO: remove
+
+            # Store hparams
+            # "hparams": self.method.get_info().get("hparams"),
         }
 
     def save(self):
@@ -360,7 +363,7 @@ class Trainer:
         os.makedirs(os.path.join(self.output, f"checkpoint-{self.step}"), exist_ok=True)
         self.method.save(str(path))
         with open(os.path.join(path, "nb-info.json"), mode="w+", encoding="utf8") as f:
-            json.dump(serialize_nb_info(self._get_nb_info()), f)
+            json.dump(serialize_nb_info(self._get_nb_info()), f, indent=2)
         logging.info(f"checkpoint saved at step={self.step}")
 
     def train_iteration(self):
@@ -439,11 +442,13 @@ class Trainer:
                 # Log metrics and update progress bar
                 if self.step % update_frequency == 0 or self.step == self.num_iterations:
                     acc_metrics = self._acc_metrics.pop()
-                    pbar.set_postfix(
-                        {
-                            "train/loss": f'{acc_metrics["loss"]:.4f}',
-                        }
-                    )
+                    postfix = {}
+                    if "psnr" in acc_metrics:
+                        postfix["train/psnr"] = f'{acc_metrics["psnr"]:.4f}'
+                    elif "loss" in acc_metrics:
+                        postfix["train/loss"] = f'{acc_metrics["loss"]:.4f}'
+                    if postfix:
+                        pbar.set_postfix(postfix)
                     log_metrics(logger, acc_metrics, prefix="train/", step=self.step)
 
                 # Visualize and save

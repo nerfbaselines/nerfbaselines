@@ -282,9 +282,11 @@ class NerfStudio(Method):
             if not _config_safe_set(config, "pipeline.model.average_init_density", 1.0):
                 logging.warning("Flag pipeline.model.average_init_density is not set (required for blender-type dataset)")
 
-        if dataset["metadata"].get("name") == "mipnerf360":
-            if not _config_safe_set(config, "max_num_iterations", 70000):
-                logging.warning("Flag max_num_iterations is not set (required for mipnerf360-type dataset)")
+        if dataset["metadata"].get("name") in ("mipnerf360", "tanksandtemples"):
+            old_num_iter = getattr(config, "max_num_iterations", 0)
+            if old_num_iter < 70000:
+                if not _config_safe_set(config, "max_num_iterations", 70000):
+                    logging.warning("Flag max_num_iterations is not set (required for mipnerf360-type dataset)")
             if not _config_safe_set(config, "pipeline.datamanager.camera_optimizer.mode", "off") and not _config_safe_set(config, "pipeline.model.camera_optimizer.mode", "off"):
                 logging.warning("Flag pipeline.datamanager.camera_optimizer.mode is not set (required for mipnerf360-type dataset)")
             if not _config_safe_set(config, "pipeline.model.use_appearance_embedding", False):

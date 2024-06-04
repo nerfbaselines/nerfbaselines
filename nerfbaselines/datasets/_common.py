@@ -1,3 +1,4 @@
+import warnings
 import gc
 import logging
 import os
@@ -199,6 +200,11 @@ def dataset_load_features(
     images: List[np.ndarray] = []
     image_sizes = []
     all_metadata = []
+    resize = dataset["metadata"].get("downscale_loaded_factor")
+    if resize == 1:
+        resize = None
+
+    i = 0
     for p in tqdm(dataset["file_paths"], desc="loading images", dynamic_ncols=True):
         if str(p).endswith(".bin"):
             assert dataset["metadata"]["color_space"] == "linear"
@@ -219,19 +225,45 @@ def dataset_load_features(
             assert dataset["metadata"]["color_space"] == "srgb"
             pil_image = PIL.Image.open(p)
             metadata = get_image_metadata(pil_image)
+            if resize is not None:
+                w, h = pil_image.size
+                new_size = round(w/resize), round(h/resize)
+                pil_image = pil_image.resize(new_size, PIL.Image.BICUBIC)
+                warnings.warn(f"Resized image with a factor of {resize}")
+
             image = np.array(pil_image, dtype=np.uint8)
         images.append(image)
         image_sizes.append([image.shape[1], image.shape[0]])
         all_metadata.append(metadata)
+        i += 1
+
     logging.debug(f"Loaded {len(images)} images")
 
     if dataset["sampling_mask_paths"] is not None:
         sampling_masks = []
         for p in tqdm(dataset["sampling_mask_paths"], desc="loading sampling masks", dynamic_ncols=True):
             sampling_mask = PIL.Image.open(p).convert("L")
+            if resize is not None:
+                w, h = sampling_mask.size
+                new_size = round(w*resize), round(h*resize)
+                sampling_mask = sampling_mask.resize(new_size, PIL.Image.NEAREST)
+                warnings.warn(f"Resized sampling mask with a factor of {resize}")
+
             sampling_masks.append(np.array(sampling_mask, dtype=np.uint8).astype(bool))
         dataset["sampling_masks"] = sampling_masks  # padded_stack(sampling_masks)
         logging.debug(f"Loaded {len(sampling_masks)} sampling masks")
+
+    if resize is not None:
+        # Replace all paths with the resized paths
+        dataset["file_paths"] = [
+            os.path.join("/resized", os.path.relpath(p, dataset["file_paths_root"])) 
+            for p in dataset["file_paths"]]
+        dataset["file_paths_root"] = "/resized"
+        if dataset["sampling_mask_paths"] is not None:
+            dataset["sampling_mask_paths"] = [
+                os.path.join("/resized-sampling-masks", os.path.relpath(p, dataset["sampling_mask_paths_root"])) 
+                for p in dataset["sampling_mask_paths"]]
+            dataset["sampling_mask_paths_root"] = "/resized-sampling-masks"
 
     dataset["images"] = images  # padded_stack(images)
 
@@ -244,6 +276,10 @@ def dataset_load_features(
         image_sizes=image_sizes, 
         intrinsics=cameras.intrinsics * multipliers, 
         metadata=np.stack(all_metadata, 0))
+
+    print(dataset["cameras"].intrinsics[0])
+    print(dataset["cameras"].image_sizes[0])
+    print(dataset["cameras"].intrinsics.shape)
 
     if supported_camera_models is not None:
         if _dataset_undistort_unsupported(cast(Dataset, dataset), supported_camera_models):
@@ -309,7 +345,12 @@ def dataset_index_select(dataset: TDataset, i: Union[slice, int, list, np.ndarra
         raise ValueError(f"Cannot index object of type {type(obj)} at key {key}")
 
     _dataset = cast(Dict, dataset.copy())
-    _dataset.update({k: index(k, v) for k, v in dataset.items() if k not in {"file_paths_root", "points3D_xyz", "points3D_rgb", "metadata"}})
+    _dataset.update({k: index(k, v) for k, v in dataset.items() if k not in {
+        "file_paths_root", 
+        "sampling_mask_paths_root", 
+        "points3D_xyz", 
+        "points3D_rgb", 
+        "metadata"}})
     return cast(TDataset, _dataset)
 
 
@@ -344,19 +385,25 @@ def construct_dataset(*,
 def construct_dataset(*,
                       cameras: Cameras,
                       file_paths: Sequence[str],
+                      file_paths_root: Optional[str] = None,
                       images: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W, 3]
                       sampling_mask_paths: Optional[Sequence[str]] = None,
-                      file_paths_root: Optional[str] = None,
+                      sampling_mask_paths_root: Optional[str] = None,
                       sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W]
                       points3D_xyz: Optional[np.ndarray] = None,  # [M, 3]
                       points3D_rgb: Optional[np.ndarray] = None,  # [M, 3]
                       metadata: Dict) -> Union[UnloadedDataset, Dataset]:
     if file_paths_root is None:
         file_paths_root = os.path.commonpath(file_paths)
+    if sampling_mask_paths_root is None and sampling_mask_paths is not None:
+        sampling_mask_paths_root = os.path.commonpath(sampling_mask_paths)
+    if file_paths_root is None:
+        file_paths_root = os.path.commonpath(file_paths)
     return UnloadedDataset(
         cameras=cameras,
         file_paths=list(file_paths),
         sampling_mask_paths=list(sampling_mask_paths) if sampling_mask_paths is not None else None,
+        sampling_mask_paths_root=sampling_mask_paths_root,
         file_paths_root=file_paths_root,
         images=images,
         sampling_masks=sampling_masks,

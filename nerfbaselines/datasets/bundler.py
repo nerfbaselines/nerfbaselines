@@ -135,8 +135,13 @@ def load_bundler_dataset(path: str,
     load_points = "points3D_xyz" in features or "points3D_rgb" in features
     if split:
         assert split in {"train", "test"}
+
     images_root = os.path.join(path, "images") if images_path is None else os.path.join(path, images_path)
+    images_root = os.path.realpath(images_root)
+
     images_masks_root = os.path.join(path, "sampling_masks") if sampling_masks_path is None else os.path.join(path, sampling_masks_path)
+    images_masks_root = os.path.realpath(images_masks_root)
+
     image_names = [
         os.path.relpath(x, images_root) for x in glob(os.path.join(images_root, "**/*"), recursive=True)
         if x.lower().endswith((".jpg", ".jpeg", ".png"))
@@ -150,10 +155,11 @@ def load_bundler_dataset(path: str,
     dataset = construct_dataset(
         cameras=all_cameras,
         file_paths=abs_paths,
+        file_paths_root=images_root,
+        sampling_mask_paths=sampling_mask_paths,
+        sampling_mask_paths_root=images_masks_root,
         points3D_xyz=points3D_xyz if load_points else None,
         points3D_rgb=points3D_rgb if load_points else None,
-        sampling_mask_paths=sampling_mask_paths,
-        file_paths_root=images_root,
         metadata={
             "name": "colmap",
             "color_space": "srgb",
