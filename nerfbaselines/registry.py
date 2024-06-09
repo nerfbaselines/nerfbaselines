@@ -210,7 +210,11 @@ def _make_entrypoint_absolute(entrypoint: str) -> str:
     return ":".join((module, name))
 
 
-def register(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"], *, name: str, metadata=None, kwargs=None) -> None:
+def register(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"], *, 
+             name: str, 
+             metadata=None, 
+             kwargs=None,
+             dataset_overrides=None) -> None:
     if metadata is None:
         metadata = {}
     spec = spec.copy()
@@ -219,10 +223,12 @@ def register(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"],
         spec["method"] = _make_entrypoint_absolute(spec["method"])
         spec.update(
             kwargs={**(spec.get("kwargs") or {}), **(kwargs or {})}, 
-            metadata={**(spec.get("metadata") or {}), **(metadata or {})})
+            metadata={**(spec.get("metadata") or {}), **(metadata or {})},
+            dataset_overrides={**(spec.get("dataset_overrides") or {}), **(dataset_overrides or {})})
         methods_registry[name] = spec
     elif "load_dataset_function" in spec and "priority" in spec:
         assert name not in datasets_registry, f"Dataset {name} already registered"
+        assert dataset_overrides is None, "Parameter dataset_overrides is only valid for methods"
         spec["load_dataset_function"] = _make_entrypoint_absolute(spec["load_dataset_function"])
         download_fn = spec.get("download_dataset_function")
         if download_fn is not None:
@@ -239,6 +245,7 @@ def register(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"],
         datasets_registry[name] = spec
     elif "evaluation_protocol" in spec:
         assert name not in evaluation_protocols_registry, f"Evaluation protocol {name} already registered"
+        assert dataset_overrides is None, "Parameter dataset_overrides is only valid for methods"
         spec["evaluation_protocol"] = _make_entrypoint_absolute(spec["evaluation_protocol"])
         evaluation_protocols_registry[name] = spec
     else:

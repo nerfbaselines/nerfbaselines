@@ -277,6 +277,7 @@ class _IncompleteDataset(TypedDict, total=True):
     sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]]  # [N][H, W]
     points3D_xyz: Optional[np.ndarray]  # [M, 3]
     points3D_rgb: Optional[np.ndarray]  # [M, 3]
+    images_points3D_indices: Optional[List[np.ndarray]]  # [N][<M]
 
 
 class UnloadedDataset(_IncompleteDataset):

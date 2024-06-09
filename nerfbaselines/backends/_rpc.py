@@ -407,7 +407,8 @@ class RPCWorker:
         msg_type = message["message"]
         if msg_type == "del":
             outmsg = self._process_del(**message)
-            send_message(outmsg)
+            if message.get("send_ack", True):
+                send_message(outmsg)
         elif msg_type == "cancel":
             self.cancel(message["cancellation_token_id"])
         elif msg_type == "getattr":
@@ -749,12 +750,13 @@ class RPCBackend(Backend):
             
             def del_hook(token):
                 try:
-                    def callback(msg):
-                        if msg["message"] != "del_ack":
-                            raise RuntimeError(f"Unexpected message {msg['message']}")
+                    # def callback(msg):
+                    #     if msg["message"] != "del_ack":
+                    #         raise RuntimeError(f"Unexpected message {msg['message']}")
                     return self._send({
                         "message": "del", 
-                        "instance": id(token)}, callback=callback)
+                        "send_ack": False,
+                        "instance": id(token)})#, callback=callback)
                 except ConnectionError:
                     pass
                 except Exception as _:

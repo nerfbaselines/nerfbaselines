@@ -136,6 +136,10 @@ def load_bundler_dataset(path: str,
     if split:
         assert split in {"train", "test"}
 
+    if "images_points3D_indices" in features:
+        # TODO: Implement this feature
+        raise NotImplementedError("images_points3D_indices is not implemented for the bundler loader")
+
     images_root = os.path.join(path, "images") if images_path is None else os.path.join(path, images_path)
     images_root = os.path.realpath(images_root)
 

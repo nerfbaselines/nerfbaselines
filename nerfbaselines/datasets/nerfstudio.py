@@ -10,7 +10,7 @@ from typing import Optional, List, Tuple, Dict, Union
 import numpy as np
 from PIL import Image
 
-from ._colmap_utils import read_points3D_binary, read_points3D_text
+from ._colmap_utils import read_points3D_binary, read_points3D_text, read_images_binary, read_images_text
 from ._common import DatasetNotFoundError, get_scene_scale, get_default_viewer_transform, construct_dataset, dataset_index_select
 from ..types import CameraModel, camera_model_to_int, FrozenSet, DatasetFeature, get_args, new_cameras
 from ..io import wget
@@ -397,11 +397,11 @@ def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor
     c2w[0:3, 1:3] *= -1
 
     all_cameras = new_cameras(
-        poses=c2w,
-        intrinsics=np.stack([fx, fy, cx, cy], -1),
-        camera_types=np.full((len(poses),), camera_model_to_int(camera_type), dtype=np.int32),
-        distortion_parameters=distortion_params,
-        image_sizes=np.stack([height, width], -1),
+        poses=c2w.astype(np.float32),
+        intrinsics=np.stack([fx, fy, cx, cy], -1).astype(np.float32),
+        camera_types=np.full((len(poses),), camera_model_to_int(camera_type), dtype=np.uint8),
+        distortion_parameters=distortion_params.astype(np.float32),
+        image_sizes=np.stack([height, width], -1).astype(np.int32),
         nears_fars=None,
     )
 
@@ -428,6 +428,7 @@ def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor
 
     points3D_rgb = None
     points3D_xyz = None
+    images_points3D_indices = None
     if "points3D_xyz" in (features or {}):
         colmap_path = data_dir / "colmap" / "sparse" / "0"
         if not colmap_path.exists():
@@ -449,9 +450,33 @@ def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor
         points3D_xyz = points3D_xyz[..., np.array([1, 0, 2])]
         points3D_xyz[..., 2] *= -1
 
+        if "images_points3D_indices" in features:
+            # TODO: Verify this feature is working well
+            points3D_map = {k: i for i, k in enumerate(points3D.keys())}
+            if (colmap_path / "points3D.bin").exists():
+                images_colmap = read_images_binary(str(colmap_path / "images.bin"))
+            elif (colmap_path / "points3D.txt").exists():
+                images_colmap = read_images_text(str(colmap_path / "images.txt"))
+            else:
+                raise RuntimeError(f"3D points are requested but images.{{bin|txt}} not present in dataset {data_dir}")
+            images_colmap_map = {}
+            for image in images_colmap.values():
+                images_colmap_map[image.name] = np.ndarray([points3D_map[x] for x in image.points3D_ids], dtype=np.int32)
+            images_points3D_indices = []
+            for impath in image_filenames:
+                impath = os.path.relpath(impath, str(images_root))
+                images_points3D_indices.append(images_colmap_map[impath])
+
     viewer_transform, viewer_pose = get_default_viewer_transform(all_cameras.poses, None)
 
     idx_tensor = np.array(indices, dtype=np.int32)
+
+    # Get scene name (if official nerfstudio dataset)
+    scene = None
+    abspath = path.resolve()
+    if len(abspath.parts) > 2 and abspath.parts[-1].lower() in nerfstudio_file_ids and abspath.parts[-2] == "nerfstudio":
+        scene = abspath.parts[-1].lower()
+
     return dataset_index_select(
         construct_dataset(
             cameras=all_cameras,
@@ -461,8 +486,10 @@ def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor
             sampling_mask_paths_root=str(sampling_masks_root) if len(mask_filenames) > 0 else None,
             points3D_xyz=points3D_xyz,
             points3D_rgb=points3D_rgb,
+            images_points3D_indices=images_points3D_indices,
             metadata={
                 "name": "nerfstudio",
+                "scene": scene,
                 "expected_scene_scale": get_scene_scale(all_cameras, "object-centric") if split == "train" else None,
                 "color_space": "srgb",
                 "type": None,
@@ -489,7 +516,7 @@ nerfstudio_file_ids = {
     "redwoods2":    grab_file_id("https://drive.google.com/file/d/1rg-4NoXT8p6vkmbWxMOY6PSG4j3rfcJ8/view?usp=sharing"),
     "storefront":   grab_file_id("https://drive.google.com/file/d/16b792AguPZWDA_YC4igKCwXJqW0Tb21o/view?usp=sharing"),
     "vegetation":   grab_file_id("https://drive.google.com/file/d/1wBhLQ2odycrtU39y2akVurXEAt9SsVI3/view?usp=sharing"),
-    "Egypt":        grab_file_id("https://drive.google.com/file/d/1YktD85afw7uitC3nPamusk0vcBdAfjlF/view?usp=sharing"),
+    "egypt":        grab_file_id("https://drive.google.com/file/d/1YktD85afw7uitC3nPamusk0vcBdAfjlF/view?usp=sharing"),
     "person":       grab_file_id("https://drive.google.com/file/d/1HsGMwkPu-R7oU7ySMdoo6Eppq8pKhHF3/view?usp=sharing"),
     "kitchen":      grab_file_id("https://drive.google.com/file/d/1IRmNyNZSNFidyj93Tt5DtaEU9h6eJdi1/view?usp=sharing"),
     "plane":        grab_file_id("https://drive.google.com/file/d/1tnv2NC2Iwz4XRYNtziUWvLJjObkZNo2D/view?usp=sharing"),
@@ -498,7 +525,7 @@ nerfstudio_file_ids = {
     "aspen":        grab_file_id("https://drive.google.com/file/d/1X1PQcji_QpxGfMxbETKMeK8aOnWCkuSB/view?usp=sharing"),
     "stump":        grab_file_id("https://drive.google.com/file/d/1yZFAAEvtw2hs4MXrrkvhVAzEliLLXPB7/view?usp=sharing"),
     "sculpture":    grab_file_id("https://drive.google.com/file/d/1CUU_k0Et2gysuBn_R5qenDMfYXEhNsd1/view?usp=sharing"),
-    "Giannini-Hall":grab_file_id("https://drive.google.com/file/d/1UkjWXLN4qybq_a-j81FsTKghiXw39O8E/view?usp=sharing"),
+    "giannini-hall":grab_file_id("https://drive.google.com/file/d/1UkjWXLN4qybq_a-j81FsTKghiXw39O8E/view?usp=sharing"),
 }
 
 

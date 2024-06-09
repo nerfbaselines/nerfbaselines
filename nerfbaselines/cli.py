@@ -29,7 +29,10 @@ class LazyGroup(click.Group):
         package = self._lazy_commands.get(cmd_name, None)
         if package is not None:
             if isinstance(package, str):
-                package = importlib.import_module(package, __name__).main
+                fname = "main"
+                if ":" in package:
+                    package, fname = package.split(":")
+                package = getattr(importlib.import_module(package, __name__), fname)
             return package
         return super().get_command(ctx, cmd_name)
 
@@ -161,3 +164,4 @@ main.add_lazy_command("nerfbaselines.viewer", "viewer")
 main.add_lazy_command("nerfbaselines.render_trajectory", "render-trajectory")
 main.add_lazy_command("nerfbaselines._test_method", "test-method")
 main.add_lazy_command("nerfbaselines._generate_web", "generate-web")
+main.add_lazy_command("nerfbaselines._fix_checkpoint:fix_checkpoint_command", "fix-checkpoint")

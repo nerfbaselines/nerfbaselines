@@ -200,12 +200,13 @@ def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.nda
 
 
 def load_colmap_dataset(path: Union[Path, str],
-        images_path: Optional[Path] = None, 
         split: Optional[str] = None, 
+        *,
         test_indices: Optional[Indices] = None,
         features: Optional[FrozenSet[DatasetFeature]] = None,
-        colmap_path: Optional[Path] = None,
-        sampling_masks_path: Optional[Path] = None):
+        images_path: Optional[str] = None, 
+        colmap_path: Optional[str] = None,
+        sampling_masks_path: Optional[str] = None):
     path = Path(path)
     if features is None:
         features = typing.cast(FrozenSet[DatasetFeature], {})
@@ -217,19 +218,21 @@ def load_colmap_dataset(path: Union[Path, str],
         colmap_path = Path("sparse") / "0"
         if not (path / colmap_path).exists():
             colmap_path = Path("sparse")
+    rel_colmap_path = colmap_path
     colmap_path = path / colmap_path
     if images_path is None:
         images_path = Path("images")
+    rel_images_path = images_path
     images_path = (path / images_path).resolve()
     if sampling_masks_path is None:
         sampling_masks_path = Path("sampling_masks")
     sampling_masks_path = (path / sampling_masks_path).resolve()
     if not colmap_path.exists():
-        raise DatasetNotFoundError("Missing 'sparse/0' folder in COLMAP dataset")
+        raise DatasetNotFoundError(f"Missing '{rel_colmap_path}' folder in COLMAP dataset")
     if not (colmap_path / "cameras.bin").exists() and not (colmap_path / "cameras.txt").exists():
-        raise DatasetNotFoundError("Missing 'sparse/0/cameras.{bin,txt}' file in COLMAP dataset")
+        raise DatasetNotFoundError(f"Missing '{rel_colmap_path}/cameras.{{bin,txt}}' file in COLMAP dataset")
     if not images_path.exists():
-        raise DatasetNotFoundError("Missing 'images' folder in COLMAP dataset")
+        raise DatasetNotFoundError(f"Missing '{rel_images_path}' folder in COLMAP dataset")
 
     if (colmap_path / "cameras.bin").exists():
         colmap_cameras = read_cameras_binary(colmap_path / "cameras.bin")
@@ -271,6 +274,7 @@ def load_colmap_dataset(path: Union[Path, str],
     image: Image
     i = 0
     c2w: np.ndarray
+    images_points3D_ids = []
     for image in images.values():
         camera: Camera = colmap_cameras[image.camera_id]
         intrinsics, camera_type, distortion_params, (w, h) = _parse_colmap_camera_params(camera)
@@ -293,6 +297,10 @@ def load_colmap_dataset(path: Union[Path, str],
         camera_poses.append(c2w[0:3, :])
         i += 1
 
+        if "images_points3D_indices" in features:
+            images_points3D_ids.append(image.point3D_ids)
+
+
     # Estimate nears fars
     near = 0.01
     far = np.stack([x[:3, -1] for x in camera_poses], 0)
@@ -306,6 +314,16 @@ def load_colmap_dataset(path: Union[Path, str],
         assert points3D is not None, "3D points have not been loaded"
         points3D_xyz = np.array([p.xyz for p in points3D.values()], dtype=np.float32)
         points3D_rgb = np.array([p.rgb for p in points3D.values()], dtype=np.uint8)
+        if "images_points3D_indices" in features:
+            images_points3D_indices = []
+            ptmap = {point3D_id: i for i, point3D_id in enumerate(points3D.keys())}
+            for ids in images_points3D_ids:
+                indices3D = np.zeros(len(ids), dtype=np.int32)
+                for i, point3D_id in enumerate(ids):
+                    if point3D_id == -1:
+                        continue
+                    indices3D[i] = ptmap[point3D_id]
+                images_points3D_indices.append(indices3D)
 
     # camera_ids=torch.tensor(camera_ids, dtype=torch.int32),
     all_cameras = new_cameras(
@@ -350,6 +368,7 @@ def load_colmap_dataset(path: Union[Path, str],
         sampling_mask_paths_root=str(sampling_masks_path),
         points3D_xyz=points3D_xyz,
         points3D_rgb=points3D_rgb,
+        images_points3D_indices=images_points3D_indices if "images_points3D_indices" in features else None,
         metadata={
             "name": "colmap",
             "color_space": "srgb",
