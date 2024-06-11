@@ -349,12 +349,12 @@ class CamP_ZipNeRF(Method):
             self.config = self._load_config()
             self._setup_eval()
         elif train_dataset is not None:
-            self.config = self._load_config(train_dataset["metadata"].get("name"), config_overrides)
+            self.config = self._load_config(config_overrides)
             self._setup_train(train_dataset)
         else:
             raise ValueError("Either checkpoint or train_dataset must be provided")
 
-    def _load_config(self, dataset_name=None, config_overrides=None):
+    def _load_config(self, config_overrides=None):
         # Find the config files root
         import train
 
@@ -362,12 +362,13 @@ class CamP_ZipNeRF(Method):
         gin.config.clear_config(clear_constants=True)
         gin.add_config_file_search_path(configs_path)
 
+        config_overrides = (config_overrides or {}).copy()
+        base_config = config_overrides.pop("base_config", "zipnerf/360")
+
         # Fix a bug in gin
         gin.config._FILE_READERS = gin.config._FILE_READERS[:1]
         if self.checkpoint is None:
-            config_path = "configs/zipnerf/360.gin"
-            if dataset_name == "blender":
-                config_path = "configs/zipnerf/blender.gin"
+            config_path = f"configs/{base_config}.gin"
             gin.parse_config_file(config_path, skip_unknown=True)
             if self._camp:
                 gin.parse_config_file("configs/camp/camera_optim.gin", skip_unknown=True)

@@ -1,3 +1,4 @@
+import pprint
 import shutil
 import struct
 import sys
@@ -205,6 +206,37 @@ def eval_all(method: Method, logger: Optional[Logger], dataset: Dataset, *, outp
 
 
 
+def get_nb_info(train_dataset_metadata, 
+                method: Method, 
+                config_overrides, 
+                evaluation_protocol=None,
+                resources_utilization_info=None,
+                total_train_time=None):
+    dataset_metadata = train_dataset_metadata.copy()
+    expected_scene_scale = dataset_metadata.get("expected_scene_scale", None)
+    dataset_metadata["expected_scene_scale"] = round(expected_scene_scale, 5) if expected_scene_scale is not None else None
+    dataset_metadata["background_color"] = dataset_metadata["background_color"].tolist() if dataset_metadata.get("background_color") is not None else None
+    model_info = method.get_info()
+
+    if evaluation_protocol is None:
+        evaluation_protocol = evaluate.get_evaluation_protocol(dataset_name=train_dataset_metadata.get("name"))
+    return {
+        "method": model_info["name"],
+        "nb_version": __version__,
+        "num_iterations": model_info["num_iterations"],
+        "total_train_time": round(total_train_time, 5) if total_train_time is not None else None,
+        "resources_utilization": resources_utilization_info,
+        # Date time in ISO format
+        "datetime": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "config_overrides": config_overrides,
+        "dataset_metadata": dataset_metadata,
+        "evaluation_protocol": evaluation_protocol.get_name(),
+
+        # Store hparams
+        # "hparams": self.method.get_info().get("hparams"),
+    }
+
+
 Visualization = Literal["none", "wandb", "tensorboard"]
 
 
@@ -224,18 +256,19 @@ class Trainer:
         generate_output_artifact: Optional[bool] = None,
         config_overrides: Optional[Dict[str, Any]] = None,
     ):
+        self._num_iterations = 0
         self.method = method
         self.model_info = self.method.get_info()
         self.test_dataset: Optional[Dataset] = test_dataset
 
+        
         self.step = self.model_info.get("loaded_step") or 0
-        self.num_iterations = self.model_info["num_iterations"]
         if self.num_iterations is None:
             raise RuntimeError(f"Method {self.model_info['name']} must specify the default number of iterations")
 
         self.output = output
-        self.save_iters = save_iters
 
+        self.save_iters = save_iters
         self.eval_few_iters = eval_few_iters
         self.eval_all_iters = eval_all_iters
         self.loggers = loggers
@@ -253,6 +286,9 @@ class Trainer:
             "learning-rate": "last",
         })
 
+        # Update schedules
+        self.num_iterations = self.model_info["num_iterations"]
+
         # Restore checkpoint if specified
         loaded_checkpoint = self.model_info.get("loaded_checkpoint")
         if loaded_checkpoint is not None:
@@ -262,13 +298,21 @@ class Trainer:
                 self._total_train_time = info["total_train_time"]
                 self._resources_utilization_info = info["resources_utilization"]
 
+        # Validate and setup datasets
+        self._setup_data(train_dataset, test_dataset)
+
+    @property
+    def num_iterations(self):
+        return self._num_iterations
+
+    @num_iterations.setter
+    def num_iterations(self, value):
+        self._num_iterations = value
+
         # Fix total for indices
         for v in vars(self).values():
             if isinstance(v, Indices):
                 v.total = self.num_iterations + 1
-
-        # Validate and setup datasets
-        self._setup_data(train_dataset, test_dataset)
 
     def _setup_data(self, train_dataset: Dataset, test_dataset: Optional[Dataset]):
         # Validate and setup datasets
@@ -334,29 +378,14 @@ class Trainer:
 
     def _get_nb_info(self):
         assert self._dataset_metadata is not None, "dataset_metadata must be set"
-        dataset_metadata = self._dataset_metadata.copy()
-        expected_scene_scale = self._dataset_metadata.get("expected_scene_scale", None)
-        dataset_metadata["expected_scene_scale"] = round(expected_scene_scale, 5) if expected_scene_scale is not None else None
-        dataset_metadata["background_color"] = dataset_metadata["background_color"].tolist() if dataset_metadata.get("background_color") is not None else None
-        return {
-            "method": self.model_info["name"],
-            "nb_version": __version__,
-            "num_iterations": self.model_info["num_iterations"],
-            "total_train_time": round(self._total_train_time, 5),
-            "resources_utilization": self._resources_utilization_info,
-            # Date time in ISO format
-            "datetime": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-            "config_overrides": self.config_overrides,
-            "dataset_metadata": self._dataset_metadata,
-            "evaluation_protocol": self._evaluation_protocol.get_name(),
-
-            "color_space": self._dataset_metadata.get("color_space"),  # TODO: remove
-            "expected_scene_scale": expected_scene_scale,  # TODO: remove
-            "dataset_background_color": dataset_metadata["background_color"],  # TODO: remove
-
-            # Store hparams
-            # "hparams": self.method.get_info().get("hparams"),
-        }
+        return get_nb_info(
+            self._dataset_metadata,
+            self.method,
+            self.config_overrides,
+            evaluation_protocol=self._evaluation_protocol,
+            resources_utilization_info=self._resources_utilization_info,
+            total_train_time=self._total_train_time,
+        )
 
     def save(self):
         path = os.path.join(self.output, f"checkpoint-{self.step}")  # pyright: ignore[reportCallIssue]
@@ -570,6 +599,7 @@ def train_command(
             os.chdir(str(output_path))
 
             with registry.build_method(method_name, backend_name) as method_cls:
+                method_spec = registry.get(method_name)
 
                 # Load train dataset
                 logging.info("loading train dataset")
@@ -592,6 +622,14 @@ def train_command(
                                             load_features=True)
                 test_dataset["metadata"]["expected_scene_scale"] = train_dataset["metadata"].get("expected_scene_scale")
 
+                # Apply config overrides for the train dataset
+                _dataset_overrides = method_spec.get("dataset_overrides", {}).get(train_dataset["metadata"].get("name"), {})
+                for k, v in _dataset_overrides.items():
+                    if k not in config_overrides:
+                        config_overrides[k] = v
+
+                # Log the current set of config overrides
+                logging.info(f"Using config overrides: {pprint.pformat(config_overrides)}")
 
                 # Build the method
                 method = method_cls(

@@ -1,3 +1,4 @@
+import warnings
 import math
 import dataclasses
 import numpy as np
@@ -87,7 +88,7 @@ def apply_transform(transform, poses):
 
 
 class TensoRFDataset:
-    def __init__(self, dataset: Dataset, transform=None, is_stack=False):
+    def __init__(self, dataset: Dataset, transform=None, is_stack=False, dataset_name=None):
         self.is_stack = is_stack
         self.scene_bbox = torch.tensor([[-1.5, -1.5, -1.5], [1.5, 1.5, 1.5]])
         self.white_bg = True
@@ -97,10 +98,15 @@ class TensoRFDataset:
 
         poses = dataset["cameras"].poses.copy()
 
-        if dataset["metadata"].get("name") == "blender":
+        if dataset["metadata"].get("name") == "blender" and dataset_name != "blender":
+            warnings.warn("Dataset is 'blender', but not using blender dataset settings.")
+        if dataset["metadata"].get("name") == "llff" and dataset_name != "llff":
+            warnings.warn("Dataset is 'llff', but not using llff dataset settings.")
+
+        if dataset_name == "blender":
             self.white_bg = True
             self.near_far = [2.0, 6.0]
-        elif dataset["metadata"].get("name") == "llff":
+        elif dataset_name == "llff":
             self.white_bg = False
             assert dataset["metadata"].get("type") == "forward-facing"
             assert dataset["cameras"].nears_fars is not None
@@ -206,6 +212,9 @@ class TensoRF(Method):
         self.step = 0
 
         self._load_config()
+        if train_dataset is not None and checkpoint is not None:
+            logging.error("Resuming training is not supported for TensoRF. Method will be setup in eval mode.")
+            train_dataset = None
         if train_dataset is not None:
             self._setup_train(train_dataset, config_overrides=config_overrides)
         else:
@@ -274,14 +283,16 @@ class TensoRF(Method):
             "type": train_dataset["metadata"].get("type"),
             "name": train_dataset["metadata"].get("name"),
         }
+        config_overrides = (config_overrides or {}).copy()
+        base_config = config_overrides.pop("base_config", "your_own_data")
 
         # Load dataset-specific config
+        config_name = f"{base_config}.txt"
         dataset_name = train_dataset["metadata"].get("name")
-        config_name = "your_own_data.txt"
-        if dataset_name == "blender":
-            config_name = "lego.txt"
-        elif dataset_name == "llff":
-            config_name = "flower.txt"
+        if dataset_name == "blender" and config_name != "lego.txt":
+            warnings.warn(f"Using wrong config for blender dataset, set 'base_config=lego' in config overrides.")
+        if dataset_name == "llff" and config_name != "flower.txt":
+            warnings.warn(f"Using wrong config for llff dataset, set 'base_config=flower' in config overrides.")
         config_file = Path(opt.__file__).absolute().parent.joinpath("configs", config_name)
         logging.info(f"Loading config from {config_file}")
         with config_file.open("r", encoding="utf8") as f:
@@ -308,7 +319,7 @@ class TensoRF(Method):
         np.random.seed(20211202)
 
         # init dataset
-        train_dataset = TensoRFDataset(train_dataset, transform=self.metadata.get("dataset_transform"), is_stack=False)
+        train_dataset = TensoRFDataset(train_dataset, transform=self.metadata.get("dataset_transform"), is_stack=False, dataset_name=self.args.dataset_name)
         self.metadata["dataset_transform"] = train_dataset.transform
 
         self.white_bg = train_dataset.white_bg
@@ -472,6 +483,7 @@ class TensoRF(Method):
             ),
             transform=self.metadata.get("dataset_transform"),
             is_stack=True,
+            dataset_name=self.args.dataset_name,
         )
         idx = 0
         for idx, samples in enumerate(test_dataset.all_rays):

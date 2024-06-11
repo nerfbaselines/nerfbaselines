@@ -57,6 +57,10 @@ pip install plyfile six
         "paper_results": official_results,
         "link": "https://apchenstu.github.io/TensoRF/",
     },
+    "dataset_overrides": {
+        "blender": { "base_config": "lego" },
+        "llff": { "base_config": "flower" },
+    },
 }
 
 register(TensoRFSpec, name="tensorf")

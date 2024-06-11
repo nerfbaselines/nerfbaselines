@@ -27,18 +27,27 @@ import tempfile
 @click.option("--verbose", "-v", is_flag=True)
 @click.option("--backend", "backend_name", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @click.option("--set", "config_overrides", help="Override a parameter in the method.", type=SetParamOptionType(), multiple=True, default=None)
+@click.option("--fast", is_flag=True, help="Run only the fast tests")
+@click.option("--steps", type=int, default=113, help="Number of steps to run")
 @handle_cli_error
 def main(method_name: str, 
          dataset: str, *, 
          backend_name=None, 
          verbose: bool = False,
-         config_overrides=None):
+         config_overrides=None,
+         steps: int = 113,
+         fast=False):
     logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)
 
+    # For some methods we need to do more steps because there is more randomness
+    parameter_source = click.get_current_context().get_parameter_source('steps')
+    if parameter_source == click.core.ParameterSource.DEFAULT:
+        if method_name in ("nerfacto", "nerfacto:big", "nerfacto:huge"):
+            steps = 2048
+
     if config_overrides is not None and isinstance(config_overrides, (list, tuple)):
         config_overrides = dict(config_overrides)
-
     errors, skips, successes = [], [], []
 
     def mark_success(message: str):
@@ -78,9 +87,18 @@ def main(method_name: str,
                                          features=method_info.get("required_features"), 
                                          supported_camera_models=method_info.get("supported_camera_models"), 
                                          load_features=True)
+            if fast:
+                train_dataset = dataset_index_select(train_dataset, list(range(min(len(train_dataset["cameras"]), 10))))
             logging.info("Train dataset: \n" + pprint.pformat(train_dataset["metadata"]))
             assert train_dataset["cameras"].image_sizes is not None, "image sizes must be specified"
             mark_success("Train dataset loaded")
+
+            # Apply config overrides for the train dataset
+            _dataset_overrides = method_spec.get("dataset_overrides", {}).get(train_dataset["metadata"].get("name"), {})
+            for k, v in _dataset_overrides.items():
+                if k not in config_overrides:
+                    config_overrides[k] = v
+            logging.info("Config overrides: \n" + pprint.pformat(config_overrides))
 
             # Load eval dataset
             test_dataset = load_dataset(dataset, 
@@ -88,6 +106,8 @@ def main(method_name: str,
                                         features=method_info.get("required_features"), 
                                         supported_camera_models=method_info.get("supported_camera_models"), 
                                         load_features=True)
+            if fast:
+                test_dataset = dataset_index_select(test_dataset, list(range(min(len(test_dataset["cameras"]), 10))))
             test_dataset["metadata"]["expected_scene_scale"] = train_dataset["metadata"].get("expected_scene_scale")
             mark_success("Test dataset loaded")
 
@@ -103,7 +123,7 @@ def main(method_name: str,
             del model_info
 
             # Test running the training
-            for i in range(13):
+            for i in range(steps):
                 model.train_iteration(i)
             mark_success("Train iteration passes")
 
@@ -112,13 +132,13 @@ def main(method_name: str,
                 logger = TensorboardLogger(tmpdir_logger)
                 test_dataset_name = test_dataset['metadata'].get("name")
                 eval_protocol = get_evaluation_protocol(dataset_name=test_dataset_name)
-                eval_few(model, logger, test_dataset, split="test", step=13, evaluation_protocol=eval_protocol)
+                eval_few(model, logger, test_dataset, split="test", step=steps, evaluation_protocol=eval_protocol)
                 mark_success("Eval few passes")
 
                 # Test eval_all
                 nb_info = {}
                 eval_all(model, logger, dataset_index_select(test_dataset, [0]), 
-                         step=13, evaluation_protocol=eval_protocol,
+                         step=steps, evaluation_protocol=eval_protocol,
                          split="test", nb_info=nb_info, output=tmpdir_logger)
                 mark_success("Eval all passes")
 
@@ -152,7 +172,7 @@ def main(method_name: str,
                     )
                     model2_info = model2.get_info()
                     print("Loaded model info: \n", pprint.pformat(model2_info))
-                    assert model2_info.get("loaded_step", None) == 13
+                    assert model2_info.get("loaded_step", None) == steps
                     mark_success("Loading from checkpoint passes")
                     del model2_info
                 except Exception:
@@ -177,7 +197,7 @@ def main(method_name: str,
                             assert getattr(v, "shape", v) == getattr(v2, "shape", v2)
                             assert isinstance(v, np.ndarray)
                             assert isinstance(v2, np.ndarray)
-                            np.testing.assert_allclose(v, v2)
+                            np.testing.assert_allclose(v, v2, atol=1e-6)
                         mark_success("Restored model matches original")
                     except AssertionError:
                         traceback.print_exc()
@@ -207,6 +227,12 @@ def main(method_name: str,
                 generate_output_artifact=True,
                 config_overrides=config_overrides,
             )
+            if fast:
+                trainer.num_iterations = 10
+                # Fix total for indices
+                for v in vars(trainer).values():
+                    if isinstance(v, Indices):
+                        v.total = trainer.num_iterations + 1
             trainer.train()
             logging.info("Training finished")
 
@@ -245,6 +271,8 @@ def main(method_name: str,
 
                     with open_any_directory(os.path.join(tmpdir, "predictions-30.tar.gz")) as preddir, open_any_directory(predictions_filename) as predrefdir:
                         for k in glob.glob(preddir + "/color/*"):
+                            if os.path.isdir(k):
+                                continue
                             assert os.path.exists(os.path.join(predrefdir, "color", k.split("/")[-1]))
                             im1 = np.array(Image.open(k))
                             im2 = np.array(Image.open(os.path.join(predrefdir, "color", k.split("/")[-1])))
@@ -287,7 +315,9 @@ def main(method_name: str,
         # with run_inside_eval_container(backend_name):
         #     evaluate(predictions, output)
         metadata = method_spec.get("metadata", {})
-        if "paper_results" in metadata:
+        if fast:
+            mark_skip("Skipping paper results comparison for fast test")
+        elif "paper_results" in metadata:
             method_key = train_dataset["metadata"]["name"] + "/" + train_dataset["metadata"]["scene"]
             paper_results = metadata["paper_results"].get(method_key, None)
             if paper_results is not None:

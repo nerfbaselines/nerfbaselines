@@ -392,6 +392,7 @@ def construct_dataset(*,
                       sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W]
                       points3D_xyz: Optional[np.ndarray] = None,  # [M, 3]
                       points3D_rgb: Optional[np.ndarray] = None,  # [M, 3]
+                      images_points3D_indices: Optional[np.ndarray] = None,  # [N][<M]
                       metadata: Dict) -> Union[UnloadedDataset, Dataset]:
     if file_paths_root is None:
         file_paths_root = os.path.commonpath(file_paths)
@@ -409,6 +410,7 @@ def construct_dataset(*,
         sampling_masks=sampling_masks,
         points3D_xyz=points3D_xyz,
         points3D_rgb=points3D_rgb,
+        images_points3D_indices=images_points3D_indices,
         metadata=metadata
     )
 

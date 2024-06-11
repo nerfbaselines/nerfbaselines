@@ -121,6 +121,7 @@ def open_any(
 @contextlib.contextmanager
 def open_any_directory(path: Union[str, Path], mode: OpenMode = "r") -> Iterator[str]:
     path = str(path)
+    path = os.path.abspath(path)
 
     components = path.split("/")
     compressed_parts = [
@@ -221,7 +222,7 @@ def serialize_nb_info(info: dict) -> dict:
     info = info.copy()
     if "dataset_metadata" in info:
         info["dataset_metadata"] = dm = info["dataset_metadata"].copy()
-        if "background_color" in dm:
+        if isinstance(dm.get("background_color"), np.ndarray):
             dm["background_color"] = dm["background_color"].tolist()
         if "viewer_initial_pose" in dm:
             dm["viewer_initial_pose"] = np.round(dm["viewer_initial_pose"], 5).tolist()
@@ -246,7 +247,7 @@ def deserialize_nb_info(info: dict) -> dict:
     info = info.copy()
     if "dataset_metadata" in info:
         info["dataset_metadata"] = dm = info["dataset_metadata"].copy()
-        if "background_color" in dm:
+        if dm.get("background_color") is not None:
             dm["background_color"] = np.array(dm["background_color"], dtype=np.uint8)
         if "viewer_initial_pose" in dm:
             dm["viewer_initial_pose"] = np.array(dm["viewer_initial_pose"], dtype=np.float32)

@@ -64,6 +64,34 @@ pip install -e .
         "paper_results": nerfacto_paper_results,
         "link": "https://docs.nerf.studio/",
     },
+    "dataset_overrides": {
+        "blender": {
+            "pipeline.datamanager.dataparser": "blender-data",
+            "pipeline.model.near_plane": 2.0,
+            "pipeline.model.far_plane": 6.0,
+            "pipeline.model.use_appearance_embedding": False,
+            "pipeline.model.background_color": "white",
+            "pipeline.model.proposal_initial_sampler": "uniform",
+            "pipeline.model.distortion_loss_mult": 0.0,
+            "pipeline.model.disable_scene_contraction": True,
+            "pipeline.model.average_init_density": 1.0,
+            "pipeline.model.camera_optimizer.mode": "off",
+        },    
+        "mipnerf360": {
+            "pipeline.model.use_appearance_embedding": False,
+            "pipeline.model.camera_optimizer.mode": "off",
+            # Original paper results used average_init_density=1.0
+            # "pipeline.model.average_init_density": 1.0,
+        },
+        "tanksandtemples": {
+            "pipeline.model.use_appearance_embedding": False,
+            "pipeline.model.camera_optimizer.mode": "off",
+            # Original paper results used average_init_density=1.0
+            # "pipeline.model.average_init_density": 1.0,
+        },
+        # Original paper results used average_init_density=1.0
+        # "nerfstudio": { "pipeline.model.average_init_density": 1.0 },
+    },
 }
 
 # Register supported methods
@@ -77,6 +105,18 @@ register(
         "name": "NerfStudio",
         "description": """NerfStudio (Nerfacto) is a method based on Instant-NGP which combines several improvements from different papers to achieve good quality on real-world scenes captured under normal conditions. It is fast to train (12 min) and render speed is ~1 FPS.""",
     },
+    dataset_overrides={
+        "mipnerf360": { 
+            "pipeline.model.use_appearance_embedding": False,
+            "pipeline.model.camera_optimizer.mode": "off",
+            "max_num_iterations": 70000,
+        },
+        "tanksandtemples": {
+            "pipeline.model.use_appearance_embedding": False,
+            "pipeline.model.camera_optimizer.mode": "off",
+            "max_num_iterations": 70000,
+        },
+    }
 )
 register(
     NerfStudioSpec,

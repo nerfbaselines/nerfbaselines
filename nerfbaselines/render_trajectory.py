@@ -75,12 +75,15 @@ def render_frames(
                     f.seek(0)
                     save_image(f, frame)
                     tar.addfile(tarinfo=tarinfo, fileobj=f)
-    elif str(output).endswith(".mp4"):
+    elif str(output).endswith(".mp4") or str(output).endswith(".gif"):
         # Handle video
         import mediapy
 
         w, h = cameras.image_sizes[0]
-        with mediapy.VideoWriter(output, (h, w), metadata=mediapy.VideoMetadata(len(cameras), (h, w), fps, bps=None)) as writer:
+        codec = None
+        if str(output).endswith(".gif"):
+            codec = "gif"
+        with mediapy.VideoWriter(output, (h, w), metadata=mediapy.VideoMetadata(len(cameras), (h, w), fps, bps=None), fps=fps, codec=codec) as writer:
             for i, frame in enumerate(_predict_all()):
                 writer.add_image(frame)
     else:

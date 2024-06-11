@@ -47,6 +47,12 @@ pip install submodules/simple-knn/
         "paper_link": "https://arxiv.org/pdf/2404.10772.pdf",
         "link": "https://niujinshuchong.github.io/gaussian-opacity-fields/",
     },
+    "dataset_overrides": {
+        "blender": { "white_background": True },
+        "dtu": { "use_decoupled_appearance": True, "lambda_distortion": 100 },
+        "tanksandtemples": { "use_decoupled_appearance": True },
+        "phototourism": { "use_decoupled_appearance": True },
+    },
 }
 
 

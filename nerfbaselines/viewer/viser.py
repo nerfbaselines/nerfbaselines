@@ -502,6 +502,13 @@ def _add_keypoint_onclick_callback(server: ViserServer, state, index, handle):
                 disabled=keyframe.fov is None,
             )
             if state.camera_path_interpolation != "none":
+                def _override_transition_changed(_) -> None:
+                    state.camera_path_keyframes = tuple(
+                        key if i != index else dataclasses.replace(key, transition_duration=None if not override_transition_enabled.value else override_transition_sec.value)
+                        for i, key in enumerate(state.camera_path_keyframes)
+                    )
+                    override_transition_sec.disabled = not override_transition_enabled.value
+
                 override_transition_enabled = server.add_gui_checkbox(
                     "Override transition",
                     initial_value=keyframe.transition_duration is not None,
@@ -557,13 +564,6 @@ def _add_keypoint_onclick_callback(server: ViserServer, state, index, handle):
             go_to_button = server.add_gui_button("Go to")
             close_button = server.add_gui_button("Close")
 
-
-        def _override_transition_changed(_) -> None:
-            state.camera_path_keyframes = tuple(
-                key if i != index else dataclasses.replace(key, transition_duration=None if not override_transition_enabled.value else override_transition_sec.value)
-                for i, key in enumerate(state.camera_path_keyframes)
-            )
-            override_transition_sec.disabled = not override_transition_enabled.value
 
         @override_fov.on_update
         def _(_) -> None:
@@ -1567,11 +1567,12 @@ class ViserViewer:
                 embedding = None
                 for i, val in enumerate(kweight):
                     if val > 1e-5 and self.method is not None and self.state.camera_path_keyframes[i].appearance_train_index is not None:
-                        _embedding = self.method.get_train_embedding(cast(int, self.state.camera_path_keyframes[i].appearance_train_index))
                         if embedding is None:
-                            embedding = _embedding * val
-                        else:
-                            embedding += _embedding * val
+                            embedding = { "weights": [], "appearances": []}
+                        embedding["weights"].append(val)
+                        embedding["appearances"].append({
+                            "embedding_train_index": self.state.camera_path_keyframes[i].appearance_train_index,
+                        })
                 self._preview_camera = (
                     position,
                     wxyz,
@@ -1650,9 +1651,13 @@ class ViserViewer:
                 return
 
             if temp_index is not None:
-                self._current_embedding = self.method.get_train_embedding(temp_index)
+                self._current_embedding = {
+                    "embedding_train_index": temp_index,
+                }
             elif index is not None:
-                self._current_embedding = self.method.get_train_embedding(index)
+                self._current_embedding = {
+                    "embedding_train_index": index,
+                }
             else:
                 self._current_embedding = None
             self._reset_render()
@@ -1715,13 +1720,25 @@ class ViserViewer:
                 start = perf_counter()
 
                 if self._preview_camera is not None:
-                    cam_pos, cam_wxyz, cam_fov, cam_embedding = self._preview_camera
+                    cam_pos, cam_wxyz, cam_fov, cam_app = self._preview_camera
                     cam_aspect = self.state.render_resolution[0] / self.state.render_resolution[1]
                 else:
                     camera = client.camera
                     cam_pos, cam_wxyz, cam_fov = camera.position, camera.wxyz, camera.fov
                     cam_aspect = camera.aspect
-                    cam_embedding = self._current_embedding
+                    cam_app = self._current_embedding
+
+                cam_embedding = None
+                if cam_app is not None:
+                    def _get_embedding(app):
+                        if "embedding_train_index" in app:
+                            return self.method.get_train_embedding(app["embedding_train_index"])
+                        elif "weights" in app and "appearances" in app:
+                            embeddings = list(map(_get_embedding, app["appearances"]))
+                            return sum(w * e for w, e in zip(app["weights"], embeddings))
+                        else:
+                            raise ValueError(f"Invalid appearance: {app}")
+                    cam_embedding = _get_embedding(cam_app)
 
                 w_total = self.resolution_slider.value
                 h_total = int(self.resolution_slider.value / cam_aspect)

@@ -1,4 +1,7 @@
 # pylint: disable=protected-access
+import warnings
+import pprint
+import json
 import enum
 import os
 import dataclasses
@@ -11,22 +14,22 @@ import tempfile
 from typing import Iterable, Optional, TypeVar, List, Tuple, Any, Sequence
 import numpy as np
 from nerfbaselines.types import Method, OptimizeEmbeddingsOutput, MethodInfo, ModelInfo
-from nerfbaselines.types import Dataset, RenderOutput
+from nerfbaselines.types import Dataset, RenderOutput, new_cameras
 from nerfbaselines.types import Cameras, camera_model_from_int
 from nerfbaselines.utils import convert_image_dtype
 from nerfbaselines.utils import cast_value, remap_error
 
 import yaml
-import torch
-from nerfstudio.cameras import camera_utils
-from nerfstudio.cameras.cameras import Cameras as NSCameras, CameraType as NPCameraType
-from nerfstudio.data.dataparsers.base_dataparser import DataParser, DataparserOutputs
-from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManagerConfig, VanillaDataManager, InputDataset
-from nerfstudio.data.scene_box import SceneBox
-from nerfstudio.engine.trainer import TrainingCallbackLocation
-from nerfstudio.engine.trainer import Trainer
-from nerfstudio.configs.method_configs import all_methods
-from nerfstudio.utils.colors import COLORS_DICT
+import torch  # type: ignore
+from nerfstudio.cameras import camera_utils  # type: ignore
+from nerfstudio.cameras.cameras import Cameras as NSCameras, CameraType as NPCameraType  # type: ignore
+from nerfstudio.data.dataparsers.base_dataparser import DataParser, DataparserOutputs  # type: ignore
+from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManagerConfig, VanillaDataManager, InputDataset  # type: ignore
+from nerfstudio.data.scene_box import SceneBox  # type: ignore
+from nerfstudio.engine.trainer import TrainingCallbackLocation  # type: ignore
+from nerfstudio.engine.trainer import Trainer  # type: ignore
+from nerfstudio.configs.method_configs import all_methods  # type: ignore
+from nerfstudio.utils.colors import COLORS_DICT  # type: ignore
 
 
 T = TypeVar("T")
@@ -61,13 +64,23 @@ def _config_safe_set(config, path, value, autocast=False):
 
 
 def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
-    def format_value(v, key=None):
+    def format_value(v, only_simple_types=True):
         if isinstance(v, (str, float, int, bool, bytes, type(None))):
             return v
+        if torch.is_tensor(v) or isinstance(v, np.ndarray):
+            return format_value(v.tolist(), only_simple_types=only_simple_types)
         if isinstance(v, (list, tuple)):
-            return [format_value(x) for x in v]
+            # If list of simple types, convert to string
+            if not only_simple_types:
+                return type(v)([format_value(x, only_simple_types=False) for x in v])
+            formatted = [format_value(x) for x in v]
+            if all(isinstance(x, (str, float, int, bool, bytes, type(None))) for x in formatted):
+                return ",".join(str(x) for x in formatted)
+            return ",".join(pprint.pformat(x) for x in formatted)
         if isinstance(v, dict):
-            return {k: format_value(x) for k, x in v.items()}
+            if not only_simple_types:
+                return {k: format_value(v, only_simple_types=False) for k, v in v.items()}
+            return pprint.pformat(format_value(v, only_simple_types=False))
         if isinstance(v, type):
             return v.__module__ + ":" + v.__name__
         if isinstance(v, Path):
@@ -75,72 +88,100 @@ def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
         if isinstance(v, enum.Enum):
             return v.name
         if dataclasses.is_dataclass(v):
-            return flatten_hparams(v, separator=separator, _prefix=_prefix)
+            return format_value({
+                f.name: getattr(hparams, f.name) for f in dataclasses.fields(hparams)
+            }, only_simple_types=only_simple_types)
+        if callable(v):
+            return v.__module__ + ":" + v.__name__
         return repr(v)
-        raise ValueError(f"Unsupported type {type(v)} for key {key}")
 
     flat = {}
     if dataclasses.is_dataclass(hparams):
         hparams = {f.name: getattr(hparams, f.name) for f in dataclasses.fields(hparams)}
+    _blacklist = set((
+        "output_dir",
+        "pipeline.datamanager.dataparser._target",
+        "pipeline.datamanager.data",
+        "pipeline.datamanager.dataparser.data",
+        "project_name",
+        "vis",
+        "timestamp",
+        "data",
+        "experiment_name",
+        "log_gradients",
+        "relative_model_dir",
+        "save_only_latest_checkpoint",
+        "steps_per_eval_image",
+        "steps_per_eval_batch",
+        "steps_per_eval_all_images",
+        "steps_per_save",
+    ))
+    _blacklist_prefixes = (
+        "load_",
+        "logging.",
+        "viewer.",
+    )
     for k, v in hparams.items():
         if _prefix:
             k = f"{_prefix}{separator}{k}"
+        if k in _blacklist:
+            continue
+        if any(k.startswith(p) for p in _blacklist_prefixes):
+            continue
         if isinstance(v, dict) or dataclasses.is_dataclass(v):
-            flat.update(flatten_hparams(v, _prefix=k))
+            flat.update(flatten_hparams(v, _prefix=k, separator=separator))
         else:
-            flat[k] = format_value(v, key=k)
+            flat[k] = format_value(v)
     return flat
 
 
-
-def _get_config_dict(config):
-    def dict_factory(items: List[Tuple[str, Any]]):
-        def _safe_value(v):
-            if isinstance(v, Path):
-                return str(v)
-            if isinstance(v, (bool, str, int, float, bytes, type(None))):
-                return v
-            if isinstance(v, np.ndarray):
-                return v.tolist()
-            if isinstance(v, torch.Tensor):
-                return _safe_value(v.detach().cpu().numpy())
-            if isinstance(v, enum.Enum):
-                return v.name
-            return str(v)
-        return {k: _safe_value(v) for k, v in items}
-    return dataclasses.asdict(config, dict_factory=dict_factory)
-
 class _CustomDataParser(DataParser):
-    def __init__(self, method, dataset, config, *args, **kwargs):
+    def __init__(self, dataset, dataparser_transform, dataparser_scale, config,  *args, **kwargs):
         self.dataset = dataset
-        self.method = method
+        self.dataparser_transform = dataparser_transform
+        self.dataparser_scale = dataparser_scale
         super().__init__(config)
 
+    @property
+    def scene_box(self):
+        aabb_scale = 1.5
+        dataparser_class = type(self.config).__name__
+        if dataparser_class == "BlenderDataParserConfig":
+            aabb_scale = 1.5
+        elif dataparser_class in {"ColmapDataParserConfig", "NerfstudioDataParserConfig"}:
+            aabb_scale = 1
+        else:
+            raise ValueError(f"Unsupported dataparser class {dataparser_class}")
+        return SceneBox(aabb=torch.tensor([[-aabb_scale, -aabb_scale, -aabb_scale], [aabb_scale, aabb_scale, aabb_scale]], dtype=torch.float32))
+
     def _generate_dataparser_outputs(self, split: str = "train", **kwargs) -> DataparserOutputs:
-        if split != "train" or self.dataset is None:
-            aabb_scale = self.method.dataparser_params["aabb_scale"]
-            scene_box = SceneBox(aabb=torch.tensor([[-aabb_scale, -aabb_scale, -aabb_scale], [aabb_scale, aabb_scale, aabb_scale]], dtype=torch.float32))
-            num_images = self.method.dataparser_params["num_images"]
-            return DataparserOutputs(
-                [Path("_.png") for _ in range(num_images)],
-                NSCameras(
-                    torch.zeros((num_images, 3, 4), dtype=torch.float32),
-                    torch.zeros((num_images,), dtype=torch.float32),
-                    torch.zeros((num_images,), dtype=torch.float32),
-                    torch.zeros((num_images,), dtype=torch.float32),
-                    torch.zeros((num_images,), dtype=torch.float32),
-                    torch.zeros((num_images,), dtype=torch.long),
-                    torch.zeros((num_images,), dtype=torch.long),
-                    torch.zeros((num_images,), dtype=torch.float32),
-                    torch.zeros((num_images,), dtype=torch.long),
-                ),
-                None,
-                scene_box,
-                None,
-                {},
-                dataparser_transform=self.method.dataparser_params["dataparser_transform"][..., :3, :].contiguous(),
-                dataparser_scale=self.method.dataparser_params["dataparser_scale"],
+        if self.dataset is None:
+            assert self.dataparser_transform is not None, "dataparser_transform must be provided if dataset is None"
+            assert self.dataparser_scale is not None, "dataparser_scale must be provided if dataset is None"
+            # Return empty dataset
+            cameras = NSCameras(
+                camera_to_worlds=torch.zeros((0, 4, 4), dtype=torch.float32),
+                fx=torch.zeros(0, dtype=torch.float32),
+                fy=torch.zeros(0, dtype=torch.float32),
+                cx=torch.zeros(0, dtype=torch.float32),
+                cy=torch.zeros(0, dtype=torch.float32),
+                distortion_params=torch.zeros((0, 6), dtype=torch.float32),
+                width=torch.zeros(0, dtype=torch.int64),
+                height=torch.zeros(0, dtype=torch.int64),
+                camera_type=torch.zeros(0, dtype=torch.long),
             )
+            metadata = {}
+            return DataparserOutputs(
+                [],  # image_names
+                cameras, # cameras
+                None,  # alpha_color
+                self.scene_box,  # scene_box
+                [],  # sampling masks
+                metadata,
+                dataparser_transform=self.dataparser_transform[..., :3, :].contiguous(),
+                dataparser_scale=self.dataparser_scale,
+            )
+
         image_names = [f"{i:06d}.png" for i in range(len(self.dataset["cameras"].poses))]
         camera_types = [NPCameraType.PERSPECTIVE for _ in range(len(self.dataset["cameras"].poses))]
         npmap = {x.name.lower(): x.value for x in NPCameraType.__members__.values()}
@@ -156,25 +197,23 @@ class _CustomDataParser(DataParser):
 
         # in x,y,z order
         # assumes that the scene is centered at the origin
-        if self.dataset["metadata"].get("name") == "blender":
-            aabb_scale = 1.5
-            self.method.dataparser_params = dict(dataparser_transform=torch.eye(4, dtype=torch.float32), dataparser_scale=1.0, aabb_scale=1.5, num_images=len(image_names))
+        dataparser_class = type(self.config).__name__
+        alpha_color = None
+        if dataparser_class == "BlenderDataParserConfig":
+            from nerfstudio.utils.colors import get_color  # type: ignore
+            alpha_color = self.config.alpha_color
+            if alpha_color is not None:
+                alpha_color = get_color(alpha_color)
+            if self.dataparser_transform is None:
+                self.dataparser_transform = torch.eye(4, dtype=torch.float32)
+                self.dataparser_scale = 1.0
+        elif dataparser_class in {"ColmapDataParserConfig", "NerfstudioDataParserConfig"}:
+            if self.dataparser_transform is None:
+                self.dataparser_transform, self.dataparser_scale = get_pose_transform(poses)
         else:
-            aabb_scale = 1
-            if self.method.checkpoint is None:
-                dp_trans, dp_scale = self.method._get_pose_transform(poses)
-                self.method.dataparser_params = dict(
-                    dataparser_transform=dp_trans,
-                    dataparser_scale=dp_scale,
-                    aabb_scale=1.0,
-                    num_images=len(image_names),
-                )
+            raise ValueError(f"Unsupported dataparser class {dataparser_class}")
 
-        if self.method.checkpoint is not None:
-            assert self.method.dataparser_params is not None
-        self.method._patch_dataparser_params()
-        scene_box = SceneBox(aabb=torch.tensor([[-aabb_scale, -aabb_scale, -aabb_scale], [aabb_scale, aabb_scale, aabb_scale]], dtype=torch.float32))
-        th_poses = self.method._transform_poses(torch.from_numpy(poses).float())
+        th_poses = transform_poses(self.dataparser_transform, self.dataparser_scale, torch.from_numpy(poses).float())
         distortion_parameters = torch.from_numpy(_map_distortion_parameters(self.dataset["cameras"].distortion_parameters))
         cameras = NSCameras(
             camera_to_worlds=th_poses,
@@ -188,10 +227,10 @@ class _CustomDataParser(DataParser):
             camera_type=torch.tensor(camera_types, dtype=torch.long),
         )
         metadata = {}
-        transform_matrix = self.method.dataparser_params["dataparser_transform"]
-        scale_factor = self.method.dataparser_params["dataparser_scale"]
-        if self.method._require_points3D:
-            assert self.dataset["points3D_xyz"] is not None, "Points3D are required but not provided"
+        transform_matrix = self.dataparser_transform
+        scale_factor = self.dataparser_scale
+
+        if self.dataset.get("points3D_xyz") is not None:
             xyz = torch.from_numpy(self.dataset["points3D_xyz"]).float()
 
             # Transform poses using the dataparser transform
@@ -203,13 +242,47 @@ class _CustomDataParser(DataParser):
         return DataparserOutputs(
             image_names,
             cameras,
-            self.method.dataparser_params.get("alpha_color", None),
-            scene_box,
+            alpha_color,
+            self.scene_box,
             image_names if self.dataset["sampling_masks"] else None,
             metadata,
             dataparser_transform=transform_matrix[..., :3, :].contiguous(),  # pylint: disable=protected-access
             dataparser_scale=scale_factor,
         )  # pylint: disable=protected-access
+
+
+def transform_poses(dataparser_transform, dataparser_scale, poses):
+    assert poses.dim() == 3
+    poses = (
+        dataparser_transform.to(poses.dtype)
+        @ torch.cat([poses, torch.tensor([[[0, 0, 0, 1]]], dtype=poses.dtype).expand((len(poses), 1, 4))], -2)
+    )[:, :3, :].contiguous()
+    poses[:, :3, 3] *= dataparser_scale
+    return poses
+
+
+def get_pose_transform(poses):
+    poses = np.copy(poses)
+    lastrow = np.array([[[0, 0, 0, 1]]] * len(poses), dtype=poses.dtype)
+    poses = np.concatenate([poses, lastrow], axis=-2)
+    poses = poses[..., np.array([1, 0, 2, 3]), :]
+    poses[..., 2, :] *= -1
+
+    applied_transform = np.eye(4)[:3, :]
+    applied_transform = applied_transform[np.array([1, 0, 2]), :]
+    applied_transform[2, :] *= -1
+
+    poses = torch.from_numpy(np.array(poses).astype(np.float32))
+    poses, transform_matrix = camera_utils.auto_orient_and_center_poses(poses, method="up", center_method="poses")
+
+    scale_factor = 1.0
+    scale_factor /= float(torch.max(torch.abs(poses[:, :3, 3])))
+    poses[:, :3, 3] *= scale_factor
+
+    applied_transform = torch.tensor(applied_transform, dtype=transform_matrix.dtype)
+    transform_matrix = transform_matrix @ torch.cat([applied_transform, torch.tensor([[0, 0, 0, 1]], dtype=transform_matrix.dtype)], 0)
+    transform_matrix_extended = torch.cat([transform_matrix, torch.tensor([[0, 0, 0, 1]], dtype=transform_matrix.dtype)], -2)
+    return transform_matrix_extended, scale_factor
 
 
 class NerfStudio(Method):
@@ -228,15 +301,10 @@ class NerfStudio(Method):
             # Load nerfstudio checkpoint
             with open(os.path.join(checkpoint, "config.yml"), "r", encoding="utf8") as f:
                 config = yaml.load(f, Loader=yaml.Loader)
-            self._original_config = copy.deepcopy(config)
-            config.get_base_dir = lambda *_: Path(checkpoint)
-            config.load_dir = config.get_checkpoint_dir()
         elif self._nerfstudio_name is not None:
-            config = all_methods[self._nerfstudio_name]
-            self._original_config = copy.deepcopy(config)
+            config = copy.deepcopy(all_methods[self._nerfstudio_name])
         else:
             raise ValueError("Either checkpoint or name must be provided")
-        self.config = copy.deepcopy(config)
         self._trainer = None
         self._dm = None
         self.step = 0
@@ -244,65 +312,54 @@ class NerfStudio(Method):
         self._mode = None
         self.dataparser_params = None
 
-        if train_dataset is not None:
-            self._apply_config_patch_for_dataset(self._original_config, train_dataset)
-        for k, v in (config_overrides or {}).items():
-            if not _config_safe_set(self._original_config, k, v):
-                raise ValueError(f"Invalid config key {k}")
-        if train_dataset is not None:
-            self._setup_train(train_dataset)
-        else:
-            self._setup_eval()
+        if checkpoint is None:
+            _config_overrides = (config_overrides or {}).copy()
+            dataparser = _config_overrides.pop("pipeline.datamanager.dataparser", None)
+            if dataparser is not None:
+                from nerfstudio.configs.dataparser_configs import all_dataparsers  # type: ignore
+                config.pipeline.datamanager.dataparser = all_dataparsers[dataparser]
+            for k, v in (_config_overrides or {}).items():
+                if not _config_safe_set(config, k, v):
+                    raise ValueError(f"Invalid config key {k}")
 
-    def _patch_dataparser_params(self):
-        pass
+        self.config = config
+        self._original_config = copy.deepcopy(config)
+        if checkpoint is not None:
+            config.get_base_dir = lambda *_: Path(checkpoint)
+            config.load_dir = config.get_checkpoint_dir()
 
-    def _apply_config_patch_for_dataset(self, config, dataset: Dataset):
-        # See https://github.com/nerfstudio-project/nerfstudio/tree/SIGGRAPH-2023-Code
-        # NOTE: we change the average_init_density!!
-        use_original_average_init_density = False
-        if dataset["metadata"].get("name") == "blender":
-            logging.info("Applying config patch for dataset type blender")
-            if not _config_safe_set(config, "pipeline.model.near_plane", 2.0):
-                logging.warning("Flag pipeline.model.near_plane is not set (required for blender-type dataset)")
-            if not _config_safe_set(config, "pipeline.model.far_plane", 6.0):
-                logging.warning("Flag pipeline.model.far_plane is not set (required for blender-type dataset)")
-            if not _config_safe_set(config, "pipeline.datamanager.camera_optimizer.mode", "off") and not _config_safe_set(config, "pipeline.model.camera_optimizer.mode", "off"):
-                logging.warning("Flag pipeline.datamanager.camera_optimizer.mode is not set (required for blender-type dataset)")
-            if not _config_safe_set(config, "pipeline.model.use_appearance_embedding", False):
-                logging.warning("Flag pipeline.model.use_appearance_embedding is not set (required for mipnerf360-type dataset)")
-            if not _config_safe_set(config, "pipeline.model.background_color", "white"):
-                logging.warning("Flag pipeline.model.background_color is not set (required for blender-type dataset)")
-            if not _config_safe_set(config, "pipeline.model.proposal_initial_sampler", "uniform"):
-                logging.warning("Flag pipeline.model.proposal_initial_sampler is not set (required for blender-type dataset)")
-            if not _config_safe_set(config, "pipeline.model.distortion_loss_mult", 0.0):
-                logging.warning("Flag pipeline.model.distortion_loss_mult is not set (required for blender-type dataset)")
-            if not _config_safe_set(config, "pipeline.model.disable_scene_contraction", True):
-                logging.warning("Flag pipeline.model.disable_scene_contraction is not set (required for blender-type dataset)")
-            if not _config_safe_set(config, "pipeline.model.average_init_density", 1.0):
-                logging.warning("Flag pipeline.model.average_init_density is not set (required for blender-type dataset)")
-
-        if dataset["metadata"].get("name") in ("mipnerf360", "tanksandtemples"):
-            old_num_iter = getattr(config, "max_num_iterations", 0)
-            if old_num_iter < 70000:
-                if not _config_safe_set(config, "max_num_iterations", 70000):
-                    logging.warning("Flag max_num_iterations is not set (required for mipnerf360-type dataset)")
-            if not _config_safe_set(config, "pipeline.datamanager.camera_optimizer.mode", "off") and not _config_safe_set(config, "pipeline.model.camera_optimizer.mode", "off"):
-                logging.warning("Flag pipeline.datamanager.camera_optimizer.mode is not set (required for mipnerf360-type dataset)")
-            if not _config_safe_set(config, "pipeline.model.use_appearance_embedding", False):
-                logging.warning("Flag pipeline.model.use_appearance_embedding is not set (required for mipnerf360-type dataset)")
-            if use_original_average_init_density:
-                if not _config_safe_set(config, "pipeline.model.average_init_density", 1.0):
-                    logging.warning("Flag pipeline.model.average_init_density is not set (required for mipnerf360-type dataset)")
-
-        if dataset["metadata"].get("name") == "nerfstudio":
-            if use_original_average_init_density:
-                if not _config_safe_set(config, "pipeline.model.average_init_density", 1.0):
-                    logging.warning("Flag pipeline.model.average_init_density is not set (required for nerfstudio-type dataset)")
+        # self._num_train_images = self._get_num_train_images(train_dataset, checkpoint)
+        self._setup(train_dataset, config_overrides)
 
     @property
     def batch_size(self):
         return self.config.pipeline.datamanager.train_num_rays_per_batch
+
+    # def _get_num_train_images(self, train_dataset, checkpoint):
+    #     if checkpoint is not None:
+    #         # Fallback for NerfStudio-imported checkpoints
+    #         def _safeget(obj, name):
+    #             for p in name.split("."):
+    #                 if hasattr(obj, p):
+    #                     obj = getattr(obj, p)
+    #                 elif p in obj:
+    #                     obj = obj[p]
+    #                 else:
+    #                     return None
+    #             return obj
+    #         info = self.get_info()
+    #         ckpt_loaded = torch.load(os.path.join(checkpoint, f"nerfstudio_models/step-{info['loaded_step']:09d}.ckpt"), map_location="cpu")
+    #     else:
+    #         return len(train_dataset["cameras"])
+    #     print(ckpt_loaded.keys())
+    #     print(ckpt_loaded["pipeline"].keys())
+    #     if ckpt_loaded["pipeline"].get("_model.field.embedding_appearance.embedding.weight") is not None:
+    #         pass
+    #     print(ckpt_loaded["pipeline"]["_model.field.embedding_appearance.embedding.weight"].shape)
+    #     print(app_shape)
+    #     print(dir(app_shape))
+    #     app_shape = _safegettr(ckpt_loaded, "pipeline.model.field.embedding_appearance.weight")
+    #     print(app_shape)
 
     @classmethod
     def get_method_info(cls) -> MethodInfo:
@@ -349,7 +406,8 @@ class NerfStudio(Method):
 
         poses = torch.from_numpy(poses)
         assert poses.dim() == 3
-        poses = self._transform_poses(poses)
+        train_dataparser_outputs = self._trainer.pipeline.datamanager.train_dataparser_outputs
+        poses = transform_poses(train_dataparser_outputs.dataparser_transform, train_dataparser_outputs.dataparser_scale,  poses)
         intrinsics = torch.from_numpy(cameras.intrinsics)
         camera_types = [NPCameraType.PERSPECTIVE for _ in range(len(poses))]
         npmap = {x.name.lower(): x.value for x in NPCameraType.__members__.values()}
@@ -388,40 +446,8 @@ class NerfStudio(Method):
             yield out
         self._trainer.pipeline.train()
 
-    def _transform_poses(self, poses):
-        assert poses.dim() == 3
-        poses = (
-            self.dataparser_params["dataparser_transform"].to(poses.dtype)
-            @ torch.cat([poses, torch.tensor([[[0, 0, 0, 1]]], dtype=poses.dtype).expand((len(poses), 1, 4))], -2)
-        )[:, :3, :].contiguous()
-        poses[:, :3, 3] *= self.dataparser_params["dataparser_scale"]
-        return poses
-
-    def _get_pose_transform(self, poses):
-        poses = np.copy(poses)
-        lastrow = np.array([[[0, 0, 0, 1]]] * len(poses), dtype=poses.dtype)
-        poses = np.concatenate([poses, lastrow], axis=-2)
-        poses = poses[..., np.array([1, 0, 2, 3]), :]
-        poses[..., 2, :] *= -1
-
-        applied_transform = np.eye(4)[:3, :]
-        applied_transform = applied_transform[np.array([1, 0, 2]), :]
-        applied_transform[2, :] *= -1
-
-        poses = torch.from_numpy(np.array(poses).astype(np.float32))
-        poses, transform_matrix = camera_utils.auto_orient_and_center_poses(poses, method="up", center_method="poses")
-
-        scale_factor = 1.0
-        scale_factor /= float(torch.max(torch.abs(poses[:, :3, 3])))
-        poses[:, :3, 3] *= scale_factor
-
-        applied_transform = torch.tensor(applied_transform, dtype=transform_matrix.dtype)
-        transform_matrix = transform_matrix @ torch.cat([applied_transform, torch.tensor([[0, 0, 0, 1]], dtype=transform_matrix.dtype)], 0)
-        transform_matrix_extended = torch.cat([transform_matrix, torch.tensor([[0, 0, 0, 1]], dtype=transform_matrix.dtype)], -2)
-        return transform_matrix_extended, scale_factor
-
-    def _patch_datamanager(self, config, dataset=None, _images_holder=None):
-        config.pipeline.datamanager.dataparser._target = partial(_CustomDataParser, self, dataset)
+    def _patch_datamanager(self, config, dataset=None, dataparser_transforms=None, dataparser_scale=None, _images_holder=None):
+        config.pipeline.datamanager.dataparser._target = partial(_CustomDataParser, dataset, dataparser_transforms, dataparser_scale)
 
         dm = config.pipeline.datamanager
         if dm.__class__.__name__ == "ParallelDataManagerConfig":
@@ -457,6 +483,9 @@ class NerfStudio(Method):
             def dataset_type(self, value):
                 self._idataset_type = value
 
+            def create_eval_dataset(self, *args, **kwargs):
+                return None
+
         if dataset is None:
             # setup_train is not called for eval dataset
             def setup_train(self, *args, **kwargs):
@@ -468,18 +497,67 @@ class NerfStudio(Method):
             DM.setup_eval = lambda *args, **kwargs: None
         config.pipeline.datamanager._target = DM  # pylint: disable=protected-access
 
-    def _setup_train(self, train_dataset: Dataset):
-        if self.checkpoint is not None:
-            self.dataparser_params = torch.load(os.path.join(self.checkpoint, "dataparser_params.pth"), map_location="cpu")
+    def _patch_model(self, config):
+        class M(config.pipeline.model._target):  # pylint: disable=protected-access
+            def load_state_dict(self, state_dict, *args, **kwargs):
+                # Try fixing shapes
+                for name, buf in self.named_buffers():
+                    if name in state_dict and state_dict[name].shape != buf.shape:
+                        buf.resize_(*state_dict[name].shape)
+                for name, par in self.named_parameters():
+                    if name in state_dict and state_dict[name].shape != par.shape:
+                        par.data = state_dict[name].to(par.device)
+                super().load_state_dict(state_dict, *args, **kwargs)
+
+        M.__name__ = config.pipeline.model._target.__name__  # pylint: disable=protected-access
+        config.pipeline.model._target = M  # pylint: disable=protected-access
+
+    def _setup(self, train_dataset: Dataset, config_overrides):
+        dataparser_transforms = dataparser_scale = None
+        if self.checkpoint is not None or train_dataset is None:
+            if os.path.exists(os.path.join(self.checkpoint, "dataparser_transforms.json")):
+                with open(os.path.join(self.checkpoint, "dataparser_transforms.json"), "r", encoding="utf8") as f:
+                    dataparser_params = json.load(f)
+                    dataparser_transforms = torch.tensor(dataparser_params["transform"], dtype=torch.float32)
+                    # Pad with [0 0 0 1]
+                    dataparser_transforms = torch.cat([dataparser_transforms, torch.tensor([[0, 0, 0, 1]], dtype=torch.float32)], 0)[:4, :].contiguous()
+                    dataparser_scale = dataparser_params["scale"]
+            elif os.path.exists(os.path.join(self.checkpoint, "dataparser_params.pth")):
+                from nerfbaselines.registry import get
+                # Older checkpoint version
+                # TODO: remove this after upgrading all checkpoints
+                warnings.warn("Older checkpoint version detected, please upgrade the checkpoint")
+                assert not config_overrides, "config_overrides is not supported for older checkpoints"
+                _dataparser_params = torch.load(os.path.join(self.checkpoint, "dataparser_params.pth"))
+                dataparser_transforms = _dataparser_params["dataparser_transform"]
+                dataparser_scale = _dataparser_params["dataparser_scale"]
+                if _dataparser_params["aabb_scale"] == 1.5:
+                    logging.warning("Older checkpoint: blender detected")
+                    from nerfstudio.configs.dataparser_configs import all_dataparsers  # type: ignore
+                    dataparser = "blender-data"
+                    self.config.pipeline.datamanager.dataparser = copy.deepcopy(all_dataparsers[dataparser])
+                    self._original_config.pipeline.datamanager.dataparser = copy.deepcopy(all_dataparsers[dataparser])
+                    # Fix config overrides for the old checkpoint
+                    assert self.config.method_name == "nerfacto"
+                    config_overrides.update(get("nerfacto")["dataset_overrides"]["blender"])
+                elif (
+                        self.config.pipeline.model.use_appearance_embedding and
+                        self.config.pipeline.model.camera_optimizer.mode == "off"):
+                    logging.warning("Older checkpoint: mip360 detected")
+                    config_overrides.update(get("nerfacto")["dataset_overrides"]["mipnerf360"])
+            else:
+                raise ValueError("No dataparser_transforms.json file found in the checkpoint directory")
+
         self.config = copy.deepcopy(self._original_config)
         # We use this hack to release the memory after the data was copied to cached dataloader
-        images_holder = [train_dataset["images"]]
+        images_holder = [(train_dataset or {}).get("images")]
 
-        self._patch_datamanager(self.config, train_dataset, images_holder)
+        self._patch_datamanager(self.config, train_dataset, dataparser_transforms, dataparser_scale, images_holder)
+        self._patch_model(self.config)
         self.config.output_dir = Path(self._tmpdir.name)
         self.config.set_timestamp()
         self.config.vis = None
-        self.config.machine.device_type = "cuda"
+        # self.config.machine.device_type = "cuda"
         self.config.load_step = None
         trainer = self.config.setup()
         trainer.setup()
@@ -492,26 +570,17 @@ class NerfStudio(Method):
         self._mode = "train"
         self._trainer = trainer
 
-    def _setup_eval(self):
-        if self.checkpoint is None:
-            raise RuntimeError("Checkpoint must be provided to setup_eval")
-        self.dataparser_params = torch.load(os.path.join(self.checkpoint, "dataparser_params.pth"), map_location="cpu")
-        self.config = copy.deepcopy(self._original_config)
-        self.config.output_dir = Path(self._tmpdir.name)
-        self._patch_datamanager(self.config, None, None)
-
-        # Set eval batch size
-        self.config.pipeline.model.eval_num_rays_per_chunk = 4096
-        self.config.set_timestamp()
-        self.config.vis = None
-        self.config.machine.device_type = "cuda"
-        self.config.load_step = None
-        self.config.load_dir = Path(os.path.join(self.checkpoint, self.config.relative_model_dir))
-        trainer = self.config.setup()
-        trainer.setup()
-        trainer._load_checkpoint()
-        self._mode = "eval"
-        self._trainer = trainer
+        ## # Set eval batch size
+        ## self.config.pipeline.model.eval_num_rays_per_chunk = 4096
+        ## self.config.set_timestamp()
+        ## self.config.vis = None
+        ## self.config.machine.device_type = "cuda"
+        ## self.config.load_step = None
+        ## trainer = self.config.setup()
+        ## trainer.setup()
+        ## trainer._load_checkpoint()
+        ## self._mode = "eval"
+        ## self._trainer = trainer
 
     def _load_checkpoint(self):
         if self.checkpoint is not None:
@@ -568,7 +637,7 @@ class NerfStudio(Method):
         self._trainer.checkpoint_dir = Path(path) / self._original_config.relative_model_dir
         self._trainer.save_checkpoint(self.step)
         self._trainer.checkpoint_dir = bckp
-        torch.save({k: v.cpu() if hasattr(v, "cpu") else v for k, v in self.dataparser_params.items()}, str(Path(path) / "dataparser_params.pth"))
+        self._trainer.pipeline.datamanager.train_dataparser_outputs.save_dataparser_transform(Path(path) / "dataparser_transforms.json")
 
     def close(self):
         self._tmpdir.cleanup()

@@ -55,6 +55,9 @@ pip install submodules/simple-knn/
         "paper_link": "https://arxiv.org/pdf/2311.16493.pdf",
         "link": "https://niujinshuchong.github.io/mip-splatting/",
     },
+    "dataset_overrides": {
+        "blender": { "white_background": True, },
+    },
 }
 
 
