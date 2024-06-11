@@ -96,5 +96,3 @@ def invert_transform(transform, has_scale=False):
         transform[..., :3, :3] *= 1/scale
     return transform
 
-
-

@@ -214,6 +214,12 @@ class InstantNGP(Method):
         self._is_render_mode = False
         self._loaded_step = None
 
+        # Fix older checkpoints
+        if config_overrides is not None:
+            new_cfg_overrides = {k.replace("/", "."): v for k, v in config_overrides.items()}
+            config_overrides.clear()
+            config_overrides.update(new_cfg_overrides)
+
         if train_dataset is not None:
             self._setup_train(train_dataset, config_overrides)
         else:
@@ -245,13 +251,21 @@ class InstantNGP(Method):
         testbed.root_dir = os.path.dirname(train_transforms)
         if self._eval_setup_step is None:
             testbed.load_training_data(str(train_transforms))
-        if self.checkpoint is not None:
-            testbed.load_snapshot(str(self.checkpoint / "checkpoint.ingp"))
-            self._config = json.loads((self.checkpoint / "config.json").read_text())
+        config_path = None
+        if self.checkpoint is not None and os.path.exists(self.checkpoint / "config.json"):
+            config_path = self.checkpoint / "config.json"
+            config_overrides = None  # Ignore config_overrides if we have a checkpoint
         else:
+            if self.checkpoint is not None:
+                warnings.warn(f"Checkpoint {self.checkpoint} does not contain config.json. We will use the default config.")
             package_root = Path(os.path.dirname(os.path.dirname(os.path.abspath(ngp.__file__))))
-            testbed.reload_network_from_file(str(package_root / "configs" / "nerf" / "base.json"))
-            self._config = json.loads((package_root / "configs" / "nerf" / "base.json").read_text())
+            config_path = package_root / "configs" / "nerf" / "base.json"
+        self._config = json.loads(config_path.read_text())
+
+        if self.checkpoint is None:
+            testbed.reload_network_from_file(str(config_path))
+        else:
+            testbed.load_snapshot(str(self.checkpoint / "checkpoint.ingp"))
 
         self._config["testbed"] = testbed_cfg = self._config.get("testbed", {})
         testbed_cfg["nerf"] = testbed_cfg.get("nerf", {})
@@ -272,7 +286,7 @@ class InstantNGP(Method):
         if config_overrides is not None:
             config_overrides = _config_overrides_fix_types(config_overrides)
             for k, v in config_overrides.items():
-                if not k.startswith("testbed."):
+                if not k.startswith("testbed/"):
                     continue
                 parts = k.split(".")[1:]
                 obj = testbed_cfg
@@ -291,7 +305,7 @@ class InstantNGP(Method):
                     setattr(obj, k, v)
         set_params(testbed, testbed_cfg)
 
-        print("Config:")
+        print("Testbed config:")
         pprint.pprint(testbed_cfg)
 
         testbed.shall_train = True
@@ -329,7 +343,7 @@ class InstantNGP(Method):
                         with open(str(impath_target), "wb") as f:
                             f.write(struct.pack("ii", img.shape[0], img.shape[1]))
                             f.write(img.astype(np.float16).tobytes())
-                    logging.info(f"copied {impath_source} to {impath_target}")
+                    logging.debug(f"copied {impath_source} to {impath_target}")
                     copied += 1
                 progress.set_postfix(linked=linked, copied=copied)
                 if dataset["sampling_masks"] is not None:
@@ -350,36 +364,37 @@ class InstantNGP(Method):
 
         current_step = 0
         if self.checkpoint is not None:
-            with (self.checkpoint / "train_transforms.json").open() as f:
-                self._train_transforms = json.load(f)
             with (self.checkpoint / "meta.json").open() as f:
                 meta = json.load(f)
                 self.dataparser_params = meta["dataparser_params"]
+                self.dataparser_params["dataparser_transform"] = np.array(self.dataparser_params["dataparser_transform"], dtype=np.float32)
                 current_step = meta["step"]
                 self._loaded_step = current_step
-                self.dataparser_params["dataparser_transform"] = np.array(self.dataparser_params["dataparser_transform"], dtype=np.float32)
         else:
             # Verify blender config
             if train_dataset["metadata"].get("name") == "blender":
-                if config_overrides.get("testbed.color_space") != "SRGB":
-                    warnings.warn("Blender dataset is expected to have 'testbed.color_space=SRGB' in config_overrides.")
-                if config_overrides.get("testbed.nerf.cone_angle_constant") != 0:
-                    warnings.warn("Blender dataset is expected to have 'cone_angle_constant=0' in config_overrides.")
-                if config_overrides.get("testbed.nerf.training.random_bg_color") is not False:
-                    warnings.warn("Blender dataset is expected to have 'random_bg_color=False' in config_overrides.")
+                if config_overrides.get("testbed/color_space") != "SRGB":
+                    warnings.warn("Blender dataset is expected to have 'testbed/color_space=SRGB' in config_overrides.")
+                if config_overrides.get("testbed/nerf/cone_angle_constant") != 0:
+                    warnings.warn("Blender dataset is expected to have 'testbed/nerf/cone_angle_constant=0' in config_overrides.")
+                if config_overrides.get("testbed/nerf/training/random_bg_color") is not False:
+                    warnings.warn("Blender dataset is expected to have 'testbed/nerf/training/random_bg_color=False' in config_overrides.")
                 if config_overrides.get("aabb_scale") is not None:
                     warnings.warn("Blender dataset is expected to have 'aabb_scale=None' in config_overrides.")
                 if config_overrides.get("keep_coords") is not True:
                     warnings.warn("Blender dataset is expected to have 'keep_coords=True' in config_overrides.")
 
+            self.dataparser_params = {}
             aabb_scale = cast_value(Optional[int], config_overrides.get("aabb_scale", 32))
             keep_coords = cast_value(bool, config_overrides.get("keep_coords", False))
-            self._train_transforms, self.dataparser_params = get_transforms(
-                train_dataset, 
-                aabb_scale=aabb_scale, 
-                keep_coords=keep_coords, 
-                color_space=train_dataset["metadata"].get("color_space", "srgb"),
-            )
+            self.dataparser_params["aabb_scale"] = aabb_scale
+            self.dataparser_params["keep_coords"] = keep_coords
+            self.dataparser_params["color_space"] = train_dataset["metadata"].get("color_space", "srgb")
+
+        self._train_transforms, self.dataparser_params = get_transforms(
+            train_dataset, 
+            **self.dataparser_params
+        )
         with (Path(tmpdir) / "transforms.json").open("w") as f:
             json.dump(self._train_transforms, f)
         self._setup(Path(tmpdir) / "transforms.json", config_overrides, background_color=train_dataset["metadata"].get("background_color"))
@@ -407,7 +422,7 @@ class InstantNGP(Method):
         current_frame = self.testbed.training_step
         if step < self.num_iterations:
             deadline = 100
-            while current_frame < step:
+            while current_frame < step + 1:
                 if not self.testbed.frame():
                     raise RuntimeError("Training failed")
                 current_frame = self.testbed.training_step
@@ -418,6 +433,7 @@ class InstantNGP(Method):
             # Release the tempdir
             self._tempdir.cleanup()
             self._tempdir = None
+
         return {
             "loss": self.testbed.loss,
         }

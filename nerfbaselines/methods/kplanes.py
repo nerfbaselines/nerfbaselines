@@ -1,24 +1,131 @@
+import tqdm
+import requests
+import io
+import pprint
+import warnings
+import shlex
 import argparse
 import importlib.util
 import logging
 import os
 import pprint
-import sys
-from typing import List, Dict, Any
+from contextlib import contextmanager
+from typing import List, Dict, Any, Optional, Iterable, Sequence
 import numpy as np
 import torch
 import torch.utils.data
-from plenoxels.main import init_trainer
-from plenoxels.runners import video_trainer
-from plenoxels.runners import phototourism_trainer
-from plenoxels.runners import static_trainer
-from plenoxels.utils.create_rendering import render_to_path, decompose_space_time
-from plenoxels.utils.parse_args import parse_optfloat
-from nerfbaselines.types import Method
-from nerfbaselines.utils import remap_error
+from functools import cached_property
 
 
-def load_data(model_type: str, data_downsample, data_dirs, validate_only: bool, render_only: bool, **kwargs):
+# Patch resource.setrlimit
+import resource
+_backup = resource.setrlimit
+try:
+    resource.setrlimit = lambda *args, **kwargs: None
+    import plenoxels.configs as cfg_package
+    from plenoxels.main import init_trainer
+    from plenoxels.runners import base_trainer
+    from plenoxels.runners import video_trainer
+    from plenoxels.runners import phototourism_trainer
+    from plenoxels.runners import static_trainer
+    from plenoxels.utils.create_rendering import render_to_path, decompose_space_time
+    from plenoxels.utils.parse_args import parse_optfloat
+    from plenoxels.datasets import phototourism_dataset as ptdataset
+finally:
+    resource.setrlimit = _backup
+del _backup
+
+
+from nerfbaselines.types import Dataset, RenderOutput, OptimizeEmbeddingsOutput
+from nerfbaselines.types import Method, MethodInfo, ModelInfo, Cameras, camera_model_to_int
+from nerfbaselines.utils import remap_error, flatten_hparams, convert_image_dtype
+import tempfile
+
+
+# Patch SummaryWriter
+class NoopWritter:
+    def __init__(self, *args, **kwargs):
+        pass
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: None
+base_trainer.SummaryWriter = NoopWritter
+
+
+class LambdaModule(torch.nn.Module):
+    def __init__(self, func):
+        super().__init__()
+        self.func = func
+
+    def forward(self, *args, **kwargs):
+        return self.func(*args, **kwargs)
+
+
+@contextmanager
+def _patch_kplanes_phototourism_dataset(dataset, camera_bounds_index):
+    # Patch kplanes dataset
+    # TODO:!!!
+    with tempfile.TemporaryDirectory(suffix=dataset["metadata"].get("scene") if dataset is not None else None) as tmpdir:
+        ptinit_backup = ptdataset.PhotoTourismDataset.__init__
+        pt_getidsforsplit = ptdataset.get_ids_for_split
+        pt_loadcamerametadata = ptdataset.load_camera_metadata
+        pt_readpng = ptdataset.read_png
+        pt_getnumtrainimages = ptdataset.PhotoTourismDataset.get_num_train_images
+        pt_renderposes = ptdataset.pt_render_poses
+        torchload_backup = torch.load
+        torchsave_backup = torch.save
+        cached_data = None
+        poses = kinvs = res = bounds = None
+        if dataset is not None:
+            poses, kinvs, res = transform_cameras(dataset["cameras"])
+            bounds = camera_bounds_index.bounds
+            assert len(poses) == len(bounds), f"Expected {len(poses)} == {len(bounds)}"
+        def pt_init(self, datadir, *args, **kwargs):
+            if dataset is None:
+                kwargs["split"] = "render"
+            ptinit_backup(self, tmpdir, *args, **kwargs)
+        def pt_getidsforsplit(datadir, split):
+            return list(range(len(dataset["cameras"]))), dataset["file_paths"]
+        def pt_loadcamerametadata(datadir, idx):
+            return poses[idx], kinvs[idx], bounds[idx], res[idx]
+        def pt_readpng(impath):
+            imgid = dataset["file_paths"].index(impath)
+            if dataset.get("images") is None:
+                w, h = dataset["cameras"].image_sizes[imgid]
+                img = np.zeros((h, w, 3), dtype=np.uint8)
+            else:
+                img = dataset["images"][imgid]
+            img = torch.from_numpy(convert_image_dtype(img, np.float32))
+            img = img.permute(1, 2, 0).contiguous()  # H, W, C
+            return img
+        def pt_renderposes(self, *args, **kwargs):
+            return None, None, None, None
+        def torchload(path, *args, **kwargs):
+            return cached_data
+        def torchsave(obj, path, *args, **kwargs):
+            nonlocal cached_data
+            cached_data = obj
+        try:
+            torch.load = torchload
+            torch.save = torchsave
+            ptdataset.PhotoTourismDataset.__init__ = pt_init
+            ptdataset.get_ids_for_split = pt_getidsforsplit
+            ptdataset.load_camera_metadata = pt_loadcamerametadata
+            ptdataset.read_png = pt_readpng
+            ptdataset.pt_render_poses = pt_renderposes
+            ptdataset.PhotoTourismDataset.get_num_train_images = lambda *args, **kwargs: 0
+            yield None
+        finally:
+            torch.load = torchload_backup
+            torch.save = torchsave_backup
+            ptdataset.PhotoTourismDataset.__init__ = ptinit_backup
+            ptdataset.get_ids_for_split = pt_getidsforsplit
+            ptdataset.load_camera_metadata = pt_loadcamerametadata
+            ptdataset.read_png = pt_readpng
+            ptdataset.pt_render_poses = pt_renderposes
+            ptdataset.PhotoTourismDataset.get_num_train_images = pt_getnumtrainimages
+
+
+def load_data(model_type: str, data_downsample, data_dirs, validate_only: bool, render_only: bool, dataset, camera_bounds_index, **kwargs):
     data_downsample = parse_optfloat(data_downsample, default_val=1.0)
 
     if model_type == "video":
@@ -26,91 +133,135 @@ def load_data(model_type: str, data_downsample, data_dirs, validate_only: bool, 
             data_downsample, data_dirs, validate_only=validate_only,
             render_only=render_only, **kwargs)
     elif model_type == "phototourism":
-        return phototourism_trainer.load_data(
-            data_downsample, data_dirs, validate_only=validate_only,
-            render_only=render_only, **kwargs
-        )
+        with _patch_kplanes_phototourism_dataset(dataset, camera_bounds_index):
+            return phototourism_trainer.load_data(
+                data_downsample, data_dirs, validate_only=validate_only,
+                render_only=render_only, **kwargs
+            )
     else:
         return static_trainer.load_data(
             data_downsample, data_dirs, validate_only=validate_only,
             render_only=render_only, **kwargs)
 
 
-def save_config(config):
-    log_dir = os.path.join(config['logdir'], config['expname'])
-    os.makedirs(log_dir, exist_ok=True)
-
-    with open(os.path.join(log_dir, 'config.py'), 'wt') as out:
+def save_config(path, config):
+    with open(os.path.join(path, 'config.py'), 'wt') as out:
         out.write('config = ' + pprint.pformat(config))
 
-    with open(os.path.join(log_dir, 'config.csv'), 'w') as f:
+    with open(os.path.join(path, 'config.csv'), 'w') as f:
         for key in config.keys():
             f.write("%s\t%s\n" % (key, config[key]))
 
 
-def main():
-    p = argparse.ArgumentParser(description="")
+# The kplanes data was extracted from https://drive.google.com/drive/folders/1SVHKRQXiRb98q4KHVEbj8eoWxjNS2QLW
+# using the following code:
+# dataset = load_colmap_dataset("external://phototourism/{scene}", split=None
+# bds = np.load("{path to downloaded bds")
+# files = sorted(dataset["file_paths"])
+# with open("phototourism-{scene}-bounds.txt", "w") as f:
+#     f.write("image min_bound max_bound P00 P01 P02 P03 P10 P11 P12 P13 P20 P21 P22 P23\n")
+#     for i, bd in enumerate(bds):
+#         ps = " ".join(map(str, dataset["cameras"].poses[i][:3, :].flatten()))
+#         f.write(f"{os.path.split(os.path.splitext(files[i])[0])[-1]} {bd[0]} {bd[1]} {ps}\n")
 
-    p.add_argument('--render-only', action='store_true')
-    p.add_argument('--validate-only', action='store_true')
-    p.add_argument('--spacetime-only', action='store_true')
-    p.add_argument('--config-path', type=str, required=True)
-    p.add_argument('--log-dir', type=str, default=None)
-    p.add_argument('--seed', type=int, default=0)
-    p.add_argument('override', nargs=argparse.REMAINDER)
 
-    args = p.parse_args()
+def transform_cameras(cameras):
+    intrinsics = cameras.intrinsics.copy()
+    poses = cameras.poses.copy()
 
-    # Import config
-    spec = importlib.util.spec_from_file_location(os.path.basename(args.config_path), args.config_path)
-    cfg = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(cfg)
-    config: Dict[str, Any] = cfg.config
-    # Process overrides from argparse into config
-    # overrides can be passed from the command line as key=value pairs. E.g.
-    # python plenoxels/main.py --config-path plenoxels/config/cfg.py max_ts_frames=200
-    # note that all values are strings, so code should assume incorrect data-types for anything
-    # that's derived from config - and should not a string.
-    overrides: List[str] = args.override
-    overrides_dict = {ovr.split("=")[0]: ovr.split("=")[1] for ovr in overrides}
-    config.update(overrides_dict)
-    if "keyframes" in config:
-        model_type = "video"
-    elif "appearance_embedding_dim" in config:
-        model_type = "phototourism"
-    else:
-        model_type = "static"
-    validate_only = args.validate_only
-    render_only = args.render_only
-    spacetime_only = args.spacetime_only
-    if validate_only and render_only:
-        raise ValueError("render_only and validate_only are mutually exclusive.")
-    if render_only and spacetime_only:
-        raise ValueError("render_only and spacetime_only are mutually exclusive.")
-    if validate_only and spacetime_only:
-        raise ValueError("validate_only and spacetime_only are mutually exclusive.")
+    # Transform coordinates
+    # intrinsics[..., 1:] *= -1
+    # poses[..., :, 1:3] *= -1
 
-    pprint.pprint(config)
-    if validate_only or render_only:
-        assert args.log_dir is not None and os.path.isdir(args.log_dir)
-    else:
-        save_config(config)
+    K = np.zeros((*intrinsics.shape[:-1], 3, 3))
+    K[..., 0, 0] = intrinsics[..., 0]
+    K[..., 1, 1] = intrinsics[..., 1]
+    K[..., 0, 2] = intrinsics[..., 2]
+    K[..., 1, 2] = intrinsics[..., 3]
+    K[..., 2, 2] = 1
+    kinvs = np.linalg.inv(K)
+    return poses, kinvs, cameras.image_sizes
 
-    data = load_data(model_type, validate_only=validate_only, render_only=render_only or spacetime_only, **config)
-    trainer = init_trainer(model_type, **config, **data)
-    if args.log_dir is not None:
-        checkpoint_path = os.path.join(args.log_dir, "model.pth")
-        training_needed = not (validate_only or render_only or spacetime_only)
-        trainer.load_model(torch.load(checkpoint_path), training_needed=training_needed)
 
-    if validate_only:
-        trainer.validate()
-    elif render_only:
-        render_to_path(trainer, extra_name="")
-    elif spacetime_only:
-        decompose_space_time(trainer, extra_name="")
-    else:
-        trainer.train()
+class CameraBoundsIndex:
+    def __init__(self, poses, bounds, offsets):
+        self.poses = poses[:, :3, :].copy()
+        self.bounds = bounds.copy()
+        self.offsets = offsets.copy()
+
+    def save(self, checkpoint):
+        np.savez(os.path.join(checkpoint, "bounds.npz"), poses=self.poses, bounds=self.bounds, offsets=self.offsets)
+
+    @staticmethod
+    def load(checkpoint):
+        data = np.load(os.path.join(checkpoint, "bounds.npz"))
+        return CameraBoundsIndex(data["poses"], data["bounds"], data["offsets"])
+
+    @staticmethod
+    def build(dataset, config):
+        # Data was extracted from: https://drive.google.com/drive/folders/1SVHKRQXiRb98q4KHVEbj8eoWxjNS2QLW
+        _phototourism_bounds = {
+            "trevi-fountain": "https://gist.githubusercontent.com/jkulhanek/45cc7a94fe543237683b563660d6e590/raw/244c06c1b67588ca9f6f1c8ff02e63f044ab72e7/trevi-fountain.txt",
+            "brandenburg-gate": "https://gist.githubusercontent.com/jkulhanek/45cc7a94fe543237683b563660d6e590/raw/244c06c1b67588ca9f6f1c8ff02e63f044ab72e7/brandenburg-gate.txt",
+            "sacre-coeur": "https://gist.githubusercontent.com/jkulhanek/45cc7a94fe543237683b563660d6e590/raw/244c06c1b67588ca9f6f1c8ff02e63f044ab72e7/sacre-coeur.txt",
+        }
+        dataset_name = scene = None
+        pref = config["data_dirs"][0].replace("_", "-").split("/")
+        if len(pref) > 1:
+            dataset_name, scene = pref[-2:]
+
+        if dataset is None:
+            raise RuntimeError("Dataset is required to estimate camera bounds")
+
+        if dataset_name == "phototourism" and scene in _phototourism_bounds:
+            logging.info(f"Using official K-planes pre-computed camera bounds for scene {scene}")
+            with requests.get(_phototourism_bounds[scene]) as r:
+                r.raise_for_status()
+                names, bounds_data = [], []
+                for line in r.content.decode("utf-8").splitlines()[1:]:
+                    name, l1, h1 = line.split()
+                    names.append(name)
+                    bounds_data.append(np.array([float(l1), float(h1)], dtype=np.float32))
+                bounds_map = dict(zip(names, bounds_data))
+                bounds = [bounds_map[os.path.split(os.path.splitext(x)[0])[-1]] for x in dataset["file_paths"]]
+                if scene in ("trevi-fountain", "brandenburg-gate"):
+                    offsets = np.array([0.01, 0.0])
+                elif scene == "sacre-coeur":
+                    offsets = np.array([0.05, 0.0])
+                else:
+                    raise RuntimeError(f"Unknown scene {scene}")
+                return CameraBoundsIndex(dataset["cameras"].poses[:, :3, :], np.stack(bounds, 0), offsets)
+        elif dataset_name == "phototourism":
+            logging.warning(f"Could not load camera bounds for scene {scene}")
+
+        # Estimate bounds from the dataset
+        if dataset.get("images_points3D_indices") is None or dataset.get("points3D_xyz") is None:
+            raise RuntimeError("Dataset does not contain points3D_xyz and images_points3D_indices. Cannot estimate bounds.")
+
+        bounds = []
+        poses = dataset["cameras"].poses
+        for i in tqdm.trange(len(dataset["cameras"])):
+            inds = dataset["images_points3D_indices"][i]
+            zvals = dataset["points3D_xyz"][inds] - poses[i, None, :3, 3]
+            zvals = (zvals * poses[i, None, :3, 2]).sum(-1)
+            zvals = np.abs(zvals)
+            dl1, dh1 = np.percentile(zvals, .1, axis=-1), np.percentile(zvals, 99.9, axis=-1)
+            dl1 = max(dl1, 0.0001)
+            bounds.append(np.array([dl1, dh1], dtype=np.float32))
+        bounds = np.stack(bounds, 0)
+        poses = poses[:, :3, :]
+        return CameraBoundsIndex(poses, bounds, offsets=np.array([0.0, 0.0], dtype=np.float32))
+
+    def query(self, poses):
+        # Find the closest cam
+        closest_cam_idx = np.linalg.norm(
+            self.poses.reshape((1, -1, 12)) - poses.reshape((-1, 1, 12)), axis=-1
+        ).argmin(1)
+
+        bounds = self.bounds[closest_cam_idx, :]
+        if self.offsets is not None:
+            bounds = bounds + self.offsets
+        return bounds
 
 
 class KPlanes(Method):
@@ -123,120 +274,106 @@ class KPlanes(Method):
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
         self.checkpoint = str(checkpoint) if checkpoint is not None else None
-        self.gaussians = None
+        self.camera_bounds_index = None
         self.background = None
         self.step = 0
 
         self.scene = None
 
         # Setup parameters
-        self._args_list = ["--source_path", "<empty>"]
         if checkpoint is not None:
-            with open(os.path.join(checkpoint, "args.txt"), "r", encoding="utf8") as f:
-                self._args_list = shlex.split(f.read())
-
-        self._viewpoint_stack = []
-        self._input_points = None
+            pass
 
         # Setup config
+        config_root = os.path.join(os.path.dirname(os.path.abspath(cfg_package.__file__)), "final")
         if self.checkpoint is None:
-            if train_dataset["metadata"].get("name") == "blender":
-                # Blender scenes have white background
-                self._args_list.append("--white_background")
-                logging.info("overriding default background color to white for blender dataset")
-
-        if config_overrides is not None:
-            for k, v in config_overrides.items():
-                if f'--{k}' in self._args_list:
-                    self._args_list[self._args_list.index(f'--{k}') + 1] = str(v)
-                else:
-                    self._args_list.append(f"--{k}")
-                    self._args_list.append(str(v))
-
-        self._load_config()
-
-        if self.checkpoint is None:
-            # Verify parameters are set correctly
-            if train_dataset["metadata"].get("name") == "blender":
-                assert self.dataset.white_background, "white_background should be True for blender dataset"
-
-        if train_dataset is not None:
-            self._setup_train(train_dataset)
+            # Load config
+            config_path = (config_overrides or {}).copy().pop("config_path", None)
+            if config_path is None:
+                config_path = "NeRF/nerf_hybrid.py"
+            config_path = os.path.join(config_root, os.path.dirname(__file__), config_path)
         else:
-            self._setup_eval()
-
-    def _load_config(self):
-        parser = ArgumentParser(description="Training script parameters")
-        lp = ModelParams(parser)
-        op = OptimizationParams(parser)
-        pp = PipelineParams(parser)
-        parser.add_argument("--scale_coords", type=float, default=None, help="Scale the coords")
-        args = parser.parse_args(self._args_list)
-        self.dataset = lp.extract(args)
-        self.dataset.scale_coords = args.scale_coords
-        self.opt = op.extract(args)
-        self.pipe = pp.extract(args)
-
-    def _setup_train(self, train_dataset: Dataset):
-        # Set random seed
-        np.random.seed(args.seed)
-        torch.manual_seed(args.seed)
-
-        # Get config path for the dataset
-        config_path = ...
-
-        # Import config
-        spec = importlib.util.spec_from_file_location(os.path.basename(config_path), config_path)
+            # Load config from checkpoint
+            config_path = os.path.join(self.checkpoint, "config.py")
+        spec = importlib.util.spec_from_file_location(
+            os.path.basename(config_path), config_path)
+        logging.info(f"Loading config from {config_path}")
         cfg = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cfg)
-        config: Dict[str, Any] = cfg.config
-        # Process overrides from argparse into config
-        # overrides can be passed from the command line as key=value pairs. E.g.
-        # python plenoxels/main.py --config-path plenoxels/config/cfg.py max_ts_frames=200
-        # note that all values are strings, so code should assume incorrect data-types for anything
-        # that's derived from config - and should not a string.
-        overrides: List[str] = args.override
-        overrides_dict = {ovr.split("=")[0]: ovr.split("=")[1] for ovr in overrides}
-        config.update(overrides_dict)
-        if "keyframes" in config:
+        config = cfg.config
+        config["logdir"] = "<empty>"
+        config["expname"] = ""
+        if self.checkpoint is not None:
+            config.update(config_overrides or {})
+        self.config = config
+
+        # Setup trainer
+        self._setup(train_dataset)
+
+    def _setup(self, train_dataset: Dataset):
+        # Set random seed
+        np.random.seed(self.config.get("seed", 0))
+        torch.manual_seed(self.config.get("seed", 0))
+
+        if "keyframes" in self.config:
             model_type = "video"
-        elif "appearance_embedding_dim" in config:
+        elif "appearance_embedding_dim" in self.config:
             model_type = "phototourism"
         else:
             model_type = "static"
 
-        pprint.pprint(config)
-        if validate_only or render_only:
-            assert args.log_dir is not None and os.path.isdir(args.log_dir)
-        else:
-            save_config(config)
+        pprint.pprint(self.config)
+        if self.checkpoint is not None:
+            try:
+                self.camera_bounds_index = CameraBoundsIndex.load(self.checkpoint)
+            except FileNotFoundError as e:
+                if train_dataset is None:
+                    raise RuntimeError("Could not load camera bounds from checkpoint."
+                                       "If the checkpoint is not official NerfBaselines checkpoint,"
+                                       "you can try reconstructing the necessary bounds by supplying"
+                                       "also the train dataset into the constructor.") from e
+                else:
+                    logging.warning(f"Could not load camera bounds from {self.checkpoint}")
+        if self.camera_bounds_index is None:
+            logging.info("Building camera bounds from dataset")
+            self.camera_bounds_index = CameraBoundsIndex.build(train_dataset, self.config)
+        data = load_data(model_type, 
+                     validate_only=False, 
+                     render_only=False, 
+                     **self.config, 
+                     dataset=train_dataset, 
+                     camera_bounds_index=self.camera_bounds_index)
+        trainer = init_trainer(model_type, **self.config, **data)
+        self.trainer = trainer
+        self._patch_model()
 
-        data = load_data(model_type, validate_only=validate_only, render_only=render_only or spacetime_only, **config)
-        trainer = init_trainer(model_type, **config, **data)
-        if args.log_dir is not None:
-            checkpoint_path = os.path.join(args.log_dir, "model.pth")
-            training_needed = not (validate_only or render_only or spacetime_only)
-            trainer.load_model(torch.load(checkpoint_path), training_needed=training_needed)
+        if self.checkpoint is not None:
+            checkpoint_path = os.path.join(self.checkpoint, "model.pth")
+            training_needed = train_dataset is not None
+            trainer.load_model(
+                torch.load(checkpoint_path, map_location="cpu"), 
+                training_needed=training_needed)
+        trainer.post_step = lambda *args, **kwargs: None
+        self.data = data
 
-        if validate_only:
-            trainer.validate()
-        elif render_only:
-            render_to_path(trainer, extra_name="")
-        elif spacetime_only:
-            decompose_space_time(trainer, extra_name="")
-        else:
-            # trainer.train()
+    def _patch_model(self):
+        self = self.trainer.model
+        old_load_state_dict = self.load_state_dict
+        if getattr(old_load_state_dict, "__patched__", False):
+            return
 
+        def load_state_dict(state_dict, *args, **kwargs):
+            # Try fixing shapes
+            for name, buf in self.named_buffers():
+                if name in state_dict and state_dict[name].shape != buf.shape:
+                    buf.resize_(*state_dict[name].shape)
+            for name, par in self.named_parameters():
+                if name in state_dict and state_dict[name].shape != par.shape:
+                    par.data = state_dict[name].to(par.device)
+            old_load_state_dict(state_dict, *args, **kwargs)
 
-
-
-
-
-
-        bg_color = [1, 1, 1] if self.dataset.white_background else [0, 0, 0]
-        self.background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
-        self._input_points = (train_dataset["points3D_xyz"], train_dataset["points3D_rgb"])
-        self._viewpoint_stack = []
+        load_state_dict.__patched__ = True
+        self.load_state_dict = load_state_dict
 
     def train_iteration(self, step):
         if self.batch_iter is None:
@@ -270,28 +407,15 @@ class KPlanes(Method):
         self.trainer.model.step_after_iter(self.global_step)
         self.trainer.timer.check("after-step")
 
-    def _setup_eval(self):
-        # Initialize system state (RNG)
-        safe_state(False)
-
-        # Setup model
-        self.gaussians = GaussianModel(self.dataset.sh_degree)
-        self.scene = self._build_scene(None)
-        info = self.get_info()
-        loaded_step = info["loaded_step"]
-        (model_params, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{loaded_step}.pth")
-        self.gaussians.restore(model_params, self.opt)
-
-        bg_color = [1, 1, 1] if self.dataset.white_background else [0, 0, 0]
-        self.background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
-
     @cached_property
     def _loaded_step(self):
         loaded_step = None
         if self.checkpoint is not None:
             if not os.path.exists(self.checkpoint):
                 raise RuntimeError(f"Model directory {self.checkpoint} does not exist")
-            loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(str(self.checkpoint)) if x.startswith("chkpnt-"))[-1]
+
+            ckpt = torch.load(str(self.checkpoint) + f"/model.pth")
+            return int(ckpt["global_step"])
         return loaded_step
 
     @classmethod
@@ -299,136 +423,84 @@ class KPlanes(Method):
         assert cls._method_name is not None, "Method was not properly registered"
         return MethodInfo(
             name=cls._method_name,
-            required_features=frozenset(("color", "points3D_xyz")),
+            required_features=frozenset(("color", "points3D_xyz", "images_points3D_indices")),
             supported_camera_models=frozenset(("pinhole",)),
         )
 
     def get_info(self) -> ModelInfo:
         return ModelInfo(
-            num_iterations=self.opt.iterations,
+            num_iterations=self.config["num_steps"],
             loaded_step=self._loaded_step,
             loaded_checkpoint=self.checkpoint,
-            hparams=(
-                flatten_hparams(dict(itertools.chain(vars(self.dataset).items(), vars(self.opt).items(), vars(self.pipe).items()))) 
-                if self.dataset is not None else {}),
+            hparams=flatten_hparams(self.config, separator="."),
             **self.get_method_info(),
         )
 
-    def _build_scene(self, dataset):
-        opt = copy.copy(self.dataset)
-        with tempfile.TemporaryDirectory() as td:
-            os.mkdir(td + "/sparse")
-            opt.source_path = td  # To trigger colmap loader
-            opt.model_path = td if dataset is not None else str(self.checkpoint)
-            backup = sceneLoadTypeCallbacks["Colmap"]
-            try:
-                info = self.get_info()
-                def colmap_loader(*args, **kwargs):
-                    return _convert_dataset_to_gaussian_splatting(dataset, td, white_background=self.dataset.white_background, scale_coords=self.dataset.scale_coords)
-                sceneLoadTypeCallbacks["Colmap"] = colmap_loader
-                scene =  Scene(opt, self.gaussians, load_iteration=info["loaded_step"] if dataset is None else None)
-                # NOTE: This is a hack to match the RNG state of GS on 360 scenes
-                _tmp = list(range((len(next(iter(scene.train_cameras.values()))) + 6) // 7))
-                random.shuffle(_tmp)
-                return scene
-            finally:
-                sceneLoadTypeCallbacks["Colmap"] = backup
+    def _get_eval_data(self, cameras):
+        if isinstance(self.data["ts_dset"], ptdataset.PhotoTourismDataset):
+            poses, kinvs, res = transform_cameras(cameras)
+            bounds = self.camera_bounds_index.query(cameras.poses)
+            poses, kinvs, bounds = ptdataset.scale_cam_metadata(poses, kinvs, bounds, scale=0.05)
+            poses = torch.from_numpy(poses).float()
+            bounds = torch.from_numpy(bounds).float()
+            kinvs = torch.from_numpy(kinvs).float()
+
+            for i, pose in enumerate(poses):
+                frame_w, frame_h = res[i]
+                rays_o, rays_d = ptdataset.get_rays_tourism(frame_h, frame_w, kinvs[i], pose)
+                rays_o = rays_o.view(-1, 3)
+                rays_d = rays_d.view(-1, 3)
+                yield {
+                    "rays_o": rays_o,
+                    "rays_d": rays_d,
+                    "near_fars": bounds[i].expand(rays_o.shape[0], 2),
+                    "timestamps": torch.tensor([i], dtype=torch.long).expand(rays_o.shape[0], 1),
+                    "bg_color": torch.ones((1, 3), dtype=torch.long),
+                }
+        else:
+            raise NotImplementedError("Only phototourism dataset is supported")
 
     def render(self, cameras: Cameras, embeddings=None) -> Iterable[RenderOutput]:
-        if embeddings is not None:
-            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
         assert np.all(cameras.camera_types == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
-        sizes = cameras.image_sizes
-        poses = cameras.poses
-        intrinsics = cameras.intrinsics
+
+        def load_embeddings(i, indices):
+            if embeddings is None:
+                # Fix bug in kplanes
+                embed = self.trainer.model.field.appearance_embedding
+                embed = old_appearance_embedding.weight.mean(0)
+            else:
+                embed = torch.from_numpy(embeddings[i])
+            embed = embed.to(self.trainer.model.field.appearance_embedding.weight.device)
+            return embed.view(*([1] * len(indices.shape)), -1).expand(*indices.shape, -1)
 
         with torch.no_grad():
-            for i, pose in enumerate(poses):
-                viewpoint_cam = _load_caminfo(i, pose, intrinsics[i], f"{i:06d}.png", sizes[i], scale_coords=self.dataset.scale_coords)
-                viewpoint = loadCam(self.dataset, i, viewpoint_cam, 1.0)
-                image = torch.clamp(render(viewpoint, self.gaussians, self.pipe, self.background)["render"], 0.0, 1.0)
-                color = image.detach().permute(1, 2, 0).cpu().numpy()
-
+            for i, data in enumerate(self._get_eval_data(cameras)):
+                old_train = self.trainer.model.training
+                old_test_appearance_embedding = getattr(self.trainer.model.field, 'test_appearance_embedding', None)
+                old_appearance_embedding = self.trainer.model.field.appearance_embedding
+                
+                try:
+                    self.trainer.model.eval()
+                    if self.trainer.model.field.use_appearance_embedding:
+                        self.trainer.model.field.test_appearance_embedding = LambdaModule(lambda indices: load_embeddings(i, indices))
+                    out = self.trainer.eval_step(data)
+                finally:
+                    self.trainer.model.train(old_train)
+                    if hasattr(self.trainer.model.field, 'test_appearance_embedding'):
+                        del self.trainer.model.field.test_appearance_embedding
+                    if old_test_appearance_embedding is not None:
+                        self.trainer.model.field.test_appearance_embedding = old_test_appearance_embedding
+                w, h = cameras.image_sizes[i]
                 yield {
-                    "color": color,
+                    "color": out["rgb"].view(h, w, -1).cpu().numpy(),
+                    "depth": out["depth"].view(h, w).cpu().numpy(),
                 }
 
-    def train_iteration(self, step):
-        self.step = step
-        iteration = step + 1  # Gaussian Splatting is 1-indexed
-        del step
-
-        self.gaussians.update_learning_rate(iteration)
-
-        # Every 1000 its we increase the levels of SH up to a maximum degree
-        if iteration % 1000 == 0:
-            self.gaussians.oneupSHdegree()
-
-        # Pick a random Camera
-        if not self._viewpoint_stack:
-            loadCam.was_called = False
-            self._viewpoint_stack = self.scene.getTrainCameras().copy()
-            if any(not getattr(cam, "_patched", False) for cam in self._viewpoint_stack):
-                raise RuntimeError("could not patch loadCam!")
-        viewpoint_cam = self._viewpoint_stack.pop(randint(0, len(self._viewpoint_stack) - 1))
-
-        # Render
-        bg = torch.rand((3), device="cuda") if self.opt.random_background else self.background
-
-        render_pkg = render(viewpoint_cam, self.gaussians, self.pipe, bg)
-        image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
-
-        # Loss
-        gt_image = viewpoint_cam.original_image.cuda()
-        sampling_mask = viewpoint_cam.sampling_mask.cuda() if viewpoint_cam.sampling_mask is not None else None
-
-        # Apply mask
-        mask_percentage = 1.0
-        if sampling_mask is not None:
-            image *= sampling_mask
-            gt_image *= sampling_mask
-            mask_percentage = sampling_mask.mean()
-
-        Ll1 = l1_loss(image, gt_image) / mask_percentage
-        ssim_value = ssim(image, gt_image)
-        if sampling_mask is not None:
-            ssim_value = normalize_ssim(ssim_value, mask_percentage)
-
-        loss = (1.0 - self.opt.lambda_dssim) * Ll1 + self.opt.lambda_dssim * (1.0 - ssim_value)
-        loss.backward()
-        with torch.no_grad():
-            psnr_value = 10 * torch.log10(1 / torch.mean((image - gt_image) ** 2) / mask_percentage)
-            metrics = {
-                "l1_loss": Ll1.detach().cpu().item(), 
-                "loss": loss.detach().cpu().item(), 
-                "psnr": psnr_value.detach().cpu().item(),
-            }
-
-            # Densification
-            if iteration < self.opt.densify_until_iter:
-                # Keep track of max radii in image-space for pruning
-                self.gaussians.max_radii2D[visibility_filter] = torch.max(self.gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
-                self.gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
-
-                if iteration > self.opt.densify_from_iter and iteration % self.opt.densification_interval == 0:
-                    size_threshold = 20 if iteration > self.opt.opacity_reset_interval else None
-                    self.gaussians.densify_and_prune(self.opt.densify_grad_threshold, 0.005, self.scene.cameras_extent, size_threshold)
-
-                if iteration % self.opt.opacity_reset_interval == 0 or (self.dataset.white_background and iteration == self.opt.densify_from_iter):
-                    self.gaussians.reset_opacity()
-
-            # Optimizer step
-            if iteration < self.opt.iterations + 1:
-                self.gaussians.optimizer.step()
-                self.gaussians.optimizer.zero_grad(set_to_none=True)
-        self.step = self.step + 1
-        return metrics
-
     def save(self, path: str):
-        self.config['logdir'] = path
-        self.config['expname'] = ""
+        self.trainer.log_dir = path
         self.trainer.save_model()
-        save_config(self.config)
+        save_config(path, self.config)
+        self.camera_bounds_index.save(path)
 
     def optimize_embeddings(
         self, 
@@ -451,4 +523,13 @@ class KPlanes(Method):
         Args:
             index: Index of the image.
         """
-        return None
+        app_emb = self.trainer.model.field.appearance_embedding
+        if app_emb is None:
+            return None
+        try:
+            embed = app_emb(torch.tensor(index, dtype=torch.long, device=app_emb.weight.device)).detach().cpu().numpy()
+            return embed
+        except Exception as e:
+            logging.error(f"Failed to get embedding for image {index}: {e}")
+            return None
+

@@ -25,8 +25,6 @@ from nerfbaselines.train import get_nb_info
 @handle_cli_error
 def fix_checkpoint_command(checkpoint: str, data: str, method_name: str, verbose: bool, backend_name, new_checkpoint: str, config_overrides=None):
     setup_logging(verbose)
-    if not os.path.exists(checkpoint):
-        raise RuntimeError(f"Checkpoint path {checkpoint} does not exist")
     if os.path.exists(new_checkpoint):
         raise RuntimeError(f"New checkpoint path {new_checkpoint} already exists")
 
@@ -59,15 +57,18 @@ def fix_checkpoint_command(checkpoint: str, data: str, method_name: str, verbose
                                          load_features=False,
                                          features=method_info.get("required_features"),
                                          supported_camera_models=method_info.get("supported_camera_models"))
-            method: Method = method_cls(checkpoint=str(checkpoint_path), train_dataset=train_dataset)
+            method: Method = method_cls(
+                checkpoint=str(checkpoint_path), 
+                train_dataset=train_dataset,
+                config_overrides=config_overrides)
 
             # TODO: merge nb_info and old_nb_info
-            assert old_nb_info is None, "Merging of nb_info is not implemented yet"
-            nb_info = get_nb_info(
+            warnings.warn("Merging of nb_info is not implemented yet")
+            nb_info = dict(**nb_info, **get_nb_info(
                 train_dataset["metadata"],
                 method,
                 config_overrides=config_overrides,
-            )
+            ))
             try:
                 with open_any_directory(new_checkpoint, mode="w") as _new_checkpoint:
                     method.save(_new_checkpoint)

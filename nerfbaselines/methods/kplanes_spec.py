@@ -29,5 +29,5 @@ pip install lpips==0.1.4 importlib_metadata typing_extensions
     }
 }
 
-# register(KPlanesSpec, name="kplanes", metadata={
-# })
+register(KPlanesSpec, name="kplanes", metadata={
+})

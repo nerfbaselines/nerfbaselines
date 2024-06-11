@@ -7,7 +7,7 @@
 [![Downloads](https://static.pepy.tech/badge/nerfbaselines)](https://pepy.tech/project/nerfbaselines)
 </h1>
 
-NerfBaselines is a framework for **evaluating and comparing existing NeRF methods**. Currently, most official implementations use different dataset loaders, evaluation protocols, and metrics, which renders the comparison of methods difficult. Therefore, this project aims to provide a **unified interface** for running and evaluating methods on different datasets in a consistent way using the same metrics. But instead of reimplementing the methods, **we use the official implementations** and wrap them so that they can be run easily using the same interface.
+NerfBaselines is a framework for **evaluating and comparing existing NeRF and 3DGS methods**. Currently, most official implementations use different dataset loaders, evaluation protocols, and metrics, which renders benchmarking difficult. Therefore, this project aims to provide a **unified interface** for running and evaluating methods on different datasets in a consistent way using the same metrics. But instead of reimplementing the methods, **we use the official implementations** and wrap them so that they can be run easily using the same interface.
 
 Please visit the <a href="https://jkulhanek.com/nerfbaselines">project page to see the results</a> of implemented methods on dataset benchmarks.<br/>
 
@@ -20,47 +20,18 @@ pip install nerfbaselines
 ```
 Now you can use the `nerfbaselines` cli to interact with NerfBaselines.
 
-WARNING: the default installation only installs the core nerfbaselines package which does not depend on either PyTorch or JAX.
-However, the LPIPS metric requires PyTorch to be installed and will be disabled otherwise. Similarly, if you install JAX and
-have a GPU available, the dataloading and evaluation will be faster as some parts of the pipeline will be moved to GPU.
-Therefore, we recommend installing the `extras` package by following the **Advanced installation** section.
-
 The next step is to choose the backend which will be used to install different methods. At the moment there are the following backends implemented:
-- **docker**: Offers good isolation, requires `docker` to be installed and the user to have access to it (being in the docker user group).
+- **docker**: Offers good isolation, requires `docker` (with [NVIDIA container toolkit](https://github.com/NVIDIA/nvidia-container-toolkit)) to be installed and the user to have access to it (being in the docker user group).
 - **apptainer**: Similar level of isolation as `docker`, but does not require the user to have privileged access.
-- **conda** (not recommended): Does not require docker/apptainer to be installed, but does not offer the same level of isolation and some methods require additional
+- **conda** (default): Does not require docker/apptainer to be installed, but does not offer the same level of isolation and some methods require additional
 dependencies to be installed. Also, some methods are not implemented for this backend because they rely on dependencies not found on `conda`.
-- **python** (not recommended): Will run everything directly in the current environment. Everything needs to be installed in the environment for this backend to work.
+- **python**: Will run everything directly in the current environment. Everything needs to be installed in the environment for this backend to work.
 
 The backend can be set as the `--backend <backend>` argument or using the `NERFBASELINES_BACKEND` environment variable.
 
-## Advanced installation
-The LPIPS metric requires PyTorch to be installed and will be disabled otherwise. Similarly, if you install JAX and
-have a GPU available, the dataloading and evaluation will be faster as some parts of the pipeline will be moved to GPU.
-In this section we describe how to install the packages required for LPIPS and accelerated dataloading.
-We recommend this as the default installation (unless there is a reason for not installing PyTorch or JAX).
-Select one of the following configurations:
-- CPU-only install
-```bash
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-pip install jax[cpu]
-pip install 'nerfbaselines[extras]'
-```
-- CUDA 11.8 install
-```bash
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-pip install jax[cuda11_pip]
-pip install 'nerfbaselines[extras]'
-```
-- CUDA 12.1 install
-```bash
-pip install torch torchvision torchaudio
-pip install jax[cuda12_pip]
-pip install 'nerfbaselines[extras]'
-```
-
 ## Downloading data
-For some datasets, e.g. Mip-NeRF 360 or NerfStudio, the datasets can be downloaded automatically. You can specify the argument `--data external://dataset/scene` during training
+For some datasets, e.g. Mip-NeRF 360, NerfStudio, Blender, or Tanks and Temples, the datasets can be downloaded automatically. 
+You can specify the argument `--data external://dataset/scene` during training
 or download the dataset beforehand by running `nerfbaselines download-dataset dataset/scene`.
 Examples:
 ```bash
@@ -80,6 +51,11 @@ To start the training, use the `nerfbaselines train --method <method> --data <da
 ## Rendering
 The `nerfbaselines render --checkpoint <checkpoint>` command can be used to render images from a trained checkpoint. Again, use `--help` to learn about the arguments.
 
+In order to render a camera trajectory (e.g., created using the interactive viewer), use the following command command:
+```bash
+nerfbaselines render-trajectory --checkpoint <checkpoint> --trajectory <trajectory> --output <output.mp4>
+```
+
 ## Interactive viewer
 Given a trained checkpoint, the interactive viewer can be launched as follows:
 ```bash
@@ -87,7 +63,7 @@ nerfbaselines viewer --checkpoint <checkpoin> --data <dataset>
 ```
 Even though the argument `--data <dataset>` is optional, it is recommended, as the camera poses
 are used to perform gravity alignment and rescaling for a better viewing experience.
-Again, you can use the `--backend <backend>` flag or `NS_BACKEND=<backend>` environment variable to change the backend.
+It also enables visualizing the input camera frustums.
 
 ## Results
 In this section, we present results of implemented methods on standard benchmark datasets. For detailed results, visit the project page:
@@ -139,15 +115,20 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 
 ## Implementation status
 Methods:
-- [x] Nerfacto
+- [x] NerfStudio (Nerfacto)
 - [x] Instant-NGP
 - [x] Gaussian Splatting
 - [x] Mip-Splatting
+- [x] Gaussian Opacity Fields
 - [x] Tetra-NeRF
 - [x] Mip-NeRF 360
 - [x] Zip-NeRF
 - [x] CamP
-- [x] TensoRF (Blender, LLFF datasets)
+- [x] TensoRF
+- [x] K-Planes
+- [ ] Nerf-W (open source reimplementation)
+- [ ] NeRF on-the-go
+- [ ] TRIPS
 - [ ] Mip-NeRF
 - [ ] NeRF
 
@@ -156,22 +137,51 @@ Datasets/features:
 - [x] Blender dataset
 - [x] any COLMAP dataset
 - [x] any NerfStudio dataset
+- [x] LLFF dataset
+- [x] Tanks and Temples dataset
+- [x] Photo Tourism dataset and evaluation protocol
+- [x] Bundler dataset format
 - [x] automatic dataset download
-- [x] interactive viewer
+- [x] interactive viewer and trajectory editor
 - [x] undistorting images for methods that do not support complex camera models (Gaussian Splatting)
 - [x] logging to tensorboard, wandb
-- [x] LLFF dataset (only supported in TensoRF now)
-- [ ] Tanks and Temples
 - [ ] HDR images support
 - [ ] RAW images support
-- [ ] handling large datasets
-- [ ] loading/creating camera trajectories in the interactive viewer
+
+### Reproducing results
+| Method                  | Mip-NeRF 360  | Blender    | NerfStudio | Tanks and Temples | LLFF    |
+|:-----------------------:|:-------------:|:----------:|:----------:|:-----------------:|:-------:|
+| NerfStudio              | 🥇 gold       | 🥇 gold    | ❔         | 🥇 gold           | ❌      |
+| Instant-NGP             | 🥇 gold       | 🥇 gold    | 🥇 gold    | 🥇 gold           | ❌      |
+| Gaussian Splatting      | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      |
+| Mip-Splatting           | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      |
+| Gaussian Opacity Fields | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      |
+| Tetra-NeRF              | 🥈 silver     | 🥈 silver  | ❔         | ❔                | ❌      |
+| Mip-NeRF 360            | 🥇 gold       | 🥇 gold    | ❔         | ❔                | ❌      |
+| Zip-NeRF                | 🥇 gold       | 🥇 gold    | 🥇 gold    | 🥇 gold           | ❌      |
+| CamP                    | ❔            | ❔         | ❔         | ❔                | ❌      |
+| TensoRF                 | ❌            | 🥇 gold    | ❔         | ❔                | 🥇 gold |
 
 ## Contributing
 Contributions are very much welcome. Please open a PR with a dataset/method/feature that you want to contribute. The goal of this project is to slowly expand by implementing more and more methods.
 
 ## License
-This project is licensed under the MIT license.
+This project is licensed under the [MIT license](https://raw.githubusercontent.com/jkulhanek/nerfbaselines/main/LICENSE)
+Each implemented method is licensed under the license provided by the authors of the method.
+For the currently implemented methods, the following licenses apply:
+- NerfStudio: [Apache 2.0](https://raw.githubusercontent.com/nerfstudio-project/nerfstudio/main/LICENSE)
+- Instant-NGP: [custom, research purposes only](https://raw.githubusercontent.com/NVlabs/instant-ngp/master/LICENSE.txt) 
+- Gaussian-Splatting: [custom, research purposes only](https://raw.githubusercontent.com/graphdeco-inria/gaussian-splatting/main/LICENSE.md)
+- Mip-Splatting: [custom, research purposes only](https://raw.githubusercontent.com/autonomousvision/mip-splatting/main/LICENSE.md)
+- Gaussian Opacity Fields: [custom, research purposes only](https://raw.githubusercontent.com/autonomousvision/gaussian-opacity-fields/main/LICENSE.md)
+- Tetra-NeRF: [MIT](https://raw.githubusercontent.com/jkulhanek/tetra-nerf/master/LICENSE), [Apache 2.0](https://raw.githubusercontent.com/nerfstudio-project/nerfstudio/main/LICENSE)
+- Mip-NeRF 360: [Apache 2.0](https://raw.githubusercontent.com/google-research/multinerf/main/LICENSE)
+- Zip-NeRF: [Apache 2.0](https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE)
+- CamP: [Apache 2.0](https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE)
 
-## Thanks
+## Acknowledgements
 A big thanks to the authors of all implemented methods for the great work they have done.
+We would also like to thank the authors of [NerfStudio](https://github.com/nerfstudio-project/nerfstudio), 
+especially Brent Yi, for [viser](https://github.com/nerfstudio-project/viser) - a great framework powering the viewer.
+This work was supported by the Czech Science Foundation (GAČR) EXPRO (grant no. 23-07973X), the Grant Agency of the Czech Technical University in Prague (grant no. SGS24/095/OHK3/2T/13), and by the Ministry of Education, Youth and Sports of the Czech
+Republic through the e-INFRA CZ (ID:90254).

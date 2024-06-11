@@ -3,7 +3,7 @@ import shutil
 import requests
 from pathlib import Path
 from typing import Union
-import zipfile
+import tarfile
 from tqdm import tqdm
 import tempfile
 import numpy as np
@@ -13,28 +13,36 @@ from .colmap import load_colmap_dataset
 
 
 DATASET_NAME = "tanksandtemples"
-BASE_URL = "https://data.ciirc.cvut.cz/public/projects/2023NerfBaselines/datasets/tanksandtemples"
+BASE_URL = "https://huggingface.co/datasets/jkulhanek/nerfbaselines-data/resolve/main/tanksandtemples"
+_URL = f"{BASE_URL}/{{scene}}.tar.gz"
+_URL2DOWN = f"{BASE_URL}/{{scene}}_2down.tar.gz"
 SCENES = {
-    "auditorium": None,
-    "ballroom": None,
-    "barn": None,
-    "caterpillar": None,
-    "courthouse": None,
-    "courtroom": None,
-    "family": None,
-    "francis": None,
-    "horse": None,
-    "ignatius": None,
-    "lighthouse": None,
-    "m60": None,
-    "meetingroom": None,
-    "museum": None,
-    "palace": None,
-    "panther": None,
-    "playground": None,
-    "temple": None,
-    "train": f"{BASE_URL}/train_2down.zip",
-    "truck": f"{BASE_URL}/truck_2down.zip",
+    # advanced
+    "auditorium": True,
+    "ballroom": True,
+    "courtroom": True,
+    "museum": True,
+    "palace": True,
+    "temple": True,
+
+    # intermediate
+    "family": False,
+    "francis": False,
+    "horse": False,
+    "lighthouse": True,
+    "m60": False,
+    "panther": False,
+    "playground": True,
+    "train": True,
+
+    # training
+    "barn": True,
+    "caterpillar": True,
+    "church": False,
+    "courthouse": False,
+    "ignatius": False,
+    "meetingroom": False,
+    "truck": True,
 }
 
 
@@ -84,7 +92,9 @@ def download_tanksandtemples_dataset(path: str, output: Union[Path, str]) -> Non
     scene = path.split("/")[-1]
     if SCENES.get(scene) is None:
         raise RuntimeError(f"Unknown scene {scene}")
-    url = SCENES[scene]
+    if SCENES[scene] is False:
+        raise DatasetNotFoundError(f"Scene {scene} is not available in current release of the tanksandtemples dataset.")
+    url = _URL2DOWN.format(scene=scene)
     response = requests.get(url, stream=True)
     response.raise_for_status()
     total_size_in_bytes = int(response.headers.get("content-length", 0))
@@ -100,19 +110,19 @@ def download_tanksandtemples_dataset(path: str, output: Union[Path, str]) -> Non
         if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
             logging.error(f"Failed to download dataset. {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes.")
 
-        with zipfile.ZipFile(file) as z:
+        with tarfile.open(fileobj=file, mode="r:gz") as z:
             output_tmp = output.with_suffix(".tmp")
             output_tmp.mkdir(exist_ok=True, parents=True)
-            for info in z.infolist():
-                if not info.filename.startswith(scene + "/"):
+            for info in z.getmembers():
+                if not info.name.startswith(scene + "/"):
                     continue
-                relname = info.filename[len(scene) + 1 :]
+                relname = info.name[len(scene) + 1 :]
                 target = output_tmp / relname
                 target.parent.mkdir(exist_ok=True, parents=True)
-                if info.is_dir():
+                if info.isdir():
                     target.mkdir(exist_ok=True, parents=True)
                 else:
-                    with z.open(info) as source, open(target, "wb") as target:
+                    with z.extractfile(info) as source, open(target, "wb") as target:
                         shutil.copyfileobj(source, target)
 
             shutil.rmtree(output, ignore_errors=True)

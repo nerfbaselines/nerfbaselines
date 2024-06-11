@@ -255,6 +255,9 @@ class GaussianSplatting(Method):
         if checkpoint is not None:
             with open(os.path.join(checkpoint, "args.txt"), "r", encoding="utf8") as f:
                 self._args_list = shlex.split(f.read())
+        # Fix old checkpoints
+        if "--resolution" not in self._args_list:
+            self._args_list.extend(("--resolution", "1"))
 
         if self.checkpoint is None and config_overrides is not None:
             _config_overrides_to_args_list(self._args_list, config_overrides)
