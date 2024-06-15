@@ -763,3 +763,16 @@ class TensorboardLogger(BaseLogger):
 
     def __str__(self):
         return "tensorboard"
+
+
+def log_metrics(logger: Logger, metrics, *, prefix: str = "", step: int):
+    with logger.add_event(step) as event:
+        for k, val in metrics.items():
+            tag = f"{prefix}{k}"
+            if isinstance(val, (int, float)):
+                event.add_scalar(tag, val)
+            elif isinstance(val, str):
+                event.add_text(tag, val)
+            else:
+                raise ValueError(f"Unknown metric type for {tag}: {val}")
+

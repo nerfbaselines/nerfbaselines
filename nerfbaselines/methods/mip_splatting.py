@@ -291,7 +291,12 @@ class MipSplatting(Method):
         filter_3D = None
         if train_dataset is None or self.checkpoint:
             info = self.get_info()
-            (model_params, filter_3D, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{info.get('loaded_step')}.pth")
+            _modeldata = torch.load(str(self.checkpoint) + f"/chkpnt-{info.get('loaded_step')}.pth")
+            if len(_modeldata) == 3:
+                (model_params, filter_3D, self.step) = _modeldata
+            else:
+                warnings.warn("Old checkpoint format! The performance will be suboptimal. Please fix the checkpoint or restart the training.")
+                (model_params, self.step) = _modeldata
             self.gaussians.restore(model_params, self.opt)
             # NOTE: this is not handled in the original code
             self.gaussians.filter_3D = filter_3D
@@ -314,6 +319,8 @@ class MipSplatting(Method):
                     self.highresolution_index.append(index)
 
         if filter_3D is None:
+            if self.trainCameras is None:
+                raise RuntimeError("Old checkpoint format! Please run nerfbaselines fix-checkpoint first.")
             self.gaussians.compute_3D_filter(cameras=self.trainCameras)
 
     @cached_property

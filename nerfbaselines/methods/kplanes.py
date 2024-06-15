@@ -1,3 +1,8 @@
+"""
+NOTE: there is slight difference from K-Planes official implementation.
+In the official implementation, the closest camera bounds are used for rendering test images.
+Here, we make it more stable by using the top 5 closest cameras.
+"""
 import tqdm
 import requests
 import io
@@ -184,10 +189,13 @@ def transform_cameras(cameras):
 
 
 class CameraBoundsIndex:
-    def __init__(self, poses, bounds, offsets):
+    def __init__(self, poses, bounds, offsets, query_top=5):
+        # NOTE: !! in the official code query_top = 1, but that fails in lots of cases
+        # If having issues, try setting query_top = 5 or larger
         self.poses = poses[:, :3, :].copy()
         self.bounds = bounds.copy()
         self.offsets = offsets.copy()
+        self.query_top = query_top
 
     def save(self, checkpoint):
         np.savez(os.path.join(checkpoint, "bounds.npz"), poses=self.poses, bounds=self.bounds, offsets=self.offsets)
@@ -254,11 +262,13 @@ class CameraBoundsIndex:
 
     def query(self, poses):
         # Find the closest cam
-        closest_cam_idx = np.linalg.norm(
+        closest_cam_idx = np.argpartition(np.linalg.norm(
             self.poses.reshape((1, -1, 12)) - poses.reshape((-1, 1, 12)), axis=-1
-        ).argmin(1)
+        ), self.query_top, axis=-1)
 
-        bounds = self.bounds[closest_cam_idx, :]
+        bmin = self.bounds[closest_cam_idx, 0].min(-1)
+        bmax = self.bounds[closest_cam_idx, 1].max(-1)
+        bounds = np.stack([bmin, bmax], -1)
         if self.offsets is not None:
             bounds = bounds + self.offsets
         return bounds
@@ -286,12 +296,12 @@ class KPlanes(Method):
 
         # Setup config
         config_root = os.path.join(os.path.dirname(os.path.abspath(cfg_package.__file__)), "final")
-        if self.checkpoint is None:
+        if self.checkpoint is None:  #  or not os.path.exists(os.path.join(self.checkpoint, "config.py")):
             # Load config
             config_path = (config_overrides or {}).copy().pop("config_path", None)
             if config_path is None:
                 config_path = "NeRF/nerf_hybrid.py"
-            config_path = os.path.join(config_root, os.path.dirname(__file__), config_path)
+            config_path = os.path.join(config_root, config_path)
         else:
             # Load config from checkpoint
             config_path = os.path.join(self.checkpoint, "config.py")

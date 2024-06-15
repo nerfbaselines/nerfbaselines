@@ -126,7 +126,7 @@ def test_get_resource_utilization(use_remote_method):
 
 
 def test_compute_metrics(use_remote_method):
-    from nerfbaselines.evaluate import compute_metrics
+    from nerfbaselines.evaluation import compute_metrics
 
     called = False
     def intercept(callback, function, *args, **kwargs):

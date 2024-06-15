@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Union
 import numpy as np
 from ..types import camera_model_to_int, new_cameras
-from ._common import DatasetNotFoundError, get_default_viewer_transform, construct_dataset
+from ._common import DatasetNotFoundError, get_default_viewer_transform, new_dataset
 
 
 BLENDER_SCENES = {"lego", "ship", "drums", "hotdog", "materials", "mic", "chair", "ficus"}
@@ -53,7 +53,7 @@ def load_blender_dataset(path: Union[Path, str], split: str, **kwargs):
 
     viewer_transform, viewer_pose = get_default_viewer_transform(c2w, "object-centric")
 
-    return construct_dataset(
+    return new_dataset(
         cameras=new_cameras(
             poses=c2w,
             intrinsics=intrinsics,
@@ -70,6 +70,7 @@ def load_blender_dataset(path: Union[Path, str], split: str, **kwargs):
             "scene": scene,
             "color_space": "srgb",
             "type": "object-centric",
+            "evaluation_protocol": "nerf",
             "expected_scene_scale": 4,
             "viewer_transform": viewer_transform,
             "viewer_initial_pose": viewer_pose,

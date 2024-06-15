@@ -1,17 +1,17 @@
 import shutil
 import logging
-import pprint
 import json
 import warnings
 from pathlib import Path
 import os
 import click
+from typing import cast
 from nerfbaselines.utils import setup_logging, handle_cli_error, SetParamOptionType
 from nerfbaselines import backends, registry
+from nerfbaselines.types import Method, Dataset
 from nerfbaselines.datasets import load_dataset
 from nerfbaselines.io import open_any_directory, deserialize_nb_info, serialize_nb_info
-from nerfbaselines.types import Method
-from nerfbaselines.train import get_nb_info
+from nerfbaselines.io import new_nb_info
 
 
 @click.command("fix-checkpoint")
@@ -23,7 +23,7 @@ from nerfbaselines.train import get_nb_info
 @click.option("--backend", "backend_name", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @click.option("--set", "config_overrides", help="Override a parameter in the method.", type=SetParamOptionType(), multiple=True, default=None)
 @handle_cli_error
-def fix_checkpoint_command(checkpoint: str, data: str, method_name: str, verbose: bool, backend_name, new_checkpoint: str, config_overrides=None):
+def main(checkpoint: str, data: str, method_name: str, verbose: bool, backend_name, new_checkpoint: str, config_overrides=None):
     setup_logging(verbose)
     if os.path.exists(new_checkpoint):
         raise RuntimeError(f"New checkpoint path {new_checkpoint} already exists")
@@ -59,16 +59,16 @@ def fix_checkpoint_command(checkpoint: str, data: str, method_name: str, verbose
                                          supported_camera_models=method_info.get("supported_camera_models"))
             method: Method = method_cls(
                 checkpoint=str(checkpoint_path), 
-                train_dataset=train_dataset,
+                train_dataset=cast(Dataset, train_dataset),
                 config_overrides=config_overrides)
 
             # TODO: merge nb_info and old_nb_info
             warnings.warn("Merging of nb_info is not implemented yet")
-            nb_info = dict(**nb_info, **get_nb_info(
+            nb_info = dict(**(nb_info or {}), **(new_nb_info(
                 train_dataset["metadata"],
                 method,
                 config_overrides=config_overrides,
-            ))
+            ) or {}))
             try:
                 with open_any_directory(new_checkpoint, mode="w") as _new_checkpoint:
                     method.save(_new_checkpoint)

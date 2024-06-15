@@ -33,8 +33,7 @@ def _iterative_undistortion(distortion: _DistortionFunction, uv: TTensor, params
     max_step_norm = 1e-10
     rel_step_size = 1e-6
 
-    eps: float
-    eps = xnp.finfo(params.dtype).eps  # type: ignore
+    eps = float(xnp.finfo(params.dtype).eps)  # type: ignore
     assert len(uv.shape) == len(params.shape), "uv and params must have the same number of dimensions"
     new_uv_shape = tuple(map(max, uv.shape[:-1], params.shape[:-1])) + (2,)
     if uv.shape != new_uv_shape:

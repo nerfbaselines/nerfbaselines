@@ -148,6 +148,8 @@ def mock_nerfstudio(mock_torch):
         sys.modules,
         {
             "nerfstudio": mock.MagicMock(),
+            "nerfstudio.configs": mock.MagicMock(),
+            "nerfstudio.configs.dataparser_configs": mock.MagicMock(),
             "nerfstudio.cameras": mock.MagicMock(),
             "nerfstudio.cameras.cameras": mock.MagicMock(),
             "nerfstudio.models.base_model": mock.MagicMock(),

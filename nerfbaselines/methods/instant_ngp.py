@@ -262,9 +262,8 @@ class InstantNGP(Method):
             config_path = package_root / "configs" / "nerf" / "base.json"
         self._config = json.loads(config_path.read_text())
 
-        if self.checkpoint is None:
-            testbed.reload_network_from_file(str(config_path))
-        else:
+        testbed.reload_network_from_file(str(config_path))
+        if self.checkpoint is not None:
             testbed.load_snapshot(str(self.checkpoint / "checkpoint.ingp"))
 
         self._config["testbed"] = testbed_cfg = self._config.get("testbed", {})
@@ -373,12 +372,12 @@ class InstantNGP(Method):
         else:
             # Verify blender config
             if train_dataset["metadata"].get("name") == "blender":
-                if config_overrides.get("testbed/color_space") != "SRGB":
-                    warnings.warn("Blender dataset is expected to have 'testbed/color_space=SRGB' in config_overrides.")
-                if config_overrides.get("testbed/nerf/cone_angle_constant") != 0:
-                    warnings.warn("Blender dataset is expected to have 'testbed/nerf/cone_angle_constant=0' in config_overrides.")
-                if config_overrides.get("testbed/nerf/training/random_bg_color") is not False:
-                    warnings.warn("Blender dataset is expected to have 'testbed/nerf/training/random_bg_color=False' in config_overrides.")
+                if config_overrides.get("testbed.color_space") != "SRGB":
+                    warnings.warn("Blender dataset is expected to have 'testbed.color_space=SRGB' in config_overrides.")
+                if config_overrides.get("testbed.nerf.cone_angle_constant") != 0:
+                    warnings.warn("Blender dataset is expected to have 'testbed.nerf.cone_angle_constant=0' in config_overrides.")
+                if config_overrides.get("testbed.nerf.training.random_bg_color") is not False:
+                    warnings.warn("Blender dataset is expected to have 'testbed.nerf.training.random_bg_color=False' in config_overrides.")
                 if config_overrides.get("aabb_scale") is not None:
                     warnings.warn("Blender dataset is expected to have 'aabb_scale=None' in config_overrides.")
                 if config_overrides.get("keep_coords") is not True:
@@ -466,8 +465,10 @@ class InstantNGP(Method):
             dataset: Dataset = dict(
                 points3D_xyz=None,
                 points3D_rgb=None,
+                images_points3D_indices=None,
                 cameras=cameras,
                 sampling_mask_paths=None,
+                sampling_mask_paths_root=None,
                 sampling_masks=None,
                 images=[np.zeros((h, w, 3), dtype=np.uint8) for w, h in cameras.image_sizes],
                 file_paths_root="eval",

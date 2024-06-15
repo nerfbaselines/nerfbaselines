@@ -9,9 +9,9 @@ import logging
 import shutil
 from tempfile import TemporaryDirectory
 
-from .types import NB_PREFIX
-from .utils import setup_logging, handle_cli_error
-from .results import compile_dataset_results
+from nerfbaselines.types import NB_PREFIX
+from nerfbaselines.utils import setup_logging, handle_cli_error
+from nerfbaselines.results import compile_dataset_results
 
 
 def _get_repository_source():

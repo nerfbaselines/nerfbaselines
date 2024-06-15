@@ -5,6 +5,7 @@ register(name="blender", spec={
     "load_dataset_function": ".blender:load_blender_dataset",
     "priority": 150,
     "download_dataset_function": ".blender:download_blender_dataset",
+    "evaluation_protocol": "nerf",
     "metadata": {
         "id": "blender",
         "name": "Blender",

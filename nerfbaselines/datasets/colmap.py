@@ -9,7 +9,7 @@ from ..types import CameraModel, camera_model_to_int, new_cameras
 from ..utils import Indices
 from ._colmap_utils import read_cameras_binary, read_images_binary, read_points3D_binary, qvec2rotmat
 from ._colmap_utils import read_cameras_text, read_images_text, read_points3D_text, Image, Camera, Point3D
-from ._common import DatasetNotFoundError, padded_stack, get_default_viewer_transform, dataset_index_select, construct_dataset
+from ._common import DatasetNotFoundError, padded_stack, get_default_viewer_transform, dataset_index_select, new_dataset
 
 
 def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.ndarray, Tuple[int, int]]:
@@ -204,10 +204,16 @@ def load_colmap_dataset(path: Union[Path, str],
         *,
         test_indices: Optional[Indices] = None,
         features: Optional[FrozenSet[DatasetFeature]] = None,
-        images_path: Optional[str] = None, 
-        colmap_path: Optional[str] = None,
-        sampling_masks_path: Optional[str] = None):
+        images_path: Optional[Union[Path, str]] = None, 
+        colmap_path: Optional[Union[Path, str]] = None,
+        sampling_masks_path: Optional[Union[Path, str]] = None):
     path = Path(path)
+    if images_path is not None:
+        images_path = Path(images_path)
+    if colmap_path is not None:
+        colmap_path = Path(colmap_path)
+    if sampling_masks_path is not None:
+        sampling_masks_path = Path(sampling_masks_path)
     if features is None:
         features = typing.cast(FrozenSet[DatasetFeature], {})
     load_points = "points3D_xyz" in features or "points3D_rgb" in features
@@ -215,17 +221,17 @@ def load_colmap_dataset(path: Union[Path, str],
         assert split in {"train", "test"}
     # Load COLMAP dataset
     if colmap_path is None:
-        colmap_path = Path("sparse") / "0"
+        colmap_path = "sparse/0"
         if not (path / colmap_path).exists():
-            colmap_path = Path("sparse")
+            colmap_path = "sparse"
     rel_colmap_path = colmap_path
-    colmap_path = path / colmap_path
+    colmap_path = (path / colmap_path).resolve()
     if images_path is None:
-        images_path = Path("images")
+        images_path = "images"
     rel_images_path = images_path
     images_path = (path / images_path).resolve()
     if sampling_masks_path is None:
-        sampling_masks_path = Path("sampling_masks")
+        sampling_masks_path = "sampling_masks"
     sampling_masks_path = (path / sampling_masks_path).resolve()
     if not colmap_path.exists():
         raise DatasetNotFoundError(f"Missing '{rel_colmap_path}' folder in COLMAP dataset")
@@ -310,6 +316,7 @@ def load_colmap_dataset(path: Union[Path, str],
     # Load points
     points3D_xyz = None
     points3D_rgb = None
+    images_points3D_indices = None
     if load_points:
         assert points3D is not None, "3D points have not been loaded"
         points3D_xyz = np.array([p.xyz for p in points3D.values()], dtype=np.float32)
@@ -360,18 +367,19 @@ def load_colmap_dataset(path: Union[Path, str],
             indices = train_indices if split == "train" else test_indices_array
 
     viewer_transform, viewer_pose = get_default_viewer_transform(all_cameras[train_indices].poses, None)
-    dataset = construct_dataset(
+    dataset = new_dataset(
         cameras=all_cameras,
         file_paths=image_paths,
         file_paths_root=str(images_path),
         sampling_mask_paths=sampling_mask_paths,
-        sampling_mask_paths_root=str(sampling_masks_path),
+        sampling_mask_paths_root=str(sampling_masks_path) if sampling_mask_paths is not None else None,
         points3D_xyz=points3D_xyz,
         points3D_rgb=points3D_rgb,
         images_points3D_indices=images_points3D_indices if "images_points3D_indices" in features else None,
         metadata={
             "name": "colmap",
             "color_space": "srgb",
+            "evaluation_protocol": "default",
             "viewer_transform": viewer_transform,
             "viewer_initial_pose": viewer_pose,
         })

@@ -11,7 +11,7 @@ import numpy as np
 from PIL import Image
 
 from ._colmap_utils import read_points3D_binary, read_points3D_text, read_images_binary, read_images_text
-from ._common import DatasetNotFoundError, get_scene_scale, get_default_viewer_transform, construct_dataset, dataset_index_select
+from ._common import DatasetNotFoundError, get_scene_scale, get_default_viewer_transform, new_dataset, dataset_index_select
 from ..types import CameraModel, camera_model_to_int, FrozenSet, DatasetFeature, get_args, new_cameras
 from ..io import wget
 
@@ -428,7 +428,7 @@ def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor
 
     points3D_rgb = None
     points3D_xyz = None
-    images_points3D_indices = None
+    images_points3D_indices: Optional[List[np.ndarray]] = None
     if "points3D_xyz" in (features or {}):
         colmap_path = data_dir / "colmap" / "sparse" / "0"
         if not colmap_path.exists():
@@ -450,7 +450,7 @@ def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor
         points3D_xyz = points3D_xyz[..., np.array([1, 0, 2])]
         points3D_xyz[..., 2] *= -1
 
-        if "images_points3D_indices" in features:
+        if "images_points3D_indices" in (features or {}):
             # TODO: Verify this feature is working well
             points3D_map = {k: i for i, k in enumerate(points3D.keys())}
             if (colmap_path / "points3D.bin").exists():
@@ -478,7 +478,7 @@ def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor
         scene = abspath.parts[-1].lower()
 
     return dataset_index_select(
-        construct_dataset(
+        new_dataset(
             cameras=all_cameras,
             file_paths=image_filenames,
             file_paths_root=str(images_root),
@@ -493,6 +493,7 @@ def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor
                 "expected_scene_scale": get_scene_scale(all_cameras, "object-centric") if split == "train" else None,
                 "color_space": "srgb",
                 "type": None,
+                "evaluation_protocol": "default",
                 "viewer_transform": viewer_transform,
                 "viewer_initial_pose": viewer_pose,
                 "downscale_factor": downscale_factor if downscale_factor > 1 else None,

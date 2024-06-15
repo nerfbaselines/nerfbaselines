@@ -7,14 +7,14 @@ paper_results = {
     # Blender PSNRs: 33.00 25.01 30.13 36.18 32.54 29.62 32.91 28.65
     # Blender SSIMs: 0.967 0.925 0.964 0.974 0.961 0.949 0.980 0.856
     # Blender LPIPS: 0.046 0.091 0.044 0.121 0.050 0.063 0.028 0.206
-    "blender/chair": {"psnr": 33.00, "ssim": 0.967, "lpips": 0.046},
-    "blender/drums": {"psnr": 25.01, "ssim": 0.925, "lpips": 0.091},
-    "blender/ficus": {"psnr": 30.13, "ssim": 0.964, "lpips": 0.044},
-    "blender/hotdog": {"psnr": 36.18, "ssim": 0.974, "lpips": 0.121},
-    "blender/lego": {"psnr": 32.54, "ssim": 0.961, "lpips": 0.050},
-    "blender/materials": {"psnr": 29.62, "ssim": 0.949, "lpips": 0.063},
-    "blender/mic": {"psnr": 32.91, "ssim": 0.980, "lpips": 0.028},
-    "blender/ship": {"psnr": 28.65, "ssim": 0.856, "lpips": 0.206},
+    "blender/chair": {"psnr": 33.00, "ssim": 0.967, "lpips_vgg": 0.046},
+    "blender/drums": {"psnr": 25.01, "ssim": 0.925, "lpips_vgg": 0.091},
+    "blender/ficus": {"psnr": 30.13, "ssim": 0.964, "lpips_vgg": 0.044},
+    "blender/hotdog": {"psnr": 36.18, "ssim": 0.974, "lpips_vgg": 0.121},
+    "blender/lego": {"psnr": 32.54, "ssim": 0.961, "lpips_vgg": 0.050},
+    "blender/materials": {"psnr": 29.62, "ssim": 0.949, "lpips_vgg": 0.063},
+    "blender/mic": {"psnr": 32.91, "ssim": 0.980, "lpips_vgg": 0.028},
+    "blender/ship": {"psnr": 28.65, "ssim": 0.856, "lpips_vgg": 0.206},
 }
 
 

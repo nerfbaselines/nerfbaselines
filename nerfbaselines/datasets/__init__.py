@@ -4,7 +4,7 @@ from pathlib import Path
 from ..types import Dataset, DatasetFeature, CameraModel, FrozenSet, NB_PREFIX
 from ._common import dataset_load_features as dataset_load_features
 from ._common import dataset_index_select as dataset_index_select
-from ._common import construct_dataset as construct_dataset
+from ._common import new_dataset as new_dataset
 from ._common import DatasetNotFoundError, MultiDatasetError
 from ..types import UnloadedDataset, Literal
 

@@ -379,7 +379,7 @@ def _lpips(a, b, net, version="0.1"):
     if lp_net is None:
         from ._metrics_lpips import LPIPS
 
-        lp_net = LPIPS(net="alex", version=version)
+        lp_net = LPIPS(net=net, version=version)
         _LPIPS_CACHE[net] = lp_net
 
     device = torch.device("cpu")
@@ -428,7 +428,7 @@ def lpips_vgg(a: np.ndarray, b: np.ndarray) -> Union[np.ndarray, np.float32]:
     Returns:
         Tensor of LPIPS values for each image [B...].
     """
-    return _lpips(a, b, net="alex")
+    return _lpips(a, b, net="vgg")
 
 
 lpips = lpips_alex

@@ -188,7 +188,7 @@ class _CustomDataParser(DataParser):
         npmap["pinhole"] = npmap["perspective"]
         npmap["opencv"] = npmap["perspective"]
         npmap["opencv_fisheye"] = npmap["fisheye"]
-        camera_types = [npmap[camera_model_from_int(self.dataset["cameras"].camera_types[i])] for i in range(len(self.dataset["cameras"].poses))]
+        camera_types = [npmap[camera_model_from_int(int(self.dataset["cameras"].camera_types[i]))] for i in range(len(self.dataset["cameras"].poses))]
 
         poses = self.dataset["cameras"].poses.copy()
        
@@ -414,7 +414,7 @@ class NerfStudio(Method):
         npmap["pinhole"] = npmap["perspective"]
         npmap["opencv"] = npmap["perspective"]
         npmap["opencv_fisheye"] = npmap["fisheye"]
-        camera_types = [npmap[camera_model_from_int(cameras.camera_types[i])] for i in range(len(poses))]
+        camera_types = [npmap[camera_model_from_int(int(cameras.camera_types[i]))] for i in range(len(poses))]
         sizes = cameras.image_sizes
         distortion_parameters = torch.from_numpy(_map_distortion_parameters(cameras.distortion_parameters))
         ns_cameras = NSCameras(
@@ -509,7 +509,8 @@ class NerfStudio(Method):
                         par.data = state_dict[name].to(par.device)
                 super().load_state_dict(state_dict, *args, **kwargs)
 
-        M.__name__ = config.pipeline.model._target.__name__  # pylint: disable=protected-access
+        if hasattr(config.pipeline.model._target, "__name__"):  # Protection against mocks
+            M.__name__ = config.pipeline.model._target.__name__  # pylint: disable=protected-access
         config.pipeline.model._target = M  # pylint: disable=protected-access
 
     def _setup(self, train_dataset: Dataset, config_overrides):

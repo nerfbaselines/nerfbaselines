@@ -266,13 +266,13 @@ def new_cameras(
         metadata=metadata)
     
 
-
 class _IncompleteDataset(TypedDict, total=True):
     cameras: Cameras  # [N]
 
     file_paths: List[str]
+    file_paths_root: str
     sampling_mask_paths: Optional[List[str]]
-    file_paths_root: Optional[str]
+    sampling_mask_paths_root: Optional[str]
     metadata: Dict
     sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]]  # [N][H, W]
     points3D_xyz: Optional[np.ndarray]  # [M, 3]

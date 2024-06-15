@@ -52,6 +52,8 @@ def mock_mip_splatting(mock_torch):
             parser.add_argument("--resample_gt_image", action="store_true")
             parser.add_argument("--ray_jitter", action="store_true")
             parser.add_argument("--kernel_size", "-kernel_size", default=0.1, type=float)
+            parser.add_argument("--resolution", type=int, default=None)
+            parser.add_argument("--eval", action="store_true")
             out = mock.MagicMock()
             out.extract = lambda args: args
             return out

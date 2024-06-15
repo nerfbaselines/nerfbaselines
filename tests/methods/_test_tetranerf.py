@@ -1,5 +1,5 @@
 import pytest
-from .test_nerfstudio import mock_nerfstudio  # noqa: F401
+from ._test_nerfstudio import mock_nerfstudio  # noqa: F401
 
 
 @pytest.mark.method("tetra-nerf")

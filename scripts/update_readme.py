@@ -8,7 +8,7 @@ try:
 except ImportError:
     sys.path.append(str(Path(__file__).parent.parent))
     import nerfbaselines  # noqa
-from nerfbaselines.cli import render_dataset_results_command
+from nerfbaselines.cli.generate_dataset_results import main as generate_dataset_results_command
 from nerfbaselines.results import get_dataset_info
 from nerfbaselines._constants import WEBPAGE_URL
 import tempfile
@@ -27,10 +27,10 @@ def update_dataset_results(readme: str, dataset):
         return readme
     section_end = next((x for x in range(section_start + 1, len(lines)) if lines[x].startswith("##")), len(lines))
 
-    # def render_dataset_results_command(results: Path, dataset, output_type, output, method_links="none"):
-    assert render_dataset_results_command.callback is not None
+    # def generate_dataset_results_command(results: Path, dataset, output_type, output, method_links="none"):
+    assert generate_dataset_results_command.callback is not None
     with tempfile.TemporaryDirectory() as tmpdir:
-        render_dataset_results_command.callback(None, dataset, output_type="markdown", output=Path(os.path.join(tmpdir, "results.md")), method_links="results")
+        generate_dataset_results_command.callback(None, dataset, output_type="markdown", output=Path(os.path.join(tmpdir, "results.md")), method_links="results")
         new_results = (Path(tmpdir) / "results.md").read_text()
 
     # Replace old results with new results
@@ -46,7 +46,7 @@ Detailed results are available on the project page: [{WEBPAGE_URL}/{dataset}]({W
 
 @click.command("update-readme")
 def main():
-    # def render_dataset_results_command(results: Path, dataset, output_type, output, method_links="none"):
+    # def generate_dataset_results_command(results: Path, dataset, output_type, output, method_links="none"):
     readme_path = Path(__file__).absolute().parent.parent.joinpath("README.md")
     readme = readme_path.read_text()
     for dataset in ["mipnerf360", "blender", "nerfstudio"]:

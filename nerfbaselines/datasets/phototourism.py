@@ -32,7 +32,7 @@ def load_phototourism_dataset(path: Union[Path, str], split: str, use_nerfw_spli
 
     # Load phototourism dataset
     scene = single(res for res in _phototourism_downloads if str(res) in path.name)
-    images_path = Path("images")
+    images_path = "images"
     split_list = None
     if use_nerfw_split:
         if (path / "nerfw_split.csv").exists():
@@ -50,7 +50,7 @@ def load_phototourism_dataset(path: Union[Path, str], split: str, use_nerfw_spli
     dataset = load_colmap_dataset(
         path, 
         images_path=images_path,
-        colmap_path=Path("sparse"),
+        colmap_path="sparse",
         split=None, **kwargs
     )
     dataset["metadata"]["name"] = DATASET_NAME
@@ -211,7 +211,7 @@ def horizontal_half_dataset(dataset: Dataset, left: bool = True) -> Dataset:
 
 class NerfWEvaluationProtocol(EvaluationProtocol):
     def __init__(self):
-        from nerfbaselines.evaluate import compute_metrics
+        from nerfbaselines.evaluation import compute_metrics
         self._compute_metrics = compute_metrics
 
     def get_name(self):

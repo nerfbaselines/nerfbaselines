@@ -259,7 +259,7 @@ def replace_callables(obj, callables, depth=0):
     if isinstance(obj, (list, tuple)):
         return obj.__class__((replace_callables(v, callables, depth + 1) for v in obj))
     if is_dataclass(obj):
-        return obj.__class__(**{k: replace_callables(v, callables, depth + 1) for k, v in obj.__dict__.items()})
+        return obj.__class__(**{k: replace_callables(v, callables, depth + 1) for k, v in obj.__dict__.items()})  # type: ignore
     return obj
 
 
@@ -272,9 +272,9 @@ def inject_callables(obj: Any, send_message, my_id=None) -> Any:
     if isinstance(obj, dict):
         return {k: inject_callables(v, send_message, my_id) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
-        return type(obj)((inject_callables(v, send_message, my_id) for v in obj))
+        return type(obj)((inject_callables(v, send_message, my_id) for v in obj))  # type: ignore
     if is_dataclass(obj):
-        return type(obj)(**{k: inject_callables(v, send_message, my_id) for k, v in obj.__dict__.items()})
+        return type(obj)(**{k: inject_callables(v, send_message, my_id) for k, v in obj.__dict__.items()})  # type: ignore
     return obj
 
 

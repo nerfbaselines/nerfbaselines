@@ -411,7 +411,7 @@ def is_broadcastable(shape1, shape2):
     return True
 
 
-def convert_image_dtype(image, dtype):
+def convert_image_dtype(image: np.ndarray, dtype) -> np.ndarray:
     if image.dtype == dtype:
         return image
     if image.dtype != np.uint8 and dtype != np.uint8:
@@ -663,13 +663,18 @@ def cast_value(tp, value):
     raise TypeError(f"Cannot cast value {value} to type {tp}")
 
 
-def make_image_grid(*images: np.ndarray, ncol=None, padding=2, max_width=1920, background=1.0):
+def make_image_grid(*images: np.ndarray, ncol=None, padding=2, max_width=1920, background: Union[None, Tuple[float, float, float], np.ndarray] = None):
     if ncol is None:
         ncol = len(images)
     dtype = images[0].dtype
-    background = convert_image_dtype(
-        np.array(background, dtype=np.float32 if isinstance(background, float) else np.uint8),
-        dtype).item()
+    if background is None:
+        background = np.full((3,), 255 if dtype == np.uint8 else 1, dtype=dtype)
+    elif isinstance(background, tuple):
+        background = np.array(background, dtype=dtype)
+    elif isinstance(background, np.ndarray):
+        background = convert_image_dtype(background, dtype=dtype)
+    else:
+        raise ValueError(f"Invalid background type {type(background)}")
     nrow = int(math.ceil(len(images) / ncol))
     scale_factor = 1
     height, width = tuple(map(int, np.max([x.shape[:2] for x in images], axis=0).tolist()))
@@ -692,7 +697,7 @@ def make_image_grid(*images: np.ndarray, ncol=None, padding=2, max_width=1920, b
         (height * nrow + padding * (nrow - 1), width * ncol + padding * (ncol - 1), images[0].shape[-1]),
         dtype=dtype,
     )
-    grid.fill(background)
+    grid[..., :] = background
     for i, image in enumerate(images):
         x = i % ncol
         y = i // ncol
@@ -770,15 +775,15 @@ def get_package_dependencies(extra=None):
     return requires
 
 
-def flatten_hparams(hparams: Dict[str, Any], *, separator: str = "/", _prefix: str = "") -> Dict[str, Any]:
-    flat = {}
+def flatten_hparams(hparams: Any, *, separator: str = "/", _prefix: str = "") -> Dict[str, Any]:
+    flat: Dict[str, Any] = {}
     if dataclasses.is_dataclass(hparams):
         hparams = {f.name: getattr(hparams, f.name) for f in dataclasses.fields(hparams)}
     for k, v in hparams.items():
         if _prefix:
             k = f"{_prefix}{separator}{k}"
         if isinstance(v, dict) or dataclasses.is_dataclass(v):
-            flat.update(flatten_hparams(v, _prefix=k))
+            flat.update(flatten_hparams(v, _prefix=k, separator=separator).items())
         else:
             flat[k] = v
     return flat
@@ -822,3 +827,29 @@ class MetricsAccumulator:
         state.pop("n_iters_since_update", None)
         return state
 
+
+@contextlib.contextmanager
+def run_inside_eval_container(backend_name: Optional[str] = None):
+    """
+    Ensures PyTorch is available to compute extra metrics (lpips)
+    """
+    from .backends import get_backend
+    try:
+        import torch as _
+        yield None
+        return
+    except ImportError:
+        pass
+
+    logging.warning("PyTorch is not available in the current environment, we will create a new environment to compute extra metrics (lpips)")
+    if backend_name is None:
+        backend_name = os.environ.get("NERFBASELINES_BACKEND", None)
+    backend = get_backend({
+        "method": "base",
+        "conda": {
+            "environment_name": "_metrics", 
+            "install_script": ""
+        }}, backend=backend_name)
+    with backend:
+        backend.install()
+        yield None

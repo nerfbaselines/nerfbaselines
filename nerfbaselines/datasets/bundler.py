@@ -6,7 +6,7 @@ from glob import glob
 from tqdm import trange
 from typing import Optional, List
 from nerfbaselines.types import camera_model_to_int, new_cameras, FrozenSet, DatasetFeature
-from nerfbaselines.datasets import DatasetNotFoundError, construct_dataset, dataset_index_select
+from nerfbaselines.datasets import DatasetNotFoundError, new_dataset, dataset_index_select
 from nerfbaselines.datasets._common import get_default_viewer_transform
 from PIL import Image
 
@@ -156,7 +156,7 @@ def load_bundler_dataset(path: str,
     sampling_mask_paths = None if not os.path.exists(images_masks_root) else [os.path.join(images_masks_root, x) for x in image_names]
     all_cameras, (points3D_xyz, points3D_rgb) = load_bundler_file(os.path.join(path, "cameras.out"), abs_paths)
     viewer_transform, viewer_pose = get_default_viewer_transform(all_cameras[train_indices].poses, None)
-    dataset = construct_dataset(
+    dataset = new_dataset(
         cameras=all_cameras,
         file_paths=abs_paths,
         file_paths_root=images_root,
@@ -167,6 +167,7 @@ def load_bundler_dataset(path: str,
         metadata={
             "name": "colmap",
             "color_space": "srgb",
+            "evaluation_protocol": "default",
             "viewer_transform": viewer_transform,
             "viewer_initial_pose": viewer_pose,
         })

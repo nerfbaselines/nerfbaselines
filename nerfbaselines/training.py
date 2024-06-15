@@ -14,38 +14,21 @@ from tqdm import tqdm
 import numpy as np
 import click
 from .io import open_any_directory, deserialize_nb_info, serialize_nb_info
+from .io import save_output_artifact
 from .datasets import load_dataset, Dataset, dataset_index_select
 from .utils import Indices, setup_logging, image_to_srgb, visualize_depth, handle_cli_error
 from .utils import remap_error, get_resources_utilization_info, assert_not_none
 from .utils import IndicesClickType, SetParamOptionType
 from .utils import make_image_grid, MetricsAccumulator
-from .types import Method, Literal, FrozenSet
-from .render import render_all_images
-from .evaluate import EvaluationProtocol
-from .upload_results import prepare_results_for_upload
-from .logging import ConcatLogger, Logger
+from .types import Method, Literal, FrozenSet, EvaluationProtocol
+from .evaluation import render_all_images, evaluate
+from .logging import ConcatLogger, Logger, log_metrics
 from .registry import loggers_registry
+from .io import new_nb_info
+from .registry import resolve_evaluation_protocol
 from . import backends
 from . import __version__
 from . import registry
-from . import evaluate
-
-
-def compute_exponential_gamma(num_iters: int, initial_lr: float, final_lr: float) -> float:
-    gamma = (math.log(final_lr) - math.log(initial_lr)) / num_iters
-    return math.exp(gamma)
-
-
-def log_metrics(logger: Logger, metrics, *, prefix: str = "", step: int):
-    with logger.add_event(step) as event:
-        for k, val in metrics.items():
-            tag = f"{prefix}{k}"
-            if isinstance(val, (int, float)):
-                event.add_scalar(tag, val)
-            elif isinstance(val, str):
-                event.add_text(tag, val)
-            else:
-                raise ValueError(f"Unknown metric type for {tag}: {val}")
 
 
 def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, step, evaluation_protocol: EvaluationProtocol):
@@ -176,7 +159,7 @@ def eval_all(method: Method, logger: Optional[Logger], dataset: Dataset, *, outp
     elapsed = time.perf_counter() - start
 
     # Compute metrics
-    info = evaluate.evaluate(
+    info = evaluate(
         output, 
         output_metrics, 
         evaluation_protocol=evaluation_protocol,
@@ -203,38 +186,6 @@ def eval_all(method: Method, logger: Optional[Logger], dataset: Dataset, *, outp
                          display_name="color", 
                          description="left: gt, right: prediction", 
                          step=step)
-
-
-
-def get_nb_info(train_dataset_metadata, 
-                method: Method, 
-                config_overrides, 
-                evaluation_protocol=None,
-                resources_utilization_info=None,
-                total_train_time=None):
-    dataset_metadata = train_dataset_metadata.copy()
-    expected_scene_scale = dataset_metadata.get("expected_scene_scale", None)
-    dataset_metadata["expected_scene_scale"] = round(expected_scene_scale, 5) if expected_scene_scale is not None else None
-    dataset_metadata["background_color"] = dataset_metadata["background_color"].tolist() if dataset_metadata.get("background_color") is not None else None
-    model_info = method.get_info()
-
-    if evaluation_protocol is None:
-        evaluation_protocol = evaluate.get_evaluation_protocol(dataset_name=train_dataset_metadata.get("name"))
-    return {
-        "method": model_info["name"],
-        "nb_version": __version__,
-        "num_iterations": model_info["num_iterations"],
-        "total_train_time": round(total_train_time, 5) if total_train_time is not None else None,
-        "resources_utilization": resources_utilization_info,
-        # Date time in ISO format
-        "datetime": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        "config_overrides": config_overrides,
-        "dataset_metadata": dataset_metadata,
-        "evaluation_protocol": evaluation_protocol.get_name(),
-
-        # Store hparams
-        # "hparams": self.method.get_info().get("hparams"),
-    }
 
 
 Visualization = Literal["none", "wandb", "tensorboard"]
@@ -348,8 +299,7 @@ class Trainer:
                 raise RuntimeError(f"train dataset color space {dataset_background_color} != test dataset color space {test_dataset['metadata'].get('background_color')}")
 
         self._validate_output_artifact()
-        test_dataset_name = self.test_dataset['metadata'].get("name") if self.test_dataset is not None else train_dataset['metadata'].get("name")
-        self._evaluation_protocol = evaluate.get_evaluation_protocol(dataset_name=test_dataset_name)
+        self._evaluation_protocol = resolve_evaluation_protocol(self._dataset_metadata["evaluation_protocol"])
 
     def _validate_output_artifact(self):
         # Validate generate output artifact
@@ -378,7 +328,7 @@ class Trainer:
 
     def _get_nb_info(self):
         assert self._dataset_metadata is not None, "dataset_metadata must be set"
-        return get_nb_info(
+        return new_nb_info(
             self._dataset_metadata,
             self.method,
             self.config_overrides,
@@ -494,7 +444,7 @@ class Trainer:
 
         # Generate output artifact if enabled
         if self.generate_output_artifact:
-            prepare_results_for_upload(
+            save_output_artifact(
                 Path(self.output) / f"checkpoint-{self.step}",
                 Path(self.output) / f"predictions-{self.step}.tar.gz",
                 Path(self.output) / f"results-{self.step}.json",
@@ -535,7 +485,7 @@ class Trainer:
 
 @click.command("train")
 @click.option("--method", "method_name", type=click.Choice(sorted(registry.get_supported_methods())), required=True, help="Method to use")
-@click.option("--checkpoint", type=click.Path(exists=True, path_type=str), default=None)
+@click.option("--checkpoint", type=click.Path(path_type=str), default=None)
 @click.option("--data", type=str, required=True)
 @click.option("--output", type=str, default=".")
 @click.option("--logger", type=click.Choice(["none", "wandb", "tensorboard", "wandb+tensorboard"]), default="tensorboard", help="Logger to use. Defaults to tensorboard.")
@@ -585,6 +535,7 @@ def train_command(
         sys.exit(1)
 
     def _train(checkpoint_path=None):
+        nonlocal config_overrides
         # Make paths absolute
         _data = data
         if "://" not in _data:
@@ -623,10 +574,15 @@ def train_command(
                 test_dataset["metadata"]["expected_scene_scale"] = train_dataset["metadata"].get("expected_scene_scale")
 
                 # Apply config overrides for the train dataset
-                _dataset_overrides = method_spec.get("dataset_overrides", {}).get(train_dataset["metadata"].get("name"), {})
-                for k, v in _dataset_overrides.items():
-                    if k not in config_overrides:
-                        config_overrides[k] = v
+                dataset_name = train_dataset["metadata"].get("name")
+                if dataset_name is not None:
+                    _dataset_overrides = method_spec.get("dataset_overrides", {}).get(dataset_name, {})
+                    config_overrides = (config_overrides or {}).copy()
+                    for k, v in _dataset_overrides.items():
+                        if k not in config_overrides:
+                            config_overrides[k] = v
+                else:
+                    logging.warning("Dataset name not specified, dataset-specific config overrides will not be applied")
 
                 # Log the current set of config overrides
                 logging.info(f"Using config overrides: {pprint.pformat(config_overrides)}")

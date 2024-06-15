@@ -9,7 +9,7 @@ from typing import Union
 from pathlib import Path
 import numpy as np
 from ..types import camera_model_to_int, new_cameras
-from ._common import DatasetNotFoundError, construct_dataset
+from ._common import DatasetNotFoundError, new_dataset
 
 
 gdrive_id = "16VnMcF1KJYxN9QId6TClMsZRahHNMW5g"
@@ -60,7 +60,7 @@ def load_llff_dataset(path: Union[Path, str], split: str, downscale_factor: int 
     c2w = c2w.copy()
     c2w[..., 0:3, 1:3] *= -1
 
-    return construct_dataset(
+    return new_dataset(
         cameras=new_cameras(
             poses=c2w,
             intrinsics=(intrinsics)[indices],
@@ -78,6 +78,7 @@ def load_llff_dataset(path: Union[Path, str], split: str, downscale_factor: int 
             "scene": scene,
             "downscale_factor": downscale_factor,
             "color_space": "srgb",
+            "evaluation_protocol": "nerf",
             "expected_scene_scale": 0.5,
             "type": "forward-facing",
         },

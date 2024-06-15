@@ -11,7 +11,7 @@ from nerfbaselines.registry import methods_registry as registry
 def mock_results(results_path, datasets, methods):
     import nerfbaselines.datasets
     from nerfbaselines import registry
-    from nerfbaselines.evaluate import _encode_values
+    from nerfbaselines.io import _encode_values
 
     root = Path(nerfbaselines.__file__).absolute().parent
     for method in methods:
@@ -88,7 +88,7 @@ def test_render_dataset_results_json_capture_command(tmp_path, capsys):
     dataset = next(iter(get_benchmark_datasets()))
     method = next(iter(registry.keys()))
 
-    with mock.patch.object(sys, "argv", ["nerfbaselines", "render-dataset-results", "--output-type", "json", "--results", str(tmp_path / "results"), "--dataset", dataset]):
+    with mock.patch.object(sys, "argv", ["nerfbaselines", "generate-dataset-results", "--output-type", "json", "--results", str(tmp_path / "results"), "--dataset", dataset]):
         mock_results(tmp_path.joinpath("results"), [dataset], [method])
 
         import nerfbaselines.cli
@@ -107,7 +107,7 @@ def test_render_dataset_results_json_command(tmp_path):
     method = next(iter(registry.keys()))
 
     with mock.patch.object(
-        sys, "argv", ["nerfbaselines", "render-dataset-results", "--output-type", "json", "--results", str(tmp_path / "results"), "--dataset", dataset, "--output", str(tmp_path / "results.json")]
+        sys, "argv", ["nerfbaselines", "generate-dataset-results", "--output-type", "json", "--results", str(tmp_path / "results"), "--dataset", dataset, "--output", str(tmp_path / "results.json")]
     ):
         mock_results(tmp_path.joinpath("results"), [dataset], [method])
 

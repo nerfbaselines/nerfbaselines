@@ -1,3 +1,4 @@
+from functools import reduce
 import logging
 import io
 import math
@@ -35,6 +36,7 @@ from scipy import interpolate
 from ..types import Method, Dataset, FrozenSet, DatasetFeature, Literal, TypeVar
 from ..types import new_cameras
 from ..types import TrajectoryFrameAppearance, TrajectoryFrame, TrajectoryKeyframe, Trajectory, TrajectoryInterpolationSource
+from ..types import KochanekBartelsInterpolationSource
 from ..datasets import dataset_load_features, dataset_index_select
 from ..datasets._colmap_utils import qvec2rotmat, rotmat2qvec
 from ..utils import CancelledException, assert_not_none
@@ -122,7 +124,7 @@ class BindableSource:
             last_value = out
             return out
 
-        def _update(value=None, **changes):
+        def _update(value: Any = None, **changes):
             nonlocal last_value
             if value is None:
                 old = self.get()
@@ -132,7 +134,7 @@ class BindableSource:
                 elif hasattr(old, "update"):
                     value = old.update(**changes)
                 elif dataclasses.is_dataclass(old):
-                    value = dataclasses.replace(old, **changes)
+                    value = dataclasses.replace(old, **changes)  # type: ignore
                 else:
                     raise ValueError("Cannot update value")
             else:
@@ -362,7 +364,7 @@ class ViewerState:
             raise RuntimeError("Trajectory does not contain 'source'. It is not editable.")
         source = trajectory.get("source")
         assert source is not None  # pyright legacy
-        if source.get("type") != "interpolation" or source.get("interpolation") not in {"none", "kochanek-bartels"}:
+        if source.get("type") != "interpolation" or source.get("interpolation") not in {"none", "kochanek-bartels", "ellipse"}:
             raise RuntimeError("The viewer only supports 'kochanek-bartels', 'none' interpolation for the camera trajectory")
         def validate_appearance(appearance):
             if appearance and not appearance.get("embedding_train_index"):
@@ -371,7 +373,8 @@ class ViewerState:
         validate_appearance(source.get("default_appearance"))
         self.camera_path_interpolation = source["interpolation"]
         self.render_resolution = trajectory["image_size"]
-        if self.camera_path_interpolation != "none":
+        if source["interpolation"] in {"kochanek-bartels"}:
+            source = cast(KochanekBartelsInterpolationSource, source)
             self.camera_path_framerate = trajectory["fps"]
             self.camera_path_tension = source["tension"]
             self.camera_path_loop = source["is_cycle"]
@@ -441,7 +444,7 @@ class ViewerState:
                     "intrinsics": intrinsics,
                     "appearance_weights": weights,
                 }))
-        source: TrajectoryInterpolationSource = {
+        source: Dict = {
             "type": "interpolation",
             "interpolation": self.camera_path_interpolation,
             "keyframes": keyframes,
@@ -455,14 +458,14 @@ class ViewerState:
             source["is_cycle"] = self.camera_path_loop
             source["tension"] = self.camera_path_tension
             source["default_transition_duration"] = self.camera_path_default_transition_duration
-        if source["interpolation"] == "none":
+        if source["interpolation"] == "none" or source["interpolation"] == "ellipse":
             source["default_transition_duration"] = self.camera_path_default_transition_duration
             fps = 1.0 / self.camera_path_default_transition_duration
         data: Trajectory = {
             "camera_model": "pinhole",
             "image_size": (w, h),
             "fps": fps,
-            "source": source,
+            "source": cast(KochanekBartelsInterpolationSource, source),
             "frames": frames,
         }
         if len(appearances) != 0:
@@ -501,7 +504,7 @@ def _add_keypoint_onclick_callback(server: ViserServer, state, index, handle):
                 initial_value=keyframe.fov if keyframe.fov is not None else state.render_fov,
                 disabled=keyframe.fov is None,
             )
-            if state.camera_path_interpolation != "none":
+            if state.camera_path_interpolation not in {"none", "ellipse"}:
                 def _override_transition_changed(_) -> None:
                     state.camera_path_keyframes = tuple(
                         key if i != index else dataclasses.replace(key, transition_duration=None if not override_transition_enabled.value else override_transition_sec.value)
@@ -741,6 +744,59 @@ def _onehot(index, length):
     return out
 
 
+def _interpolate_ellipse(camera_path_keyframes, num_frames: int, render_fov: float):
+    # Compute transition times cumsum
+    if num_frames <= 0 or len(camera_path_keyframes) < 3:
+        return None
+
+    points = np.stack([k.position for k in camera_path_keyframes], axis=0)
+    centroid = np.mean(points, axis=0)
+    centered_points = points - centroid
+
+    # Singular Value Decomposition (SVD)
+    U, S, Vt = np.linalg.svd(centered_points)
+    normal_vector = Vt[-1]  # The normal vector to the plane is the last row of Vt
+
+    # Project the points onto the plane
+    projection_matrix = np.eye(3) - np.outer(normal_vector, normal_vector)
+    projected_points = centered_points @ projection_matrix
+
+    # Now, we have points in a 2D plane, fit a circle in 2D
+    A = np.c_[2*projected_points[:,0], 2*projected_points[:,1], np.ones(projected_points.shape[0])]
+    b = np.sum(projected_points**2, axis=1)
+    x = np.linalg.lstsq(A, b, rcond=None)[0]
+    center_2d = x[:2]
+    radius = np.sqrt(x[2] + np.sum(center_2d**2))
+
+    # Reproject the center back to 3D
+    angles = np.linspace(0, 2*np.pi, int(num_frames), endpoint=False)
+    positions = np.stack([center_2d[0] + radius * np.cos(angles), center_2d[1] + radius * np.sin(angles)], axis=-1)
+    points_array = positions @ projection_matrix[:2, :2].T
+    points_array = np.concatenate([points_array, np.zeros((num_frames, 1))], axis=-1)
+    points_array += centroid
+
+    # Convert wxyz to rotation matrices
+    poses = np.stack([get_c2w(k.position, k.wxyz) for k in camera_path_keyframes], axis=0)
+    directions, origins = poses[:, :3, 2:3], poses[:, :3, 3:4]
+    m = np.eye(3) - directions * np.transpose(directions, [0, 2, 1])
+    mt_m = np.transpose(m, [0, 2, 1]) @ m
+    focus_pt = np.linalg.inv(mt_m.mean(0)) @ (mt_m @ origins).mean(0)[:, 0]
+
+    # Compute camera orientation
+    dirz = (focus_pt - points_array).astype(np.float32)
+    dirz /= np.linalg.norm(dirz, axis=-1, keepdims=True)
+    oriented_normal_vector = normal_vector if np.dot(normal_vector, dirz[0]) > 0 else -normal_vector
+    dirx = np.cross(dirz, -oriented_normal_vector)
+    diry = np.cross(dirz, dirx)
+    R = np.stack([dirx, diry, dirz], axis=-1)
+    orientation_array = np.stack([rotmat2qvec(r) for r in R], axis=0)
+
+    # TODO: implement rest
+    fovs = np.full(num_frames, render_fov, dtype=np.float32)
+    weights = _onehot(0, len(camera_path_keyframes))[np.newaxis].repeat(num_frames, axis=0)
+    return points_array, orientation_array, fovs, weights
+
+
 @autobind
 @simple_cache
 def _compute_camera_path_splines(camera_path_keyframes, 
@@ -762,6 +818,10 @@ def _compute_camera_path_splines(camera_path_keyframes,
             np.array([_onehot(i, len(camera_path_keyframes)) for i in range(len(camera_path_keyframes))],
             dtype=np.float32),
         )
+
+    if camera_path_interpolation == "ellipse":
+        num_frames = int(camera_path_default_transition_duration * camera_path_framerate)
+        return _interpolate_ellipse(camera_path_keyframes, num_frames, render_fov)
 
 
     # Compute transition times cumsum
@@ -1171,7 +1231,7 @@ class ViserViewer:
         server.add_gui_dropdown(
             "Interpolation",
             initial_value=self.state.b.camera_path_interpolation,
-            options=("kochanek-bartels", "none"),
+            options=("kochanek-bartels", "none", "ellipse"),
             hint="Camera path interpolation.")
 
         server.add_gui_checkbox(
@@ -1730,12 +1790,19 @@ class ViserViewer:
 
                 cam_embedding = None
                 if cam_app is not None:
-                    def _get_embedding(app):
+                    def _get_embedding(app) -> Optional[np.ndarray]:
+                        if self.method is None:
+                            return None
                         if "embedding_train_index" in app:
                             return self.method.get_train_embedding(app["embedding_train_index"])
                         elif "weights" in app and "appearances" in app:
                             embeddings = list(map(_get_embedding, app["appearances"]))
-                            return sum(w * e for w, e in zip(app["weights"], embeddings))
+                            if not embeddings:
+                                return None
+                            return reduce(lambda acc, x: (acc + x[0] * x[1] if x[1] is not None and acc is not None else None),
+                                          zip(app["weights"], embeddings),
+                                          (np.zeros(embeddings[0].shape, dtype=np.float32) 
+                                           if len(embeddings) > 0 and embeddings[0] is not None else None))
                         else:
                             raise ValueError(f"Invalid appearance: {app}")
                     cam_embedding = _get_embedding(cam_app)

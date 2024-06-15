@@ -228,7 +228,7 @@ def dataset_load_features(
             if resize is not None:
                 w, h = pil_image.size
                 new_size = round(w/resize), round(h/resize)
-                pil_image = pil_image.resize(new_size, PIL.Image.BICUBIC)
+                pil_image = pil_image.resize(new_size, PIL.Image.Resampling.BICUBIC)
                 warnings.warn(f"Resized image with a factor of {resize}")
 
             image = np.array(pil_image, dtype=np.uint8)
@@ -246,7 +246,7 @@ def dataset_load_features(
             if resize is not None:
                 w, h = sampling_mask.size
                 new_size = round(w*resize), round(h*resize)
-                sampling_mask = sampling_mask.resize(new_size, PIL.Image.NEAREST)
+                sampling_mask = sampling_mask.resize(new_size, PIL.Image.Resampling.NEAREST)
                 warnings.warn(f"Resized sampling mask with a factor of {resize}")
 
             sampling_masks.append(np.array(sampling_mask, dtype=np.uint8).astype(bool))
@@ -355,45 +355,49 @@ def dataset_index_select(dataset: TDataset, i: Union[slice, int, list, np.ndarra
 
 
 @overload
-def construct_dataset(*,
-                      cameras: Cameras,
-                      file_paths: Sequence[str],
-                      images: Union[np.ndarray, List[np.ndarray]],
-                      sampling_mask_paths: Optional[Sequence[str]] = ...,
-                      file_paths_root: Optional[str] = ...,
-                      sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = ...,  # [N][H, W]
-                      points3D_xyz: Optional[np.ndarray] = ...,  # [M, 3]
-                      points3D_rgb: Optional[np.ndarray] = ...,  # [M, 3]
-                      metadata: Dict) -> Dataset:
+def new_dataset(*,
+                cameras: Cameras,
+                file_paths: Sequence[str],
+                file_paths_root: str,
+                images: Union[np.ndarray, List[np.ndarray]],
+                sampling_mask_paths: Optional[Sequence[str]] = ...,
+                sampling_mask_paths_root: Optional[str] = None,
+                sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = ...,  # [N][H, W]
+                points3D_xyz: Optional[np.ndarray] = ...,  # [M, 3]
+                points3D_rgb: Optional[np.ndarray] = ...,  # [M, 3]
+                images_points3D_indices: Optional[Sequence[np.ndarray]] = None,  # [N][<M]
+                metadata: Dict) -> Dataset:
     ...
 
 
 @overload
-def construct_dataset(*,
-                      cameras: Cameras,
-                      file_paths: Sequence[str],
-                      images: Literal[None] = None,
-                      sampling_mask_paths: Optional[Sequence[str]] = ...,
-                      file_paths_root: Optional[str] = ...,
-                      sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = ...,  # [N][H, W]
-                      points3D_xyz: Optional[np.ndarray] = ...,  # [M, 3]
-                      points3D_rgb: Optional[np.ndarray] = ...,  # [M, 3]
-                      metadata: Dict) -> UnloadedDataset:
+def new_dataset(*,
+                cameras: Cameras,
+                file_paths: Sequence[str],
+                file_paths_root: str,
+                images: Literal[None] = None,
+                sampling_mask_paths: Optional[Sequence[str]] = ...,
+                sampling_mask_paths_root: Optional[str] = None,
+                sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = ...,  # [N][H, W]
+                points3D_xyz: Optional[np.ndarray] = ...,  # [M, 3]
+                points3D_rgb: Optional[np.ndarray] = ...,  # [M, 3]
+                images_points3D_indices: Optional[Sequence[np.ndarray]] = None,  # [N][<M]
+                metadata: Dict) -> UnloadedDataset:
     ...
 
 
-def construct_dataset(*,
-                      cameras: Cameras,
-                      file_paths: Sequence[str],
-                      file_paths_root: Optional[str] = None,
-                      images: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W, 3]
-                      sampling_mask_paths: Optional[Sequence[str]] = None,
-                      sampling_mask_paths_root: Optional[str] = None,
-                      sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W]
-                      points3D_xyz: Optional[np.ndarray] = None,  # [M, 3]
-                      points3D_rgb: Optional[np.ndarray] = None,  # [M, 3]
-                      images_points3D_indices: Optional[np.ndarray] = None,  # [N][<M]
-                      metadata: Dict) -> Union[UnloadedDataset, Dataset]:
+def new_dataset(*,
+                cameras: Cameras,
+                file_paths: Sequence[str],
+                file_paths_root: str,
+                images: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W, 3]
+                sampling_mask_paths: Optional[Sequence[str]] = None,
+                sampling_mask_paths_root: Optional[str] = None,
+                sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W]
+                points3D_xyz: Optional[np.ndarray] = None,  # [M, 3]
+                points3D_rgb: Optional[np.ndarray] = None,  # [M, 3]
+                images_points3D_indices: Optional[Sequence[np.ndarray]] = None,  # [N][<M]
+                metadata: Dict) -> Union[UnloadedDataset, Dataset]:
     if file_paths_root is None:
         file_paths_root = os.path.commonpath(file_paths)
     if sampling_mask_paths_root is None and sampling_mask_paths is not None:
@@ -410,7 +414,7 @@ def construct_dataset(*,
         sampling_masks=sampling_masks,
         points3D_xyz=points3D_xyz,
         points3D_rgb=points3D_rgb,
-        images_points3D_indices=images_points3D_indices,
+        images_points3D_indices=list(images_points3D_indices) if images_points3D_indices is not None else None,
         metadata=metadata
     )
 

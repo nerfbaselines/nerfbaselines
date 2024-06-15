@@ -4,23 +4,23 @@ from ..registry import register, MethodSpec
 
 official_results = {
     # Blender
-    "blender/chair": {"psnr": 35.76, "ssim": 0.985, "lpips": 0.022},
-    "blender/drums": {"psnr": 26.01, "ssim": 0.937, "lpips": 0.073},
-    "blender/ficus": {"psnr": 33.99, "ssim": 0.982, "lpips": 0.022},
-    "blender/hotdog": {"psnr": 37.41, "ssim": 0.982, "lpips": 0.032},
-    "blender/lego": {"psnr": 36.46, "ssim": 0.983, "lpips": 0.018},
-    "blender/materials": {"psnr": 30.12, "ssim": 0.952, "lpips": 0.058},
-    "blender/mic": {"psnr": 34.61, "ssim": 0.988, "lpips": 0.015},
-    "blender/ship": {"psnr": 30.77, "ssim": 0.895, "lpips": 0.138},
+    "blender/chair": {"psnr": 35.76, "ssim": 0.985, "lpips_vgg": 0.022},
+    "blender/drums": {"psnr": 26.01, "ssim": 0.937, "lpips_vgg": 0.073},
+    "blender/ficus": {"psnr": 33.99, "ssim": 0.982, "lpips_vgg": 0.022},
+    "blender/hotdog": {"psnr": 37.41, "ssim": 0.982, "lpips_vgg": 0.032},
+    "blender/lego": {"psnr": 36.46, "ssim": 0.983, "lpips_vgg": 0.018},
+    "blender/materials": {"psnr": 30.12, "ssim": 0.952, "lpips_vgg": 0.058},
+    "blender/mic": {"psnr": 34.61, "ssim": 0.988, "lpips_vgg": 0.015},
+    "blender/ship": {"psnr": 30.77, "ssim": 0.895, "lpips_vgg": 0.138},
     # LLFF
-    "llff/room": {"psnr": 32.35, "ssim": 0.952, "lpips": 0.167},
-    "llff/fern": {"psnr": 25.27, "ssim": 0.814, "lpips": 0.237},
-    "llff/leaves": {"psnr": 21.30, "ssim": 0.752, "lpips": 0.217},
-    "llff/fortress": {"psnr": 31.36, "ssim": 0.897, "lpips": 0.148},
-    "llff/orchids": {"psnr": 19.87, "ssim": 0.649, "lpips": 0.278},
-    "llff/flower": {"psnr": 28.60, "ssim": 0.871, "lpips": 0.169},
-    "llff/trex": {"psnr": 26.97, "ssim": 0.900, "lpips": 0.221},
-    "llff/horns": {"psnr": 28.14, "ssim": 0.877, "lpips": 0.196},
+    "llff/room": {"psnr": 32.35, "ssim": 0.952, "lpips_vgg": 0.167},
+    "llff/fern": {"psnr": 25.27, "ssim": 0.814, "lpips_vgg": 0.237},
+    "llff/leaves": {"psnr": 21.30, "ssim": 0.752, "lpips_vgg": 0.217},
+    "llff/fortress": {"psnr": 31.36, "ssim": 0.897, "lpips_vgg": 0.148},
+    "llff/orchids": {"psnr": 19.87, "ssim": 0.649, "lpips_vgg": 0.278},
+    "llff/flower": {"psnr": 28.60, "ssim": 0.871, "lpips_vgg": 0.169},
+    "llff/trex": {"psnr": 26.97, "ssim": 0.900, "lpips_vgg": 0.221},
+    "llff/horns": {"psnr": 28.14, "ssim": 0.877, "lpips_vgg": 0.196},
 }
 
 
@@ -38,7 +38,7 @@ conda install -y conda-build
 conda develop .
 
 conda install -y pytorch==2.2.0 torchvision==0.17.0 pytorch-cuda=11.8 -c pytorch -c nvidia
-pip install tqdm scikit-image opencv-python configargparse lpips imageio-ffmpeg kornia lpips tensorboard
+pip install tqdm scikit-image opencv-python configargparse lpips imageio-ffmpeg kornia tensorboard
 pip install plyfile six
 """,
     },

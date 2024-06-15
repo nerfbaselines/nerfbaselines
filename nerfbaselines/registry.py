@@ -32,6 +32,7 @@ class MethodSpec(TypedDict, total=False):
     kwargs: Dict[str, Any]
     metadata: Dict[str, Any]
     backends_order: List[BackendName]
+    dataset_overrides: Dict[str, Any]
 
 
 class EvaluationProtocolSpec(TypedDict, total=False):
@@ -56,6 +57,8 @@ evaluation_protocols_registry: Dict[str, 'EvaluationProtocolSpec'] = {}
 loggers_registry: Dict[str, Callable[..., Logger]] = {}
 loggers_registry["wandb"] = _nb_logging.WandbLogger
 loggers_registry["tensorboard"] = lambda path, **kwargs: _nb_logging.TensorboardLogger(os.path.join(path, "tensorboard"), **kwargs)
+evaluation_protocols_registry["default"] = {"evaluation_protocol": "nerfbaselines.evaluation:DefaultEvaluationProtocol"}
+evaluation_protocols_registry["nerf"] = {"evaluation_protocol": "nerfbaselines.evaluation:NerfEvaluationProtocol"}
 
 
 def _discover_specs() -> List[Tuple[str, "MethodSpec"]]:

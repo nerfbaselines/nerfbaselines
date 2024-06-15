@@ -11,11 +11,9 @@ import pytest
 from pathlib import Path
 import numpy as np
 from PIL import Image
-from nerfbaselines.train import Trainer
-from nerfbaselines import metrics
-from nerfbaselines.utils import setup_logging
-
-setup_logging(True)
+# from nerfbaselines.utils import setup_logging
+# 
+# setup_logging(True)
 
 
 class _nullcontext(contextlib.nullcontext):
@@ -96,11 +94,14 @@ def patch_prefix(tmp_path):
 
 
 def run_test_train(tmp_path, dataset_path, method_name, backend="python", config_overrides=None):
+    from nerfbaselines.training import Trainer
+    from nerfbaselines import metrics
     metrics._LPIPS_CACHE.clear()
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
-    from nerfbaselines.train import train_command
-    from nerfbaselines.render import get_checkpoint_sha, render_command
+    from nerfbaselines.training import train_command
+    from nerfbaselines.io import get_checkpoint_sha
+    from nerfbaselines.cli import render_command
     from nerfbaselines.utils import Indices, remap_error
     from nerfbaselines.utils import NoGPUError
     from nerfbaselines.io import deserialize_nb_info
@@ -145,7 +146,7 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python", config
     # Test restore checkpoint and render
     render_cmd = remap_error(render_command.callback)
     # render_command(checkpoint, data, output, split, verbose, backend):
-    render_cmd(tmp_path / "output" / "checkpoint-13", str(dataset_path), str(tmp_path / "output-render"), "test", verbose=False, backend_name=backend)
+    render_cmd(str(tmp_path / "output" / "checkpoint-13"), str(dataset_path), str(tmp_path / "output-render"), "test", verbose=False, backend_name=backend)
 
     print(os.listdir(tmp_path / "output-render"))
     assert (tmp_path / "output-render").exists()

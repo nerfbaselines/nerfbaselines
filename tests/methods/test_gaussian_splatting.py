@@ -48,6 +48,8 @@ def mock_gaussian_splatting(mock_torch):
             parser.add_argument("--lambda_dssim", type=float, default=0.1)
             parser.add_argument("--white_background", action="store_true")
             parser.add_argument("--random_background", action="store_true")
+            parser.add_argument("--resolution", type=int, default=None)
+            parser.add_argument("--eval", action="store_true")
             out = mock.MagicMock()
             out.extract = lambda args: args
             return out

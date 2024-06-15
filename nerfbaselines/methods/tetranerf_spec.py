@@ -19,15 +19,15 @@ paper_results = {
     # 360 PSNRs: 23.53 20.36 26.15 24.42 21.41 32.02 28.02 29.66 31.13
     # 360 SSIMs: 0.614 0.470 0.775 0.613 0.456 0.894 0.850 0.877 0.905
     # 360 LPIPS: 0.271 0.378 0.136 0.274 0.429 0.104 0.127 0.098 0.084
-    "mipnerf360/bicycle": {"psnr": 23.53, "ssim": 0.614, "lpips": 0.271},
-    "mipnerf360/flowers": {"psnr": 20.36, "ssim": 0.470, "lpips": 0.378},
-    "mipnerf360/garden": {"psnr": 26.15, "ssim": 0.775, "lpips": 0.136},
-    "mipnerf360/stump": {"psnr": 24.42, "ssim": 0.613, "lpips": 0.274},
-    "mipnerf360/treehill": {"psnr": 21.41, "ssim": 0.456, "lpips": 0.429},
-    "mipnerf360/room": {"psnr": 32.02, "ssim": 0.894, "lpips": 0.104},
-    "mipnerf360/counter": {"psnr": 28.02, "ssim": 0.850, "lpips": 0.127},
-    "mipnerf360/kitchen": {"psnr": 29.66, "ssim": 0.877, "lpips": 0.098},
-    "mipnerf360/bonsai": {"psnr": 31.13, "ssim": 0.905, "lpips": 0.084},
+    "mipnerf360/bicycle": {"psnr": 23.53, "ssim": 0.614, "lpips_vgg": 0.271},
+    "mipnerf360/flowers": {"psnr": 20.36, "ssim": 0.470, "lpips_vgg": 0.378},
+    "mipnerf360/garden": {"psnr": 26.15, "ssim": 0.775, "lpips_vgg": 0.136},
+    "mipnerf360/stump": {"psnr": 24.42, "ssim": 0.613, "lpips_vgg": 0.274},
+    "mipnerf360/treehill": {"psnr": 21.41, "ssim": 0.456, "lpips_vgg": 0.429},
+    "mipnerf360/room": {"psnr": 32.02, "ssim": 0.894, "lpips_vgg": 0.104},
+    "mipnerf360/counter": {"psnr": 28.02, "ssim": 0.850, "lpips_vgg": 0.127},
+    "mipnerf360/kitchen": {"psnr": 29.66, "ssim": 0.877, "lpips_vgg": 0.098},
+    "mipnerf360/bonsai": {"psnr": 31.13, "ssim": 0.905, "lpips_vgg": 0.084},
 }
 
 

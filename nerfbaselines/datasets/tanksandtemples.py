@@ -7,6 +7,7 @@ import tarfile
 from tqdm import tqdm
 import tempfile
 import numpy as np
+from ..utils import assert_not_none
 from ..types import UnloadedDataset
 from ._common import DatasetNotFoundError, get_scene_scale, get_default_viewer_transform, dataset_index_select
 from .colmap import load_colmap_dataset
@@ -62,7 +63,7 @@ def load_tanksandtemples_dataset(path: Union[Path, str], split: str, downscale_f
         raise DatasetNotFoundError(f"{DATASET_NAME} and {set(SCENES.keys())} is missing from the dataset path: {path}")
 
     # Load TT dataset
-    images_path = Path("images") if downscale_factor == 1 else Path(f"images_{downscale_factor}")
+    images_path = "images" if downscale_factor == 1 else f"images_{downscale_factor}"
     scene = any(x for x in SCENES if x in str(path))
 
     dataset = load_colmap_dataset(path, images_path=images_path, split=None, **kwargs)
@@ -74,6 +75,7 @@ def load_tanksandtemples_dataset(path: Union[Path, str], split: str, downscale_f
     viewer_transform, viewer_pose = get_default_viewer_transform(dataset["cameras"].poses, None)
     dataset["metadata"]["viewer_transform"] = viewer_transform
     dataset["metadata"]["viewer_initial_pose"] = viewer_pose
+    dataset["metadata"]["evaluation_protocol"] = "default"
     indices_train, indices_test = _select_indices_llff(dataset["file_paths"])
     indices = indices_train if split == "train" else indices_test
     return dataset_index_select(dataset, indices)
@@ -122,7 +124,7 @@ def download_tanksandtemples_dataset(path: str, output: Union[Path, str]) -> Non
                 if info.isdir():
                     target.mkdir(exist_ok=True, parents=True)
                 else:
-                    with z.extractfile(info) as source, open(target, "wb") as target:
+                    with assert_not_none(z.extractfile(info)) as source, open(target, "wb") as target:
                         shutil.copyfileobj(source, target)
 
             shutil.rmtree(output, ignore_errors=True)

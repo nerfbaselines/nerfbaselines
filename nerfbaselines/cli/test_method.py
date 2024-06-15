@@ -6,19 +6,19 @@ import pprint
 import logging
 import os
 import numpy as np
-from .datasets import load_dataset, dataset_index_select
-from .evaluate import run_inside_eval_container
-from .utils import SetParamOptionType, handle_cli_error, setup_logging, Indices
-from .logging import TensorboardLogger
-from .io import open_any_directory
-from . import registry
-from . import backends
 import click
-from . import registry
-from .train import Trainer, eval_few, eval_all
-from .evaluate import evaluate, get_evaluation_protocol
 from PIL import Image
 import tempfile
+from nerfbaselines import backends
+from nerfbaselines import registry
+from nerfbaselines.datasets import load_dataset, dataset_index_select
+from nerfbaselines.utils import SetParamOptionType, handle_cli_error, setup_logging, Indices
+from nerfbaselines.utils import run_inside_eval_container
+from nerfbaselines.logging import TensorboardLogger
+from nerfbaselines.io import open_any_directory
+from nerfbaselines.training import Trainer, eval_few, eval_all
+from nerfbaselines.registry import resolve_evaluation_protocol
+from nerfbaselines.evaluation import evaluate
 
 
 @click.command("test-method")
@@ -94,10 +94,13 @@ def main(method_name: str,
             mark_success("Train dataset loaded")
 
             # Apply config overrides for the train dataset
-            _dataset_overrides = method_spec.get("dataset_overrides", {}).get(train_dataset["metadata"].get("name"), {})
-            for k, v in _dataset_overrides.items():
-                if k not in config_overrides:
-                    config_overrides[k] = v
+            dataset_name = train_dataset["metadata"].get("name")
+            if dataset_name is not None:
+                _dataset_overrides = (method_spec.get("dataset_overrides") or {}).get(dataset_name, {}) or {}
+                for k, v in _dataset_overrides.items():
+                    config_overrides = config_overrides or {}
+                    if k not in config_overrides:
+                        config_overrides[k] = v
             logging.info("Config overrides: \n" + pprint.pformat(config_overrides))
 
             # Load eval dataset
@@ -130,8 +133,7 @@ def main(method_name: str,
             with tempfile.TemporaryDirectory() as tmpdir_logger:
                 # Test eval_few
                 logger = TensorboardLogger(tmpdir_logger)
-                test_dataset_name = test_dataset['metadata'].get("name")
-                eval_protocol = get_evaluation_protocol(dataset_name=test_dataset_name)
+                eval_protocol = resolve_evaluation_protocol(test_dataset["metadata"]["evaluation_protocol"])
                 eval_few(model, logger, test_dataset, split="test", step=steps, evaluation_protocol=eval_protocol)
                 mark_success("Eval few passes")
 

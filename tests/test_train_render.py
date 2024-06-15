@@ -127,7 +127,7 @@ def test_train_command(mock_extras, tmp_path, wandb_init_run, vis):
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
     _patch_wandb_for_py37()
-    from nerfbaselines.train import train_command
+    from nerfbaselines.training import train_command
     from nerfbaselines.registry import methods_registry as registry, MethodSpec
     import wandb
 
@@ -215,7 +215,7 @@ def test_train_command_extras(tmp_path):
     metrics._LPIPS_CACHE.clear()
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
-    from nerfbaselines.train import train_command
+    from nerfbaselines.training import train_command
     from nerfbaselines.registry import methods_registry as registry, MethodSpec
 
     assert train_command.callback is not None
@@ -285,7 +285,7 @@ def test_train_command_undistort(tmp_path, wandb_init_run):
     metrics._LPIPS_CACHE.clear()
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
-    from nerfbaselines.train import train_command
+    from nerfbaselines.training import train_command
     from nerfbaselines.registry import methods_registry as registry, MethodSpec
 
     assert train_command.callback is not None
@@ -344,7 +344,7 @@ def test_render_command(tmp_path, output_type):
     metrics._LPIPS_CACHE.clear()
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
-    from nerfbaselines.train import train_command
+    from nerfbaselines.training import train_command
     from nerfbaselines.registry import methods_registry as registry, MethodSpec
 
     assert train_command.callback is not None
@@ -370,8 +370,8 @@ def test_render_command(tmp_path, output_type):
             return super().render(cameras, *args, **kwargs)
 
     
-    from nerfbaselines.train import train_command
-    from nerfbaselines.render import render_command
+    from nerfbaselines.training import train_command
+    from nerfbaselines.cli import render_command
     from nerfbaselines.registry import methods_registry as registry, MethodSpec
 
     _ns_prefix_backup = os.environ.get("NS_PREFIX", None)
@@ -401,7 +401,7 @@ def test_render_command(tmp_path, output_type):
         else:
             output = tmp_path / "output2.tar.gz"
         assert render_command.callback is not None
-        render_command.callback(str(tmp_path / "output" / "checkpoint-13"), str(tmp_path / "data"), output, "train", True, "python")
+        render_command.callback(str(tmp_path / "output" / "checkpoint-13"), str(tmp_path / "data"), str(output), "train", True, "python")
 
         assert output.exists()
         if output_type == "folder":

@@ -2,11 +2,11 @@ import click
 from pathlib import Path
 import os
 import json
-from .backends import ALL_BACKENDS
-from .utils import setup_logging
-from .io import open_any_directory, deserialize_nb_info
-from . import registry
-from . import backends
+from nerfbaselines.backends import ALL_BACKENDS
+from nerfbaselines.utils import setup_logging
+from nerfbaselines.io import open_any_directory, deserialize_nb_info
+from nerfbaselines import registry
+from nerfbaselines import backends
 
 
 @click.command("export-demo")

@@ -32,6 +32,8 @@ dependencies = [
     "gdown>=4.7.1",
     "tensorboard>=2.5.0",
     "mediapy>=1.1.2",
+    'viser<0.2.0',
+    'splines>=0.3.1',
     'importlib-metadata>=6.0.0; python_version < "3.10"',
 ]
 dynamic = ["version"]
@@ -39,8 +41,6 @@ dynamic = ["version"]
 [project.optional-dependencies]
 extras = [
     'torch',
-    'viser<0.2.0',
-    'splines>=0.3.1',
 ]
 
 dev = [
@@ -87,6 +87,10 @@ exclude = ["**/node_modules",
     "nerfbaselines/methods/nerf.py",
     "nerfbaselines/methods/nerfstudio.py",
     "nerfbaselines/methods/tensorf.py",
+    "nerfbaselines/methods/gaussian_opacity_fields.py",
+    "nerfbaselines/methods/nerfw_reimplementation.py",
+    "nerfbaselines/methods/kplanes.py",
+    "nerfbaselines/methods/nerfonthego.py",
     "nerfbaselines/methods/tetranerf.py",
     "nerfbaselines/methods/kplanes.py",
     "nerfbaselines/methods/trips/**/*",

@@ -9,7 +9,7 @@ import tarfile
 from PIL import Image
 
 
-from nerfbaselines.evaluate import evaluate
+from nerfbaselines.evaluation import evaluate
 
 
 def _generate_predictions(path, background_color=None):
@@ -43,28 +43,28 @@ def _generate_predictions(path, background_color=None):
 
 def test_evaluate_folder(tmp_path, mock_torch):
     _generate_predictions(tmp_path / "predictions")
-    evaluate(tmp_path / "predictions", output=tmp_path / "results.json")
+    evaluate(str(tmp_path / "predictions"), output=str(tmp_path / "results.json"))
     assert os.path.exists(tmp_path / "results.json")
     with (tmp_path / "results.json").open("r", encoding="utf8") as f:
         results = json.load(f)
         assert "lpips" in results["metrics"]
 
     with pytest.raises(FileExistsError):
-        evaluate(tmp_path / "predictions", output=tmp_path / "results.json")
+        evaluate(str(tmp_path / "predictions"), output=str(tmp_path / "results.json"))
 
 
 def test_evaluate_targz(tmp_path, mock_torch):
     _generate_predictions(tmp_path / "predictions")
     with tarfile.open(tmp_path / "predictions.tar.gz", "w:gz") as tar:
         tar.add(tmp_path / "predictions", arcname="")
-    results = evaluate(tmp_path / "predictions.tar.gz", output=tmp_path / "results.json")
+    results = evaluate(str(tmp_path / "predictions.tar.gz"), output=str(tmp_path / "results.json"))
     assert os.path.exists(tmp_path / "results.json")
     with (tmp_path / "results.json").open("r", encoding="utf8") as f:
         results = json.load(f)
         assert "lpips" in results["metrics"]
 
     with pytest.raises(FileExistsError):
-        evaluate(tmp_path / "predictions.tar.gz", output=tmp_path / "results.json")
+        evaluate(str(tmp_path / "predictions.tar.gz"), output=str(tmp_path / "results.json"))
 
 
 def test_evaluate_command_extras(tmp_path, mock_torch):
