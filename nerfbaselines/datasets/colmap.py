@@ -369,8 +369,8 @@ def load_colmap_dataset(path: Union[Path, str],
     viewer_transform, viewer_pose = get_default_viewer_transform(all_cameras[train_indices].poses, None)
     dataset = new_dataset(
         cameras=all_cameras,
-        file_paths=image_paths,
-        file_paths_root=str(images_path),
+        image_paths=image_paths,
+        image_paths_root=str(images_path),
         sampling_mask_paths=sampling_mask_paths,
         sampling_mask_paths_root=str(sampling_masks_path) if sampling_mask_paths is not None else None,
         points3D_xyz=points3D_xyz,

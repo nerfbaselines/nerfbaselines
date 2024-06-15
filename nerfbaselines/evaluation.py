@@ -135,8 +135,8 @@ def evaluate(predictions: str,
         with suppress_type_checks():
             dataset = new_dataset(
                 cameras=typing.cast(Cameras, None),
-                file_paths=relpaths,
-                file_paths_root=str(predictions_path / "color"),
+                image_paths=relpaths,
+                image_paths_root=str(predictions_path / "color"),
                 metadata=typing.cast(Dict, nb_info.get("dataset_metadata", {})),
                 images=gt_images)
 
@@ -278,7 +278,7 @@ def render_all_images(
         evaluation_protocol.render(method, dataset),
         dataset=dataset,
         nb_info=nb_info)
-    yield from tqdm(iterator, desc=description, total=len(dataset["file_paths"]), dynamic_ncols=True)
+    yield from tqdm(iterator, desc=description, total=len(dataset["image_paths"]), dynamic_ncols=True)
 
 
 def render_frames(

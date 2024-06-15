@@ -58,10 +58,10 @@ def load_mipnerf360_dataset(path: Union[Path, str], split: str, resize_full_imag
     dataset["metadata"]["viewer_initial_pose"] = viewer_pose
 
 
-    image_names = dataset["file_paths"]
+    image_names = dataset["image_paths"]
     inds = np.argsort(image_names)
 
-    all_indices = np.arange(len(dataset["file_paths"]))
+    all_indices = np.arange(len(dataset["image_paths"]))
     llffhold = 8
     if split == "train":
         indices = all_indices % llffhold != 0

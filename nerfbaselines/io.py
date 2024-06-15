@@ -519,12 +519,9 @@ def save_predictions(output: str, predictions: Iterable[RenderOutput], dataset: 
             gt_image = image_to_srgb(dataset["images"][i][:h, :w], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
             pred_image = image_to_srgb(pred["color"], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
             assert gt_image.shape[:-1] == pred_image.shape[:-1], f"gt size {gt_image.shape[:-1]} != pred size {pred_image.shape[:-1]}"
-            relative_name = Path(dataset["file_paths"][i])
-            if dataset["file_paths_root"] is not None:
-                if str(relative_name).startswith("/undistorted/"):
-                    relative_name = Path(str(relative_name)[len("/undistorted/") :])
-                else:
-                    relative_name = relative_name.relative_to(Path(dataset["file_paths_root"]))
+            relative_name = Path(dataset["image_paths"][i])
+            if dataset["image_paths_root"] is not None:
+                relative_name = relative_name.relative_to(Path(dataset["image_paths_root"]))
             with open_fn(f"gt-color/{relative_name.with_suffix('.png')}") as f:
                 save_image(f, gt_image)
             with open_fn(f"color/{relative_name.with_suffix('.png')}") as f:

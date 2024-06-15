@@ -76,7 +76,7 @@ def load_tanksandtemples_dataset(path: Union[Path, str], split: str, downscale_f
     dataset["metadata"]["viewer_transform"] = viewer_transform
     dataset["metadata"]["viewer_initial_pose"] = viewer_pose
     dataset["metadata"]["evaluation_protocol"] = "default"
-    indices_train, indices_test = _select_indices_llff(dataset["file_paths"])
+    indices_train, indices_test = _select_indices_llff(dataset["image_paths"])
     indices = indices_train if split == "train" else indices_test
     return dataset_index_select(dataset, indices)
 

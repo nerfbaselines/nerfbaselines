@@ -59,7 +59,7 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
     frames = []
     up = np.zeros(3)
 
-    for i in range(len(dataset["file_paths"])):
+    for i in range(len(dataset["image_paths"])):
         camera = {}
         camera["w"] = int(dataset["cameras"].image_sizes[i, 0])
         camera["h"] = int(dataset["cameras"].image_sizes[i, 1])
@@ -95,7 +95,7 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
         # camera["fovy"] = camera["camera_angle_y"] * 180 / math.pi
         frame = camera.copy()
         bottom = np.array([0.0, 0.0, 0.0, 1.0]).reshape([1, 4])
-        name = str(dataset["file_paths"][i])
+        name = str(dataset["image_paths"][i])
         # b = sharpness(name) if os.path.exists(name) else 1.0
         c2w = dataset["cameras"].poses[i, :3, :4]
 
@@ -111,7 +111,7 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
 
         up += c2w[0:3, 1]
 
-        frame["file_path"] = name
+        frame["image_path"] = name
         # Adding sharpness triggers removal in ingp code if the file doesn't exist
         # frame["sharpness"] = b
         frame["transform_matrix"] = c2w
@@ -314,11 +314,11 @@ class InstantNGP(Method):
         from tqdm import tqdm
 
         linked, copied = 0, 0
-        with tqdm(dataset["file_paths"], desc="caching images", dynamic_ncols=True) as progress:
+        with tqdm(dataset["image_paths"], desc="caching images", dynamic_ncols=True) as progress:
             for i, impath_source in enumerate(progress):
                 impath_source = Path(impath_source)
-                impath_target = Path(tmpdir) / str(impath_source.relative_to(dataset["file_paths_root"])).replace("/", "__")
-                dataset["file_paths"][i] = str(impath_target)
+                impath_target = Path(tmpdir) / str(impath_source.relative_to(dataset["image_paths_root"])).replace("/", "__")
+                dataset["image_paths"][i] = str(impath_target)
                 impath_target.parent.mkdir(parents=True, exist_ok=True)
                 if impath_target.exists():
                     continue
@@ -331,12 +331,12 @@ class InstantNGP(Method):
                     img = dataset["images"][i][:height, :width]
                     if dataset["metadata"]["color_space"] == "srgb":
                         impath_target = impath_target.with_suffix(".png")
-                        dataset["file_paths"][i] = str(impath_target)
+                        dataset["image_paths"][i] = str(impath_target)
                         image = Image.fromarray(img)
                         image.save(str(impath_target))
                     elif dataset["metadata"]["color_space"] == "linear":
                         impath_target = impath_target.with_suffix(".bin")
-                        dataset["file_paths"][i] = str(impath_target)
+                        dataset["image_paths"][i] = str(impath_target)
                         if img.shape[2] < 4:
                             img = np.dstack((img, np.ones([img.shape[0], img.shape[1], 4 - img.shape[2]])))
                         with open(str(impath_target), "wb") as f:
@@ -352,7 +352,7 @@ class InstantNGP(Method):
                     maskname = impath_target.with_name(f"dynamic_mask_{impath_target.name}")
                     dataset["sampling_masks"][i] = maskname
                     mask.save(str(maskname))
-        dataset["file_paths_root"] = str(tmpdir)
+        dataset["image_paths_root"] = str(tmpdir)
 
     def _setup_train(self, train_dataset: Dataset, config_overrides):
         # Write images
@@ -471,8 +471,8 @@ class InstantNGP(Method):
                 sampling_mask_paths_root=None,
                 sampling_masks=None,
                 images=[np.zeros((h, w, 3), dtype=np.uint8) for w, h in cameras.image_sizes],
-                file_paths_root="eval",
-                file_paths=[f"eval/{i:06d}.png" for i in range(len(cameras.poses))],
+                image_paths_root="eval",
+                image_paths=[f"eval/{i:06d}.png" for i in range(len(cameras.poses))],
                 metadata={
                     "color_space": self.dataparser_params["color_space"],
                 }

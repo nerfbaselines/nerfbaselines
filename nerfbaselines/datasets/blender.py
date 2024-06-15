@@ -62,8 +62,8 @@ def load_blender_dataset(path: Union[Path, str], split: str, **kwargs):
             image_sizes=image_sizes,
             nears_fars=nears_fars,
         ),
-        file_paths_root=str(path),
-        file_paths=image_paths,
+        image_paths_root=str(path),
+        image_paths=image_paths,
         sampling_mask_paths=None,
         metadata={
             "name": "blender",

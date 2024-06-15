@@ -69,8 +69,8 @@ def load_llff_dataset(path: Union[Path, str], split: str, downscale_factor: int 
             image_sizes=img_wh.T[indices],
             nears_fars=near_fars[indices],
         ),
-        file_paths_root=str(path),
-        file_paths=[str(x) for i, x in enumerate(image_paths) if i in indices],
+        image_paths_root=str(path),
+        image_paths=[str(x) for i, x in enumerate(image_paths) if i in indices],
         sampling_mask_paths=None,
         sampling_mask_paths_root=None,
         metadata={

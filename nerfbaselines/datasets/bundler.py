@@ -158,8 +158,8 @@ def load_bundler_dataset(path: str,
     viewer_transform, viewer_pose = get_default_viewer_transform(all_cameras[train_indices].poses, None)
     dataset = new_dataset(
         cameras=all_cameras,
-        file_paths=abs_paths,
-        file_paths_root=images_root,
+        image_paths=abs_paths,
+        image_paths_root=images_root,
         sampling_mask_paths=sampling_mask_paths,
         sampling_mask_paths_root=images_masks_root,
         points3D_xyz=points3D_xyz if load_points else None,
@@ -180,4 +180,4 @@ def load_bundler_dataset(path: str,
 if __name__ == "__main__":
     import sys
     dataset = load_bundler_dataset(sys.argv[1], split="train")
-    print(len(dataset["file_paths"]))
+    print(len(dataset["image_paths"]))

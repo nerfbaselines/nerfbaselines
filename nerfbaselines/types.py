@@ -269,8 +269,8 @@ def new_cameras(
 class _IncompleteDataset(TypedDict, total=True):
     cameras: Cameras  # [N]
 
-    file_paths: List[str]
-    file_paths_root: str
+    image_paths: List[str]
+    image_paths_root: str
     sampling_mask_paths: Optional[List[str]]
     sampling_mask_paths_root: Optional[str]
     metadata: Dict

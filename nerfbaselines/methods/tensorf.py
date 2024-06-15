@@ -478,7 +478,7 @@ class TensoRF(Method):
         test_dataset = TensoRFDataset(
             dict(
                 cameras=cameras,
-                file_paths=[f"{i:06d}.png" for i in range(len(cameras))],
+                image_paths=[f"{i:06d}.png" for i in range(len(cameras))],
                 metadata=self.metadata["dataset_metadata"],
             ),
             transform=self.metadata.get("dataset_transform"),

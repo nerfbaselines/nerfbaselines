@@ -131,7 +131,7 @@ class NBDataset(MNDataset):
             camera_utils.ProjectionType.FISHEYE,
         ]
         self.camtype = [camtype_map[i] for i in self.dataset["cameras"].camera_types]
-        dataset_len = len(self.dataset["file_paths"])
+        dataset_len = len(self.dataset["image_paths"])
         self.distortion_params = [
             dict(zip(["k1", "k2", "p1", "p2", "k3", "k4"], self.dataset["cameras"].distortion_parameters[i])) if self.dataset["cameras"].camera_types[i] > 0 else None for i in range(dataset_len)
         ]
@@ -423,7 +423,7 @@ class MultiNeRF(Method):
         test_dataset = NBDataset(
             dict(
                 cameras=cameras,
-                file_paths=[f"{i:06d}.png" for i in range(len(poses))],
+                image_paths=[f"{i:06d}.png" for i in range(len(poses))],
                 images=np.zeros((len(sizes), mheight, mwidth), dtype=np.uint8),
             ),
             self.config,

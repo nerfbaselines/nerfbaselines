@@ -480,8 +480,8 @@ def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor
     return dataset_index_select(
         new_dataset(
             cameras=all_cameras,
-            file_paths=image_filenames,
-            file_paths_root=str(images_root),
+            image_paths=image_filenames,
+            image_paths_root=str(images_root),
             sampling_mask_paths=mask_filenames if len(mask_filenames) > 0 else None,
             sampling_mask_paths_root=str(sampling_masks_root) if len(mask_filenames) > 0 else None,
             points3D_xyz=points3D_xyz,

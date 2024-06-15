@@ -34,7 +34,7 @@ from . import registry
 def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, step, evaluation_protocol: EvaluationProtocol):
     rand_number, = struct.unpack("L", hashlib.sha1(str(step).encode("utf8")).digest()[:8])
 
-    idx = rand_number % len(dataset["file_paths"])
+    idx = rand_number % len(dataset["image_paths"])
     dataset_slice = dataset_index_select(dataset, slice(idx, idx + 1))
     images = dataset_slice["images"]
 
@@ -68,8 +68,8 @@ def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, st
         color_srgb = image_to_srgb(color, np.uint8, color_space=dataset_colorspace, background_color=background_color)
         gt_srgb = image_to_srgb(gt, np.uint8, color_space=dataset_colorspace, background_color=background_color)
 
-        image_path = dataset_slice["file_paths"][0]
-        images_root = dataset_slice.get("file_paths_root")
+        image_path = dataset_slice["image_paths"][0]
+        images_root = dataset_slice.get("image_paths_root")
         if images_root is not None:
             if str(image_path).startswith(str(images_root)):
                 image_path = str(Path(image_path).relative_to(images_root))
@@ -108,9 +108,9 @@ def eval_all(method: Method, logger: Optional[Logger], dataset: Dataset, *, outp
     expected_scene_scale = dataset["metadata"].get("expected_scene_scale")
 
     # Store predictions, compute metrics, etc.
-    prefix = dataset["file_paths_root"]
+    prefix = dataset["image_paths_root"]
     if prefix is None:
-        prefix = Path(os.path.commonpath(dataset["file_paths"]))
+        prefix = Path(os.path.commonpath(dataset["image_paths"]))
 
     if split != "test":
         output_metrics = os.path.join(output, f"results-{step}-{split}.json")
@@ -169,7 +169,7 @@ def eval_all(method: Method, logger: Optional[Logger], dataset: Dataset, *, outp
     if logger:
         assert metrics is not None, "metrics must be computed"
         logging.debug(f"logging metrics to {logger}")
-        metrics["fps"] = len(dataset["file_paths"]) / elapsed
+        metrics["fps"] = len(dataset["image_paths"]) / elapsed
         metrics["rays-per-second"] = total_rays / elapsed
         metrics["time"] = elapsed
         log_metrics(logger, metrics, prefix=f"eval-all-{split}/", step=step)
@@ -273,7 +273,7 @@ class Trainer:
         if dataset_background_color is not None:
             assert isinstance(dataset_background_color, np.ndarray), "Dataset background color must be a numpy array"
             assert dataset_background_color.dtype == np.uint8, "Dataset background color must be an uint8 array"
-        train_dataset_indices = np.linspace(0, len(train_dataset["file_paths"]) - 1, 16, dtype=int)
+        train_dataset_indices = np.linspace(0, len(train_dataset["image_paths"]) - 1, 16, dtype=int)
         self._train_dataset_for_eval = dataset_index_select(train_dataset, train_dataset_indices)
 
         color_space = train_dataset["metadata"].get("color_space")
@@ -469,7 +469,7 @@ class Trainer:
         assert self._train_dataset_for_eval is not None, "train_dataset_for_eval must be set"
         rand_number, = struct.unpack("L", hashlib.sha1(str(self.step).encode("utf8")).digest()[:8])
 
-        idx = rand_number % len(self._train_dataset_for_eval["file_paths"])
+        idx = rand_number % len(self._train_dataset_for_eval["image_paths"])
         dataset_slice = dataset_index_select(self._train_dataset_for_eval, slice(idx, idx + 1))
 
         eval_few(self.method, logger, dataset_slice, split="train", step=self.step, evaluation_protocol=self._evaluation_protocol)
@@ -478,7 +478,7 @@ class Trainer:
             logging.warning("skipping eval_few on test dataset - no eval dataset")
             return
 
-        idx = rand_number % len(self.test_dataset["file_paths"])
+        idx = rand_number % len(self.test_dataset["image_paths"])
         dataset_slice = dataset_index_select(self.test_dataset, slice(idx, idx + 1))
         eval_few(self.method, logger, dataset_slice, split="test", step=self.step, evaluation_protocol=self._evaluation_protocol)
 

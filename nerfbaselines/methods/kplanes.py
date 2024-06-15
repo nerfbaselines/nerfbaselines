@@ -89,11 +89,11 @@ def _patch_kplanes_phototourism_dataset(dataset, camera_bounds_index):
                 kwargs["split"] = "render"
             ptinit_backup(self, tmpdir, *args, **kwargs)
         def pt_getidsforsplit(datadir, split):
-            return list(range(len(dataset["cameras"]))), dataset["file_paths"]
+            return list(range(len(dataset["cameras"]))), dataset["image_paths"]
         def pt_loadcamerametadata(datadir, idx):
             return poses[idx], kinvs[idx], bounds[idx], res[idx]
         def pt_readpng(impath):
-            imgid = dataset["file_paths"].index(impath)
+            imgid = dataset["image_paths"].index(impath)
             if dataset.get("images") is None:
                 w, h = dataset["cameras"].image_sizes[imgid]
                 img = np.zeros((h, w, 3), dtype=np.uint8)
@@ -162,7 +162,7 @@ def save_config(path, config):
 # using the following code:
 # dataset = load_colmap_dataset("external://phototourism/{scene}", split=None
 # bds = np.load("{path to downloaded bds")
-# files = sorted(dataset["file_paths"])
+# files = sorted(dataset["image_paths"])
 # with open("phototourism-{scene}-bounds.txt", "w") as f:
 #     f.write("image min_bound max_bound P00 P01 P02 P03 P10 P11 P12 P13 P20 P21 P22 P23\n")
 #     for i, bd in enumerate(bds):
@@ -231,7 +231,7 @@ class CameraBoundsIndex:
                     names.append(name)
                     bounds_data.append(np.array([float(l1), float(h1)], dtype=np.float32))
                 bounds_map = dict(zip(names, bounds_data))
-                bounds = [bounds_map[os.path.split(os.path.splitext(x)[0])[-1]] for x in dataset["file_paths"]]
+                bounds = [bounds_map[os.path.split(os.path.splitext(x)[0])[-1]] for x in dataset["image_paths"]]
                 if scene in ("trevi-fountain", "brandenburg-gate"):
                     offsets = np.array([0.01, 0.0])
                 elif scene == "sacre-coeur":

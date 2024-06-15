@@ -179,9 +179,9 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
         intrinsics = dataset["cameras"].intrinsics[idx]
         width, height = dataset["cameras"].image_sizes[idx]
         pose = dataset["cameras"].poses[idx]
-        image_path = dataset["file_paths"][idx] if dataset["file_paths"] is not None else f"{idx:06d}.png"
+        image_path = dataset["image_paths"][idx] if dataset["image_paths"] is not None else f"{idx:06d}.png"
         image_name = (
-            os.path.relpath(str(dataset["file_paths"][idx]), str(dataset["file_paths_root"])) if dataset["file_paths"] is not None and dataset["file_paths_root"] is not None else os.path.basename(image_path)
+            os.path.relpath(str(dataset["image_paths"][idx]), str(dataset["image_paths_root"])) if dataset["image_paths"] is not None and dataset["image_paths_root"] is not None else os.path.basename(image_path)
         )
 
         w, h = dataset["cameras"].image_sizes[idx]

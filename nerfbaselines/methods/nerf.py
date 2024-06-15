@@ -424,7 +424,7 @@ class NeRF(Method):
         _, poses, _ = load_dataset(self.args,
             dict(
                 cameras=cameras,
-                file_paths=[f"{i:06d}.png" for i in range(len(cameras))],
+                image_paths=[f"{i:06d}.png" for i in range(len(cameras))],
                 metadata=self.metadata["dataset_metadata"],
             ),
             transform_args=self.metadata["transform_args"]

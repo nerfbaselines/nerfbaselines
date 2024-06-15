@@ -386,7 +386,7 @@ class NeRFOnthego(Method):
         test_dataset = GoDataset(
             dict(
                 cameras=cameras,
-                file_paths=[f"{i:06d}.png" for i in range(len(poses))],
+                image_paths=[f"{i:06d}.png" for i in range(len(poses))],
                 images=np.zeros((len(sizes), mheight, mwidth), dtype=np.uint8),
             ),
             self.config,

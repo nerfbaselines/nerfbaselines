@@ -62,10 +62,10 @@ def load_phototourism_dataset(path: Union[Path, str], split: str, use_nerfw_spli
     dataset["metadata"]["viewer_transform"] = viewer_transform
     dataset["metadata"]["viewer_initial_pose"] = viewer_pose
 
-    dataset_len = len(dataset["file_paths"])
+    dataset_len = len(dataset["image_paths"])
     if split_list is not None:
         indices = np.array(
-            [i for i, x in enumerate(dataset["file_paths"]) if Path(x).name in split_list]
+            [i for i, x in enumerate(dataset["image_paths"]) if Path(x).name in split_list]
         )
         assert len(indices) > 0, f"No images found in {split} list"
         logging.info(f"Using {len(indices)}/{dataset_len} images from the NeRF-W {split} list")

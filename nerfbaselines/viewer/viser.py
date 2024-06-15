@@ -1745,12 +1745,12 @@ class ViserViewer:
 
     def add_dataset_views(self, dataset: Dataset, split: str):
         if split == "train":
-            self.state.image_names_train = tuple([os.path.relpath(x, dataset.get("file_paths_root") or "") for x in dataset.get("file_paths")])
+            self.state.image_names_train = tuple([os.path.relpath(x, dataset.get("image_paths_root") or "") for x in dataset.get("image_paths")])
 
         max_img_size = 64
         images = []
         paths = []
-        for i, (cam, path) in enumerate(zip(dataset["cameras"], dataset["file_paths"])):
+        for i, (cam, path) in enumerate(zip(dataset["cameras"], dataset["image_paths"])):
             assert cam.image_sizes is not None, "dataset.image_sizes must be set"
             image = None
             if dataset["images"] is not None:
@@ -1758,7 +1758,7 @@ class ViserViewer:
             if str(path).startswith("/undistorted/"):
                 path = str(path)[len("/undistorted/") :]
             else:
-                path = str(Path(path).relative_to(Path(dataset.get("file_paths_root") or "")))
+                path = str(Path(path).relative_to(Path(dataset.get("image_paths_root") or "")))
             paths.append(path)
             W, H = cam.image_sizes.tolist()
             downsample_factor = max(1, min(W//max_img_size, H//max_img_size))

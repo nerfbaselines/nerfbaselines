@@ -78,23 +78,15 @@ def get_orientation_transform(poses):
 @click.option("--verbose", "-v", is_flag=True)
 @click.option("--backend", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @click.option("--port", type=int, default=6006)
-@click.option("--viewer", type=click.Choice(["viser", "nerfstudio"]), default="viser")
 @handle_cli_error
 def main(checkpoint: str, data, verbose, backend, viewer="viser", port=6006):
     setup_logging(verbose)
 
     def run_viewer(method: Optional[Method] = None, nb_info=None):
         try:
-            if viewer == "viser":
-                from .viser import run_viser_viewer
+            from .viser import run_viser_viewer
 
-                run_viser_viewer(method, port=port, data=data, nb_info=nb_info)
-            elif viewer == "nerfstudio":
-                from .nerfstudio import run_nerfstudio_viewer
-
-                run_nerfstudio_viewer(method=method, port=port, data=data)
-            else:
-                raise ValueError(f"Unknown viewer {viewer}")
+            run_viser_viewer(method, port=port, data=data, nb_info=nb_info)
         finally:
             if hasattr(method, "close"):
                 typing.cast(Any, method).close()
