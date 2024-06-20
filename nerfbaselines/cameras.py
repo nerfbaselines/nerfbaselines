@@ -57,7 +57,7 @@ def _iterative_undistortion(distortion: _DistortionFunction, uv: TTensor, params
             ),
             -1,
         ).reshape((*dx.shape, 2))
-        step_x = xnp.linalg.solve(J, x + dx - uv)
+        step_x = np.linalg.solve(J, (x + dx - uv)[..., None]).squeeze(-1)
         x -= step_x
         local_mask = (step_x**2).sum(-1) >= max_step_norm
 
@@ -228,7 +228,7 @@ def get_image_pixels(image_sizes: TTensor) -> TTensor:
         w, h = image_sizes
         if xnp.__name__ == "torch" and not TYPE_CHECKING:
             options = {"device": image_sizes.device}
-        return xnp.stack(xnp.meshgrid(xnp.arange(w, **options), xnp.flip(xnp.arange(h, **options)), indexing="xy"), -1).reshape(-1, 2)
+        return xnp.stack(xnp.meshgrid(xnp.arange(w, **options), xnp.arange(h, **options), indexing="xy"), -1).reshape(-1, 2)
     return xnp.concatenate([get_image_pixels(s) for s in image_sizes])
 
 

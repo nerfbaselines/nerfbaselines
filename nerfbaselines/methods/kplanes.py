@@ -3,6 +3,8 @@ NOTE: there is slight difference from K-Planes official implementation.
 In the official implementation, the closest camera bounds are used for rendering test images.
 Here, we make it more stable by using the top 5 closest cameras.
 """
+import shutil
+import glob
 import tqdm
 import requests
 import io
@@ -36,6 +38,8 @@ try:
     from plenoxels.utils.create_rendering import render_to_path, decompose_space_time
     from plenoxels.utils.parse_args import parse_optfloat
     from plenoxels.datasets import phototourism_dataset as ptdataset
+    import plenoxels.datasets.synthetic_nerf_dataset as sndataset
+    from plenoxels.datasets.intrinsics import Intrinsics
 finally:
     resource.setrlimit = _backup
 del _backup
@@ -44,6 +48,7 @@ del _backup
 from nerfbaselines.types import Dataset, RenderOutput, OptimizeEmbeddingsOutput
 from nerfbaselines.types import Method, MethodInfo, ModelInfo, Cameras, camera_model_to_int
 from nerfbaselines.utils import remap_error, flatten_hparams, convert_image_dtype
+from nerfbaselines.io import get_torch_checkpoint_sha
 import tempfile
 
 
@@ -130,6 +135,54 @@ def _patch_kplanes_phototourism_dataset(dataset, camera_bounds_index):
             ptdataset.PhotoTourismDataset.get_num_train_images = pt_getnumtrainimages
 
 
+@contextmanager
+def _patch_kplanes_static_datasets(dataset, camera_bounds_index):
+    # Patch kplanes dataset
+    # TODO:!!!
+    with tempfile.TemporaryDirectory(suffix=dataset["metadata"].get("scene") if dataset is not None else None) as tmpdir:
+        init_backup = sndataset.SyntheticNerfDataset.__init__
+        load_360_images_backup = sndataset.load_360_images
+        load_360_frames_backup = sndataset.load_360_frames
+        load_360_intrinsics_backup = sndataset.load_360_intrinsics
+        def init(self, datadir, split, *args, **kwargs):
+            if dataset is None:
+                split = "render"
+            init_backup(self, tmpdir, split, *args, **kwargs)
+
+        def load_360_frames(datadir, split, max_frames):
+            return None, None
+
+        def load_360_images(frames, datadir, split, downsample):
+            if dataset is None:
+                return torch.zeros((1, 8, 8, 3,), dtype=torch.float32), torch.zeros((1, 3, 4), dtype=torch.float32)
+            dataset_downscale = dataset['metadata'].get('downsample_factor', 1.0)
+            if downsample != dataset_downscale:
+                warnings.warn(f"Downsample factor {downsample} does not match dataset downsample factor {dataset_downscale}")
+            imgs = torch.from_numpy(convert_image_dtype(np.stack(dataset["images"], 0), dtype=np.float32))
+            poses = np.stack(dataset["cameras"].poses[:, :3, :], 0)
+            # Convert from OpenCV to OpenGL coordinate system
+            poses[..., 0:3, 1:3] *= -1
+            return imgs, torch.from_numpy(poses)
+
+        def load_360_intrinsics(*args, **kwargs):
+            if dataset is None:
+                return Intrinsics(height=8, width=8, focal_x=8, focal_y=8, center_x=4, center_y=4)
+            height, width = dataset["images"][0].shape[:2]
+            fl_x, fl_y, cx, cy = dataset["cameras"].intrinsics.mean(0)
+            return Intrinsics(height=height, width=width, focal_x=fl_x, focal_y=fl_y, center_x=cx, center_y=cy)
+        try:
+            sndataset.SyntheticNerfDataset.__init__ = init
+            sndataset.load_360_images = load_360_images
+            sndataset.load_360_frames = load_360_frames
+            sndataset.load_360_intrinsics = load_360_intrinsics
+            yield None
+        finally:
+            sndataset.SyntheticNerfDataset.__init__ = init_backup
+            sndataset.load_360_images = load_360_images_backup
+            sndataset.load_360_frames = load_360_frames_backup
+            sndataset.load_360_intrinsics = load_360_intrinsics_backup
+
+
 def load_data(model_type: str, data_downsample, data_dirs, validate_only: bool, render_only: bool, dataset, camera_bounds_index, **kwargs):
     data_downsample = parse_optfloat(data_downsample, default_val=1.0)
 
@@ -144,9 +197,10 @@ def load_data(model_type: str, data_downsample, data_dirs, validate_only: bool, 
                 render_only=render_only, **kwargs
             )
     else:
-        return static_trainer.load_data(
-            data_downsample, data_dirs, validate_only=validate_only,
-            render_only=render_only, **kwargs)
+        with _patch_kplanes_static_datasets(dataset, camera_bounds_index):
+            return static_trainer.load_data(
+                data_downsample, data_dirs, validate_only=validate_only,
+                render_only=render_only, **kwargs)
 
 
 def save_config(path, config):
@@ -154,7 +208,7 @@ def save_config(path, config):
         out.write('config = ' + pprint.pformat(config))
 
     with open(os.path.join(path, 'config.csv'), 'w') as f:
-        for key in config.keys():
+        for key in sorted(config.keys()):
             f.write("%s\t%s\n" % (key, config[key]))
 
 
@@ -239,12 +293,17 @@ class CameraBoundsIndex:
                 else:
                     raise RuntimeError(f"Unknown scene {scene}")
                 return CameraBoundsIndex(dataset["cameras"].poses[:, :3, :], np.stack(bounds, 0), offsets)
+        elif dataset_name == "nerf-synthetic":
+            return CameraBoundsIndex(
+                np.zeros((1, 3, 4), dtype=np.float32), 
+                np.array([[2.0, 6.0]], dtype=np.float32), 
+                offsets=np.array([0.0, 0.0], dtype=np.float32))
         elif dataset_name == "phototourism":
             logging.warning(f"Could not load camera bounds for scene {scene}")
 
         # Estimate bounds from the dataset
         if dataset.get("images_points3D_indices") is None or dataset.get("points3D_xyz") is None:
-            raise RuntimeError("Dataset does not contain points3D_xyz and images_points3D_indices. Cannot estimate bounds.")
+            raise RuntimeError(f"Dataset (config {dataset_name}) does not contain points3D_xyz and images_points3D_indices. Cannot estimate bounds.")
 
         bounds = []
         poses = dataset["cameras"].poses
@@ -305,11 +364,14 @@ class KPlanes(Method):
         else:
             # Load config from checkpoint
             config_path = os.path.join(self.checkpoint, "config.py")
-        spec = importlib.util.spec_from_file_location(
-            os.path.basename(config_path), config_path)
-        logging.info(f"Loading config from {config_path}")
-        cfg = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(cfg)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpcpath = os.path.join(tmpdir, os.path.basename(config_path))
+            shutil.copy(config_path, tmpcpath)
+            spec = importlib.util.spec_from_file_location(
+                os.path.basename(config_path), tmpcpath)
+            logging.info(f"Loading config from {config_path}")
+            cfg = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(cfg)
         config = cfg.config
         config["logdir"] = "<empty>"
         config["expname"] = ""
@@ -318,6 +380,7 @@ class KPlanes(Method):
         self.config = config
 
         # Setup trainer
+        self.batch_iter = None
         self._setup(train_dataset)
 
     def _setup(self, train_dataset: Dataset):
@@ -348,21 +411,22 @@ class KPlanes(Method):
             logging.info("Building camera bounds from dataset")
             self.camera_bounds_index = CameraBoundsIndex.build(train_dataset, self.config)
         data = load_data(model_type, 
-                     validate_only=False, 
-                     render_only=False, 
-                     **self.config, 
-                     dataset=train_dataset, 
-                     camera_bounds_index=self.camera_bounds_index)
-        trainer = init_trainer(model_type, **self.config, **data)
+                         validate_only=False, 
+                         render_only=False, 
+                         **self.config, 
+                         dataset=train_dataset, 
+                         camera_bounds_index=self.camera_bounds_index)
+        kwargs = dict(**self.config, **data)
+        kwargs["logdir"] = tempfile.gettempdir()
+        trainer = init_trainer(model_type, **kwargs)
         self.trainer = trainer
         self._patch_model()
 
         if self.checkpoint is not None:
             checkpoint_path = os.path.join(self.checkpoint, "model.pth")
-            training_needed = train_dataset is not None
             trainer.load_model(
                 torch.load(checkpoint_path, map_location="cpu"), 
-                training_needed=training_needed)
+                training_needed=True)
         trainer.post_step = lambda *args, **kwargs: None
         self.data = data
 
@@ -385,13 +449,20 @@ class KPlanes(Method):
         load_state_dict.__patched__ = True
         self.load_state_dict = load_state_dict
 
+    @property
+    def value(self):
+        return self.val
+
+    def __str__(self):
+        return f"{self.val:.2e}"
+
     def train_iteration(self, step):
         if self.batch_iter is None:
             self.trainer.pre_epoch()
             self.batch_iter = iter(self.trainer.train_data_loader)
         self.trainer.timer.reset()
         self.trainer.model.step_before_iter(step)
-        self.trainer.global_step += 1
+        self.trainer.global_step = step
         self.trainer.timer.check("step-before-iter")
         try:
             data = next(self.batch_iter)
@@ -402,20 +473,33 @@ class KPlanes(Method):
             data = next(self.batch_iter)
             logging.info("Reset data-iterator")
 
+        metrics = {"loss": 0.0}
         try:
-            step_successful = self.trainer.train_step(data)
+            # Patch gscaler.scale(loss) to extract the loss value to report as a metric
+            try:
+                old_scale = self.trainer.gscaler.scale
+                def scale(loss):
+                    metrics["loss"] = float(loss)
+                    return old_scale(loss)
+                self.trainer.gscaler.scale = scale
+                self.trainer.init_epoch_info()
+                step_successful = self.trainer.train_step(data)
+                metrics.update({k: v.value for k, v in self.trainer.loss_info.items()})
+            finally:
+                self.trainer.gscaler.scale = old_scale
         except StopIteration:
             self.trainer.pre_epoch()
             self.batch_iter = iter(self.trainer.train_data_loader)
             logging.info("Reset data-iterator")
             step_successful = True
 
-        if step_successful and self.scheduler is not None:
+        if step_successful and self.trainer.scheduler is not None:
             self.trainer.scheduler.step()
         for r in self.trainer.regularizers:
-            r.step(self.global_step)
-        self.trainer.model.step_after_iter(self.global_step)
+            r.step(self.trainer.global_step)
+        self.trainer.model.step_after_iter(self.trainer.global_step)
         self.trainer.timer.check("after-step")
+        return metrics
 
     @cached_property
     def _loaded_step(self):
@@ -425,7 +509,7 @@ class KPlanes(Method):
                 raise RuntimeError(f"Model directory {self.checkpoint} does not exist")
 
             ckpt = torch.load(str(self.checkpoint) + f"/model.pth")
-            return int(ckpt["global_step"])
+            return int(ckpt["global_step"]) + 1
         return loaded_step
 
     @classmethod
@@ -438,11 +522,17 @@ class KPlanes(Method):
         )
 
     def get_info(self) -> ModelInfo:
+        hparams = flatten_hparams(self.config, separator=".")
+        hparams.pop("expname", None)
+        hparams.pop("logdir", None)
+        hparams.pop("device", None)
+        hparams.pop("valid_every", None)
+        hparams.pop("save_every", None)
         return ModelInfo(
             num_iterations=self.config["num_steps"],
             loaded_step=self._loaded_step,
             loaded_checkpoint=self.checkpoint,
-            hparams=flatten_hparams(self.config, separator="."),
+            hparams=hparams,
             **self.get_method_info(),
         )
 
@@ -463,12 +553,33 @@ class KPlanes(Method):
                 yield {
                     "rays_o": rays_o,
                     "rays_d": rays_d,
+                    "rays_o_left": rays_o,
+                    "rays_d_left": rays_d,
                     "near_fars": bounds[i].expand(rays_o.shape[0], 2),
                     "timestamps": torch.tensor([i], dtype=torch.long).expand(rays_o.shape[0], 1),
-                    "bg_color": torch.ones((1, 3), dtype=torch.long),
+                    "bg_color": torch.ones((1, 3), dtype=torch.float32),
+                }
+        elif type(self.data["ts_dset"]).__name__ == "SyntheticNerfDataset":
+            for i, pose in enumerate(cameras.poses):
+                frame_w, frame_h = cameras.image_sizes[i]
+                # Convert from OpenCV to OpenGL coordinate system
+                pose = pose.copy()
+                pose[..., 0:3, 1:3] *= -1
+                intrinsics = sndataset.Intrinsics(
+                    height=frame_h, width=frame_w, 
+                    focal_x=cameras.intrinsics[i, 0].item(), focal_y=cameras.intrinsics[i, 1].item(),
+                    center_x=cameras.intrinsics[i, 2].item(), center_y=cameras.intrinsics[i, 3].item())
+                rays_o, rays_d, _ = sndataset.create_360_rays(
+                    None, torch.from_numpy(pose[None]), merge_all=False, intrinsics=intrinsics)
+                yield {
+                    "rays_o": rays_o.view(-1, 3),
+                    "rays_d": rays_d.view(-1, 3),
+                    "timestamps": torch.tensor([i], dtype=torch.long).expand(rays_o.shape[0], 1),
+                    "bg_color": torch.ones((1, 3), dtype=torch.float32),
+                    "near_fars": torch.tensor([[2.0, 6.0]])
                 }
         else:
-            raise NotImplementedError("Only phototourism dataset is supported")
+            raise NotImplementedError("Only phototourism, nerfsynthetic datasets are supported")
 
     def render(self, cameras: Cameras, embeddings=None) -> Iterable[RenderOutput]:
         assert np.all(cameras.camera_types == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
@@ -507,10 +618,18 @@ class KPlanes(Method):
                 }
 
     def save(self, path: str):
+        os.makedirs(path, exist_ok=True)
         self.trainer.log_dir = path
         self.trainer.save_model()
         save_config(path, self.config)
         self.camera_bounds_index.save(path)
+
+        # Note, since the torch checkpoint does not have deterministic SHA, we compute the SHA here.
+        for fname in glob.glob(os.path.join(path, "**/*.pth"), recursive=True):
+            ckpt = torch.load(fname, map_location="cpu")
+            sha = get_torch_checkpoint_sha(ckpt)
+            with open(fname + ".sha", "w", encoding="utf8") as f:
+                f.write(sha)
 
     def optimize_embeddings(
         self, 

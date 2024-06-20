@@ -57,7 +57,7 @@ def docker_get_environment_hash(spec: DockerBackendSpec):
     return value.hexdigest()
 
 
-_DEFAULT_TORCH_INSTALL_COMMAND = "torch==2.2.0 torchvision==0.17.0 --index-url https://download.pytorch.org/whl/cu118"
+_DEFAULT_TORCH_INSTALL_COMMAND = "torch==2.2.0 torchvision==0.17.0 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu118"
 BASE_IMAGE = f"{DOCKER_REPOSITORY}:base-{docker_get_environment_hash({ 'default_cuda_archs': DEFAULT_CUDA_ARCHS })[:DOCKER_TAG_HASH_LENGTH]}"
 
 
@@ -129,7 +129,7 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
     else:
         # If not inside conda env, we install the dependencies
         python_path = spec.get("python_path") or "python"
-        script += f"RUN if ! {python_path} -c 'import torch'; then {python_path} -m pip install --no-cache-dir " + shlex_join(_DEFAULT_TORCH_INSTALL_COMMAND.split()) + "; fi && \\\n"
+        script += f"RUN if ! {python_path} -c 'import torch'; then {python_path} -m pip install --no-cache-dir " + _DEFAULT_TORCH_INSTALL_COMMAND + "; fi && \\\n"
         package_dependencies = get_package_dependencies()
         if package_dependencies:
             script += "    " + shlex_join([python_path, "-m", "pip", "--no-cache-dir", "install"] + package_dependencies)+ " && \\\n"
@@ -164,8 +164,16 @@ def docker_image_exists_remotely(name: str):
     # Test if docker is available first
     parts = name.split("/")
     if len(parts) == 3 and parts[0] == "ghcr.io":
-        hub, namespace, tag = parts
-        return requests.get(rf'https://{hub}/token\?scope\="repository:{namespace}/{tag}:pull"').status_code == 200
+        hub, namespace, image = parts
+        return requests.get(rf'https://{hub}/token\?scope\="repository:{namespace}/{image}:pull"').status_code == 200
+
+    elif len(parts) == 2:  # Docker Hub
+        namespace, image = parts
+        tag = "latest"
+        if ":" in image:
+            image, tag = image.split(":")
+        response = requests.get(f'https://hub.docker.com/v2/repositories/{namespace}/{image}/tags/{tag}')
+        return response.status_code == 200
 
     try:
         subprocess.check_call(["docker", "manifest", "inspect", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -233,7 +241,7 @@ def get_docker_methods_to_build():
     methods = registry.get_supported_methods()
     methods_to_install = {}
     for mname in methods:
-        m = registry.get(mname)
+        m = registry.get_method_spec(mname)
         spec = m.get("docker", m.get("conda"))
         if not spec:
             continue
@@ -282,6 +290,9 @@ def docker_run_image(spec: DockerBackendSpec,
             if use_gpu
             else ()
         ),
+        "--shm-size=1g",
+        "--ulimit", "memlock=-1",
+        "--ulimit", "stack=67108864",
         "--workdir",
         os.getcwd(),
         "-v",

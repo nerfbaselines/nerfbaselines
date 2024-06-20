@@ -572,6 +572,7 @@ def run_on_host():
 class ResourcesUtilizationInfo(TypedDict, total=False):
     memory: int
     gpu_memory: int
+    gpu_name: str
 
 
 @run_on_host()
@@ -607,11 +608,19 @@ def get_resources_utilization_info(pid: Optional[int] = None) -> ResourcesUtiliz
 
     try:
         gpu_memory = 0
-        out = subprocess.check_output("nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader,nounits".split(), text=True).splitlines()
+        gpus = {}
+        uuids = set()
+        out = subprocess.check_output("nvidia-smi --query-compute-apps=pid,used_memory,gpu_uuid,gpu_name --format=csv,noheader,nounits".split(), text=True).splitlines()
         for line in out:
-            cpid, used_memory = map(int, line.split(","))
+            cpid, used_memory, uuid, gpu_name = line.split(",", 3)
+            cpid = int(cpid)
+            used_memory = int(used_memory)
             if cpid in all_processes:
                 gpu_memory += used_memory
+                if uuid not in uuids:
+                    uuids.add(uuid)
+                    gpus[gpu_name] = gpus.get(gpu_name, 0) + 1
+        info["gpu_name"] = ",".join(f"{k}:{v}" if v > 1 else k for k, v in gpus.items())
         info["gpu_memory"] = gpu_memory
     except FileNotFoundError:
         pass

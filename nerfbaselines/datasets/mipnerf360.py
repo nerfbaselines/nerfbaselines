@@ -1,3 +1,4 @@
+import warnings
 from typing import List, Tuple, Union
 import logging
 from itertools import groupby
@@ -25,7 +26,7 @@ _scenes360_res = {
 }
 
 
-def load_mipnerf360_dataset(path: Union[Path, str], split: str, resize_full_image: bool = False, **kwargs):
+def load_mipnerf360_dataset(path: Union[Path, str], split: str, resize_full_image: bool = False, downscale_factor=None, **kwargs):
     path = Path(path)
     if split:
         assert split in {"train", "test"}
@@ -35,7 +36,12 @@ def load_mipnerf360_dataset(path: Union[Path, str], split: str, resize_full_imag
     # Load MipNerf360 dataset
     scene = single(res for res in _scenes360_res if str(res) in path.name)
     res = _scenes360_res[scene]
-    if resize_full_image:
+
+    if downscale_factor is not None and downscale_factor != res:
+        warnings.warn(f"downscale_factor {downscale_factor} was specified, overriding the default downscale_factor for the scene {res}.")
+        res = downscale_factor
+
+    if resize_full_image or res == 1:
         images_path = f"images"
     else:
         images_path = f"images_{res}"
@@ -56,7 +62,6 @@ def load_mipnerf360_dataset(path: Union[Path, str], split: str, resize_full_imag
     viewer_transform, viewer_pose = get_default_viewer_transform(dataset["cameras"].poses, "object-centric")
     dataset["metadata"]["viewer_transform"] = viewer_transform
     dataset["metadata"]["viewer_initial_pose"] = viewer_pose
-
 
     image_names = dataset["image_paths"]
     inds = np.argsort(image_names)

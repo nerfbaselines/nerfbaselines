@@ -9,6 +9,7 @@ import numpy as np
 import click
 from PIL import Image
 import tempfile
+from tqdm import trange
 from nerfbaselines import backends
 from nerfbaselines import registry
 from nerfbaselines.datasets import load_dataset, dataset_index_select
@@ -17,8 +18,9 @@ from nerfbaselines.utils import run_inside_eval_container
 from nerfbaselines.logging import TensorboardLogger
 from nerfbaselines.io import open_any_directory
 from nerfbaselines.training import Trainer, eval_few, eval_all
-from nerfbaselines.registry import resolve_evaluation_protocol
+from nerfbaselines.registry import build_evaluation_protocol
 from nerfbaselines.evaluation import evaluate
+from ._common import ChangesTracker
 
 
 @click.command("test-method")
@@ -28,7 +30,7 @@ from nerfbaselines.evaluation import evaluate
 @click.option("--backend", "backend_name", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @click.option("--set", "config_overrides", help="Override a parameter in the method.", type=SetParamOptionType(), multiple=True, default=None)
 @click.option("--fast", is_flag=True, help="Run only the fast tests")
-@click.option("--steps", type=int, default=113, help="Number of steps to run")
+@click.option("--steps", type=int, default=2013, help="Number of steps to run")
 @handle_cli_error
 def main(method_name: str, 
          dataset: str, *, 
@@ -40,11 +42,11 @@ def main(method_name: str,
     logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)
 
-    # For some methods we need to do more steps because there is more randomness
+    # For some methods we do less steps by default to make it faster
     parameter_source = click.get_current_context().get_parameter_source('steps')
     if parameter_source == click.core.ParameterSource.DEFAULT:
-        if method_name in ("nerfacto", "nerfacto:big", "nerfacto:huge"):
-            steps = 2048
+        if method_name in ("nerf", "mipnerf", "mipnerf360"):
+            steps = 113
 
     if config_overrides is not None and isinstance(config_overrides, (list, tuple)):
         config_overrides = dict(config_overrides)
@@ -63,7 +65,7 @@ def main(method_name: str,
         skips.append(message)
 
     # Get method spec
-    method_spec = registry.get(method_name)
+    method_spec = registry.get_method_spec(method_name)
 
     # Load train dataset
     logging.info("loading train dataset")
@@ -126,14 +128,14 @@ def main(method_name: str,
             del model_info
 
             # Test running the training
-            for i in range(steps):
+            for i in trange(steps, desc="Training"):
                 model.train_iteration(i)
             mark_success("Train iteration passes")
 
             with tempfile.TemporaryDirectory() as tmpdir_logger:
                 # Test eval_few
                 logger = TensorboardLogger(tmpdir_logger)
-                eval_protocol = resolve_evaluation_protocol(test_dataset["metadata"]["evaluation_protocol"])
+                eval_protocol = build_evaluation_protocol(test_dataset["metadata"]["evaluation_protocol"])
                 eval_few(model, logger, test_dataset, split="test", step=steps, evaluation_protocol=eval_protocol)
                 mark_success("Eval few passes")
 
@@ -143,7 +145,6 @@ def main(method_name: str,
                          step=steps, evaluation_protocol=eval_protocol,
                          split="test", nb_info=nb_info, output=tmpdir_logger)
                 mark_success("Eval all passes")
-
 
             render_out = None
             for render_out in model.render(test_dataset["cameras"][:1]):
@@ -156,7 +157,7 @@ def main(method_name: str,
 
             with tempfile.TemporaryDirectory() as tmpdir:
                 # Test running the evaluation
-                model.save(tmpdir)
+                model.save(os.path.join(tmpdir, "ckpt1"))
                 close_method = getattr(model, "close", None)
                 if close_method is not None:
                     close_method()
@@ -167,21 +168,29 @@ def main(method_name: str,
                 # Load from checkpoint
                 model2 = None
                 try:
-                    model2 = method_cls(
-                        checkpoint=tmpdir,
-                        train_dataset=train_dataset,
-                        config_overrides=config_overrides,
-                    )
+                    model2 = method_cls(checkpoint=os.path.join(tmpdir, "ckpt1"))
                     model2_info = model2.get_info()
                     print("Loaded model info: \n", pprint.pformat(model2_info))
-                    assert model2_info.get("loaded_step", None) == steps
-                    mark_success("Loading from checkpoint passes")
+                    assert model2_info.get("loaded_step", None) == steps, f"Loaded step is not correct {model2_info.get('loaded_step')} != {steps}"
+                    mark_success("Loading from checkpoint (without train dataset) passes")
+                    model2.save(os.path.join(tmpdir, "ckpt2"))
                     del model2_info
                 except Exception:
                     traceback.print_exc()
-                    mark_error("Loading from checkpoint fails")
+                    mark_error("Loading from checkpoint (without train dataset) fails")
 
-                if model2 is not None:
+                # Compare the checkpoints
+                if not os.path.exists(os.path.join(tmpdir, "ckpt2")):
+                    mark_skip("Resaving method test skiped (no checkpoint)")
+                else:
+                    tracker = ChangesTracker()
+                    if tracker.add_dir_changes((), os.path.join(tmpdir, "ckpt1"), os.path.join(tmpdir, "ckpt2")):
+                        tracker.print_changes()
+                        mark_error("Resaving method does not yield the same checkpoint")
+                    else:
+                        mark_success("Resaving method yields same checkpoint")
+
+                def test_render(model2, post):
                     render2_out = None
                     for render2_out in model2.render(test_dataset["cameras"][:1]):
                         pass
@@ -200,16 +209,40 @@ def main(method_name: str,
                             assert isinstance(v, np.ndarray)
                             assert isinstance(v2, np.ndarray)
                             np.testing.assert_allclose(v, v2, atol=1e-6)
-                        mark_success("Restored model matches original")
+                        mark_success(f"Restored model {post} matches original")
                     except AssertionError:
                         traceback.print_exc()
-                        mark_error("Restored model does not match original")
+                        mark_error(f"Restored model {post} does not match original")
                     del model2
-                    del render_out
                     del render2_out
 
+                if model2 is not None:
+                    test_render(model2, "(without train dataset)")
                 else:
-                    mark_skip("Skipping render comparison")
+                    mark_skip("Skipping render comparison (without train dataset)")
+
+
+                # Load from checkpoint (with train dataset)
+                model2 = None
+                try:
+                    model2 = method_cls(
+                        checkpoint=os.path.join(tmpdir, "ckpt1"),
+                        train_dataset=train_dataset,
+                        config_overrides=config_overrides,
+                    )
+                    model2_info = model2.get_info()
+                    print("Loaded model info: \n", pprint.pformat(model2_info))
+                    assert model2_info.get("loaded_step", None) == steps, f"Loaded step is not correct {model2_info.get('loaded_step')} != {steps}"
+                    mark_success("Loading from checkpoint (with train dataset) passes")
+                    del model2_info
+                except Exception:
+                    traceback.print_exc()
+                    mark_error("Loading from checkpoint fails")
+
+                if model2 is not None:
+                    test_render(model2, "(with train dataset)")
+                else:
+                    mark_skip("Skipping render comparison (with train dataset)")
 
             model = method_cls(
                 checkpoint=None,
@@ -230,7 +263,7 @@ def main(method_name: str,
                 config_overrides=config_overrides,
             )
             if fast:
-                trainer.num_iterations = 10
+                trainer.num_iterations = max(10, steps)
                 # Fix total for indices
                 for v in vars(trainer).values():
                     if isinstance(v, Indices):

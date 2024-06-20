@@ -1,4 +1,5 @@
 # pylint: disable=protected-access
+import glob
 import warnings
 import pprint
 import json
@@ -18,6 +19,7 @@ from nerfbaselines.types import Dataset, RenderOutput, new_cameras
 from nerfbaselines.types import Cameras, camera_model_from_int
 from nerfbaselines.utils import convert_image_dtype
 from nerfbaselines.utils import cast_value, remap_error
+from nerfbaselines.io import get_torch_checkpoint_sha, numpy_from_base64, numpy_to_base64
 
 import yaml
 import torch  # type: ignore
@@ -115,6 +117,7 @@ def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
         "steps_per_eval_batch",
         "steps_per_eval_all_images",
         "steps_per_save",
+        "prompt",
     ))
     _blacklist_prefixes = (
         "load_",
@@ -297,17 +300,22 @@ class NerfStudio(Method):
                  config_overrides: Optional[dict] = None):
         assert self._nerfstudio_name is not None, "nerfstudio_name must be set in the subclass"
         self.checkpoint = str(checkpoint) if checkpoint is not None else None
+        self.step = 0
+        self._loaded_step = None
         if checkpoint is not None:
             # Load nerfstudio checkpoint
             with open(os.path.join(checkpoint, "config.yml"), "r", encoding="utf8") as f:
                 config = yaml.load(f, Loader=yaml.Loader)
+            model_path = os.path.join(self.checkpoint, config.relative_model_dir)
+            if not os.path.exists(model_path):
+                raise RuntimeError(f"Model directory {model_path} does not exist")
+            self._loaded_step = self.step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(model_path))[-1]
         elif self._nerfstudio_name is not None:
             config = copy.deepcopy(all_methods[self._nerfstudio_name])
         else:
             raise ValueError("Either checkpoint or name must be provided")
         self._trainer = None
         self._dm = None
-        self.step = 0
         self._tmpdir = tempfile.TemporaryDirectory()
         self._mode = None
         self.dataparser_params = None
@@ -379,8 +387,8 @@ class NerfStudio(Method):
         )
 
     def get_info(self) -> ModelInfo:
-        info = ModelInfo(
-            loaded_step=None,
+        return ModelInfo(
+            loaded_step=self._loaded_step,
             loaded_checkpoint=str(self.checkpoint) if self.checkpoint is not None else None,
             num_iterations=self.config.max_num_iterations,
             batch_size=int(self.config.pipeline.datamanager.train_num_rays_per_batch),
@@ -388,12 +396,6 @@ class NerfStudio(Method):
             hparams=flatten_hparams(self.config, separator="."),
             **self.get_method_info()
         )
-        if self.checkpoint is not None:
-            model_path = os.path.join(self.checkpoint, self.config.relative_model_dir)
-            if not os.path.exists(model_path):
-                raise RuntimeError(f"Model directory {model_path} does not exist")
-            info["loaded_step"] = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(model_path))[-1]
-        return info
 
     @torch.no_grad()
     def render(self, cameras: Cameras, embeddings=None) -> Iterable[RenderOutput]:
@@ -519,16 +521,19 @@ class NerfStudio(Method):
             if os.path.exists(os.path.join(self.checkpoint, "dataparser_transforms.json")):
                 with open(os.path.join(self.checkpoint, "dataparser_transforms.json"), "r", encoding="utf8") as f:
                     dataparser_params = json.load(f)
-                    dataparser_transforms = torch.tensor(dataparser_params["transform"], dtype=torch.float32)
+                    if "transform_base64" in dataparser_params:
+                        dataparser_transforms = torch.from_numpy(numpy_from_base64(dataparser_params["transform_base64"]))
+                    else:
+                        warnings.warn("Checkpoint does not store the transforms in binary form. The results may not be precise.")
+                        dataparser_transforms = torch.tensor(dataparser_params["transform"], dtype=torch.float32)
                     # Pad with [0 0 0 1]
                     dataparser_transforms = torch.cat([dataparser_transforms, torch.tensor([[0, 0, 0, 1]], dtype=torch.float32)], 0)[:4, :].contiguous()
                     dataparser_scale = dataparser_params["scale"]
             elif os.path.exists(os.path.join(self.checkpoint, "dataparser_params.pth")):
-                from nerfbaselines.registry import get
+                from nerfbaselines.registry import get_method_spec
                 # Older checkpoint version
                 # TODO: remove this after upgrading all checkpoints
                 warnings.warn("Older checkpoint version detected, please upgrade the checkpoint")
-                assert not config_overrides, "config_overrides is not supported for older checkpoints"
                 _dataparser_params = torch.load(os.path.join(self.checkpoint, "dataparser_params.pth"))
                 dataparser_transforms = _dataparser_params["dataparser_transform"]
                 dataparser_scale = _dataparser_params["dataparser_scale"]
@@ -540,12 +545,12 @@ class NerfStudio(Method):
                     self._original_config.pipeline.datamanager.dataparser = copy.deepcopy(all_dataparsers[dataparser])
                     # Fix config overrides for the old checkpoint
                     assert self.config.method_name == "nerfacto"
-                    config_overrides.update(get("nerfacto")["dataset_overrides"]["blender"])
+                    config_overrides.update(get_method_spec("nerfacto")["dataset_overrides"]["blender"])
                 elif (
                         self.config.pipeline.model.use_appearance_embedding and
                         self.config.pipeline.model.camera_optimizer.mode == "off"):
                     logging.warning("Older checkpoint: mip360 detected")
-                    config_overrides.update(get("nerfacto")["dataset_overrides"]["mipnerf360"])
+                    config_overrides.update(get_method_spec("nerfacto")["dataset_overrides"]["mipnerf360"])
             else:
                 raise ValueError("No dataparser_transforms.json file found in the checkpoint directory")
 
@@ -631,6 +636,7 @@ class NerfStudio(Method):
             path: Path to save.
         """
         assert isinstance(self._trainer, Trainer)
+        os.makedirs(path, exist_ok=True)
         bckp = self._trainer.checkpoint_dir
         self._trainer.checkpoint_dir = path
         config_yaml_path = Path(path) / "config.yml"
@@ -639,6 +645,21 @@ class NerfStudio(Method):
         self._trainer.save_checkpoint(self.step)
         self._trainer.checkpoint_dir = bckp
         self._trainer.pipeline.datamanager.train_dataparser_outputs.save_dataparser_transform(Path(path) / "dataparser_transforms.json")
+
+        # Extend dataparser transforms with reproducible transforms
+        with Path(path).joinpath("dataparser_transforms.json").open("r+", encoding="utf8") as f:
+            transforms = json.load(f)
+            transforms["transform_base64"] = numpy_to_base64(self._trainer.pipeline.datamanager.train_dataparser_outputs.dataparser_transform.numpy())
+            f.seek(0)
+            f.truncate()
+            json.dump(transforms, f, indent=2)
+
+        # Note, since the torch checkpoint does not have deterministic SHA, we compute the SHA here.
+        for fname in glob.glob(os.path.join(path, "**/*.ckpt"), recursive=True):
+            ckpt = torch.load(fname, map_location="cpu")
+            sha = get_torch_checkpoint_sha(ckpt)
+            with open(fname + ".sha", "w", encoding="utf8") as f:
+                f.write(sha)
 
     def close(self):
         self._tmpdir.cleanup()

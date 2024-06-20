@@ -68,6 +68,14 @@ def mock_mip_splatting(mock_torch):
 
         arguments.OptimizationParams = setup_opt_args
 
+        def setup_pipe_args(parser):
+            out = mock.MagicMock()
+            out.extract = lambda args: args
+            return out
+
+        arguments.PipelineParams = setup_pipe_args
+
+
         def raise_error():
             raise NotImplementedError()
 

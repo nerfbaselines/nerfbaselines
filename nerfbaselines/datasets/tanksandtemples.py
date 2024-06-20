@@ -64,7 +64,8 @@ def load_tanksandtemples_dataset(path: Union[Path, str], split: str, downscale_f
 
     # Load TT dataset
     images_path = "images" if downscale_factor == 1 else f"images_{downscale_factor}"
-    scene = any(x for x in SCENES if x in str(path))
+    scene = next((x for x in SCENES if x in str(path)), None)
+    assert scene is not None, f"Scene not found in path {path}"
 
     dataset = load_colmap_dataset(path, images_path=images_path, split=None, **kwargs)
     dataset["metadata"]["name"] = DATASET_NAME

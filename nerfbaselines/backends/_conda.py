@@ -11,7 +11,7 @@ from ..utils import get_package_dependencies, shlex_join
 from ._rpc import RemoteProcessRPCBackend, get_safe_environment
 
 
-_DEFAULT_TORCH_INSTALL_COMMAND = "pytorch==2.2.0 torchvision==0.17.0 pytorch-cuda=11.8 -c pytorch -c nvidia"
+_DEFAULT_TORCH_INSTALL_COMMAND = "torch==2.2.0 torchvision==0.17.0 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu118"
 
 
 class CondaBackendSpec(TypedDict, total=False):
@@ -79,7 +79,7 @@ conda install -y pip conda-build
 mkdir -p {shlex.quote(os.path.join(env_path, "src"))}
 cd {shlex.quote(os.path.join(env_path, "src"))}
 {spec.get('install_script') or ''}
-if ! python -c 'import torch'; then conda install -y {shlex_join(_DEFAULT_TORCH_INSTALL_COMMAND.split())}; fi
+if ! python -c 'import torch'; then pip install {_DEFAULT_TORCH_INSTALL_COMMAND}; fi
 if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
 {install_dependencies_script}
 if [ -e {shlex.quote(str(package_path))} ]; then

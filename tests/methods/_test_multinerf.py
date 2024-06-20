@@ -24,6 +24,7 @@ def _enable_gc(fn):
 class _MNDataset:
     def __init__(self, split, none, config):
         self.size: int = len(self.dataset)  # type: ignore
+        self._render_spherical = False
         self._n_examples = self.size
         self.split = split
         self._load_renderings(config)  # type: ignore

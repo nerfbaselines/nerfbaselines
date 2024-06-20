@@ -16,6 +16,7 @@ except ImportError:
     from typing_extensions import Optional
 
 from nerfbaselines.types import Dataset, OptimizeEmbeddingsOutput, RenderOutput, MethodInfo, ModelInfo
+from nerfbaselines.io import numpy_from_base64, numpy_to_base64
 from nerfbaselines.types import Cameras, CameraModel, get_args
 from nerfbaselines import Method
 from nerfbaselines import cameras as _cameras
@@ -90,7 +91,7 @@ def apply_transform(transform, poses):
 class TensoRFDataset:
     def __init__(self, dataset: Dataset, transform=None, is_stack=False, dataset_name=None):
         self.is_stack = is_stack
-        self.scene_bbox = torch.tensor([[-1.5, -1.5, -1.5], [1.5, 1.5, 1.5]])
+        self.scene_bbox = torch.tensor([[-1.5, -1.5, -1.5], [1.5, 1.5, 1.5]], dtype=torch.float32)
         self.white_bg = True
         self.near_far = [0.1, 100.0]
 
@@ -125,12 +126,12 @@ class TensoRFDataset:
             )
 
             self.near_far = [0.0, 1.0]
-            self.scene_bbox = torch.tensor([[-1.5, -1.67, -1.0], [1.5, 1.67, 1.0]])
+            self.scene_bbox = torch.tensor([[-1.5, -1.67, -1.0], [1.5, 1.67, 1.0]]).float()
             self.transform = transform
         else:
             camera_centers = poses[:, :3, 3]
             scene_bbox, far = compute_scene_bbox_and_far(camera_centers)
-            self.scene_bbox = torch.tensor(scene_bbox)
+            self.scene_bbox = torch.tensor(scene_bbox).float()
             self.near_far = [0.1, far]
 
         self.center = torch.mean(self.scene_bbox, axis=0).float().view(1, 1, 3)
@@ -202,14 +203,18 @@ class TensoRF(Method):
         self.args = None
         self.metadata = {}
         self._arg_list = ()
+        self.step = 0
         if checkpoint is not None:
             with open(os.path.join(checkpoint, "metadata.json"), "r") as f:
                 self.metadata = json.load(f)
-                self.metadata["dataset_transform"] = np.array(self.metadata["dataset_transform"], dtype=np.float32)
+                if "dataset_transform_base64" in self.metadata:
+                    self.metadata["dataset_transform"] = numpy_from_base64(self.metadata["dataset_transform_base64"])
+                else:
+                    self.metadata["dataset_transform"] = np.array(self.metadata["dataset_transform"], dtype=np.float32)
+                self.step = self.metadata.get("step", 0)
             self._arg_list = shlex.split(self.metadata["args"])
         self.nSamples = None
         self.tensorf = None
-        self.step = 0
 
         self._load_config()
         if train_dataset is not None and checkpoint is not None:
@@ -244,14 +249,14 @@ class TensoRF(Method):
         )
 
     def save(self, path: str):
-        if self.tensorf is None:
-            self._setup_eval()
+        os.makedirs(path, exist_ok=True)
         with open(str(path) + "/args.txt", "w") as f:
             f.write(shlex.join(self._arg_list))
         self.tensorf.save(str(Path(path) / "tensorf.th"))
         self.metadata["args"] = shlex.join(self._arg_list)
         self.metadata["step"] = self.step
         metadata = self.metadata.copy()
+        metadata["dataset_transform_base64"] = numpy_to_base64(metadata["dataset_transform"])
         metadata["dataset_transform"] = metadata["dataset_transform"].tolist()
         with (Path(path) / "metadata.json").open("w") as f:
             json.dump(metadata, f)
@@ -284,15 +289,15 @@ class TensoRF(Method):
             "name": train_dataset["metadata"].get("name"),
         }
         config_overrides = (config_overrides or {}).copy()
-        base_config = config_overrides.pop("base_config", "your_own_data")
+        base_config = config_overrides.pop("base_config", "your_own_data.txt")
 
         # Load dataset-specific config
-        config_name = f"{base_config}.txt"
+        config_name = f"{base_config}"
         dataset_name = train_dataset["metadata"].get("name")
         if dataset_name == "blender" and config_name != "lego.txt":
-            warnings.warn(f"Using wrong config for blender dataset, set 'base_config=lego' in config overrides.")
+            warnings.warn(f"Using wrong config for blender dataset, set 'base_config=lego.txt' in config overrides.")
         if dataset_name == "llff" and config_name != "flower.txt":
-            warnings.warn(f"Using wrong config for llff dataset, set 'base_config=flower' in config overrides.")
+            warnings.warn(f"Using wrong config for llff dataset, set 'base_config=flower.txt' in config overrides.")
         config_file = Path(opt.__file__).absolute().parent.joinpath("configs", config_name)
         logging.info(f"Loading config from {config_file}")
         with config_file.open("r", encoding="utf8") as f:

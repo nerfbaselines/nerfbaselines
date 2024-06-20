@@ -12,6 +12,7 @@ import functools
 import gc
 from nerfbaselines.types import Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput
 from nerfbaselines.types import Cameras, camera_model_to_int
+from nerfbaselines.io import numpy_to_base64, numpy_from_base64
 try:
     # We need to import torch before jax to load correct CUDA libraries
     import torch
@@ -340,9 +341,22 @@ class CamP_ZipNeRF(Method):
         self._dataparser_transform = None
         self._camera_type = None
         if checkpoint is not None:
-            with Path(checkpoint).joinpath("calibration.json").open("r") as fp:
-                meta = json.load(fp)
-            self._dataparser_transform = meta["meters_per_colmap"], np.array(meta["colmap_to_world_transform"]).astype(np.float32)
+            if os.path.exists(os.path.join(checkpoint, "calibration.json")):
+                # NOTE: old checkpoints have calibration.json, new ones have dataparser_transform.json
+                warnings.warn("calibration.json is deprecated, please re-save the checkpoint.")
+                with Path(checkpoint).joinpath("calibration.json").open("r") as fp:
+                    meta = json.load(fp)
+            elif os.path.exists(os.path.join(checkpoint, "dataparser_transform.json")):
+                with Path(checkpoint).joinpath("dataparser_transform.json").open("r") as fp:
+                    meta = json.load(fp)
+            else:
+                raise RuntimeError("dataparser_transform.json not found in metadata")
+            if "colmap_to_world_transform_base64" in meta:
+                colmap_to_world_transform = numpy_from_base64(meta["colmap_to_world_transform_base64"])
+            else:
+                warnings.warn("colmap_to_world_transform_base64 not found in metadata, falling back to colmap_to_world_transform. Please re-save the checkpoint.")
+                colmap_to_world_transform = np.array(meta["colmap_to_world_transform"]).astype(np.float32)
+            self._dataparser_transform = meta["meters_per_colmap"], colmap_to_world_transform
             self._camera_type = camera_utils.ProjectionType[meta["camera_type"]]
             self.step = self._loaded_step = int(next(iter((x for x in os.listdir(checkpoint) if x.startswith("checkpoint_")))).split("_")[1])
             self._config_str = (Path(checkpoint) / "config.gin").read_text()
@@ -532,13 +546,14 @@ class CamP_ZipNeRF(Method):
         checkpoints.save_checkpoint_multiprocess(path, jax.device_get(flax.jax_utils.unreplicate(self.state)), int(self.step), keep=self.config.checkpoint_keep)
 
         if jax.process_index() == 0:
-            with Path(path).joinpath("calibration.json").open("w+") as fp:
+            with Path(path).joinpath("dataparser_transform.json").open("w+") as fp:
                 meters_per_colmap, colmap_to_world_transform = self._dataparser_transform
                 fp.write(
                     json.dumps(
                         {
                             "meters_per_colmap": meters_per_colmap,
                             "colmap_to_world_transform": colmap_to_world_transform.tolist(),
+                            "colmap_to_world_transform_base64": numpy_to_base64(colmap_to_world_transform),
                             "camera_type": self._camera_type.name,
                         }
                     )
@@ -588,6 +603,7 @@ class CamP_ZipNeRF(Method):
                 rays=rays,
                 rng=self.rngs[0],
                 config=self.config,
+                verbose=False,
             )
 
             # TODO: handle rawnerf color space

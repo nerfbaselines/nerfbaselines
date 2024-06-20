@@ -33,7 +33,7 @@ from .types import (
     camera_model_to_int,
     new_cameras,
 )
-from .registry import resolve_evaluation_protocol
+from .registry import build_evaluation_protocol
 from .io import (
     open_any_directory, 
     deserialize_nb_info, 
@@ -114,7 +114,7 @@ def evaluate(predictions: str,
         nb_info = deserialize_nb_info(nb_info)
 
         if evaluation_protocol is None:
-            evaluation_protocol = resolve_evaluation_protocol(nb_info["evaluation_protocol"])
+            evaluation_protocol = build_evaluation_protocol(nb_info["evaluation_protocol"])
         logging.info(f"Using evaluation protocol {evaluation_protocol.get_name()}")
 
         # Run the evaluation
@@ -133,27 +133,32 @@ def evaluate(predictions: str,
             read_image(predictions_path / "gt-color" / name) for name in relpaths
         ]
         with suppress_type_checks():
+            from pprint import pprint
+            pprint(nb_info)
             dataset = new_dataset(
                 cameras=typing.cast(Cameras, None),
                 image_paths=relpaths,
                 image_paths_root=str(predictions_path / "color"),
-                metadata=typing.cast(Dict, nb_info.get("dataset_metadata", {})),
+                metadata=typing.cast(Dict, nb_info.get("render_dataset_metadata", nb_info.get("dataset_metadata", {}))),
                 images=gt_images)
 
-            def collect_metrics_lists(iterable: Iterable[Dict[str, T]]) -> Iterable[Dict[str, T]]:
-                for data in iterable:
-                    for k, v in data.items():
-                        if k not in metrics_lists:
-                            metrics_lists[k] = []
-                        metrics_lists[k].append(v)
-                    yield data
-
             # Evaluate the prediction
-            metrics = evaluation_protocol.accumulate_metrics(
-                collect_metrics_lists(
-                    tqdm(evaluation_protocol.evaluate(read_predictions(), dataset), desc=description, dynamic_ncols=True)
+            with tqdm(desc=description, dynamic_ncols=True, total=len(relpaths)) as progress:
+                def collect_metrics_lists(iterable: Iterable[Dict[str, T]]) -> Iterable[Dict[str, T]]:
+                    for data in iterable:
+                        for k, v in data.items():
+                            if k not in metrics_lists:
+                                metrics_lists[k] = []
+                            metrics_lists[k].append(v)
+                        progress.update(1)
+                        if "psnr" in metrics_lists:
+                            psnr_val = np.mean(metrics_lists["psnr"][-1])
+                            progress.set_postfix(psnr=f"{psnr_val:.4f}")
+                        yield data
+
+                metrics = evaluation_protocol.accumulate_metrics(
+                    collect_metrics_lists(evaluation_protocol.evaluate(read_predictions(), dataset))
                 )
-            )
 
         predictions_sha, ground_truth_sha = get_predictions_sha(str(predictions_path))
 
@@ -189,11 +194,12 @@ class DefaultEvaluationProtocol(EvaluationProtocol):
 
     def evaluate(self, predictions: Iterable[RenderOutput], dataset: Dataset) -> Iterable[Dict[str, Union[float, int]]]:
         background_color = dataset["metadata"].get("background_color")
+        color_space = dataset["metadata"]["color_space"]
         for i, prediction in enumerate(predictions):
             pred = prediction["color"]
             gt = dataset["images"][i]
-            pred = image_to_srgb(pred, np.uint8, color_space=dataset["metadata"]["color_space"], background_color=background_color)
-            gt = image_to_srgb(gt, np.uint8, color_space=dataset["metadata"]["color_space"], background_color=background_color)
+            pred = image_to_srgb(pred, np.uint8, color_space=color_space, background_color=background_color)
+            gt = image_to_srgb(gt, np.uint8, color_space=color_space, background_color=background_color)
             pred_f = convert_image_dtype(pred, np.float32)
             gt_f = convert_image_dtype(gt, np.float32)
             yield compute_metrics(pred_f[None], gt_f[None], run_lpips_vgg=self._lpips_vgg, reduce=True)
@@ -252,7 +258,7 @@ def render_all_images(
     evaluation_protocol: Optional[EvaluationProtocol] = None,
 ) -> Iterable[RenderOutput]:
     if evaluation_protocol is None:
-        evaluation_protocol = resolve_evaluation_protocol(dataset["metadata"]["evaluation_protocol"])
+        evaluation_protocol = build_evaluation_protocol(dataset["metadata"]["evaluation_protocol"])
     logging.info(f"Rendering images with evaluation protocol {evaluation_protocol.get_name()}")
     background_color =  dataset["metadata"].get("background_color", None)
     if background_color is not None:
@@ -273,12 +279,13 @@ def render_all_images(
     nb_info["checkpoint_sha256"] = get_method_sha(method)
     nb_info["evaluation_protocol"] = evaluation_protocol.get_name()
 
-    iterator = save_predictions(
-        output,
-        evaluation_protocol.render(method, dataset),
-        dataset=dataset,
-        nb_info=nb_info)
-    yield from tqdm(iterator, desc=description, total=len(dataset["image_paths"]), dynamic_ncols=True)
+    with tqdm(desc=description, total=len(dataset["image_paths"]), dynamic_ncols=True) as progress:
+        for val in save_predictions(output,
+                                    evaluation_protocol.render(method, dataset),
+                                    dataset=dataset,
+                                    nb_info=nb_info):
+            progress.update(1)
+            yield val
 
 
 def render_frames(

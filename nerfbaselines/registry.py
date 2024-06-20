@@ -226,8 +226,9 @@ def register(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"],
         spec["method"] = _make_entrypoint_absolute(spec["method"])
         spec.update(
             kwargs={**(spec.get("kwargs") or {}), **(kwargs or {})}, 
-            metadata={**(spec.get("metadata") or {}), **(metadata or {})},
-            dataset_overrides={**(spec.get("dataset_overrides") or {}), **(dataset_overrides or {})})
+            metadata={**(spec.get("metadata") or {}), **(metadata or {})})
+        if dataset_overrides is not None:
+            spec["dataset_overrides"] = dataset_overrides
         methods_registry[name] = spec
     elif "load_dataset_function" in spec and "priority" in spec:
         assert name not in datasets_registry, f"Dataset {name} already registered"
@@ -259,7 +260,7 @@ def register_logger(name: str, logger: Callable[..., Logger]) -> None:
     loggers_registry[name] = logger
 
 
-def get(name: str) -> MethodSpec:
+def get_method_spec(name: str) -> MethodSpec:
     """
     Get a method by name
     """
@@ -267,6 +268,18 @@ def get(name: str) -> MethodSpec:
     if name not in methods_registry:
         raise RuntimeError(f"Method {name} not registered.\nRegistered methods: {','.join(methods_registry.keys())}")
     return methods_registry[name]
+
+
+def get_dataset_overrides(method_name: str, dataset_metadata: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    spec = get_method_spec(method_name)
+    dataset_name = dataset_metadata.get("name")
+    scene = dataset_metadata.get("scene")
+    dataset_overrides = spec.get("dataset_overrides") or {}
+    if f"{dataset_name}/{scene}" in dataset_overrides:
+        return dataset_overrides[f"{dataset_name}/{scene}"]
+    if dataset_name is not None and dataset_name in dataset_overrides:
+        return dataset_overrides[dataset_name]
+    return None
 
 
 def get_supported_methods(backend_name: Optional[BackendName] = None) -> FrozenSet[str]:
@@ -350,9 +363,10 @@ def get_dataset_downloaders() -> Sequence[Tuple[str, DownloadDatasetFunction]]:
     return [(name, _import_type(assert_not_none(spec.get("download_dataset_function")))) for name, spec in datasets]
 
 
-def resolve_evaluation_protocol(name: str) -> 'EvaluationProtocol':
+def build_evaluation_protocol(name: str) -> 'EvaluationProtocol':
     _auto_register()
     spec = evaluation_protocols_registry.get(name)
     if spec is None:
         raise RuntimeError(f"Could not find evaluation protocol {name} in registry. Supported protocols: {','.join(evaluation_protocols_registry.keys())}")
     return cast('EvaluationProtocol', _import_type(spec["evaluation_protocol"])())
+

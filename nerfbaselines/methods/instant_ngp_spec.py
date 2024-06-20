@@ -59,7 +59,8 @@ cmake . \
 cmake --build build --config RelWithDebInfo -j
 
 # NOTE: torch is needed for nerfbaselines
-conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 -c pytorch -c nvidia
+conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 'numpy<2.0.0' -c pytorch -c nvidia
+pip install msgpack==1.0.8
 mkdir -p "$CONDA_PREFIX/etc/conda/activate.d"
 echo "export PYTHONPATH=\"$CONDA_PREFIX/src/instant-ngp/build:\$PYTHONPATH\"" >> "$CONDA_PREFIX/etc/conda/activate.d/env_vars.sh"
 echo "export LD_LIBRARY_PATH=\"$CONDA_PREFIX/src/instant-ngp/build:$CONDA_PREFIX/lib:\$LD_LIBRARY_PATH\"" >> "$CONDA_PREFIX/etc/conda/activate.d/env_vars.sh"
@@ -99,6 +100,7 @@ This method trains very fast (~6 min) and renders also fast ~3 FPS.""",
             "testbed.color_space": "SRGB",
             "testbed.nerf.cone_angle_constant": 0,
             "testbed.nerf.training.random_bg_color": False,
+            "testbed.background_color": "1.0,1.0,1.0,1.0",
             "aabb_scale": None,
             "keep_coords": True,
         },

@@ -26,6 +26,12 @@ pip install lpips==0.1.4 importlib_metadata typing_extensions
         "paper_authors": ["Sara Fridovich-Keil", "Giacomo Meanti", "Frederik Warburg", "Benjamin Recht", "Angjoo Kanazawa"],
         "paper_link": "https://arxiv.org/pdf/2301.10241",
         "link": "https://sarafridov.github.io/K-Planes/",
+    },
+    "dataset_overrides": {
+        "blender": { "base_config": "NeRF/nerf_hybrid.py", },
+        "phototourism/trevi-fountain": { "base_config": "Phototourism/trevi_hybrid.py", },
+        "phototourism/brandenburg-gate": { "base_config": "Phototourism/brandenburg_hybrid.py", },
+        "phototourism/sacre-coeur": { "base_config": "Phototourism/sacrecoeur_hybrid.py", },
     }
 }
 

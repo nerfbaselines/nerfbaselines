@@ -123,6 +123,9 @@ def wandb_init_run():
 
 @pytest.mark.parametrize("vis", ["none", "wandb", "tensorboard", "wandb+tensorboard"])
 def test_train_command(mock_extras, tmp_path, wandb_init_run, vis):
+    # if sys.version_info[:2] == (3, 7) and vis == "tensorboard":
+    #     # TODO: Investigate why this test fails in Python 3.7
+    #     pytest.skip("for some reason this test fails in Python 3.7 when run together with the other tests, but passes when run alone.")
     metrics._LPIPS_CACHE.clear()
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)

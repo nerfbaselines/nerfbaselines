@@ -74,7 +74,7 @@ def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np
 
         poses[:, :3, 3] -= lookat
         transform[:3, 3] -= lookat
-        return transform, poses[0]
+        return transform, poses[0][..., :3, :4]
 
     elif dataset_type == "forward-facing":
         raise NotImplementedError("Forward-facing dataset type is not supported")
@@ -98,7 +98,7 @@ def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np
         transform = np.diag([dataparser_scale, dataparser_scale, dataparser_scale, 1]) @ transform
 
         camera = apply_transform(transform, poses[0])
-        return transform, camera
+        return transform, camera[..., :3, :4]
     else:
         raise ValueError(f"Dataset type {dataset_type} is not supported")
 
@@ -190,6 +190,39 @@ def get_image_metadata(image: PIL.Image.Image):
     return np.array([values.get(c, np.nan) for c in METADATA_COLUMNS], dtype=np.float32)
 
 
+def _dataset_rescale_intrinsics(dataset: Dataset, image_sizes: np.ndarray):
+    cameras = dataset["cameras"]
+    if np.any(cameras.image_sizes != image_sizes):
+        logging.info("Image sizes do not match camera sizes. Resizing cameras to match image sizes.")
+
+        if np.any(cameras.image_sizes % image_sizes != 0):
+            warnings.warn("Downscaled image sizes are not a multiple of camera sizes.")
+
+        multx, multy = np.moveaxis(
+            image_sizes.astype(np.float64) / cameras.image_sizes.astype(np.float64), -1, 0)
+
+        if "downscale_factor" in dataset["metadata"]:
+            # Downscale factor is passed, we will use it for focal lengths
+            # Not for the center of the image, because there could have been rounding
+            # which would move the center from the center of the image
+            downscale_factor = dataset["metadata"]["downscale_factor"]
+            low = np.floor(cameras.image_sizes * np.stack([multx, multy], -1))
+            high = np.ceil(cameras.image_sizes * np.stack([multx, multy], -1))
+            if np.any(image_sizes < low) or np.any(image_sizes > high):
+                raise RuntimeError(f"Downscaled image sizes do not match the downscale_factor of {downscale_factor}.")
+
+        # NOTE: In previous versions of NerfBaselines, we scaled the parameters differently
+        # We used:
+        #   cx <- cx * multx,  cy <- cy * multy
+        #   fx <- fx * multx,  fy <- fy * multx
+        # This renders changes slightly the results on the MipNeRF 360 dataset
+
+        multipliers = np.stack([multx, multy, multx, multy], -1)
+        dataset["cameras"] = cameras.replace(
+            image_sizes=image_sizes, 
+            intrinsics=(cameras.intrinsics * multipliers).astype(cameras.intrinsics.dtype))
+
+
 def dataset_load_features(
     dataset: UnloadedDataset, features=None, supported_camera_models=None
 ) -> Dataset:
@@ -268,18 +301,9 @@ def dataset_load_features(
     dataset["images"] = images  # padded_stack(images)
 
     # Replace image sizes and metadata
-    cameras = dataset["cameras"]
     image_sizes = np.array(image_sizes, dtype=np.int32)
-    multipliers = image_sizes.astype(cameras.intrinsics.dtype) / cameras.image_sizes.astype(cameras.intrinsics.dtype)
-    multipliers = np.concatenate([multipliers, multipliers], -1)
-    dataset["cameras"] = cameras.replace(
-        image_sizes=image_sizes, 
-        intrinsics=cameras.intrinsics * multipliers, 
-        metadata=np.stack(all_metadata, 0))
 
-    print(dataset["cameras"].intrinsics[0])
-    print(dataset["cameras"].image_sizes[0])
-    print(dataset["cameras"].intrinsics.shape)
+    _dataset_rescale_intrinsics(cast(Dataset, dataset), image_sizes)
 
     if supported_camera_models is not None:
         if _dataset_undistort_unsupported(cast(Dataset, dataset), supported_camera_models):

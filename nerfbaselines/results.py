@@ -114,7 +114,7 @@ def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes
         if not any(results_path.joinpath(method_id, dataset).glob("*.json")):
             continue
 
-        method_spec = registry.get(method_id)
+        method_spec = registry.get_method_spec(method_id)
         method_data = method_spec.get("metadata", {}).copy()
         method_data["id"] = method_id
         method_data["scenes"] = {}

@@ -324,13 +324,14 @@ class GaussianSplatting(Method):
         )
 
     def get_info(self) -> ModelInfo:
+        hparams = flatten_hparams(dict(itertools.chain(vars(self.dataset).items(), vars(self.opt).items(), vars(self.pipe).items()))) 
+        for k in ("source_path", "resolution", "eval", "images", "model_path", "data_device"):
+            hparams.pop(k, None)
         return ModelInfo(
             num_iterations=self.opt.iterations,
             loaded_step=self._loaded_step,
             loaded_checkpoint=self.checkpoint,
-            hparams=(
-                flatten_hparams(dict(itertools.chain(vars(self.dataset).items(), vars(self.opt).items(), vars(self.pipe).items()))) 
-                if self.dataset is not None else {}),
+            hparams=hparams,
             **self.get_method_info(),
         )
 

@@ -1,3 +1,4 @@
+import numpy as np
 import sys
 import subprocess
 import itertools
@@ -76,7 +77,7 @@ def shell_command(method, backend, verbose):
     logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)
 
-    method_spec = registry.get(method)
+    method_spec = registry.get_method_spec(method)
     backend_impl = backends.get_backend(method_spec, backend)
     logging.info(f"Using method: {method}, backend: {backend_impl.name}")
     backend_impl.install()
@@ -134,6 +135,7 @@ def render_command(checkpoint: str, data: str, output: str, split: str, verbose:
                                    features=method_info.get("required_features", None), 
                                    supported_camera_models=method_info.get("supported_camera_models", None))
             dataset_colorspace = dataset["metadata"].get("color_space", "srgb")
+
             if dataset_colorspace != nb_info.get("color_space", "srgb"):
                 raise RuntimeError(f"Dataset color space {dataset_colorspace} != method color space {nb_info.get('color_space', 'srgb')}")
             for _ in render_all_images(method, dataset, output=output, nb_info=nb_info):
@@ -192,7 +194,7 @@ def render_trajectory_command(checkpoint: Union[str, Path], trajectory: str, out
 @click.option("--push", is_flag=True)
 def build_docker_image_command(method=None, push=False, skip_if_exists_remotely=False):
     from nerfbaselines.backends._docker import build_docker_image, get_docker_spec
-    spec = registry.get(method) if method is not None else None
+    spec = registry.get_method_spec(method) if method is not None else None
     if spec is not None:
         spec = get_docker_spec(spec)
         if spec is None:

@@ -25,7 +25,7 @@ from .evaluation import render_all_images, evaluate
 from .logging import ConcatLogger, Logger, log_metrics
 from .registry import loggers_registry
 from .io import new_nb_info
-from .registry import resolve_evaluation_protocol
+from .registry import build_evaluation_protocol
 from . import backends
 from . import __version__
 from . import registry
@@ -299,7 +299,7 @@ class Trainer:
                 raise RuntimeError(f"train dataset color space {dataset_background_color} != test dataset color space {test_dataset['metadata'].get('background_color')}")
 
         self._validate_output_artifact()
-        self._evaluation_protocol = resolve_evaluation_protocol(self._dataset_metadata["evaluation_protocol"])
+        self._evaluation_protocol = build_evaluation_protocol(self._dataset_metadata["evaluation_protocol"])
 
     def _validate_output_artifact(self):
         # Validate generate output artifact
@@ -389,7 +389,10 @@ class Trainer:
             for k, v in new_util.items():
                 if k not in util:
                     util[k] = 0
-                util[k] = max(util[k], v)
+                if isinstance(v, str):
+                    util[k] = v
+                else:
+                    util[k] = max(util[k], v)
             self._resources_utilization_info = util
 
     @remap_error
@@ -490,7 +493,7 @@ class Trainer:
 @click.option("--output", type=str, default=".")
 @click.option("--logger", type=click.Choice(["none", "wandb", "tensorboard", "wandb+tensorboard"]), default="tensorboard", help="Logger to use. Defaults to tensorboard.")
 @click.option("--verbose", "-v", is_flag=True)
-@click.option("--save-iters", type=IndicesClickType(), default=Indices.every_iters(10_000), help="When to save the model")
+@click.option("--save-iters", type=IndicesClickType(), default=Indices([-1]), help="When to save the model")
 @click.option("--eval-few-iters", type=IndicesClickType(), default=Indices.every_iters(2_000), help="When to evaluate on few images")
 @click.option("--eval-all-iters", type=IndicesClickType(), default=Indices([-1]), help="When to evaluate all images")
 @click.option("--backend", "backend_name", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
@@ -512,6 +515,8 @@ def train_command(
     logger="none",
     config_overrides=None,
 ):
+    if config_overrides is None:
+        config_overrides = {}
     _loggers = set()
     for _vis in logger.split("+"):
         if _vis == "none":
@@ -550,8 +555,6 @@ def train_command(
             os.chdir(str(output_path))
 
             with registry.build_method(method_name, backend_name) as method_cls:
-                method_spec = registry.get(method_name)
-
                 # Load train dataset
                 logging.info("loading train dataset")
                 method_info = method_cls.get_method_info()
@@ -574,15 +577,14 @@ def train_command(
                 test_dataset["metadata"]["expected_scene_scale"] = train_dataset["metadata"].get("expected_scene_scale")
 
                 # Apply config overrides for the train dataset
-                dataset_name = train_dataset["metadata"].get("name")
-                if dataset_name is not None:
-                    _dataset_overrides = method_spec.get("dataset_overrides", {}).get(dataset_name, {})
-                    config_overrides = (config_overrides or {}).copy()
-                    for k, v in _dataset_overrides.items():
-                        if k not in config_overrides:
-                            config_overrides[k] = v
-                else:
-                    logging.warning("Dataset name not specified, dataset-specific config overrides will not be applied")
+                dataset_overrides = registry.get_dataset_overrides(method_name, train_dataset["metadata"])
+                if train_dataset["metadata"].get("name") is None:
+                    logging.warning("Dataset name not specified, dataset-specific config overrides may not be applied")
+                if dataset_overrides is not None:
+                    dataset_overrides = dataset_overrides.copy()
+                    dataset_overrides.update(config_overrides or {})
+                    config_overrides = dataset_overrides
+                del dataset_overrides
 
                 # Log the current set of config overrides
                 logging.info(f"Using config overrides: {pprint.pformat(config_overrides)}")

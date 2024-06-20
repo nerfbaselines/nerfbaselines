@@ -293,14 +293,19 @@ def load_colmap_dataset(path: Union[Path, str],
         if sampling_mask_paths is not None:
             sampling_mask_paths.append(str(sampling_masks_path / Path(image.name).with_suffix(".png")))
 
-        rotation = qvec2rotmat(image.qvec).astype(np.float64)
+        # rotation = qvec2rotmat(image.qvec).astype(np.float32)
+        # translation = image.tvec.reshape(3, 1).astype(np.float32)
+        # w2c = np.concatenate([rotation, translation], 1)
+        # w2c = np.concatenate([w2c, np.array([[0, 0, 0, 1]], dtype=w2c.dtype)], 0)
+        # c2w = np.linalg.inv(w2c)[:3, :4]
 
-        translation = image.tvec.reshape(3, 1).astype(np.float64)
-        w2c = np.concatenate([rotation, translation], 1)
-        w2c = np.concatenate([w2c, np.array([[0, 0, 0, 1]], dtype=w2c.dtype)], 0)
-        c2w = np.linalg.inv(w2c)
+        # w2c
+        R = qvec2rotmat(image.qvec.astype(np.float64))
+        t = image.tvec.reshape(3, 1).astype(np.float64)
+        # c2w
+        c2w = np.concatenate([R.T, -np.matmul(R.T, t)], axis=-1)
+        camera_poses.append(c2w)
 
-        camera_poses.append(c2w[0:3, :])
         i += 1
 
         if "images_points3D_indices" in features:
@@ -308,10 +313,11 @@ def load_colmap_dataset(path: Union[Path, str],
 
 
     # Estimate nears fars
-    near = 0.01
-    far = np.stack([x[:3, -1] for x in camera_poses], 0)
-    far = float(np.percentile(np.linalg.norm(far - np.mean(far, keepdims=True, axis=0), axis=-1), 90, axis=0))
-    nears_fars = np.array([[near, far]] * len(camera_poses), dtype=np.float32)
+    # near = 0.01
+    # far = np.stack([x[:3, -1] for x in camera_poses], 0)
+    # far = float(np.percentile(np.linalg.norm(far - np.mean(far, keepdims=True, axis=0), axis=-1), 90, axis=0))
+    # nears_fars = np.array([[near, far]] * len(camera_poses), dtype=np.float32)
+    nears_fars = None
 
     # Load points
     points3D_xyz = None
@@ -339,7 +345,7 @@ def load_colmap_dataset(path: Union[Path, str],
         camera_types=np.array(camera_types, dtype=np.int32),
         distortion_parameters=padded_stack(camera_distortion_params).astype(np.float32),
         image_sizes=np.stack(camera_sizes, 0).astype(np.int32),
-        nears_fars=nears_fars.astype(np.float32),
+        nears_fars=nears_fars,
     )
     indices = None
     train_indices = np.arange(len(image_paths))

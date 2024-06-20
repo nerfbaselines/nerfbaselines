@@ -3,6 +3,7 @@ import struct
 import base64
 import hashlib
 import json
+from datetime import datetime
 import numpy as np
 import time
 import tarfile
@@ -196,6 +197,12 @@ def open_any_directory(path: Union[str, Path], mode: OpenMode = "r") -> Iterator
                                 )
                             else:
                                 zip.extract(member, tmpdir)
+                                # Fix mtime
+                                extracted_path = os.path.join(tmpdir, member.filename)
+                                date_time = datetime(*member.date_time)
+                                mtime = time.mktime(date_time.timetuple())
+                                os.utime(extracted_path, (mtime, mtime))
+
                         yield os.path.join(tmpdir, rest)
                     elif mode == "w":
                         tmp_path = Path(tmpdir) / rest
@@ -234,6 +241,7 @@ def open_any_directory(path: Union[str, Path], mode: OpenMode = "r") -> Iterator
 
 def serialize_nb_info(info: dict) -> dict:
     info = info.copy()
+
     def fix_dm(dm):
         if dm is None:
             return None
@@ -241,11 +249,11 @@ def serialize_nb_info(info: dict) -> dict:
         if isinstance(dm.get("background_color"), np.ndarray):
             dm["background_color"] = dm["background_color"].tolist()
         if "viewer_initial_pose" in dm:
-            dm["viewer_initial_pose"] = np.round(dm["viewer_initial_pose"], 5).tolist()
+            dm["viewer_initial_pose"] = np.round(dm["viewer_initial_pose"][:3, :4].astype(np.float64), 6).tolist()
         if "viewer_transform" in dm:
-            dm["viewer_transform"] = np.round(dm["viewer_transform"], 5).tolist()
+            dm["viewer_transform"] = np.round(dm["viewer_transform"][:3, :4].astype(np.float64), 6).tolist()
         if dm.get("expected_scene_scale") is not None:
-            dm["expected_scene_scale"] = round(dm["expected_scene_scale"], 5)
+            dm["expected_scene_scale"] = round(dm["expected_scene_scale"], 6)
         return dm
 
     if "dataset_metadata" in info:
@@ -299,20 +307,22 @@ def new_nb_info(train_dataset_metadata,
     if evaluation_protocol is None:
         evaluation_protocol = "default"
         evaluation_protocol = dataset_metadata.get("evaluation_protocol", evaluation_protocol)
+    if not isinstance(evaluation_protocol, str):
+        evaluation_protocol = evaluation_protocol.get_name()
     return {
         "method": model_info["name"],
         "nb_version": __version__,
         "num_iterations": model_info["num_iterations"],
         "total_train_time": round(total_train_time, 5) if total_train_time is not None else None,
         "resources_utilization": resources_utilization_info,
-        # Date time in ISO format
-        "datetime": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        # Date time in ISO 8601 format
+        "datetime": datetime.utcnow().isoformat(timespec="seconds"),
         "config_overrides": config_overrides,
         "dataset_metadata": dataset_metadata,
-        "evaluation_protocol": evaluation_protocol.get_name(),
+        "evaluation_protocol": evaluation_protocol,
 
         # Store hparams
-        # "hparams": self.method.get_info().get("hparams"),
+        "hparams": method.get_info().get("hparams"),
     }
 
 
@@ -416,6 +426,17 @@ def _encode_values(values: List[float]) -> str:
     return base64.b64encode(b"".join(struct.pack("f", v) for v in values)).decode("ascii")
 
 
+def numpy_to_base64(array: np.ndarray) -> str:
+    with io.BytesIO() as f:
+        np.save(f, array)
+        return base64.b64encode(f.getvalue()).decode("ascii")
+
+
+def numpy_from_base64(data: str) -> np.ndarray:
+    with io.BytesIO(base64.b64decode(data)) as f:
+        return np.load(f)
+
+
 def get_metrics_hash(metrics_lists):
     metrics_sha = hashlib.sha256()
     for k in sorted(metrics_lists.keys()):
@@ -442,9 +463,13 @@ def get_checkpoint_sha(path: str) -> str:
         if f.name == "nb-info.json":
             continue
 
-        with open(f, "rb", buffering=0) as fio:
-            for n in iter(lambda: fio.readinto(mv), 0):
-                sha.update(mv[:n])
+        if os.path.exists(str(f) + ".sha"):
+            with open(str(f) + ".sha", "rb") as fio:
+                sha.update(fio.read().strip())
+        else:
+            with open(f, "rb", buffering=0) as fio:
+                for n in iter(lambda: fio.readinto(mv), 0):
+                    sha.update(mv[:n])
     return sha.hexdigest()
 
 
@@ -476,7 +501,7 @@ def serialize_evaluation_results(metrics: Dict,
         out["render_dataset_metadata"] = render_dataset_metadata
     out.update({
         "nb_info": nb_info,
-        "evaluate_datetime": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "evaluate_datetime": datetime.utcnow().isoformat(timespec="seconds"),
         "evaluate_version": __version__,
         "metrics": {k: round(v, precision) for k, v in metrics.items()},
         "metrics_raw": {k: _encode_values(metrics_lists[k]) for k in metrics_lists},
@@ -526,6 +551,9 @@ def save_predictions(output: str, predictions: Iterable[RenderOutput], dataset: 
                 save_image(f, gt_image)
             with open_fn(f"color/{relative_name.with_suffix('.png')}") as f:
                 save_image(f, pred_image)
+
+            with open_fn(f"cameras/{relative_name.with_suffix('.npz')}") as f:
+                save_cameras_npz(f, dataset["cameras"][i])
             # with open_fn(f"gt-color/{relative_name.with_suffix('.npy')}") as f:
             #     np.save(f, dataset["images"][i][:h, :w])
             # with open_fn(f"color/{relative_name.with_suffix('.npy')}") as f:
@@ -545,6 +573,8 @@ def save_predictions(output: str, predictions: Iterable[RenderOutput], dataset: 
             yield pred
 
     def write_metadata(open_fn):
+        from pprint import pprint
+        pprint(nb_info)
         with open_fn("info.json") as fp:
             background_color = dataset["metadata"].get("background_color", None)
             if isinstance(background_color, np.ndarray):
@@ -555,7 +585,7 @@ def save_predictions(output: str, predictions: Iterable[RenderOutput], dataset: 
                         {
                             **(nb_info or {}),
                             "render_version": __version__,
-                            "render_datetime": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                            "render_datetime": datetime.utcnow().isoformat(timespec="seconds"),
                             "render_dataset_metadata": dataset["metadata"],
                         }),
                     indent=2,
@@ -591,19 +621,6 @@ def save_predictions(output: str, predictions: Iterable[RenderOutput], dataset: 
         yield from _predict_all(open_fn_fs)
 
 
-def _zip_add_dir(zip: zipfile.ZipFile, dirpath: Path, arcname: Optional[str] = None):
-    for name in dirpath.glob("**/*"):
-        rel_name = name.relative_to(dirpath)
-        if arcname is not None:
-            rel_name = Path(arcname) / rel_name
-        if name.is_dir():
-            pass
-        elif name.is_file():
-            zip.write(str(name), str(rel_name))
-        else:
-            raise ValueError(f"unknown file type: {name}")
-
-
 def save_output_artifact(model_path: Union[str, Path], predictions_path: Union[str, Path], metrics_path: Union[str, Path], tensorboard_path: Union[str, Path], output_path: Union[str, Path], validate: bool = True):
     """Prepares artifacts for upload to the NeRF benchmark.
 
@@ -613,6 +630,20 @@ def save_output_artifact(model_path: Union[str, Path], predictions_path: Union[s
         metrics_path: Path to the metrics file.
         tensorboard_path: Path to the tensorboard events file.
     """
+    def _zip_add_dir(zip: zipfile.ZipFile, dirpath: Path, arcname: Optional[str] = None):
+        for name in dirpath.glob("**/*"):
+            rel_name = name.relative_to(dirpath)
+            if arcname is not None:
+                rel_name = Path(arcname) / rel_name
+            if str(rel_name).startswith("predictions/depth-rgb"):
+                continue
+            if name.is_dir():
+                pass
+            elif name.is_file():
+                zip.write(str(name), str(rel_name))
+            else:
+                raise ValueError(f"unknown file type: {name}")
+
     # Convert to Path objects (if strs)
     model_path = Path(model_path)
     predictions_path = Path(predictions_path)
@@ -679,3 +710,37 @@ def save_output_artifact(model_path: Union[str, Path], predictions_path: Union[s
                 sha.update(mv[:n])
         shutil.move(str(artifact_path), str(output_path))
         logging.info(f"artifact {output_path} generated, sha: " + sha.hexdigest())
+
+
+def save_cameras_npz(file, cameras):
+    numpy_arrays = {}
+    def extract_array(arr, name):
+        numpy_arrays[name] = arr
+        return arr
+    cameras.apply(extract_array)
+    np.savez(file, **numpy_arrays)
+
+
+def get_torch_checkpoint_sha(checkpoint_data):
+    sha = hashlib.sha256()
+    def update(d):
+        if type(d).__name__ == "Tensor":
+            sha.update(d.cpu().numpy().tobytes())
+        elif isinstance(d, dict):
+            items = sorted(d.items(), key=lambda x: x[0])
+            for k, v in items:
+                update(k)
+                update(v)
+        elif isinstance(d, (list, tuple)):
+            for v in d:
+                update(v)
+        elif isinstance(d, (int, float)):
+            sha.update(struct.pack("f", d))
+        elif isinstance(d, str):
+            sha.update(d.encode("utf8"))
+        elif d is None:
+            sha.update("(None)".encode("utf8"))
+        else:
+            raise ValueError(f"Unsupported type {type(d)}")
+    update(checkpoint_data)
+    return sha.hexdigest()

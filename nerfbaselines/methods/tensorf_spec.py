@@ -37,7 +37,7 @@ git checkout 9370a87c88bf41b309da694833c81845cc960d50
 conda install -y conda-build
 conda develop .
 
-conda install -y pytorch==2.2.0 torchvision==0.17.0 pytorch-cuda=11.8 -c pytorch -c nvidia
+conda install -y pytorch==2.2.0 torchvision==0.17.0 pytorch-cuda=11.8 'numpy<2.0.0' -c pytorch -c nvidia
 pip install tqdm scikit-image opencv-python configargparse lpips imageio-ffmpeg kornia tensorboard
 pip install plyfile six
 """,

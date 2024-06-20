@@ -25,17 +25,31 @@ MultiNeRFSpec: MethodSpec = {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9",
         "install_script": """# Clone the repo.
-git clone https://github.com/jkulhanek/multinerf.git
+git clone https://github.com/google-research/multinerf.git
 cd multinerf
-git checkout 0e6699cc01eb3f0e77e0f7c15057a3ee29ad74ba
+git checkout 5b4d4f64608ec8077222c52fdf814d40acc10bc1
 
 conda install -y pip conda-build
 conda develop "$PWD"
 
 # Install requirements.
 python -m pip install --upgrade pip
-python -m pip install --upgrade "jax[cuda11_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-python -m pip install -r requirements.txt
+python -m pip install --upgrade 'numpy<2.0.0' "jax[cuda11_pip]==0.4.23" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+python -m pip install \
+    'numpy<=2.0.0' \
+    flax==0.7.5 \
+    opencv-python==4.9.0.80 \
+    pillow==10.2.0 \
+    tensorboard==2.15.1 \
+    tensorflow==2.15.0.post1 \
+    gin-config==0.5.0 \
+    dm-pix==0.4.2 \
+    rawpy==0.19.0 \
+    mediapy==1.2.0 \
+    'scipy<1.13.0'
+# scipy 1.13.0 is not supported by the older jax
+# https://github.com/google/jax/discussions/18995
+# python -m pip install 'scipy<1.13.0'
 
 # Manually install rmbrualla's `pycolmap` (don't use pip's! It's different).
 git clone https://github.com/rmbrualla/pycolmap.git ./internal/pycolmap
@@ -53,6 +67,9 @@ conda develop "$PWD/internal/pycolmap/pycolmap"
         "paper_authors": ["Jonathan T. Barron", "Ben Mildenhall", "Dor Verbin", "Pratul P. Srinivasan", "Peter Hedman"],
         "paper_link": "https://arxiv.org/pdf/2111.12077.pdf",
         "link": "https://jonbarron.info/mipnerf360/",
+    },
+    "dataset_overrides": {
+        "blender": { "base_config": "blender_256.gin" },
     },
 }
 

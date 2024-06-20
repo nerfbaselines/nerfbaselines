@@ -1,3 +1,4 @@
+import tqdm
 import itertools
 import numpy as np
 import pprint
@@ -14,8 +15,12 @@ from nerfbaselines.utils import run_inside_eval_container
 from nerfbaselines.datasets import load_dataset
 from nerfbaselines.io import open_any_directory, deserialize_nb_info, serialize_nb_info
 from nerfbaselines.evaluation import evaluate
-from nerfbaselines.registry import resolve_evaluation_protocol
+from nerfbaselines.registry import build_evaluation_protocol
 from nerfbaselines.io import save_output_artifact
+from nerfbaselines import registry
+from nerfbaselines import backends
+from ._common import ChangesTracker
+from .fix_checkpoint import fix_checkpoint
 
 
 def build_changes_tracker():
@@ -96,20 +101,26 @@ def build_dir_tree(path):
 @click.option("--input", type=str, default=None, required=True)
 @click.option("--data", type=str, default=None, required=False)
 @click.option("--method", "method_name", type=str, default=None, required=False)
+@click.option("--rebuild-checkpoint", is_flag=True)
 @click.option("--rerun-evaluation", is_flag=True)
+@click.option("--rerun-render", is_flag=True)
 @click.option("--output", "new_artifact", type=str, required=False, help="Path to save the new output artifact")
 @click.option("--verbose", "-v", is_flag=True)
 @click.option("--force", is_flag=True)
 @click.option("--inplace", is_flag=True)
+@click.option("--backend", "backend_name", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @handle_cli_error
 def main(input: str,
          data=None,
          new_artifact=None,
          inplace: bool = False,
          method_name=None,
+         rebuild_checkpoint: bool = False,
          rerun_evaluation: bool = False,
+         rerun_render: bool = False,
          force: bool = False,
-         verbose: bool = False):
+         verbose: bool = False,
+         backend_name=None):
     setup_logging(verbose)
     if not inplace and new_artifact is None:
         raise RuntimeError("Please specify --new-artifact or --inplace to overwrite the input artifact")
@@ -119,9 +130,15 @@ def main(input: str,
         assert new_artifact is not None, "Please specify --new-artifact to save the new artifact"
         if os.path.exists(new_artifact):
             raise RuntimeError(f"New artifact path {new_artifact} already exists")
+    if rebuild_checkpoint:
+        if not rerun_render:
+            logging.error("Rebuilding checkpoint, but rerun-render is not set. This will result in incorrect evaluation results")
+    if rerun_render:
+        logging.info("Re-running rendering, forcing to re-run evaluation")
+        rerun_evaluation = True
 
     errors, skips, successes = [], [], []
-    _add_changes, _print_changes, _has_changes, _has_path = build_changes_tracker()
+    changes_tracker = ChangesTracker()
 
     def mark_success(message: str):
         logging.info(message)
@@ -171,11 +188,37 @@ def main(input: str,
         evaluation_protocol = info.get("evaluation_protocol", 
                                        dm.get("evaluation_protocol", "default"))
 
+        # Validate checkpoint if requested
+        checkpoint_path = os.path.join(inpath, "checkpoint")
+        tensorboard_path = os.path.join(inpath, "tensorboard")
+        train_dataset = None
+        if rebuild_checkpoint:
+            def load_data(features, supported_camera_models):
+                nonlocal train_dataset
+                train_dataset = load_dataset(data, split="train", load_features=True, features=features, supported_camera_models=supported_camera_models)
+                return train_dataset
+
+            fix_checkpoint(checkpoint_path, 
+                           os.path.join(outpath, "checkpoint"), 
+                           load_data, 
+                           method_name=method_name, 
+                           backend_name=backend_name, 
+                           force=force)
+            has_changes = changes_tracker.add_dir_changes(("checkpoint",), checkpoint_path, os.path.join(outpath, "checkpoint"))
+            checkpoint_path = os.path.join(outpath, "checkpoint")
+            if has_changes:
+                mark_error("Checkpoint changed after rebuilding")
+            else:
+                mark_success("Checkpoint rebuild resulted in the same checkpoint")
+        else:
+            mark_skip("Skipping checkpoint validation")
+
         # Verify that the dataset exists
         test_dataset = None
         if data.startswith("external://") or _data is not None:
             logging.info(f"Loading external dataset {data}")
-            train_dataset = load_dataset(data, split="train", load_features=False)
+            if train_dataset is None:
+                train_dataset = load_dataset(data, split="train", load_features=False)
             test_dataset = load_dataset(data, split="test", load_features=True)
             mark_success(f"Loaded external dataset {data}")
 
@@ -194,20 +237,24 @@ def main(input: str,
             mark_skip(f"Skipping dataset loading for {data}. Please provide --data argument to load the dataset")
             mark_skip("Skipping correct evaluation protocol validation")
 
-        # Validate checkpoint if requested
-        validate_checkpoint = False
-        checkpoint_path = os.path.join(inpath, "checkpoint")
-        tensorboard_path = os.path.join(inpath, "tensorboard")
-        if validate_checkpoint:
-            mark_success("Checkpoint validation passed")
-        else:
-            mark_skip("Skipping checkpoint validation")
-
         # Re-run render if requested
-        # TODO: implement this
-        rerun_render = False
         predictions_path = os.path.join(outpath, "predictions")
         if rerun_render:
+            if test_dataset is None:
+                raise RuntimeError("Cannot re-run rendering without test dataset. Please provide --data argument")
+            logging.info("Re-running rendering")
+            with open_any_directory(checkpoint_path, "r") as _checkpoint:
+                with open(os.path.join(_checkpoint, "nb-info.json"), "r") as f:
+                    nb_info = json.load(f)
+                    nb_info = deserialize_nb_info(nb_info)
+                with registry.build_method(nb_info["method"], backend=backend_name) as method_cls:
+                    method = method_cls(checkpoint=_checkpoint)
+                    from nerfbaselines.evaluation import render_all_images
+                    _eval_protocol = registry.build_evaluation_protocol(evaluation_protocol)
+                    _ = list(render_all_images(method, test_dataset, output=os.path.join(outpath, "predictions"), description="rendering all images", nb_info=nb_info, evaluation_protocol=_eval_protocol))
+                    del _
+                changes_tracker.add_dir_changes(("predictions",), os.path.join(inpath, "predictions"), os.path.join(outpath, "predictions"))
+                changes_tracker.clear_changes(("predictions", "depth-rgb"))
             mark_success("Rendered predictions matched the ones stored in the artifact")
         else:
             shutil.copytree(os.path.join(inpath, "predictions"), os.path.join(outpath, "predictions"))
@@ -232,13 +279,13 @@ def main(input: str,
                 pprint.pprint(new_info)
                 with open(os.path.join(outpath, "predictions", "info.json"), "w") as f:
                     json.dump(new_info, f, indent=2)
-                with open(os.path.join(outpath, "predictions", "info.json"), "r") as f:
-                    newtext = f.read()
-                if not _add_changes(["predictions", "info.json"], old_info, new_info):
-                    _add_changes(["predictions", "info.json"], oldtext, newtext)
+                    f.seek(0)
 
+                changes_tracker.add_dir_changes(("predictions",), os.path.join(inpath, "predictions"), os.path.join(outpath, "predictions"))
+                changes_tracker.clear_changes(("predictions", "depth-rgb"))
+            else:
                 # TODO: compare GT images 
-            mark_skip("Skipping rendering predictions. Please use --rerun-render to re-run rendering")
+                mark_skip("Skipping rendering predictions. Please use --rerun-render to re-run rendering")
 
         # Re-run evaluation if requested
         metrics_path = os.path.join(inpath, "results.json")
@@ -246,11 +293,11 @@ def main(input: str,
             metrics_path = os.path.join(outpath, "results.json")
             logging.info(f"Re-running evaluation using evaluation protocol: {evaluation_protocol}")
             with run_inside_eval_container():
-                evaluation_protocol_instance = resolve_evaluation_protocol(evaluation_protocol)
+                evaluation_protocol_instance = build_evaluation_protocol(evaluation_protocol)
                 evaluate(os.path.join(outpath, "predictions"), os.path.join(outpath, "results.json"), evaluation_protocol=evaluation_protocol_instance)
 
             # Now, we compare the predictions
-            if _add_changes(["results.json"], results_data, json.load(open(os.path.join(outpath, "results.json")))):
+            if changes_tracker.add_dict_changes(("results.json",), results_data, json.load(open(os.path.join(outpath, "results.json")))):
                 mark_error("New evaluated results did not match the ones stored in the artifact")
             else:
                 mark_success("New evaluated results matched the ones stored in the artifact")
@@ -267,15 +314,13 @@ def main(input: str,
             os.path.join(tmpdir, basename),
             validate=False)
 
-        # Track missing files
-        filetree1 = build_dir_tree(inpath)
-        with open_any_directory(os.path.join(tmpdir, basename), "r") as _outpath:
-            filetree2 = build_dir_tree(_outpath)
-        _add_changes([], filetree1, filetree2, only_diff=True)
+        with open_any_directory(os.path.join(tmpdir, basename), "r") as newpath:
+            # Track missing files
+            changes_tracker.add_dir_changes((), inpath, newpath)
 
         print()
         print("Changes:")
-        _print_changes()
+        changes_tracker.print_changes()
 
         shutil.copyfile(os.path.join(tmpdir, basename), new_artifact)
         logging.info(f"New artifact is stored at {new_artifact}")

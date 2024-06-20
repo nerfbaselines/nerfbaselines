@@ -17,12 +17,11 @@ paper_results = {
     "blender/ship": {"psnr": 28.65, "ssim": 0.856, "lpips_vgg": 0.206},
 }
 
-
 NeRFSpec: MethodSpec = {
     "method": ".nerf:NeRF",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
-        "python_version": "3.7",
+        "python_version": "3.8",
         "install_script": r"""# Clone the repo.
 git clone https://github.com/bmild/nerf
 cd nerf
@@ -33,36 +32,15 @@ sed '239a\
 ' -i "$CONDA_PREFIX/src/nerf/run_nerf.py"
 
 # Install requirements.
-# conda install -y pytorch==1.1.0 torchvision==0.3.0 -c pytorch
-conda install -y numpy \
-                 configargparse \
-                 imagemagick \
-                 cudatoolkit=10.0
-conda install -y -c anaconda tensorflow-gpu==1.15 
+conda install -y imagemagick conda-build
+pip install torch==2.3.0 torchvision==0.18.0 --index-url https://download.pytorch.org/whl/cu118
+# nvidia-pyindex modifies paths to install older TF with newer CUDA support
+# However, we do not want to corrupt user's environment, so we set the options manually
+# pip install -I nvidia-pyindex==1.0.9
+pip install nvidia-tensorflow==1.15.5+nv22.10 --extra-index-url https://pypi.ngc.nvidia.com --no-cache-dir --trusted-host pypi.ngc.nvidia.com
+pip install configargparse==1.7 'opencv-python-headless<=4.10.0.82' imageio==2.34.1
 
-# conda install -y cudatoolkit=11.8 tensorflow-gpu=2.12 \
-#     numpy pip configargparse imagemagick conda-build
-# 
-# conda install -y pytorch=2.3.0 torchvision=0.18.0 pytorch-cuda=11.8 -c pytorch -c nvidia
-# # conda install -y cudnn=8.8
-# pip install imageio
-
-# conda install -y \
-#     cudnn=8.0 pytorch==1.7.1 torchvision==0.8.2 cudatoolkit=11.0 tensorflow-gpu=2.8 conda-build \
-#     numpy pip configargparse imagemagick \
-#     -c pytorch
-# pip install pytorch==1.1.0+cu100 torchvision==0.3.0+cu100 -f https://download.pytorch.org/whl/cu100/torch_stable.html
-# pip install -y pytorch==1.1.0 torchvision==0.3.0
-pip install torch==1.2.0 torchvision==0.4.0
-
-# conda install -y pip conda-build
 conda develop "$PWD"
-
-python -m pip install --upgrade pip
-function nb-post-install () {
-    python -m pip uninstall -y pillow
-    python -m pip install imageio==2.9.0 "pillow<7"
-}
 """,
     },
     "metadata": {
@@ -73,6 +51,10 @@ function nb-post-install () {
         "paper_link": "https://arxiv.org/pdf/2003.08934.pdf",
         "link": "https://www.matthewtancik.com/nerf",
     },
+    "dataset_overrides": {
+        "blender": { "config": "blender_config.txt" },
+        "llff": { "config": "llff_config.txt" },
+    }
 }
 
 register(
