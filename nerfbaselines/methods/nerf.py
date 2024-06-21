@@ -283,9 +283,13 @@ class NeRF(Method):
         if self.checkpoint is not None:
             step = self.get_info().get("loaded_step")
             optimpath = os.path.join(self.checkpoint, f"optimizer_{step:06d}.npy")
-            self.optimizer.apply_gradients(zip([tf.zeros_like(x) for x in self.grad_vars], self.grad_vars))
-            self.models["optimizer"].set_weights(np.load(optimpath, allow_pickle=True))
-            logging.info(f"Loaded optimizer state from {optimpath}")
+            optimweights = np.load(optimpath, allow_pickle=True)
+            if len(optimweights) > 0:
+                self.optimizer.apply_gradients(zip([tf.zeros_like(x) for x in self.grad_vars], self.grad_vars))
+                self.models["optimizer"].set_weights(optimweights)
+                logging.info(f"Loaded optimizer state from {optimpath}")
+            else:
+                logging.warning(f"Could not load optimizer state from {optimpath}, length was 0")
 
         self.step = start - 1
         self.global_step = tf.compat.v1.train.get_or_create_global_step()

@@ -5,23 +5,26 @@ import inspect
 import os
 import importlib
 import contextlib
-from typing import Optional, Type, Any, Tuple, Dict, List, cast, Union, Sequence, TYPE_CHECKING, Callable
+from typing import Optional, Type, Any, Tuple, Dict, List, cast, Union, Sequence, TYPE_CHECKING, Callable, TypeVar
 
 if sys.version_info < (3, 10):
     from importlib_metadata import entry_points
 else:
     from importlib.metadata import entry_points
 from .types import Method, TypedDict, Required, FrozenSet, NotRequired, LoadDatasetFunction, DownloadDatasetFunction, EvaluationProtocol
-from .types import DatasetSpecMetadata
-from .logging import Logger
-from .utils import assert_not_none
-from . import logging as _nb_logging
+from .types import DatasetSpecMetadata, Logger
 
 if TYPE_CHECKING:
     from .backends import BackendName, CondaBackendSpec, DockerBackendSpec, ApptainerBackendSpec
 else:
     BackendName = str
     CondaBackendSpec = DockerBackendSpec = ApptainerBackendSpec = dict
+T = TypeVar("T")
+
+
+def assert_not_none(value: Optional[T]) -> T:
+    assert value is not None
+    return value
 
 
 class MethodSpec(TypedDict, total=False):
@@ -55,8 +58,8 @@ methods_registry: Dict[str, 'MethodSpec'] = {}
 datasets_registry: Dict[str, 'DatasetSpec'] = {}
 evaluation_protocols_registry: Dict[str, 'EvaluationProtocolSpec'] = {}
 loggers_registry: Dict[str, Callable[..., Logger]] = {}
-loggers_registry["wandb"] = _nb_logging.WandbLogger
-loggers_registry["tensorboard"] = lambda path, **kwargs: _nb_logging.TensorboardLogger(os.path.join(path, "tensorboard"), **kwargs)
+loggers_registry["wandb"] = lambda *args, **kwargs: _import_type("nerfbaselines.logging:WandbLogger")(*args, **kwargs)
+loggers_registry["tensorboard"] = lambda path, **kwargs: _import_type("nerfbaselines.logging:TensorboardLogger")(os.path.join(path, "tensorboard"), **kwargs)
 evaluation_protocols_registry["default"] = {"evaluation_protocol": "nerfbaselines.evaluation:DefaultEvaluationProtocol"}
 evaluation_protocols_registry["nerf"] = {"evaluation_protocol": "nerfbaselines.evaluation:NerfEvaluationProtocol"}
 

@@ -52,7 +52,8 @@ def test_method_conda(blender_dataset_path, method_name):
             assert Backend.current.name == "conda"
             assert method_cls.get_method_info()["name"] == method_name
             with tempfile.TemporaryDirectory() as tmpdir:
-                method = method_cls(train_dataset=dataset)
+                dataset_overrides = registry.get_dataset_overrides(method_name, dataset["metadata"])
+                method = method_cls(train_dataset=dataset, config_overrides=dataset_overrides)
                 assert isinstance(method, Method)  # type: ignore
                 method.save(tmpdir)
 
@@ -73,7 +74,8 @@ def test_method_docker(blender_dataset_path, method_name):
             assert Backend.current.name == "docker"
             assert method_cls.get_method_info()["name"] == method_name
             with tempfile.TemporaryDirectory() as tmpdir:
-                method = method_cls(train_dataset=dataset)
+                dataset_overrides = registry.get_dataset_overrides(method_name, dataset["metadata"])
+                method = method_cls(train_dataset=dataset, config_overrides=dataset_overrides)
                 assert isinstance(method, Method)  # type: ignore
                 method.save(tmpdir)
 
@@ -93,7 +95,8 @@ def test_method_apptainer(blender_dataset_path, method_name):
             assert Backend.current.name == "apptainer"
             assert method_cls.get_method_info()["name"] == method_name
             with tempfile.TemporaryDirectory() as tmpdir:
-                method = method_cls(train_dataset=dataset)
+                dataset_overrides = registry.get_dataset_overrides(method_name, dataset["metadata"])
+                method = method_cls(train_dataset=dataset, config_overrides=dataset_overrides)
                 assert isinstance(method, Method)  # type: ignore
                 method.save(tmpdir)
 

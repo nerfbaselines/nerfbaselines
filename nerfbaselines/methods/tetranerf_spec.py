@@ -38,6 +38,7 @@ TetraNeRFSpec: MethodSpec = {
         "image": "kulhanek/tetra-nerf:latest",
         "python_path": "python3",
         "home_path": "/home/user",
+        "should_build": False,
     },
     "kwargs": {
         "require_points3D": True,
@@ -63,7 +64,11 @@ register(
     },
     metadata={
         "paper_results": paper_results,
-    })
+    },
+    dataset_overrides={
+        "blender": { "pipeline.datamanager.dataparser": "blender-data", }
+    }
+)
 
 register(
     TetraNeRFSpec,
@@ -75,4 +80,8 @@ register(
     metadata={
         "name": "Tetra-NeRF (latest)",
         "description": """This variant of Tetra-NeRF uses biased sampling to speed-up training and rendering. It trains/renders almost twice as fast without sacrificing quality. WARNING: this variant is not the same as the one used in the Tetra-NeRF paper.""",
-    })
+    },
+    dataset_overrides={
+        "blender": { "pipeline.datamanager.dataparser": "blender-data", }
+    }
+)

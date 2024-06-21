@@ -18,7 +18,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -e '.'
-        pip install twine pytest build typeguard
+        pip install twine pytest build pyright 'typeguard<4.3.0'
     - name: Test if README results are up to date
       run: |
         python scripts/update_readme.py
@@ -79,6 +79,8 @@ jobs:
       apptainer_methods: ${{ steps.data-step.outputs.apptainer_methods }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 10 # Fetch the last 10 commits
       - uses: actions/setup-python@v4
         with:
           python-version: 3.9
@@ -86,20 +88,26 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -e .
-          pip install pytest typeguard
-      - name: Run tests
-        run: pytest -rA
       - id: data-step
+        name: Get required methods
         run: |
           pip install --upgrade pip
           pip install -e .
           python -c '
+          import sys
+          sys.path.append("scripts")
+          from has_method_changed import method_has_changes
           import nerfbaselines.registry as r;
-          blacklist=("trips",)
+          blacklist=("trips","nerfonthego","nerfw-reimpl")
           import json; 
-          print("docker_methods=" + json.dumps([x for x in r.get_supported_methods() if not ":" in x and x not in blacklist]))
-          print("conda_methods=" + json.dumps([x for x in r.get_supported_methods() if not ":" in x and x not in blacklist]))
-          print("apptainer_methods=" + json.dumps([x for x in r.get_supported_methods() if not ":" in x and x not in blacklist]))
+          for backend in ["docker", "conda", "apptainer"]:
+            methods = [x for x in r.get_supported_methods(backend) if not ":" in x and x not in blacklist]
+            # Tetra-NeRF currently uses too much disk space, so we skip it
+            if backend in ("apptainer", "conda"):
+              methods = [x for x in methods if not x.startswith("tetra-nerf")]
+            if "${{ github.event.action }}" in ("pull_request", "push"):
+              methods = [x for x in methods if method_has_changes(x, backend)]
+            print(f"{backend}_methods=" + json.dumps(methods))
           ' >> $GITHUB_OUTPUT
 
   docker-tests:
@@ -114,6 +122,9 @@ jobs:
     steps:
       - name: Free root space
         uses: almahmoud/free-root-space@main
+        with:
+          remove-gcc: false
+          remove-cplusplus: false
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
         with:
@@ -122,15 +133,19 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -e .
-          pip install pytest typeguard
+          pip install pytest pyright 'typeguard<4.3.0'
+      - name: Test install method
+        run: |
+          export TCNN_CUDA_ARCHITECTURES="80"
+          export TORCH_CUDA_ARCH_LIST="8.0"
+          export CUDAARCHS="80"
+          nerfbaselines install-method --method "${{ matrix.method }}" --backend docker
       - name: Run tests
         run: |
           export TCNN_CUDA_ARCHITECTURES="80"
           export TORCH_CUDA_ARCH_LIST="8.0"
           export CUDAARCHS="80"
           method_regex="^$(python -c 'import re;print(re.escape("${{ matrix.method }}"))')(?:\\:.*|)\$"
-          pytest -s --run-docker --method-regex "$method_regex" -rA -x
-          # Second run will use the cached env
           pytest -s --run-docker --method-regex "$method_regex" -rA -x
 
   apptainer-tests:
@@ -149,6 +164,9 @@ jobs:
           apptainer-version: 1.2.5
       - name: Free root space
         uses: almahmoud/free-root-space@main
+        with:
+          remove-gcc: false
+          remove-cplusplus: false
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
         with:
@@ -157,21 +175,20 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -e .
-          pip install pytest typeguard
+          pip install pytest pyright 'typeguard<4.3.0'
+      - name: Test install method
+        run: |
+          export TCNN_CUDA_ARCHITECTURES="80"
+          export TORCH_CUDA_ARCH_LIST="8.0"
+          export CUDAARCHS="80"
+          nerfbaselines install-method --method "${{ matrix.method }}" --backend apptainer
       - name: Run tests
         run: |
           export TCNN_CUDA_ARCHITECTURES="80"
           export TORCH_CUDA_ARCH_LIST="8.0"
           export CUDAARCHS="80"
           method_regex="^$(python -c 'import re;print(re.escape("${{ matrix.method }}"))')(?:\\:.*|)\$"
-          if [[ "${{matrix.method}}" = tetra-nerf* ]]; then
-            # Tetra-NeRF currently uses too much disk space, so we skip it
-            :
-          else
-            pytest -s --run-apptainer --method-regex "$method_regex" -rA -x
-            # Second run will use the cached env
-            pytest -s --run-apptainer --method-regex "$method_regex" -rA -x
-          fi
+          pytest -s --run-apptainer --method-regex "$method_regex" -rA -x
 
   conda-tests:
     runs-on: ubuntu-latest
@@ -184,33 +201,35 @@ jobs:
     steps:
       - name: Free root space
         uses: almahmoud/free-root-space@main
+        with:
+          remove-gcc: false
+          remove-cplusplus: false
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
         with:
           python-version: 3.9
-      - uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniforge-version: "latest"
-          auto-activate-base: false
       - name: Install nerfbaselines
         run: |
           pip install --upgrade pip
           pip install -e .
-          pip install pytest typeguard
+          pip install pytest pyright 'typeguard<4.3.0'
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: "latest"
+          auto-activate-base: false
+      - name: Test install method
+        run: |
+          export TCNN_CUDA_ARCHITECTURES="80"
+          export TORCH_CUDA_ARCH_LIST="8.0"
+          export CUDAARCHS="80"
+          nerfbaselines install-method --method "${{ matrix.method }}" --backend conda
       - name: Run tests
         run: |
           export TCNN_CUDA_ARCHITECTURES="80"
           export TORCH_CUDA_ARCH_LIST="8.0"
           export CUDAARCHS="80"
           method_regex="^$(python -c 'import re;print(re.escape("${{ matrix.method }}"))')(?:\\:.*|)\$"
-          if [[ "${{matrix.method}}" = tetra-nerf* ]]; then
-            # Tetra-NeRF currently uses too much disk space, so we skip it
-            :
-          else
-            pytest -s --run-conda --method-regex "$method_regex" -rA -x
-            # Second run will use the cached env
-            pytest -s --run-conda --method-regex "$method_regex" -rA -x
-          fi
+          pytest -s --run-conda --method-regex "$method_regex" -rA -x
 
   dataset-tests:
     runs-on: ubuntu-latest
@@ -228,7 +247,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -e .
-          pip install pytest typeguard
+          pip install pytest pyright 'typeguard<4.3.0'
       - name: Test datasets
         run: |
           scene_name="${{ matrix.dataset }}"

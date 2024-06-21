@@ -39,9 +39,11 @@ def get_apptainer_spec(spec: 'MethodSpec') -> Optional[ApptainerBackendSpec]:
 
     docker_spec = spec.get("docker")
     if docker_spec is not None and docker_spec.get("image") is not None and not docker_spec.get("should_build", True):
+        _spec = docker_spec.copy()
+        _spec.pop("should_build", None)
         return {
-            **docker_spec,
-            "image": f"docker://{docker_spec.get('image')}"
+            **_spec,
+            "image": f"docker://{docker_spec.get('image')}",
         }
 
     conda_spec = spec.get("conda")

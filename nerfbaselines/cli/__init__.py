@@ -188,6 +188,19 @@ def render_trajectory_command(checkpoint: Union[str, Path], trajectory: str, out
             logging.info(f"Output saved to {output}")
 
 
+@main.command("install-method", hidden=True)
+@click.option("--method", type=click.Choice(list(registry.get_supported_methods())), required=False)
+@click.option("--backend", "backend_name", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
+@click.option("--verbose", "-v", is_flag=True)
+@handle_cli_error
+def install_command(method, backend_name, verbose=False):
+    setup_logging(verbose)
+    method_spec = registry.get_method_spec(method)
+    backend_impl = backends.get_backend(method_spec, backend_name)
+    logging.info(f"Using method: {method}, backend: {backend_impl.name}")
+    backend_impl.install()
+
+
 @main.command("docker-build-image", hidden=True)
 @click.option("--method", type=click.Choice(list(registry.get_supported_methods())), required=False)
 @click.option("--skip-if-exists-remotely", is_flag=True)

@@ -106,6 +106,11 @@ def remap_error(fn):
             if "Found no NVIDIA driver on your system." in str(e):
                 raise NoGPUError from e
             raise
+        except EnvironmentError as e:
+            # tcnn import error
+            if "unknown compute capability. ensure pytorch with cuda support is installed." in str(e).lower():
+                raise NoGPUError from e
+            raise
         except ImportError as e:
             # pyngp import error
             if "libcuda.so.1: cannot open shared object file" in str(e):
@@ -862,3 +867,4 @@ def run_inside_eval_container(backend_name: Optional[str] = None):
     with backend:
         backend.install()
         yield None
+

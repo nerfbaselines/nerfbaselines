@@ -12,7 +12,7 @@ import typing
 from typing import Optional, Union, List, Dict, Sequence, Any, cast
 from typing import TYPE_CHECKING
 from .utils import convert_image_dtype
-from .types import runtime_checkable, Protocol
+from .types import Logger, LoggerEvent
 
 if TYPE_CHECKING:
     import wandb.sdk.wandb_run
@@ -42,52 +42,6 @@ def _flatten_simplify_hparams(hparams: Dict[str, Any], prefix: str = "") -> Dict
         else:
             flat[k] = v
     return flat
-
-@runtime_checkable
-class LoggerEvent(Protocol):
-    def add_scalar(self, tag: str, value: Union[float, int]) -> None:
-        ...
-
-    def add_text(self, tag: str, text: str) -> None:
-        ...
-
-    def add_image(self, tag: str, image: np.ndarray, display_name: Optional[str] = None, description: Optional[str] = None, **kwargs) -> None:
-        ...
-
-    def add_embedding(self, tag: str, embeddings: np.ndarray, *, 
-                      images: Optional[List[np.ndarray]] = None, 
-                      labels: Union[None, List[Dict[str, str]], List[str]] = None) -> None:
-        ...
-
-    def add_plot(self, tag: str, *data: np.ndarray,
-                 axes_labels: Optional[Sequence[str]] = None, 
-                 title: Optional[str] = None,
-                 **kwargs) -> None:
-        ...
-
-    def add_histogram(self, tag: str, values: np.ndarray, *, num_bins: Optional[int] = None) -> None:
-        ...
-
-
-@runtime_checkable
-class Logger(Protocol):
-    def add_event(self, step: int) -> typing.ContextManager[LoggerEvent]:
-        ...
-
-    def add_scalar(self, tag: str, value: Union[float, int], step: int) -> None:
-        ...
-
-    def add_text(self, tag: str, text: str, step: int) -> None:
-        ...
-
-    def add_image(self, tag: str, image: np.ndarray, step: int, *, display_name: Optional[str] = None, description: Optional[str] = None) -> None:
-        ...
-
-    def add_embedding(self, tag: str, embeddings: np.ndarray, step: int, *, 
-                      images: Optional[List[np.ndarray]] = None, 
-                      labels: Union[None, List[Dict[str, str]], List[str]] = None) -> None:
-        ...
-
 
 class BaseLoggerEvent(LoggerEvent):
     def add_scalar(self, tag: str, value: Union[float, int]) -> None:

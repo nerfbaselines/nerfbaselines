@@ -18,25 +18,26 @@ conda install -y conda-build
 conda develop .
 
 conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 pytorch-cuda=11.7 -c pytorch -c nvidia
-conda install -y cudatoolkit-dev=11.7 gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
+conda install -y cudatoolkit-dev=11.7 gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 libcxx=17.0.6 -c conda-forge
 conda install -c conda-forge -y nodejs==20.9.0
+conda install -y -c conda-forge conda-forge::gmp==6.3.0 conda-forge::cgal==5.6.1
 
 pip install -r requirements.txt
 pip install -U pip 'setuptools<70.0.0'
 pip install lpips==0.1.4
 
-(
-cd submodules/tetra-triangulation
-conda install -y cmake
-conda install -y conda-forge::gmp
-conda install -y conda-forge::cgal
-cmake .
-make
-pip install -e .
-) || exit 1
-
 pip install submodules/diff-gaussian-rasterization
 pip install submodules/simple-knn/
+
+# Add LD_LIBRARY_PATH to the environment
+mkdir -p $CONDA_PREFIX/etc/conda/activate.d
+echo "export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$CONDA_PREFIX/lib64:$LD_LIBRARY_PATH" >> $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
+export CUDA_HOME="$CONDA_PREFIX"
+export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:$CONDA_PREFIX/lib64:$LD_LIBRARY_PATH"
+export LIBRARY_PATH="$CONDA_PREFIX/lib:$CONDA_PREFIX/lib64:$LIBRARY_PATH"
+export CPLUS_INCLUDE_PATH=${CUDA_HOME}/include:${CPLUS_INCLUDE_PATH}
+cd submodules/tetra-triangulation
+cmake . && make && pip install -e . || exit 1
 """,
     },
     "metadata": {

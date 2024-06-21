@@ -4,7 +4,6 @@ import tempfile
 import requests
 import numpy as np
 from .nerfstudio import NerfStudio
-from nerfbaselines.datasets import Dataset
 
 
 def download_pointcloud(url):
@@ -28,27 +27,45 @@ def download_pointcloud(url):
 
 
 class TetraNeRF(NerfStudio):
-    def _apply_config_patch_for_dataset(self, config, dataset: Dataset):
-        # We do not allow config to be overriden by the dataset
-        pass
+    def _patch_config(self, config, *args, **kwargs):
+        cfg = config.pipeline.datamanager.dataparser
+        if hasattr(cfg, "alpha_color"):
+            cfg.alpha_color = "white"
+        return super()._patch_config(config, *args, **kwargs)
 
-    def _patch_dataparser_params(self):
-        self.dataparser_params["alpha_color"] = "white"
-        return super()._patch_dataparser_params()
+    def _patch_model(self, model_cls, *args, **kwargs):
+        model_cls = super()._patch_model(model_cls, *args, **kwargs)
 
-    def _setup_train(self, train_dataset: Dataset, **kwargs):
-        dataset = train_dataset
-        dataset_name = dataset["metadata"]["name"]
-        if dataset_name == "blender":
-            # We use the official PC for the Blender dataset
-            scene = dataset["metadata"]["scene"]
-            url = f"https://data.ciirc.cvut.cz/public/projects/2023TetraNeRF/assets/pointnerf-blender/{scene}.npz"
-            logging.info(f"Downloading official point cloud for {dataset_name}/{scene} from {url}")
-            dataset["points3D_xyz"], dataset["points3D_rgb"] = download_pointcloud(url)
-        elif dataset_name == "mipnerf360":
-            # We use the official PC for the MipNerf360 dataset
-            scene = dataset["metadata"]["scene"]
-            url = f"https://data.ciirc.cvut.cz/public/projects/2023TetraNeRF/assets/mipnerf360/{scene}.npz"
-            logging.info(f"Downloading official point cloud for {dataset_name}/{scene} from {url}")
-            dataset["points3D_xyz"], dataset["points3D_rgb"] = download_pointcloud(url)
-        return super()._setup_train(dataset, **kwargs)
+        class M(model_cls):
+            def __init__(self, config, *args, **kwargs):
+                # Patch loading (we can supply the point cloud and override buffer sizes ourselves)
+                config.num_tetrahedra_cells = config.num_tetrahedra_cells or 0
+                config.num_tetrahedra_vertices = config.num_tetrahedra_vertices or 0
+                super().__init__(config, *args, **kwargs)
+        return M
+
+    def _patch_datamanager(self, datamanager_cls, *, train_dataset, **kwargs):
+        datamanager_cls = super()._patch_datamanager(datamanager_cls, train_dataset=train_dataset, **kwargs)
+        class DM(datamanager_cls):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                from torch import nn
+                self.train_camera_optimizer = nn.Module()
+        return DM
+
+    def _setup(self, train_dataset=None, *args, **kwargs):
+        if train_dataset is not None:
+            dataset_name = train_dataset["metadata"]["name"]
+            if dataset_name == "blender":
+                # We use the official PC for the Blender dataset
+                scene = train_dataset["metadata"]["scene"]
+                url = f"https://data.ciirc.cvut.cz/public/projects/2023TetraNeRF/assets/pointnerf-blender/{scene}.npz"
+                logging.info(f"Downloading official point cloud for {dataset_name}/{scene} from {url}")
+                train_dataset["points3D_xyz"], train_dataset["points3D_rgb"] = download_pointcloud(url)
+            elif dataset_name == "mipnerf360":
+                # We use the official PC for the MipNerf360 dataset
+                scene = train_dataset["metadata"]["scene"]
+                url = f"https://data.ciirc.cvut.cz/public/projects/2023TetraNeRF/assets/mipnerf360/{scene}.npz"
+                logging.info(f"Downloading official point cloud for {dataset_name}/{scene} from {url}")
+                train_dataset["points3D_xyz"], train_dataset["points3D_rgb"] = download_pointcloud(url)
+        return super()._setup(train_dataset, *args, **kwargs)

@@ -64,34 +64,6 @@ pip install -e .
         "paper_results": nerfacto_paper_results,
         "link": "https://docs.nerf.studio/",
     },
-    "dataset_overrides": {
-        "blender": {
-            "pipeline.datamanager.dataparser": "blender-data",
-            "pipeline.model.near_plane": 2.0,
-            "pipeline.model.far_plane": 6.0,
-            "pipeline.model.use_appearance_embedding": False,
-            "pipeline.model.background_color": "white",
-            "pipeline.model.proposal_initial_sampler": "uniform",
-            "pipeline.model.distortion_loss_mult": 0.0,
-            "pipeline.model.disable_scene_contraction": True,
-            "pipeline.model.average_init_density": 1.0,
-            "pipeline.model.camera_optimizer.mode": "off",
-        },    
-        "mipnerf360": {
-            "pipeline.model.use_appearance_embedding": False,
-            "pipeline.model.camera_optimizer.mode": "off",
-            # Original paper results used average_init_density=1.0
-            # "pipeline.model.average_init_density": 1.0,
-        },
-        "tanksandtemples": {
-            "pipeline.model.use_appearance_embedding": False,
-            "pipeline.model.camera_optimizer.mode": "off",
-            # Original paper results used average_init_density=1.0
-            # "pipeline.model.average_init_density": 1.0,
-        },
-        # Original paper results used average_init_density=1.0
-        # "nerfstudio": { "pipeline.model.average_init_density": 1.0 },
-    },
 }
 
 # Register supported methods
@@ -140,6 +112,34 @@ register(
         "name": "NerfStudio (Nerfacto-big)",
         "description": """Larger setup of Nerfacto model family. It has larger hashgrid and MLPs. It is slower to train and render, but it provides better quality.""",
     },
+    dataset_overrides={
+        "blender": {
+            "pipeline.datamanager.dataparser": "blender-data",
+            "pipeline.model.near_plane": 2.0,
+            "pipeline.model.far_plane": 6.0,
+            "pipeline.model.use_appearance_embedding": False,
+            "pipeline.model.background_color": "white",
+            "pipeline.model.proposal_initial_sampler": "uniform",
+            "pipeline.model.distortion_loss_mult": 0.0,
+            "pipeline.model.disable_scene_contraction": True,
+            "pipeline.model.average_init_density": 1.0,
+            "pipeline.model.camera_optimizer.mode": "off",
+        },    
+        "mipnerf360": {
+            "pipeline.model.use_appearance_embedding": False,
+            "pipeline.model.camera_optimizer.mode": "off",
+            # Original paper results used average_init_density=1.0
+            # "pipeline.model.average_init_density": 1.0,
+        },
+        "tanksandtemples": {
+            "pipeline.model.use_appearance_embedding": False,
+            "pipeline.model.camera_optimizer.mode": "off",
+            # Original paper results used average_init_density=1.0
+            # "pipeline.model.average_init_density": 1.0,
+        },
+        # Original paper results used average_init_density=1.0
+        # "nerfstudio": { "pipeline.model.average_init_density": 1.0 },
+    }
 )
 register(
     NerfStudioSpec,
@@ -151,4 +151,32 @@ register(
         "name": "NerfStudio (Nerfacto-huge)",
         "description": """Largest setup of Nerfacto model family. It has larger hashgrid and MLPs. It is slower to train and render, but it provides better quality.""",
     },
+    dataset_overrides={
+        "blender": {
+            "pipeline.datamanager.dataparser": "blender-data",
+            "pipeline.model.near_plane": 2.0,
+            "pipeline.model.far_plane": 6.0,
+            "pipeline.model.use_appearance_embedding": False,
+            "pipeline.model.background_color": "white",
+            "pipeline.model.proposal_initial_sampler": "uniform",
+            "pipeline.model.distortion_loss_mult": 0.0,
+            "pipeline.model.disable_scene_contraction": True,
+            "pipeline.model.average_init_density": 1.0,
+            "pipeline.model.camera_optimizer.mode": "off",
+        },    
+        "mipnerf360": {
+            "pipeline.model.use_appearance_embedding": False,
+            "pipeline.model.camera_optimizer.mode": "off",
+            # Original paper results used average_init_density=1.0
+            # "pipeline.model.average_init_density": 1.0,
+        },
+        "tanksandtemples": {
+            "pipeline.model.use_appearance_embedding": False,
+            "pipeline.model.camera_optimizer.mode": "off",
+            # Original paper results used average_init_density=1.0
+            # "pipeline.model.average_init_density": 1.0,
+        },
+        # Original paper results used average_init_density=1.0
+        # "nerfstudio": { "pipeline.model.average_init_density": 1.0 },
+    }
 )

@@ -3,6 +3,7 @@ FROM ubuntu:22.04
 RUN apt-get update --fix-missing && \
     apt-get install -y wget \
                        bzip2 \
+                       build-essential \
                        ca-certificates \
                        curl \
                        libgtk2.0-dev \

@@ -448,59 +448,65 @@ class NerfStudio(Method):
             yield out
         self._trainer.pipeline.train()
 
-    def _patch_datamanager(self, config, dataset=None, dataparser_transforms=None, dataparser_scale=None, _images_holder=None):
-        config.pipeline.datamanager.dataparser._target = partial(_CustomDataParser, dataset, dataparser_transforms, dataparser_scale)
+    def _patch_dataparser(self, dataparser_cls, *, train_dataset, dataparser_transforms, dataparser_scale, config):
+        del dataparser_cls
+        del config
+        return partial(_CustomDataParser, train_dataset, dataparser_transforms, dataparser_scale)
 
-        dm = config.pipeline.datamanager
-        if dm.__class__.__name__ == "ParallelDataManagerConfig":
-            dm = VanillaDataManagerConfig(**{k.name: getattr(dm, k.name) for k in fields(VanillaDataManagerConfig)})
-            dm._target = VanillaDataManager  # pylint: disable=protected-access
-            config.pipeline.datamanager = dm
+    def _patch_dataset(self, dataset_cls, train_dataset, config):
+        del config
+        class DatasetL(dataset_cls):
+            def get_numpy_image(self, image_idx: int):
+                return train_dataset["images"][image_idx]
 
-        def get_dataset_class(dataset_type):
-            class DatasetL(dataset_type):
-                def get_numpy_image(self, image_idx: int):
-                    return _images_holder[0][image_idx]
+            def get_image(self, image_idx: int):
+                img = self.get_numpy_image(image_idx)
+                img = convert_image_dtype(img, np.float32)
+                image = torch.from_numpy(img)
+                if self._dataparser_outputs.alpha_color is not None and image.shape[-1] == 4:
+                    alpha_color = self._dataparser_outputs.alpha_color
+                    if isinstance(self._dataparser_outputs.alpha_color, str):
+                        alpha_color = COLORS_DICT[alpha_color]
+                    else:
+                        alpha_color = torch.from_numpy(np.array(alpha_color, dtype=np.float32))
+                    image = image[:, :, :3] * image[:, :, -1:] + alpha_color * (1.0 - image[:, :, -1:])
+                return image
+        return DatasetL
 
-                def get_image(self, image_idx: int):
-                    img = self.get_numpy_image(image_idx)
-                    img = convert_image_dtype(img, np.float32)
-                    image = torch.from_numpy(img)
-                    if self._dataparser_outputs.alpha_color is not None and image.shape[-1] == 4:
-                        if isinstance(self._dataparser_outputs.alpha_color, str):
-                            alpha_color = COLORS_DICT[self._dataparser_outputs.alpha_color]
-                        else:
-                            alpha_color = torch.from_numpy(np.array(alpha_color, dtype=np.float32))
-                        image = image[:, :, :3] * image[:, :, -1:] + alpha_color * (1.0 - image[:, :, -1:])
-                    return image
+    def _patch_datamanager(self, datamanager_cls, *, train_dataset=None, config):
+        this = self
 
-            return DatasetL
-
-        class DM(dm._target):  # pylint: disable=protected-access
+        class DM(datamanager_cls):  # pylint: disable=protected-access
             @property
             def dataset_type(self):
-                return get_dataset_class(getattr(self, "_idataset_type", InputDataset))
+                dataset_type = getattr(self, "_idataset_type", InputDataset)
+                return this._patch_dataset(dataset_type, train_dataset=train_dataset, config=config)
 
             @dataset_type.setter
             def dataset_type(self, value):
                 self._idataset_type = value
 
             def create_eval_dataset(self, *args, **kwargs):
+                del args, kwargs
                 return None
 
-        if dataset is None:
+        if train_dataset is None:
             # setup_train is not called for eval dataset
             def setup_train(self, *args, **kwargs):
+                del args, kwargs
                 if self.config.camera_optimizer is not None:
-                    self.train_camera_optimizer = self.config.camera_optimizer.setup(num_cameras=self.train_dataset["cameras"].size, device=self.device)
+                    self.train_camera_optimizer = self.config.camera_optimizer.setup(num_cameras=train_dataset["cameras"].size, device=self.device)
 
             DM.setup_train = setup_train
             # setup_eval is not called for eval dataset
-            DM.setup_eval = lambda *args, **kwargs: None
-        config.pipeline.datamanager._target = DM  # pylint: disable=protected-access
+            def _noop(*args, **kwargs):
+                del args, kwargs
+            DM.setup_eval = _noop
+        return DM
 
-    def _patch_model(self, config):
-        class M(config.pipeline.model._target):  # pylint: disable=protected-access
+    def _patch_model(self, model_cls, *, config):
+        del config
+        class M(model_cls):  # pylint: disable=protected-access
             def load_state_dict(self, state_dict, *args, **kwargs):
                 # Try fixing shapes
                 for name, buf in self.named_buffers():
@@ -510,12 +516,44 @@ class NerfStudio(Method):
                     if name in state_dict and state_dict[name].shape != par.shape:
                         par.data = state_dict[name].to(par.device)
                 super().load_state_dict(state_dict, *args, **kwargs)
+        return M
 
+    def _patch_config(self, config, *, train_dataset, dataparser_transforms, dataparser_scale):
+        # Fix for newer NS versions -> we replace the ParallelDataManager with VanillaDataManager
+        dm = config.pipeline.datamanager
+        if dm.__class__.__name__ == "ParallelDataManagerConfig":
+            dm = VanillaDataManagerConfig(**{k.name: getattr(dm, k.name) for k in fields(VanillaDataManagerConfig)})
+            dm._target = VanillaDataManager  # pylint: disable=protected-access
+            config.pipeline.datamanager = dm
+        del dm
+        # Patch data manager
+        datamanager_cls = config.pipeline.datamanager._target
+        datamanager_cls = self._patch_datamanager(datamanager_cls, train_dataset=train_dataset, config=config)
+        config.pipeline.datamanager._target = datamanager_cls
+        # Patch data parser
+        dataparser_cls = config.pipeline.datamanager.dataparser._target
+        dataparser_cls = self._patch_dataparser(dataparser_cls, 
+                                                config=config,
+                                                train_dataset=train_dataset, 
+                                                dataparser_transforms=dataparser_transforms, 
+                                                dataparser_scale=dataparser_scale)
+        config.pipeline.datamanager.dataparser._target  = dataparser_cls
+        # Patch model
+        model_cls = config.pipeline.model._target
+        model_cls = self._patch_model(model_cls, config=config)
+        config.pipeline.model._target = model_cls
         if hasattr(config.pipeline.model._target, "__name__"):  # Protection against mocks
-            M.__name__ = config.pipeline.model._target.__name__  # pylint: disable=protected-access
-        config.pipeline.model._target = M  # pylint: disable=protected-access
+            config.pipeline.model._target.__name__ = model_cls.__name__  # pylint: disable=protected-access
+        # Fix rest of the config
+        config.output_dir = Path(self._tmpdir.name)
+        config.set_timestamp()
+        config.vis = None
+        # self.config.machine.device_type = "cuda"
+        config.load_step = None
+        return config
 
     def _setup(self, train_dataset: Dataset, config_overrides):
+        train_dataset = None if train_dataset is None else train_dataset.copy()
         dataparser_transforms = dataparser_scale = None
         if self.checkpoint is not None or train_dataset is None:
             if os.path.exists(os.path.join(self.checkpoint, "dataparser_transforms.json")):
@@ -544,7 +582,7 @@ class NerfStudio(Method):
                     self.config.pipeline.datamanager.dataparser = copy.deepcopy(all_dataparsers[dataparser])
                     self._original_config.pipeline.datamanager.dataparser = copy.deepcopy(all_dataparsers[dataparser])
                     # Fix config overrides for the old checkpoint
-                    assert self.config.method_name == "nerfacto"
+                    # assert self.config.method_name == "nerfacto"
                     config_overrides.update(get_method_spec("nerfacto")["dataset_overrides"]["blender"])
                 elif (
                         self.config.pipeline.model.use_appearance_embedding and
@@ -554,25 +592,21 @@ class NerfStudio(Method):
             else:
                 raise ValueError("No dataparser_transforms.json file found in the checkpoint directory")
 
-        self.config = copy.deepcopy(self._original_config)
-        # We use this hack to release the memory after the data was copied to cached dataloader
-        images_holder = [(train_dataset or {}).get("images")]
-
-        self._patch_datamanager(self.config, train_dataset, dataparser_transforms, dataparser_scale, images_holder)
-        self._patch_model(self.config)
-        self.config.output_dir = Path(self._tmpdir.name)
-        self.config.set_timestamp()
-        self.config.vis = None
-        # self.config.machine.device_type = "cuda"
-        self.config.load_step = None
+        config = copy.deepcopy(self._original_config)
+        config = self._patch_config(config, 
+                                    train_dataset=train_dataset, 
+                                    dataparser_transforms=dataparser_transforms, 
+                                    dataparser_scale=dataparser_scale)
+        self.config = config
         trainer = self.config.setup()
         trainer.setup()
         if self.checkpoint is not None:
             self.config.load_dir = Path(os.path.join(self.checkpoint, self.config.relative_model_dir))
             trainer._load_checkpoint()
-        if getattr(self.config.pipeline.datamanager, "train_num_times_to_repeat_images", None) == -1:
-            logging.debug("NerfStudio will cache all images, we will release the memory now")
-            images_holder[0] = None
+        if train_dataset is not None:
+            if getattr(self.config.pipeline.datamanager, "train_num_times_to_repeat_images", None) == -1:
+                logging.debug("NerfStudio will cache all images, we will release the memory now")
+                train_dataset["images"] = None
         self._mode = "train"
         self._trainer = trainer
 

@@ -22,6 +22,7 @@ import numpy as np
 import torch
 import torch.utils.data
 from functools import cached_property
+from nerfbaselines.utils import NoGPUError
 
 
 # Patch resource.setrlimit
@@ -40,6 +41,11 @@ try:
     from plenoxels.datasets import phototourism_dataset as ptdataset
     import plenoxels.datasets.synthetic_nerf_dataset as sndataset
     from plenoxels.datasets.intrinsics import Intrinsics
+except EnvironmentError as e:
+    # tcnn import error
+    if "unknown compute capability. ensure pytorch with cuda support is installed." in str(e).lower():
+        raise NoGPUError from e
+    raise
 finally:
     resource.setrlimit = _backup
 del _backup
@@ -336,7 +342,6 @@ class CameraBoundsIndex:
 class KPlanes(Method):
     _method_name: str = "kplanes"
 
-    @remap_error
     def __init__(self, 
                  *,
                  checkpoint: Optional[str] = None,

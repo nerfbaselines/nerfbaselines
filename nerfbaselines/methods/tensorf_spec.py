@@ -58,8 +58,8 @@ pip install plyfile six
         "link": "https://apchenstu.github.io/TensoRF/",
     },
     "dataset_overrides": {
-        "blender": { "base_config": "lego" },
-        "llff": { "base_config": "flower" },
+        "blender": { "base_config": "lego.txt" },
+        "llff": { "base_config": "flower.txt" },
     },
 }
 
