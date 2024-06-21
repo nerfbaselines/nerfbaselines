@@ -1,3 +1,6 @@
 .vscode/
 nerfbaselines/
 __pycache__/
+*.swp
+*.egg-info
+build/
