@@ -1,3 +1,4 @@
+name: release
 on:
   workflow_dispatch:
   push:
@@ -18,7 +19,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -e '.'
-        pip install twine pytest build typeguard
+        pip install twine pytest build pyright 'typeguard<4.3.0'
     - name: Run tests
       run: |
         python -m pytest
@@ -27,18 +28,49 @@ jobs:
         for dataset in blender mipnerf360; do
           results=$(python -m nerfbaselines render-dataset-results --dataset $dataset --method-links results) python -c "import os;assert os.environ['results'] in open('README.md').read(), 'README.md is out of date. Please run \'python -m nerfbaselines render-dataset-results --dataset $dataset --method-links results\' and add the output to README.md file'"
         done
-  build-docker-images:
+
+  build-base-docker-image:
     needs: basic-tests
-    uses: ./.github/workflows/build-docker-images.yml
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+      attestations: write
+      id-token: write
+    steps:
+      - name: Free root space
+        uses: almahmoud/free-root-space@main
+        with:
+          remove-gcc: false
+          remove-cplusplus: false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.9
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install nerfbaselines
+        run: |
+          pip install --upgrade pip
+          pip install -e .
+          pip install pytest pyright 'typeguard<4.3.0'
+      - name: Build image
+        run: |
+          nerfbaselines build-docker-image --push --skip-if-exists-remotely --tag-latest
+
   run-tests:
     needs: 
       - basic-tests
-      - build-docker-images
+      - build-base-docker-image
     uses: ./.github/workflows/run-tests-slow.yml
   release:
     needs: 
       - run-tests
-      - build-docker-images
+      - build-base-docker-image
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
@@ -50,7 +82,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -e '.'
-        pip install twine pytest build typeguard
+        pip install twine pytest build pyright 'typeguard<4.3.0'
     - name: Run tests
       run: |
         python -m pytest

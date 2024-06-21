@@ -105,8 +105,12 @@ class ChangesTracker:
             if obj1.dtype != obj2.dtype:
                 self._add_changes(path, f"dtype: {obj1.dtype} != {obj2.dtype}", True)
                 return True
+            if obj1.dtype == object:
+                return self.add_dict_changes(path, 
+                                             {f"[{i}]": v for i, v in enumerate(obj1)},
+                                             {f"[{i}]": v for i, v in enumerate(obj2)})
             if not obj1.dtype == object:
-                change = np.array_equal(obj1, obj2)
+                change = not np.array_equal(obj1, obj2)
                 self._add_changes(path, v1, v1, change)
                 return change
         try:
@@ -214,14 +218,18 @@ class ChangesTracker:
         if isbinary:
             both_shas = True
             data1 = data2 = None
-            if os.path.exists(file1.name + ".sha"):
+            if os.path.exists(file1.name + ".sha256"):
+                sha1 = open(file1.name + ".sha256", "r").read().strip()
+            elif os.path.exists(file1.name + ".sha"):
                 sha1 = open(file1.name + ".sha", "r").read().strip()
             else:
                 data1 = file1.read()
                 file1.seek(0)
                 sha1 = hashlib.sha256(data1).hexdigest()
                 both_shas = False
-            if os.path.exists(file2.name + ".sha"):
+            if os.path.exists(file2.name + ".sha256"):
+                sha2 = open(file2.name + ".sha256", "r").read().strip()
+            elif os.path.exists(file2.name + ".sha"):
                 sha2 = open(file2.name + ".sha", "r").read().strip()
             else:
                 data2 = file2.read()

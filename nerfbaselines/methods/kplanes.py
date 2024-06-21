@@ -633,7 +633,7 @@ class KPlanes(Method):
         for fname in glob.glob(os.path.join(path, "**/*.pth"), recursive=True):
             ckpt = torch.load(fname, map_location="cpu")
             sha = get_torch_checkpoint_sha(ckpt)
-            with open(fname + ".sha", "w", encoding="utf8") as f:
+            with open(fname + ".sha256", "w", encoding="utf8") as f:
                 f.write(sha)
 
     def optimize_embeddings(

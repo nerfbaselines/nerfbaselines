@@ -27,22 +27,22 @@ SCENES = {
     "temple": True,
 
     # intermediate
-    "family": False,
-    "francis": False,
-    "horse": False,
+    "family": True,
+    "francis": True,
+    "horse": True,
     "lighthouse": True,
-    "m60": False,
-    "panther": False,
+    "m60": True,
+    "panther": True,
     "playground": True,
     "train": True,
 
     # training
     "barn": True,
     "caterpillar": True,
-    "church": False,
-    "courthouse": False,
-    "ignatius": False,
-    "meetingroom": False,
+    "church": True,
+    "courthouse": True,
+    "ignatius": True,
+    "meetingroom": True,
     "truck": True,
 }
 

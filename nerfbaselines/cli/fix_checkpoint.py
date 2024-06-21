@@ -17,7 +17,16 @@ from nerfbaselines.io import new_nb_info
 from ._common import ChangesTracker
 
 
+def _fix_sha_keys(obj):
+    for k in list(obj.keys()):
+        if k.endswith("_sha256"):
+            obj[:-3] = obj.pop(k)
+        elif isinstance(obj[k], dict):
+            _fix_sha_keys(obj[k])
+
+
 def update_nb_info(nb_info, new_nb_info):
+    _fix_sha_keys(nb_info)
     for k in list(nb_info.keys()):
         if k not in new_nb_info:
             nb_info.pop(k)
@@ -29,6 +38,8 @@ def update_nb_info(nb_info, new_nb_info):
     new_nb_info.pop("resources_utilization", None)
     if nb_info.get("resources_utilization") is not None and "gpu_name" not in nb_info["resources_utilization"]:
         nb_info["resources_utilization"]["gpu_name"] = "NVIDIA A100-SXM4-40GB"
+    if nb_info.get("resources_utilization") is not None and "gpu_name" in nb_info["resources_utilization"]:
+        nb_info["resources_utilization"]["gpu_name"] = ",".join(x.strip() for x in nb_info["resources_utilization"]["gpu_name"].split(","))
     new_nb_info.pop("datetime", None)
     nb_info.update(new_nb_info)
 

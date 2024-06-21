@@ -201,18 +201,41 @@ def install_command(method, backend_name, verbose=False):
     backend_impl.install()
 
 
-@main.command("docker-build-image", hidden=True)
-@click.option("--method", type=click.Choice(list(registry.get_supported_methods())), required=False)
+@main.command("build-docker-image", hidden=True)
+@click.option("--method", type=click.Choice(list(registry.get_supported_methods("docker"))), required=False)
+@click.option("--environment", type=str, required=False)
 @click.option("--skip-if-exists-remotely", is_flag=True)
+@click.option("--tag-latest", is_flag=True)
 @click.option("--push", is_flag=True)
-def build_docker_image_command(method=None, push=False, skip_if_exists_remotely=False):
+@click.option("--verbose", "-v", is_flag=True)
+def build_docker_image_command(method=None, environment=None, push=False, skip_if_exists_remotely=False, tag_latest=False, verbose=False):
     from nerfbaselines.backends._docker import build_docker_image, get_docker_spec
-    spec = registry.get_method_spec(method) if method is not None else None
-    if spec is not None:
+    setup_logging(verbose=verbose)
+
+    spec = None
+    if method is not None:
+        spec = registry.get_method_spec(method)
+        if spec is None:
+            raise RuntimeError(f"Method {method} not found")
         spec = get_docker_spec(spec)
         if spec is None:
             raise RuntimeError(f"Method {method} does not support building docker images")
-    build_docker_image(spec, skip_if_exists_remotely=skip_if_exists_remotely, push=push)
+        env_name = spec["environment_name"]
+        logging.info(f"Building docker image for environment {env_name} (from method {method})")
+    elif environment is not None:
+        for method in registry.get_supported_methods("docker"):
+            spec = registry.get_method_spec(method)
+            spec = get_docker_spec(spec)
+            if spec is None:
+                continue
+            if spec.get("environment_name") == environment:
+                break
+        if spec is None:
+            raise RuntimeError(f"Environment {environment} not found")
+        logging.info(f"Building docker image for environment {environment}")
+    else:
+        logging.info("Building base docker image")
+    build_docker_image(spec, skip_if_exists_remotely=skip_if_exists_remotely, push=push, tag_latest=tag_latest)
 
 
 main.add_lazy_command("nerfbaselines.viewer", "viewer")

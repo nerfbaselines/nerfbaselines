@@ -568,7 +568,6 @@ class NerfStudio(Method):
                     dataparser_transforms = torch.cat([dataparser_transforms, torch.tensor([[0, 0, 0, 1]], dtype=torch.float32)], 0)[:4, :].contiguous()
                     dataparser_scale = dataparser_params["scale"]
             elif os.path.exists(os.path.join(self.checkpoint, "dataparser_params.pth")):
-                from nerfbaselines.registry import get_method_spec
                 # Older checkpoint version
                 # TODO: remove this after upgrading all checkpoints
                 warnings.warn("Older checkpoint version detected, please upgrade the checkpoint")
@@ -581,14 +580,10 @@ class NerfStudio(Method):
                     dataparser = "blender-data"
                     self.config.pipeline.datamanager.dataparser = copy.deepcopy(all_dataparsers[dataparser])
                     self._original_config.pipeline.datamanager.dataparser = copy.deepcopy(all_dataparsers[dataparser])
-                    # Fix config overrides for the old checkpoint
-                    # assert self.config.method_name == "nerfacto"
-                    config_overrides.update(get_method_spec("nerfacto")["dataset_overrides"]["blender"])
                 elif (
                         self.config.pipeline.model.use_appearance_embedding and
                         self.config.pipeline.model.camera_optimizer.mode == "off"):
                     logging.warning("Older checkpoint: mip360 detected")
-                    config_overrides.update(get_method_spec("nerfacto")["dataset_overrides"]["mipnerf360"])
             else:
                 raise ValueError("No dataparser_transforms.json file found in the checkpoint directory")
 
@@ -692,7 +687,7 @@ class NerfStudio(Method):
         for fname in glob.glob(os.path.join(path, "**/*.ckpt"), recursive=True):
             ckpt = torch.load(fname, map_location="cpu")
             sha = get_torch_checkpoint_sha(ckpt)
-            with open(fname + ".sha", "w", encoding="utf8") as f:
+            with open(fname + ".sha256", "w", encoding="utf8") as f:
                 f.write(sha)
 
     def close(self):

@@ -2,8 +2,8 @@ import os
 from ..registry import MethodSpec, register
 
 
-NeRFWReimplementationSpec: MethodSpec = {
-    "method": ".nerfw_reimplementation:NeRFWReimplementation",
+NeRFWReimplSpec: MethodSpec = {
+    "method": ".nerfw_reimpl:NeRFWReimpl",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9",
@@ -36,4 +36,4 @@ conda develop "$PWD"
     }
 }
 
-register(NeRFWReimplementationSpec, name="nerfw-reimpl")
+register(NeRFWReimplSpec, name="nerfw-reimpl")

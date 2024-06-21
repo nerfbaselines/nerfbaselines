@@ -38,7 +38,7 @@ TetraNeRFSpec: MethodSpec = {
         "image": "kulhanek/tetra-nerf:latest",
         "python_path": "python3",
         "home_path": "/home/user",
-        "should_build": False,
+        "build_script": "",  # Force build
     },
     "kwargs": {
         "require_points3D": True,

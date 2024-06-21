@@ -1,3 +1,4 @@
+name: run-tests-slow
 on:
   push:
     branches: ["main", "develop"]
@@ -64,6 +65,7 @@ jobs:
           pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
           pip install 'jax[cpu]'
           pip install -e ".[extras,dev]"
+          pip install torchmetrics dm_pix
       - name: Run dev-extras tests
         run: |
           pyright
@@ -181,9 +183,21 @@ jobs:
           export TCNN_CUDA_ARCHITECTURES="80"
           export TORCH_CUDA_ARCH_LIST="8.0"
           export CUDAARCHS="80"
+          # We have to use conda, there is not enough space to unpack docker images
+          export NERFBASELINES_APPTAINER_PREFER_CONDA=1
+          m="${{ matrix.method }}"
+          if [[ "$m" == "camp"* ]] || [[ "$m" == "mipnerf"* ]] || [[ "$m" == "zipnerf"* ]] || [[ "$m" == "nerf" ]]; then
+            export NERFBASELINES_APPTAINER_PREFER_CONDA=0
+          fi
           nerfbaselines install-method --method "${{ matrix.method }}" --backend apptainer
       - name: Run tests
         run: |
+          # We have to use conda, there is not enough space to unpack docker images
+          export NERFBASELINES_APPTAINER_PREFER_CONDA=1
+          m="${{ matrix.method }}"
+          if [[ "$m" == "camp"* ]] || [[ "$m" == "mipnerf"* ]] || [[ "$m" == "zipnerf"* ]] || [[ "$m" == "nerf" ]]; then
+            export NERFBASELINES_APPTAINER_PREFER_CONDA=0
+          fi
           export TCNN_CUDA_ARCHITECTURES="80"
           export TORCH_CUDA_ARCH_LIST="8.0"
           export CUDAARCHS="80"

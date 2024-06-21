@@ -48,7 +48,7 @@ def get_opts(args):
     return parser.parse_args(args)
 
 
-class NeRFWReimplementation(Method):
+class NeRFWReimpl(Method):
     _method_name: str = "nerfw-reimpl"
 
     @remap_error

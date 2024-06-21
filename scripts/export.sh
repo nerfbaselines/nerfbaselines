@@ -59,7 +59,7 @@ find $inpath -iname '*.zip' -print0  | while IFS= read -r -d '' file; do
 
     # Check if there exists sha files for the results
     echo "Processing $name"
-    oldsha="$([ -e "$out.zip.sha" ] && cat "$out.zip.sha")"
+    oldsha="$([ -e "$out.zip.sha256" ] && cat "$out.zip.sha256")"
     newsha="$(sha256sum $file | cut -d' ' -f1)"
     
     if [ "$oldsha" == "$newsha" ]; then
@@ -77,5 +77,5 @@ find $inpath -iname '*.zip' -print0  | while IFS= read -r -d '' file; do
     fi
 
     # Store new sha
-    echo $newsha > "$out.zip.sha" || exit 1
+    echo $newsha > "$out.zip.sha256" || exit 1
 done

@@ -16,6 +16,13 @@
     {
         "id": "lpips",
         "name": "LPIPS",
+        "description": "Learned Perceptual Image Patch Similarity. The lower the better. The implementation uses AlexNet backbone and matches lpips pip package with checkpoint version 0.1",
+        "ascending": false,
+        "link": "https://richzhang.github.io/PerceptualSimilarity/"
+    },
+    {
+        "id": "lpips_vgg",
+        "name": "LPIPS (VGG)",
         "description": "Learned Perceptual Image Patch Similarity. The lower the better. The implementation uses VGG backbone and matches lpips pip package with checkpoint version 0.1",
         "ascending": false,
         "link": "https://richzhang.github.io/PerceptualSimilarity/"

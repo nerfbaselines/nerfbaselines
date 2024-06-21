@@ -36,6 +36,7 @@ paper_results = {
     "blender/hotdog": {"psnr": 37.72},
 }
 
+
 GaussianSplattingSpec: MethodSpec = {
     "method": ".gaussian_splatting:GaussianSplatting",
     "conda": {
@@ -53,6 +54,21 @@ pip install plyfile==0.8.1 tqdm submodules/diff-gaussian-rasterization submodule
 conda install -c conda-forge -y nodejs==20.9.0
 conda develop .
 pip install lpips==0.1.4 importlib_metadata typing_extensions
+
+function nb-post-install () {
+if [ "$NB_DOCKER_BUILD" = "1" ]; then
+# Reduce size of the environment by removing unused files
+find "$CONDA_PREFIX" -name '*.a' -delete
+find "$CONDA_PREFIX" -type d -name 'nsight*' -exec rm -r {} +
+# Replace all libs under $CONDA_PREFIX/lib with symlinks to pkgs/cuda-toolkit/targets/x86_64-linux/lib
+for lib in "$CONDA_PREFIX"/lib/*.so*; do 
+    if [ ! -f "$lib" ] || [ -L "$lib" ]; then continue; fi;
+    lib="${lib%.so*}.so";libname=$(basename "$lib");
+    tgt="$CONDA_PREFIX/pkgs/cuda-toolkit/targets/x86_64-linux/lib/$libname"
+    if [ -f "$tgt" ]; then echo "Deleting $lib"; rm "$lib"*; for tgtlib in "$tgt"*; do ln -s "$tgtlib" "$(dirname "$lib")"; done; fi;
+done
+fi
+}
 """,
     },
     "metadata": {

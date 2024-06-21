@@ -180,11 +180,16 @@ class NeRF(Method):
         loaded_step = None
         if self.checkpoint is not None:
             ckpts = [os.path.join(self.checkpoint, f) for f in sorted(os.listdir(os.path.join(self.checkpoint))) if
-                        ('model_' in f and 'fine' not in f and 'optimizer' not in f)]
+                     (f.startswith("model_") and 'fine' not in f and f.endswith('.npy'))]
             if len(ckpts) > 0:
                 ft_weights = ckpts[-1]
-                loaded_step = int(ft_weights[-10:-4])
+                loaded_step = int(os.path.split(ft_weights)[-1][6:-4])
 
+        hparams = vars(self.args).copy() if self.args else {}
+        hparams.pop("config", None)
+        hparams.pop("basedir", None)
+        hparams.pop("expname", None)
+        hparams.pop("ft_path", None)
         return ModelInfo(
             **self.get_method_info(),
             num_iterations=N_iters,
@@ -192,7 +197,7 @@ class NeRF(Method):
             loaded_checkpoint=self.checkpoint,
             batch_size=self.args.N_rand,
             eval_batch_size=self.args.N_rand,
-            hparams=vars(self.args) if self.args else {},
+            hparams=hparams,
         )
 
     def save(self, path: str):
@@ -223,6 +228,7 @@ class NeRF(Method):
     def _setup(self, train_dataset: Dataset, *, config_overrides: Optional[Dict[str, Any]] = None):
         config_overrides = (config_overrides or {}).copy()
         if self.checkpoint is not None:
+            config_overrides.pop("config", None)
             config_file = os.path.join(self.checkpoint, "config.txt")
             self._base_config_text = open(config_file, 'r', encoding='utf8').read()
             with Path(self.checkpoint).joinpath("args.txt").open("r", encoding="utf8") as f:
@@ -267,8 +273,35 @@ class NeRF(Method):
                 step = self.get_info().get("loaded_step")
                 assert step is not None, f"Could not find valid checkpoint in path {self.checkpoint}"
                 self.args.ft_path = os.path.join(self.checkpoint, f"model_{step:06d}.npy")
-            render_kwargs_train, render_kwargs_test, start, self.grad_vars, self.models = create_nerf(
-                self.args)
+
+            # NOTE: There is a bug in the original code which doesn't allow the model to load the checkpoint
+            # We patched it here
+            old_no_reload = self.args.no_reload
+            try:
+                self.args.no_reload = True
+                render_kwargs_train, render_kwargs_test, start, self.grad_vars, self.models = create_nerf(
+                    self.args)
+            finally:
+                self.args.no_reload = old_no_reload
+
+            if self.checkpoint and not self.args.no_reload:
+                ckpts = [os.path.join(self.checkpoint, f) for f in sorted(os.listdir(os.path.join(self.checkpoint))) if f.startswith("model_") and f.endswith('.npy')]
+                for ckpt in ckpts:
+                    if os.path.split(ckpt)[-1].startswith('model_fine_'):
+                        print('Reloading fine from', ckpt)
+                        model = self.models['model_fine']
+                    elif os.path.split(ckpt)[-1].startswith('model_'):
+                        step = int(os.path.split(ckpt)[-1][6:-4])
+                        print('Resetting step to', step)
+                        start = step + 1
+                        print('Reloading from', ckpt)
+                        model = self.models['model']
+                    else:
+                        raise RuntimeError('Invalid checkpoint name', ckpt)
+                    model.set_weights(np.load(ckpt, allow_pickle=True))
+                if len(ckpts) < 2:
+                    raise RuntimeError('Invalid checkpoint (missing files)', self.checkpoint)
+
             self.args.basedir = self.args.exp = None
 
         # Create optimizer

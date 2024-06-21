@@ -13,7 +13,7 @@ import click
 from nerfbaselines.utils import setup_logging, handle_cli_error
 from nerfbaselines.utils import run_inside_eval_container
 from nerfbaselines.datasets import load_dataset
-from nerfbaselines.io import open_any_directory, deserialize_nb_info, serialize_nb_info
+from nerfbaselines.io import open_any_directory, deserialize_nb_info, serialize_nb_info, get_checkpoint_sha
 from nerfbaselines.evaluation import evaluate
 from nerfbaselines.registry import build_evaluation_protocol
 from nerfbaselines.io import save_output_artifact
@@ -270,6 +270,10 @@ def main(input: str,
                 new_info.pop("dataset_name", None)
                 new_info.pop("dataset_background_color", None)
                 new_info.pop("expected_scene_scale", None)
+
+                # Fix checkpoint SHA
+                checkpoint_sha = get_checkpoint_sha(checkpoint_path)
+                new_info["checkpoint_sha256"] = checkpoint_sha
 
                 new_info["dataset_metadata"] = test_dataset["metadata"].copy()
                 background_color = test_dataset["metadata"].get("background_color", None)

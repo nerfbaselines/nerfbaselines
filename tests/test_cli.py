@@ -9,7 +9,7 @@ from unittest import mock
     "render --data data --checkpoint checkpoint --output output".split(),
     "render-trajectory --checkpoint checkpoint --output output --trajectory trajectory".split(),
     "evaluate predictions --output output".split(),
-    "docker-build-image".split(),
+    "build-docker-image".split(),
     "download-dataset dataset".split(),
     "generate-dataset-results".split(),
     "generate-web --output output".split(),

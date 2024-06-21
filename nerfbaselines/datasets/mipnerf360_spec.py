@@ -14,7 +14,7 @@ register(name="mipnerf360", spec={
         "paper_authors": ["Jonathan T. Barron", "Ben Mildenhall", "Dor Verbin", "Pratul P. Srinivasan", "Peter Hedman"],
         "paper_link": "https://arxiv.org/pdf/2111.12077.pdf",
         "link": "https://jonbarron.info/mipnerf360/",
-        "metrics": ["psnr", "ssim", "lpips"],
+        "metrics": ["psnr", "ssim", "lpips_vgg"],
         "default_metric": "psnr",
         "scenes": [
             {

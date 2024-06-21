@@ -1,3 +1,4 @@
+import re
 import shlex
 import dataclasses
 import threading
@@ -14,7 +15,7 @@ import struct
 from pathlib import Path
 from functools import wraps
 from typing import Any, Optional, Dict, TYPE_CHECKING, Union, List, TypeVar, Iterable, overload, Callable
-from typing import BinaryIO, Tuple, cast
+from typing import BinaryIO, Tuple, cast, Set
 import logging
 import types
 import numpy as np
@@ -617,7 +618,7 @@ def get_resources_utilization_info(pid: Optional[int] = None) -> ResourcesUtiliz
         uuids = set()
         out = subprocess.check_output("nvidia-smi --query-compute-apps=pid,used_memory,gpu_uuid,gpu_name --format=csv,noheader,nounits".split(), text=True).splitlines()
         for line in out:
-            cpid, used_memory, uuid, gpu_name = line.split(",", 3)
+            cpid, used_memory, uuid, gpu_name = tuple(x.strip() for x in line.split(",", 3))
             cpid = int(cpid)
             used_memory = int(used_memory)
             if cpid in all_processes:
@@ -752,7 +753,7 @@ class SetParamOptionType(click.ParamType):
         return k, v
 
 
-def get_package_dependencies(extra=None):
+def get_package_dependencies(extra=None, ignore: Optional[Set[str]] = None, ignore_viewer: bool = False):
     assert __package__ is not None, "Package must be set"
     if sys.version_info < (3, 10):
         from importlib_metadata import distribution
@@ -761,7 +762,7 @@ def get_package_dependencies(extra=None):
         from importlib import metadata as importlib_metadata
         from importlib.metadata import distribution
 
-    requires = []
+    requires = set()
     requires_with_conditions = None
     try:
         requires_with_conditions = distribution(__package__).requires
@@ -776,17 +777,28 @@ def get_package_dependencies(extra=None):
             if condition.startswith("extra=="):
                 extracond = condition.split("==")[1][1:-1]
                 if extra is not None and extracond in extra:
-                    requires.append(r)
+                    requires.add(r)
                 continue
             elif condition.startswith("python_version"):
-                requires.append(r)
+                requires.add(r)
                 continue
             else:
                 raise ValueError(f"Unknown condition {condition}")
         r = r.strip().replace(" ", "")
-        requires.append(r)
-    requires.sort()
-    return requires
+        requires.add(r)
+    if ignore_viewer:
+        # NOTE: Viewer is included in the package by default
+        # See https://github.com/pypa/setuptools/pull/1503
+        ignore = set(ignore or ())
+        ignore.add("viser")
+
+    if ignore is not None:
+        ignore = set(x.lower() for x in ignore)
+        for r in list(requires):
+            rsimple = re.sub(r"[^a-zA-Z0-9_-].*", "", r).lower()
+            if rsimple in ignore:
+                requires.remove(r)
+    return sorted(requires)
 
 
 def flatten_hparams(hparams: Any, *, separator: str = "/", _prefix: str = "") -> Dict[str, Any]:

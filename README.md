@@ -73,44 +73,34 @@ In this section, we present results of implemented methods on standard benchmark
 Mip-NeRF 360 is a collection of four indoor and five outdoor object-centric scenes. The camera trajectory is an orbit around the object with fixed elevation and radius. The test set takes each n-th frame of the trajectory as test views.
 Detailed results are available on the project page: [https://jkulhanek.com/nerfbaselines/mipnerf360](https://jkulhanek.com/nerfbaselines/mipnerf360)
 
-| Method                                                                         |       PSNR |      SSIM |     LPIPS |        Time |   GPU mem. |
-|:-------------------------------------------------------------------------------|-----------:|----------:|----------:|------------:|-----------:|
-| [Zip-NeRF](https://jkulhanek.com/nerfbaselines/m-zipnerf)                      | **28.516** | **0.828** | **0.138** |  5h 30m 49s |    26.2 GB |
-| [Mip-NeRF 360](https://jkulhanek.com/nerfbaselines/m-mipnerf360)               |   *27.670* |     0.792 |     0.196 |  7h 29m 42s |   127.0 GB |
-| [Mip-Splatting](https://jkulhanek.com/nerfbaselines/m-mip-splatting)           |     27.498 |   *0.815* |     0.183 |      25m 1s |    11.0 GB |
-| [Gaussian Splatting](https://jkulhanek.com/nerfbaselines/m-gaussian-splatting) |     27.439 |     0.814 |   *0.180* |     22m 45s |    11.1 GB |
-| [NerfStudio](https://jkulhanek.com/nerfbaselines/m-nerfacto)                   |     26.348 |     0.730 |     0.257 |   *19m 50s* | **3.8 GB** |
-| [Tetra-NeRF](https://jkulhanek.com/nerfbaselines/m-tetra-nerf)                 |     25.468 |     0.670 |     0.352 | 17h 32m 35s |    13.4 GB |
-| [Instant NGP](https://jkulhanek.com/nerfbaselines/m-instant-ngp)               |     24.899 |     0.673 |     0.355 |  **4m 16s** |   *5.6 GB* |
+| Method                                                                                   |       PSNR |      SSIM | LPIPS (VGG) |        Time |   GPU mem. |
+|:-----------------------------------------------------------------------------------------|-----------:|----------:|------------:|------------:|-----------:|
+| [Zip-NeRF](https://jkulhanek.com/nerfbaselines/m-zipnerf)                                | **28.553** | **0.829** |   **0.218** |  5h 30m 20s |    26.8 GB |
+| [Mip-NeRF 360](https://jkulhanek.com/nerfbaselines/m-mipnerf360)                         |   *27.681* |     0.792 |       0.272 | 30h 14m 36s |    33.6 GB |
+| [Mip-Splatting](https://jkulhanek.com/nerfbaselines/m-mip-splatting)                     |     27.492 |     0.815 |       0.258 |     25m 37s |    11.0 GB |
+| [Gaussian Splatting](https://jkulhanek.com/nerfbaselines/m-gaussian-splatting)           |     27.434 |     0.814 |       0.257 |     23m 25s |    11.1 GB |
+| [Gaussian Opacity Fields](https://jkulhanek.com/nerfbaselines/m-gaussian-opacity-fields) |     27.421 |   *0.826* |     *0.234* |   1h 3m 54s |    28.4 GB |
+| [NerfStudio](https://jkulhanek.com/nerfbaselines/m-nerfacto)                             |     26.388 |     0.731 |       0.343 |   *19m 30s* | **5.9 GB** |
+| [Instant NGP](https://jkulhanek.com/nerfbaselines/m-instant-ngp)                         |     25.507 |     0.684 |       0.398 |  **3m 54s** |   *7.8 GB* |
 
 
 ### Blender
 Blender (nerf-synthetic) is a synthetic dataset used to benchmark NeRF methods. It consists of 8 scenes of an object placed on a white background. Cameras are placed on a semi-sphere around the object.
 Detailed results are available on the project page: [https://jkulhanek.com/nerfbaselines/blender](https://jkulhanek.com/nerfbaselines/blender)
 
-| Method                                                                         |       PSNR |      SSIM |     LPIPS |       Time |   GPU mem. |
-|:-------------------------------------------------------------------------------|-----------:|----------:|----------:|-----------:|-----------:|
-| [Zip-NeRF](https://jkulhanek.com/nerfbaselines/m-zipnerf)                      | **33.670** | **0.973** | **0.020** | 5h 21m 57s |    26.2 GB |
-| [Mip-Splatting](https://jkulhanek.com/nerfbaselines/m-mip-splatting)           |   *33.330* |     0.969 |     0.025 |     6m 49s |   *2.7 GB* |
-| [Gaussian Splatting](https://jkulhanek.com/nerfbaselines/m-gaussian-splatting) |     33.308 |   *0.969* |   *0.023* |    *6m 6s* |     3.1 GB |
-| [Instant NGP](https://jkulhanek.com/nerfbaselines/m-instant-ngp)               |     32.191 |     0.959 |     0.031 | **2m 23s** | **2.6 GB** |
-| [Tetra-NeRF](https://jkulhanek.com/nerfbaselines/m-tetra-nerf)                 |     31.951 |     0.957 |     0.031 | 6h 53m 20s |    29.6 GB |
-| [TensoRF](https://jkulhanek.com/nerfbaselines/m-tensorf)                       |     31.222 |     0.951 |     0.034 |      8m 9s |    16.9 GB |
-| [Mip-NeRF 360](https://jkulhanek.com/nerfbaselines/m-mipnerf360)               |     30.345 |     0.951 |     0.038 | 3h 29m 39s |   114.8 GB |
-| [NerfStudio](https://jkulhanek.com/nerfbaselines/m-nerfacto)                   |     29.191 |     0.941 |     0.049 |     9m 38s |     3.6 GB |
-
-
-### Nerfstudio
-Nerfstudio Dataset includes 10 in-the-wild captures obtained using either a mobile phone or a mirror-less camera with a fisheye lens. We processed the data using either COLMAP or the Polycam app to obtain camera poses and intrinsic parameters.
-Detailed results are available on the project page: [https://jkulhanek.com/nerfbaselines/nerfstudio](https://jkulhanek.com/nerfbaselines/nerfstudio)
-
-| Method                                                                         |       PSNR |      SSIM |     LPIPS |       Time |   GPU mem. |
-|:-------------------------------------------------------------------------------|-----------:|----------:|----------:|-----------:|-----------:|
-| [Zip-NeRF](https://jkulhanek.com/nerfbaselines/m-zipnerf)                      | **24.815** | **0.798** | **0.178** | 5h 21m 41s |    26.2 GB |
-| [Instant NGP](https://jkulhanek.com/nerfbaselines/m-instant-ngp)               |   *20.653* |     0.601 |     0.452 | **4m 33s** | **4.2 GB** |
-| [NerfStudio](https://jkulhanek.com/nerfbaselines/m-nerfacto)                   |     20.064 |   *0.617* |   *0.353* |  *13m 30s* |   *4.8 GB* |
-| [Gaussian Splatting](https://jkulhanek.com/nerfbaselines/m-gaussian-splatting) |          - |         - |         - |          - |          - |
-| [Mip-Splatting](https://jkulhanek.com/nerfbaselines/m-mip-splatting)           |          - |         - |         - |          - |          - |
+| Method                                                                                   |       PSNR |      SSIM | LPIPS (VGG) |        Time |   GPU mem. |
+|:-----------------------------------------------------------------------------------------|-----------:|----------:|------------:|------------:|-----------:|
+| [Zip-NeRF](https://jkulhanek.com/nerfbaselines/m-zipnerf)                                | **33.670** | **0.973** |   **0.036** |  5h 21m 57s |    26.2 GB |
+| [Gaussian Opacity Fields](https://jkulhanek.com/nerfbaselines/m-gaussian-opacity-fields) |   *33.451* |   *0.969* |       0.038 |     18m 26s |     3.1 GB |
+| [Mip-Splatting](https://jkulhanek.com/nerfbaselines/m-mip-splatting)                     |     33.330 |     0.969 |       0.039 |      6m 49s |   *2.7 GB* |
+| [Gaussian Splatting](https://jkulhanek.com/nerfbaselines/m-gaussian-splatting)           |     33.308 |     0.969 |     *0.037* |     *6m 6s* |     3.1 GB |
+| [TensoRF](https://jkulhanek.com/nerfbaselines/m-tensorf)                                 |     33.172 |     0.963 |       0.051 |     10m 47s |    16.4 GB |
+| [K-Planes](https://jkulhanek.com/nerfbaselines/m-kplanes)                                |     32.265 |     0.961 |       0.062 |     23m 58s |     4.6 GB |
+| [Instant NGP](https://jkulhanek.com/nerfbaselines/m-instant-ngp)                         |     32.198 |     0.959 |       0.055 |  **2m 23s** | **2.6 GB** |
+| [Tetra-NeRF](https://jkulhanek.com/nerfbaselines/m-tetra-nerf)                           |     31.951 |     0.957 |       0.056 |  6h 53m 20s |    29.6 GB |
+| [Mip-NeRF 360](https://jkulhanek.com/nerfbaselines/m-mipnerf360)                         |     30.345 |     0.951 |       0.060 |  3h 29m 39s |   114.8 GB |
+| [NerfStudio](https://jkulhanek.com/nerfbaselines/m-nerfacto)                             |     29.191 |     0.941 |       0.095 |      9m 38s |     3.6 GB |
+| [NeRF](https://jkulhanek.com/nerfbaselines/m-nerf)                                       |     28.723 |     0.936 |       0.092 | 23h 26m 30s |    10.2 GB |
 
 
 ## Implementation status
@@ -161,6 +151,7 @@ Datasets/features:
 | Zip-NeRF                | 🥇 gold       | 🥇 gold    | 🥇 gold    | 🥇 gold           | ❌      |
 | CamP                    | ❔            | ❔         | ❔         | ❔                | ❌      |
 | TensoRF                 | ❌            | 🥇 gold    | ❔         | ❔                | 🥇 gold |
+| NeRF                    | ❔            | 🥇 gold    | ❔         | ❔                | ❔      |
 
 ## Contributing
 Contributions are very much welcome. Please open a PR with a dataset/method/feature that you want to contribute. The goal of this project is to slowly expand by implementing more and more methods.

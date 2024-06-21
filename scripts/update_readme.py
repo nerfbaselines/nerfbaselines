@@ -49,7 +49,7 @@ def main():
     # def generate_dataset_results_command(results: Path, dataset, output_type, output, method_links="none"):
     readme_path = Path(__file__).absolute().parent.parent.joinpath("README.md")
     readme = readme_path.read_text()
-    for dataset in ["mipnerf360", "blender", "nerfstudio"]:
+    for dataset in ["mipnerf360", "blender", "tanksandtemples"]:
         readme = update_dataset_results(readme, dataset)
     readme_path.write_text(readme)
 

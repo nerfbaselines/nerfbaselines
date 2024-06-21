@@ -10,7 +10,7 @@ name = "nerfbaselines"
 authors = [
   { name="Jonas Kulhanek", email="jonas.kulhanek@live.com" },
 ]
-description = "A collection of NeRF baselines for benchmarking"
+description = "Reproducible evaluation of NeRF and 3DGS methods"
 readme = "README.md"
 requires-python = ">=3.7"
 license = { text="MIT" }
@@ -32,30 +32,32 @@ dependencies = [
     "gdown>=4.7.1",
     "tensorboard>=2.5.0",
     "mediapy>=1.1.2",
-    'viser<0.2.0',
     'splines>=0.3.1',
     "scipy",
     'importlib-metadata>=6.0.0; python_version < "3.10"',
+    # Viwer dependencies
+    'viser<0.2.0',
 ]
 dynamic = ["version"]
 
-[project.optional-dependencies]
-extras = [
-    'torch',
-]
+[project.urls]
+Documentation = "https://jkulhanek.com/nerfbaselines"
+Source = "https://github.com/jkulhanek/nerfbaselines"
+Homepage = "https://jkulhanek.com/nerfbaselines"
+"Bug Tracker" = "https://github.com/jkulhanek/nerfbaselines/issues"
 
+[project.optional-dependencies]
+viewer = [
+    'viser<0.2.0',
+]
 dev = [
+    'torch',
     'torchmetrics',
     'jax',
     'pytest==7.4.4',
     'typeguard==4.2.1',
     'dm-pix',
 ]
-
-
-[project.urls]
-"Homepage" = "https://github.com/jkulhanek/nerfbaselines"
-"Bug Tracker" = "https://github.com/jkulhanek/nerfbaselines/issues"
 
 [project.scripts]
 nerfbaselines = "nerfbaselines.__main__:main"
@@ -89,7 +91,7 @@ exclude = ["**/node_modules",
     "nerfbaselines/methods/nerfstudio.py",
     "nerfbaselines/methods/tensorf.py",
     "nerfbaselines/methods/gaussian_opacity_fields.py",
-    "nerfbaselines/methods/nerfw_reimplementation.py",
+    "nerfbaselines/methods/nerfw_reimpl.py",
     "nerfbaselines/methods/kplanes.py",
     "nerfbaselines/methods/nerfonthego.py",
     "nerfbaselines/methods/tetranerf.py",

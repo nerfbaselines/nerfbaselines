@@ -462,8 +462,13 @@ def get_checkpoint_sha(path: str) -> str:
     for f in files:
         if f.name == "nb-info.json":
             continue
+        if f.name.endswith(".sha") or f.name.endswith(".sha256"):
+            continue
 
-        if os.path.exists(str(f) + ".sha"):
+        if os.path.exists(str(f) + ".sha256"):
+            with open(str(f) + ".sha256", "rb") as fio:
+                sha.update(fio.read().strip())
+        elif os.path.exists(str(f) + ".sha"):
             with open(str(f) + ".sha", "rb") as fio:
                 sha.update(fio.read().strip())
         else:
@@ -679,11 +684,11 @@ def save_output_artifact(model_path: Union[str, Path], predictions_path: Union[s
         if validate:
             checkpoint_sha = get_checkpoint_sha(str(model_path))
             predictions_sha, ground_truth_sha = get_predictions_sha(str(predictions_path))
-            if metrics["predictions_sha256"] != predictions_sha:
+            if metrics.get("predictions_sha256") != predictions_sha:
                 raise ValueError("Predictions SHA mismatch")
-            if metrics["ground_truth_sha256"] != ground_truth_sha:
+            if metrics.get("ground_truth_sha256") != ground_truth_sha:
                 raise ValueError("Ground truth SHA mismatch")
-            if metrics["info"]["checkpoint_sha256"] != checkpoint_sha:
+            if metrics["info"].get("checkpoint_sha256") != checkpoint_sha:
                 raise ValueError("Checkpoint SHA mismatch")
 
         # Prepare artifact

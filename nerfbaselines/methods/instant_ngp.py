@@ -499,7 +499,7 @@ class InstantNGP(Method):
             _update(checkpoint_data)
             sha = hashlib.sha256()
             pass
-        with (path / "checkpoint.ingp.sha").open("w") as f:
+        with (path / "checkpoint.ingp.sha256").open("w") as f:
             f.write(sha.hexdigest())
 
 

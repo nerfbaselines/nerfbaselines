@@ -14,7 +14,7 @@ register(name="blender", spec={
         "paper_authors": ["Ben Mildenhall", "Pratul P. Srinivasan", "Matthew Tancik", "Jonathan T. Barron", "Ravi Ramamoorthi", "Ren Ng"],
         "paper_link": "https://arxiv.org/pdf/2003.08934.pdf",
         "link": "https://www.matthewtancik.com/nerf",
-        "metrics": ["psnr", "ssim", "lpips"],
+        "metrics": ["psnr", "ssim", "lpips_vgg"],
         "default_metric": "psnr",
         "scenes": [
             {

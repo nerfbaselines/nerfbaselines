@@ -84,10 +84,10 @@ def load_metrics_from_results(results: Dict) -> Dict[str, List[float]]:
         data = base64.b64decode(v)
         values = list(struct.unpack(f"<{len(data)//4}f", data))
         out[k] = values
-    if "info" in results and "total_train_time" in results["info"]:
-        out["total_train_time"] = results["info"]["total_train_time"]
-    if "info" in results and "resources_utilization" in results["info"] and "gpu_memory" in results["info"]["resources_utilization"]:
-        out["gpu_memory"] = results["info"]["resources_utilization"]["gpu_memory"]
+    if "nb_info" in results and "total_train_time" in results["nb_info"]:
+        out["total_train_time"] = results["nb_info"]["total_train_time"]
+    if "nb_info" in results and "resources_utilization" in results["nb_info"] and "gpu_memory" in results["nb_info"]["resources_utilization"]:
+        out["gpu_memory"] = results["nb_info"]["resources_utilization"]["gpu_memory"]
     return out
 
 
@@ -285,9 +285,10 @@ def render_markdown_dataset_results_table(results, method_links: MethodLink = "n
 
     # Sort by the default metric
     all_metrics = ",".join(x["id"] for x in results["metrics"])
-    assert default_metric_id is not None, f"Default metric {default_metric} was not found in the set of metrics {all_metrics}."
-    order = [x[-1] for x in sorted([(v, method_names[i], i) for i, v in enumerate(ord_values[default_metric_id])])]
-    table = table[:1] + [table[i + 1] for i in order]
+    if method_names:
+        assert default_metric_id is not None, f"Default metric {default_metric} was not found in the set of metrics {all_metrics}."
+        order = [x[-1] for x in sorted([(v, method_names[i], i) for i, v in enumerate(ord_values[default_metric_id])])]
+        table = table[:1] + [table[i + 1] for i in order]
 
     cell_lens = [max(len(x[i]) for x in table) for i in range(len(table[0]))]
     table_str = ""

@@ -78,11 +78,11 @@ function nb-post-install () {
 """,
     },
     "docker": {
-        "environment_name": os.path.split(__file__[:-3])[-1].replace("_", "-"),
+        "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "image": "kulhanek/ingp:latest",
         "python_path": "python3",
         "home_path": "/root",
-        "should_build": True,
+        "build_script": "",  # Force build
     },
     "metadata": {
         "name": "Instant NGP",
