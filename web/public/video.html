@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="style.css" />
+    <title>NerfBaselines: Attached video</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex">
+    <meta charset="utf-8">
+    <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@48,700,1,0">
+<style>
+*, *:before, *:after { box-sizing: border-box; }
+* { font-family: 'Lato', sans-serif; }
+a { color: #1772d0; }
+header { margin: 4em 0px 2em 0px; }
+body { max-width: 86%; margin: 0px auto; }
+h1 .title-main  { font-weight: 700; display: block; text-align: center; }
+.links { margin: 1em auto 1em auto; text-align: center; }
+.links .link {
+  display: inline-block;
+  padding: 0 0.2em;
+  text-decoration: none;
+  background-color: #195a66;
+  color: #ecf0f1;
+  font-size: 1.3em;
+  font-weight: bold;
+  padding: 0.3em 0.5em 0.4em 0.4em;
+  margin: 0.3em 0.2em;
+  transition: all 0.4s;
+}
+.links .link:hover {
+  background-color: #5e8c94;
+  color: white;
+}
+.link::before {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 1em;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  content: '';
+  vertical-align: -0.2em;
+  margin-right: 0.2em;
+}
+.link.link-paper::before { content: "description" }
+.link.link-github::before { content: "code" }
+.link.link-demo::before { content: "rocket_launch" }
+.video { position: relative; }
+.video::before { display: block; padding-bottom: 37.5%; content: ''; }
+.video.d16x9::before { padding-bottom: 56.25%; }
+.video video, .video iframe{ position: absolute; top: 0px; left: 0px; width: 100%; height: 100%; }
+section { margin: 2em 0; }
+@media (max-width:1120px) {
+  html { padding: 0px 80px; }
+}
+@media (max-width: 768px) {
+  html { padding: 0px 40px; }
+  body { font-size: 14px; }
+}
+@media (max-width: 400px) {
+  html { padding: 0px 20px; }
+  body { font-size: 12px; }
+}
+</style>
+  </head>
+  <body>
+    <header>
+      <h1>
+        <span class="title-main" style="margin-top: 1em">NerfBaselines: Attached video</span>
+      </h1>
+    </header>
+    <div class="links">
+      <a class="link link-web" href="./">Web</a>
+      <!--
+      <div class="link link-paper">
+        <a href="#">Paper</a>
+      </div>-->
+      <a class="link link-github" href="https://github.com/jkulhanek/nerfbaselines/">Code</a>
+    </div>
+
+    <section>
+      <div class="video d16x9" style="max-width: 1920px; max-height: 70vh; margin: 0px auto;">
+        <video width="320" height="240" loop autoplay controls muted>
+          <source src="./assets/video-1.webm" type="video/webm; codecs=vp9,vorbis">
+          <source src="./assets/video-1.mp4" type="video/mp4">
+        </video>
+      </div>
+    </section>
+  </body>
+</html>
