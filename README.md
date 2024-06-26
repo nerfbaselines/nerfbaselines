@@ -11,7 +11,7 @@ NerfBaselines is a framework for **evaluating and comparing existing NeRF and 3D
 
 Please visit the <a href="https://jkulhanek.com/nerfbaselines">project page to see the results</a> of implemented methods on dataset benchmarks.<br/>
 
-### [Project Page + Results](https://jkulhanek.com/nerfbaselines)
+### [Project Page + Results](https://jkulhanek.com/nerfbaselines)  &nbsp;|&nbsp; [Paper](https://arxiv.org/pdf/2406.17345.pdf)
 
 ## Getting started
 Start by installing the `nerfbaselines` pip package on your host system.
@@ -155,6 +155,17 @@ Datasets/features:
 
 ## Contributing
 Contributions are very much welcome. Please open a PR with a dataset/method/feature that you want to contribute. The goal of this project is to slowly expand by implementing more and more methods.
+
+## Citation
+If you use this project in your research, please cite the following paper:
+```bibtex
+@article{kulhanek2024nerfbaselines,
+  title={NerfBaselines: Consistent and Reproducible Evaluation of Novel View Synthesis Methods},
+  author={Jonas Kulhanek and Torsten Sattler},
+  year={2024},
+  journal={arXiv},
+}
+```
 
 ## License
 This project is licensed under the [MIT license](https://raw.githubusercontent.com/jkulhanek/nerfbaselines/main/LICENSE)

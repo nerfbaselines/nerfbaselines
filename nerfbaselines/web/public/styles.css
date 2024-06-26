@@ -48,6 +48,42 @@ a {
   color: var(--blue-color);
   text-decoration: none;
 }
+
+section > p {
+  margin-bottom: 0.3rem;
+}
+
+pre {
+  -webkit-overflow-scrolling: touch;
+  overflow-x: auto;
+  padding: 0.625rem 1rem ;
+  white-space: pre;
+  word-wrap: normal;
+
+  background-color: #f5f5f5;
+  color: #4a4a4a;
+  font-size: .875rem;
+  -moz-osx-font-smoothing: auto;
+  -webkit-font-smoothing: auto;
+  font-family: monospace;
+  margin: 0;
+  display: block;
+}
+
+pre code {
+  background-color: transparent;
+  font-size: 1em;
+  padding: 0;
+  word-break: normal;
+  font-weight: 400;
+  -moz-osx-font-smoothing: auto;
+  -webkit-font-smoothing: auto;
+  font-family: monospace;
+  word-wrap: break-word;
+  white-space: break-spaces;
+}
+
+
 /*
 @media (prefers-color-scheme: dark) {
   html {
