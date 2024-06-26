@@ -14,7 +14,7 @@ def download_dataset(path: str, output: Union[str, Path]):
 
     output = Path(output)
     errors = {}
-    for name, download_fn in get_dataset_downloaders():
+    for name, download_fn in get_dataset_downloaders().items():
         try:
             download_fn(path, str(output))
             logging.info(f"downloaded {name} dataset with path {path}")

@@ -1,8 +1,5 @@
-import numpy as np
 import sys
-import subprocess
 import itertools
-import tempfile
 import importlib
 import os
 import logging
@@ -16,10 +13,11 @@ from nerfbaselines import backends
 from nerfbaselines.utils import setup_logging
 from nerfbaselines.utils import run_inside_eval_container, handle_cli_error
 from nerfbaselines.datasets import download_dataset, load_dataset
-from nerfbaselines.types import Optional, get_args, NB_PREFIX, Method
+from nerfbaselines.types import get_args, NB_PREFIX, Method
 from nerfbaselines.io import load_trajectory, open_any
 from nerfbaselines.io import open_any_directory, deserialize_nb_info
 from nerfbaselines.evaluation import evaluate, render_all_images, render_frames, trajectory_get_embeddings, trajectory_get_cameras, OutputType
+from nerfbaselines.web import get_click_group as get_web_click_group
 
 
 class LazyGroup(click.Group):
@@ -40,7 +38,7 @@ class LazyGroup(click.Group):
         return super().get_command(ctx, cmd_name)
 
     def list_commands(self, ctx):
-        return list(sorted(itertools.chain(self._lazy_commands.keys(), self.commands.keys())))
+        return sorted(itertools.chain(self._lazy_commands.items(), self.commands.items()))
 
     def add_lazy_command(self, package_name: str, command_name: str, hidden=False):
         self._lazy_commands[command_name] = dict(
@@ -53,7 +51,17 @@ class LazyGroup(click.Group):
         after the options.
         """
         # allow for 3 times the default spacing
-        commands = list(sorted(itertools.chain((k for k, v in self._lazy_commands.items() if not v["hidden"]), self.commands.keys())))
+        commands = []
+        lazy_cmds = ((k, v) for k, v in self._lazy_commands.items() if not v["hidden"])
+        for name, cmd in sorted(itertools.chain(lazy_cmds, self.commands.items()), key=lambda x: x[0]):
+            if isinstance(cmd, click.Group):
+                for cmd2 in cmd.list_commands(ctx):
+                    sub_cmd = cmd.get_command(ctx, cmd2)
+                    if sub_cmd is not None:
+                        commands.append(" ".join((name, cmd2)))
+            else:
+                commands.append(name)
+
         if len(commands):
             # limit = formatter.width - 6 - max(len(cmd[0]) for cmd in commands)
             rows = []
@@ -238,6 +246,7 @@ def build_docker_image_command(method=None, environment=None, push=False, skip_i
     build_docker_image(spec, skip_if_exists_remotely=skip_if_exists_remotely, push=push, tag_latest=tag_latest)
 
 
+main.add_command(get_web_click_group())
 main.add_lazy_command("nerfbaselines.viewer", "viewer")
 main.add_lazy_command("nerfbaselines.cli.export_demo", "export-demo")
 main.add_lazy_command("nerfbaselines.cli.test_method", "test-method")

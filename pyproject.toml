@@ -50,6 +50,10 @@ Homepage = "https://jkulhanek.com/nerfbaselines"
 viewer = [
     'viser<0.2.0',
 ]
+web = [
+    'jinja2==3.1.4',
+    'livereload==2.7.0'
+]
 dev = [
     'torch',
     'torchmetrics',
@@ -57,6 +61,11 @@ dev = [
     'pytest==7.4.4',
     'typeguard==4.2.1',
     'dm-pix',
+    # Viewer
+    'viser<0.2.0',
+    # Web
+    'jinja2==3.1.4',
+    'livereload==2.7.0'
 ]
 
 [project.scripts]

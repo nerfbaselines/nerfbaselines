@@ -1,0 +1,18 @@
+<table class="table">
+  <thead class="table__header">
+    <th class="w120"><span class="table__sortbutton" title="Sort by method name (ascending)">Method <i class="ti" /></span></th>
+    {% for scene in scenes %}
+    <th><span class="table__sortbutton" title="Sort by {{ scene.name }} (ascending)">{{ scene.name }} <i class="ti" /></span></th>
+    {% endfor %}
+  </thead>
+  <tbody>
+    {% for method in methods %}
+    <tr data-expand-id="{{ method.id }}">
+      <td class="w120"><a href="{{ base_path }}/m-{{ method.slug }}">{{ method.name }}</a></td>
+      {% for scene in scenes %}
+      <td><span class="table__allowcopy">{{ method.scenes[loop.index-1][metric.id] }}</span></td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>

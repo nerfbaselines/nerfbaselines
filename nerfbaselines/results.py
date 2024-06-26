@@ -14,6 +14,7 @@ from .types import Literal, Optional, TypedDict, DatasetSpecMetadata
 from ._constants import WEBPAGE_URL
 
 
+DEFAULT_DATASET_ORDER = ["mipnerf360", "blender", "tanksandtemples"]
 MethodLink = Literal["paper", "website", "results", "none"]
 
 

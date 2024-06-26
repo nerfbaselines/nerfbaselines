@@ -10,5 +10,4 @@ dist/
 nerfbaselines/_version.py
 .vscode/launch.json
 .vim/
-web/
 build/

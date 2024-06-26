@@ -1,0 +1,122 @@
+function init() {
+  // Init is called with loaded document
+  //
+  // Table
+  // - Expand rows
+  const expandToggles = document.querySelectorAll(".table .table__expandtoggle[data-expand-id]");
+  for (var i = 0; i < expandToggles.length; i++) {
+    const expand = expandToggles[i];
+    expand.addEventListener("click", function(e) {
+      const obj = e.target.closest("[data-expand-id]");
+      obj.classList.toggle("expanded");
+      if (obj.classList.contains("expanded"))
+        obj.attributes["title"].value = obj.attributes["title"].value.replace("Expand", "Collapse");
+      else
+        obj.attributes["title"].value = obj.attributes["title"].value.replace("Collapse", "Expand");
+      var expanded = obj.classList.contains("expanded");
+      const expandId = obj.getAttribute("data-expand-id");
+      const rows = obj.closest(".table").querySelectorAll("tr[data-expand-by='" + expandId + "']")
+      for (var j = 0; j < rows.length; j++) {
+        const row = rows[j];
+        // Remove/add style="display: none" from the row
+        if (expanded) {
+          row.style.removeProperty("display");
+        } else {
+          row.style.display = "none";
+        }
+      }
+    });
+  }
+
+  // Table
+  // - Sort
+  const sortButtons = document.querySelectorAll(".table .table__sortbutton");
+  for (var i = 0; i < sortButtons.length; i++) { 
+    const sortButton = sortButtons[i];
+    sortButton.addEventListener("click", function(e) {
+      // If was sort-active, toggle direction
+      // If was not sort-active, set to active and keep direction
+      if (sortButton.classList.contains("sort-active")) {
+        // Toggle direction
+        sortButton.classList.toggle("sort-desc");
+        if (sortButton.classList.contains("sort-desc"))
+          sortButton.attributes["title"].value = sortButton.attributes["title"].value.replace("descending", "ascending");
+        else
+          sortButton.attributes["title"].value = sortButton.attributes["title"].value.replace("ascending", "descending");
+      } else {
+        // Set to active
+        sortButton.closest("tr").querySelectorAll(".table__sortbutton").forEach(function(button) {
+          button.classList.remove("sort-active");
+          // Switch direction in title
+          if (button.classList.contains("sort-desc"))
+            button.attributes["title"].value = button.attributes["title"].value.replace("ascending", "descending");
+          else
+            button.attributes["title"].value = button.attributes["title"].value.replace("descending", "ascending");
+        });
+        sortButton.classList.add("sort-active");
+        if (sortButton.classList.contains("sort-desc"))
+          sortButton.attributes["title"].value = sortButton.attributes["title"].value.replace("descending", "ascending");
+        else
+          sortButton.attributes["title"].value = sortButton.attributes["title"].value.replace("ascending", "descending");
+      }
+      const dir = sortButton.classList.contains("sort-desc") ? "desc" : "asc";
+      // Read the data first (index of e.target.closest("th"))
+      const columnId = e.target.closest("th").cellIndex;
+      const tbody = e.target.closest("table").querySelector("tbody");
+      const rowData = Array.from(tbody.children);
+      if (rowData.length < 2) {
+        return;
+      }
+      // Sort the data while ignoring rows with [data-expand-by]
+      const dataRanges = [];
+      for (var j = 0; j < rowData.length; j++) {
+        const row = rowData[j];
+        if (row.hasAttribute("data-expand-by")) {
+          dataRanges[dataRanges.length-1].length += 1;
+        } else {
+          dataRanges.push({
+            start: j,
+            length: 1,
+            value: row.children[columnId].innerText
+          });
+        }
+      }
+      dataRanges.sort(function(a, b) {
+        if (dir === "asc") { return a.value.localeCompare(b.value); } 
+        else { return b.value.localeCompare(a.value); }
+      });
+      // Reorder the rows
+      const newRows = [];
+      for (var j = 0; j < dataRanges.length; j++) {
+        const range = dataRanges[j];
+        for (var k = 0; k < range.length; k++) {
+          newRows.push(rowData[range.start + k]);
+        }
+      }
+
+      // Reorder the HTML elements
+      tbody.insertBefore(newRows[newRows.length-1], null);
+      for (var j = newRows.length-2; j>=0; --j) {
+        tbody.insertBefore(newRows[j], newRows[j+1]);
+      }
+    });
+  }
+  // Table
+  // - Copy
+  const copycells = document.querySelectorAll(".table .table__allowcopy");
+  for (var i = 0; i < copycells.length; i++) {
+    const copycell = copycells[i];
+    copycell.addEventListener("click", function(e) {
+      const cell = e.target.closest("td");
+      const text = cell.innerText;
+      navigator.clipboard.writeText(text);
+    });
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
+

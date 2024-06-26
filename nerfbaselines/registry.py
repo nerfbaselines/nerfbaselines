@@ -359,11 +359,11 @@ def get_dataset_spec(name: str) -> DatasetSpec:
     return datasets_registry[name]
 
 
-def get_dataset_downloaders() -> Sequence[Tuple[str, DownloadDatasetFunction]]:
+def get_dataset_downloaders() -> Dict[str, DownloadDatasetFunction]:
     _auto_register()
     datasets = [(k,v) for k,v in datasets_registry.items() if v.get("download_dataset_function") is not None]
     datasets.sort(key=lambda x: -x[1]["priority"])
-    return [(name, _import_type(assert_not_none(spec.get("download_dataset_function")))) for name, spec in datasets]
+    return {name: _import_type(assert_not_none(spec.get("download_dataset_function"))) for name, spec in datasets}
 
 
 def build_evaluation_protocol(name: str) -> 'EvaluationProtocol':

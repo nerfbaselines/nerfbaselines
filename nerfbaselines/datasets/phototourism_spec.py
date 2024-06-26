@@ -8,5 +8,20 @@ register(name="phototourism", spec={
     "evaluation_protocol": {
         "evaluation_protocol": ".phototourism:NerfWEvaluationProtocol",
         "name": "nerfw",
+    },
+    "metadata": {
+        "id": "phototourism",
+        "name": "Photo Tourism",
+        "metrics": ["psnr", "ssim", "lpips"],
+        "scenes": [{
+            "id": "sacre-coeur",
+            "name": "Sacre Coeur"
+        }, {
+            "id": "trevi-fountain",
+            "name": "Trevi Fountain"
+        }, {
+            "id": "brandenburg-gate",
+            "name": "Brandenburg Gate"
+        }]
     }
 })

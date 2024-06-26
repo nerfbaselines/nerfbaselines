@@ -1,0 +1,62 @@
+{% extends "_layout.html" %}
+{% block head %}
+    <title>NerfBaselines</title>
+{% endblock %}
+{% block content %}
+<header class="main-header">
+  <div class="main-header__top-row">
+    <img src="./logo.png" alt="NerfBaselines" />
+    <h1>
+      <span>Nerf<br/>Baselines</span>
+    </h1>
+  </div>
+  <div class="main-header__buttons-row">
+    <a class="button" href="https://github.com/jkulhanek/nerfbaselines"><i class="ti ti-brand-github-filled"></i> GitHub</a>
+  </div>
+  <p class="main-header__abstract">
+    NerfBaselines is a framework for <strong>evaluating and comparing existing NeRF methods</strong>.
+    Currently, most official implementations use different dataset loaders, evaluation protocols, and metrics which renders the comparison of methods difficult.
+    Therefore, this project aims to provide a <strong>unified interface</strong> for running and evaluating methods on different datasets in a consistent way using the same metrics. But instead of reimplementing the methods, <strong>we use the official implementations</strong> and wrap them so that they can be run easily using the same interface.
+  </p>
+</header>
+<main>
+  {% for dataset in datasets %}
+  <section id="dataset-{{dataset.id}}" class="result-set-panel">
+    <div class="result-set-panel__header">
+      <h2>
+          <a href="{{ base_path }}/{{ dataset.slug }}">{{ dataset.name }}&nbsp;<i class="ti ti-external-link text-blue"></i></a>
+      </h2>
+      <p className="text-justify">{{ dataset.description }}</p>
+    </div>
+    {% with methods=dataset.methods, dataset_id=dataset.id, metrics=dataset.metrics, scenes=dataset.scenes, default_metric=dataset.default_metric or dataset.metrics[0].id  %}
+      {% include '_partials/dataset_table.html' %}
+    {% endwith %}
+  </section>
+  {% endfor %}
+  <section>
+    <h2>Acknowledgements</h2>
+    <p>
+    We want to thank Brent Yi and the <a href="https://github.com/nerfstudio-project/nerfstudio">NerfStudio Team</a> for helpful discussions regarding the NerfStudio codebase and for releasing the Viser platform.
+This work was supported by the Czech Science Foundation (GA&#268;R) EXPRO (grant no. 23-07973X), the Grant Agency of the Czech Technical University in Prague (grant no. SGS24/095/OHK3/2T/13), and by the Ministry of Education, Youth and Sports of the Czech Republic through the e-INFRA CZ (ID:90254).</p>
+  </section>
+  <section>
+    <h2>License</h2>
+    <p>
+      The NerfBaselines project is licensed under the <a href="https://raw.githubusercontent.com/jkulhanek/nerfbaselines/main/LICENSE">MIT license</a>.
+      Each implemented method is licensed under the license provided by the authors of the method.
+      For the currently implemented methods, the following licenses apply:
+      <ul>
+        <li>NerfStudio: <a href="https://raw.githubusercontent.com/nerfstudio-project/nerfstudio/main/LICENSE">Apache 2.0</a></li>
+        <li>Instant-NGP: <a href="{https://raw.githubusercontent.com/NVlabs/instant-ngp/master/LICENSE.txt">custom, research purposes only</a></li>
+        <li>Gaussian-Splatting: <a href="{https://raw.githubusercontent.com/graphdeco-inria/gaussian-splatting/main/LICENSE.md">custom, research purposes only</a></li>
+        <li>Mip-Splatting: <a href="{https://raw.githubusercontent.com/autonomousvision/mip-splatting/main/LICENSE.md">custom, research purposes only</a></li>
+        <li>Gaussian Opacity Fields: <a href="{https://raw.githubusercontent.com/autonomousvision/gaussian-opacity-fields/main/LICENSE.md">custom, research purposes only</a></li>
+        <li>Tetra-NeRF: <a href="{https://raw.githubusercontent.com/jkulhanek/tetra-nerf/master/LICENSE">MIT</a>, <a href="{https://raw.githubusercontent.com/nerfstudio-project/nerfstudio/main/LICENSE">Apache 2.0</a></li>
+        <li>Mip-NeRF 360: <a href="{https://raw.githubusercontent.com/google-research/multinerf/main/LICENSE">Apache 2.0</a></li>
+        <li>Zip-NeRF: <a href="{https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE">Apache 2.0</a></li>
+        <li>CamP: <a href="{https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE">Apache 2.0</a></li>
+      </ul>
+    </p>
+  </section>
+</main>
+{% endblock %}

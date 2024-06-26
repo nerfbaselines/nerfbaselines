@@ -1,0 +1,42 @@
+{% extends "_layout.html" %}
+{% block head %}
+<title>NerfBaselines: Method {{ name }}</title>
+{% endblock %}
+{% block content %}
+<main>
+  <div class="results-page__header">
+    <h1>
+      {{ name }}<a class="text-blue" href="javascript:history.back()"><i class="ti ti-arrow-back-up"></i></a>
+    </h1>
+    <p class="text-justify">
+    {{ description }}
+    </p>
+    {% if link or paper_link or paper_authors %}
+    <div cass="results-page__header-links">
+      {% if link %}
+      <div>Web: <a href="{{ link }}" class="text-blue link-underline">{{ link }}</a></div>
+      {% endif %}
+      {% if paper_link %}
+      <div>Paper: <a href="{{ paper_link }}" class="text-blue link-underline">{{ paper_title or paper_link }}</a></div>
+      {% endif %}
+      {% if paper_authors %}
+      <div>Authors: <span style="font-weight: normal;font-style: italic">{{ paper_authors|join(", ") }}</span></div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% for dataset in datasets %}
+  <div id={{ dataset.id }} class="result-set-panel">
+    <div class="result-set-panel__header">
+      <h2>
+        {{ dataset.name }}
+      </h2>
+      <p class="text-justify">{{ dataset.description }}</p>
+    </div>
+    {% with average=dataset.average,metrics=dataset.metrics,scenes=dataset.scenes,default_metric=default_metric or dataset.metrics[0].id  %}
+      {% include '_partials/method_dataset_table.html' %}
+    {% endwith %}
+  </div>
+  {% endfor %}
+</main>
+{% endblock %}
