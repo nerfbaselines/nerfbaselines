@@ -38,7 +38,7 @@ class LazyGroup(click.Group):
         return super().get_command(ctx, cmd_name)
 
     def list_commands(self, ctx):
-        return sorted(itertools.chain(self._lazy_commands.items(), self.commands.items()))
+        return sorted(itertools.chain(self._lazy_commands.keys(), self.commands.keys()))
 
     def add_lazy_command(self, package_name: str, command_name: str, hidden=False):
         self._lazy_commands[command_name] = dict(

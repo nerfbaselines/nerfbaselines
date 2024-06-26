@@ -243,9 +243,11 @@ def _prepare_data(data_path, datasets=None):
     if data_path is not None:
         logging.info(f"Loading data from {data_path}")
         raw_data = get_raw_data(data_path)
-        raw_data.sort(key=lambda x: DEFAULT_DATASET_ORDER.index(x["id"]) 
-                      if x in DEFAULT_DATASET_ORDER 
-                      else len(DEFAULT_DATASET_ORDER))
+        if datasets is None:
+            from nerfbaselines.results import DEFAULT_DATASET_ORDER
+            raw_data.sort(key=lambda x: DEFAULT_DATASET_ORDER.index(x["id"]) 
+                          if x in DEFAULT_DATASET_ORDER 
+                          else len(DEFAULT_DATASET_ORDER))
         if datasets is not None:
             raw_data_map = {d["id"]: d for d in raw_data}
             raw_data = [raw_data_map[d] for d in datasets]

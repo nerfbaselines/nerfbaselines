@@ -56,7 +56,7 @@ section > p {
 pre {
   -webkit-overflow-scrolling: touch;
   overflow-x: auto;
-  padding: 0.625rem 1rem ;
+  padding: 1.25rem 1rem;
   white-space: pre;
   word-wrap: normal;
 
