@@ -103,6 +103,36 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 | [NeRF](https://jkulhanek.com/nerfbaselines/m-nerf)                                       |     28.723 |     0.936 |       0.092 | 23h 26m 30s |    10.2 GB |
 
 
+### Tanks and Temples
+Tanks and Temples is a benchmark for image-based 3D reconstruction. The benchmark sequences were acquired outside the lab, in realistic conditions. Ground-truth data was captured using an industrial laser scanner. The benchmark includes both outdoor scenes and indoor environments. The dataset is split into three subsets: training, intermediate, and advanced.
+Detailed results are available on the project page: [https://jkulhanek.com/nerfbaselines/tanksandtemples](https://jkulhanek.com/nerfbaselines/tanksandtemples)
+
+| Method                                                                                   |       PSNR |      SSIM |     LPIPS |       Time |   GPU mem. |
+|:-----------------------------------------------------------------------------------------|-----------:|----------:|----------:|-----------:|-----------:|
+| [Zip-NeRF](https://jkulhanek.com/nerfbaselines/m-zipnerf)                                | **24.628** | **0.840** | **0.131** |  5h 44m 9s |    26.6 GB |
+| [Mip-Splatting](https://jkulhanek.com/nerfbaselines/m-mip-splatting)                     |   *23.930* |   *0.833* |     0.166 |    15m 56s |     7.3 GB |
+| [Gaussian Splatting](https://jkulhanek.com/nerfbaselines/m-gaussian-splatting)           |     23.827 |     0.831 |   *0.165* |  *13m 48s* |     6.9 GB |
+| [Gaussian Opacity Fields](https://jkulhanek.com/nerfbaselines/m-gaussian-opacity-fields) |     22.395 |     0.825 |     0.172 |          - |          - |
+| [NerfStudio](https://jkulhanek.com/nerfbaselines/m-nerfacto)                             |     22.043 |     0.743 |     0.270 |    19m 27s | **3.7 GB** |
+| [Instant NGP](https://jkulhanek.com/nerfbaselines/m-instant-ngp)                         |     21.623 |     0.712 |     0.340 | **4m 27s** |   *4.1 GB* |
+
+
+### Reproducing results
+| Method                  | Mip-NeRF 360  | Blender    | NerfStudio | Tanks and Temples | LLFF    |
+|:-----------------------:|:-------------:|:----------:|:----------:|:-----------------:|:-------:|
+| NerfStudio              | 🥇 gold       | 🥇 gold    | ❔         | 🥇 gold           | ❌      |
+| Instant-NGP             | 🥇 gold       | 🥇 gold    | 🥇 gold    | 🥇 gold           | ❌      |
+| Gaussian Splatting      | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      |
+| Mip-Splatting           | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      |
+| Gaussian Opacity Fields | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      |
+| Tetra-NeRF              | 🥈 silver     | 🥈 silver  | ❔         | ❔                | ❌      |
+| Mip-NeRF 360            | 🥇 gold       | 🥇 gold    | ❔         | ❔                | ❌      |
+| Zip-NeRF                | 🥇 gold       | 🥇 gold    | 🥇 gold    | 🥇 gold           | ❌      |
+| CamP                    | ❔            | ❔         | ❔         | ❔                | ❌      |
+| TensoRF                 | ❌            | 🥇 gold    | ❔         | ❔                | 🥇 gold |
+| NeRF                    | ❔            | 🥇 gold    | ❔         | ❔                | ❔      |
+
+
 ## Implementation status
 Methods:
 - [x] NerfStudio (Nerfacto)
@@ -137,21 +167,6 @@ Datasets/features:
 - [x] logging to tensorboard, wandb
 - [ ] HDR images support
 - [ ] RAW images support
-
-### Reproducing results
-| Method                  | Mip-NeRF 360  | Blender    | NerfStudio | Tanks and Temples | LLFF    |
-|:-----------------------:|:-------------:|:----------:|:----------:|:-----------------:|:-------:|
-| NerfStudio              | 🥇 gold       | 🥇 gold    | ❔         | 🥇 gold           | ❌      |
-| Instant-NGP             | 🥇 gold       | 🥇 gold    | 🥇 gold    | 🥇 gold           | ❌      |
-| Gaussian Splatting      | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      |
-| Mip-Splatting           | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      |
-| Gaussian Opacity Fields | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      |
-| Tetra-NeRF              | 🥈 silver     | 🥈 silver  | ❔         | ❔                | ❌      |
-| Mip-NeRF 360            | 🥇 gold       | 🥇 gold    | ❔         | ❔                | ❌      |
-| Zip-NeRF                | 🥇 gold       | 🥇 gold    | 🥇 gold    | 🥇 gold           | ❌      |
-| CamP                    | ❔            | ❔         | ❔         | ❔                | ❌      |
-| TensoRF                 | ❌            | 🥇 gold    | ❔         | ❔                | 🥇 gold |
-| NeRF                    | ❔            | 🥇 gold    | ❔         | ❔                | ❔      |
 
 ## Contributing
 Contributions are very much welcome. Please open a PR with a dataset/method/feature that you want to contribute. The goal of this project is to slowly expand by implementing more and more methods.

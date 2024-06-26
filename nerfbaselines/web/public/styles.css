@@ -285,6 +285,11 @@ h2 .ti {
   background-color: rgb(28, 126, 214);
 }
 
+.table-container {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 /* <table styles> */
 .table {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";

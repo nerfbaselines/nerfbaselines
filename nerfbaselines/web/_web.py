@@ -56,20 +56,25 @@ def get_dataset_data(raw_data):
         sign = 1
     scenes_map = {s["id"]: s for s in data["scenes"]}
     data["slug"] = _clean_slug(raw_data["id"])
-    data["methods"].sort(key=lambda x: sign * x[default_metric])
+    data["methods"].sort(key=lambda x: sign * x.get(default_metric, -float("inf")))
+    extended_metrics = data["metrics"] + [{"id": "total_train_time"}, {"id": "gpu_memory"}]
     data["methods"] = [{
         **m,
         "slug": _clean_slug(m["id"]),
         "average": {
             mid["id"]: _format_cell(_get_average([m["scenes"].get(s["id"]) or {} for s in data["scenes"]], mid["id"], sign), mid["id"])
-            for mid in data["metrics"] + [{"id": "total_train_time"}, {"id": "gpu_memory"}]
+            for mid in extended_metrics
         },
         "scenes": [{
-            **{k: _format_cell(v, k) for k, v in m["scenes"][s["id"]].items()},
-            **scenes_map[s["id"]],
+            **{m["id"]: "-" for m in extended_metrics},
+            **{k: _format_cell(v, k) for k, v in m["scenes"].get(s["id"], {}).items()},
+            **scenes_map.get(s["id"], {}),
             "demo_link": None,
-            "data_link": f"https://huggingface.co/jkulhanek/nerfbaselines/resolve/main/{m['id']}/{dataset}/{s['id']}.zip",
-        } for s in data["scenes"] if s["id"] in m["scenes"]]
+            "data_link": (
+                f"https://huggingface.co/jkulhanek/nerfbaselines/resolve/main/{m['id']}/{dataset}/{s['id']}.zip" if s["id"] in m["scenes"]
+                else None
+            )
+        } for s in data["scenes"]]
     } for m in data["methods"]]
     return data
 

@@ -1,41 +1,43 @@
-<table class="table">
-  <thead class="table__header">
-    <th class="w70"></th>
-    <th class="w120"><span class="table__sortbutton" title="Sort by method name (ascending)">Method <i class="ti" /></span></th>
-    {% for metric in metrics %}
-    <th><span class="table__sortbutton" title="Sort by {{ metric.name }} (ascending)">{{ metric.name }} <i class="ti" /></span></th>
-    {% endfor %}
-    <th><span class="table__sortbutton" title="Sort by time (ascending)">Time <i class="ti" /></span></th>
-    <th><span class="table__sortbutton" title="Sort by GPU Mem. (ascending)">GPU Mem. <i class="ti" /></span></th>
-  </thead>
-  <tbody class="expand-root">
-    {% for method in methods %}
-    <tr data-expand-id="{{ method.id }}">
-      <td class="w70">
-        <span class="table__expandtoggle ti" data-expand-id="{{ method.id }}" title="Expand"></span>
-      </td>
-      <td class="w120"><a href="{{ base_path }}/m-{{ method.slug }}">{{ method.name }}</a></td>
+<div class="table-container">
+  <table class="table">
+    <thead class="table__header">
+      <th class="w70"></th>
+      <th class="w120"><span class="table__sortbutton" title="Sort by method name (ascending)">Method <i class="ti" /></span></th>
       {% for metric in metrics %}
-      <td><span class="table__allowcopy">{{ method.average[metric.id] }}</span></td>
+      <th><span class="table__sortbutton" title="Sort by {{ metric.name }} (ascending)">{{ metric.name }} <i class="ti" /></span></th>
       {% endfor %}
-      <td><span class="table__allowcopy">{{ method.average.total_train_time }}</span></td>
-      <td><span class="table__allowcopy">{{ method.average.gpu_memory }}</span></td>
-    </tr>
-    {% for scene in method.scenes %}
-    <tr data-expand-by="{{ method.id }}" style="display: none">
-      <td class="w70">
-        {% if scene.data_link %}
-        <a href="{{ scene.data_link }}" title="Download checkpoint and predictions for scene {{ scene.name }}" class="ti ti-download ti-green"></a>
-        {% endif %}
-      </td>
-      <td class="w120">{{ scene.name }}</td>
-      {% for metric in metrics %}
-      <td><span class="table__allowcopy">{{ scene[metric.id] }}</span></td>
+      <th><span class="table__sortbutton" title="Sort by time (ascending)">Time <i class="ti" /></span></th>
+      <th><span class="table__sortbutton" title="Sort by GPU Mem. (ascending)">GPU Mem. <i class="ti" /></span></th>
+    </thead>
+    <tbody class="expand-root">
+      {% for method in methods %}
+      <tr data-expand-id="{{ method.id }}">
+        <td class="w70">
+          <span class="table__expandtoggle ti" data-expand-id="{{ method.id }}" title="Expand"></span>
+        </td>
+        <td class="w120"><a href="{{ base_path }}/m-{{ method.slug }}">{{ method.name }}</a></td>
+        {% for metric in metrics %}
+        <td><span class="table__allowcopy">{{ method.average[metric.id] }}</span></td>
+        {% endfor %}
+        <td><span class="table__allowcopy">{{ method.average.total_train_time }}</span></td>
+        <td><span class="table__allowcopy">{{ method.average.gpu_memory }}</span></td>
+      </tr>
+      {% for scene in method.scenes %}
+      <tr data-expand-by="{{ method.id }}" style="display: none">
+        <td class="w70">
+          {% if scene.data_link %}
+          <a href="{{ scene.data_link }}" title="Download checkpoint and predictions for scene {{ scene.name }}" class="ti ti-download ti-green"></a>
+          {% endif %}
+        </td>
+        <td class="w120">{{ scene.name }}</td>
+        {% for metric in metrics %}
+        <td><span class="table__allowcopy">{{ scene[metric.id] }}</span></td>
+        {% endfor %}
+        <td><span class="table__allowcopy">{{ scene.total_train_time }}</span></td>
+        <td><span class="table__allowcopy">{{ scene.gpu_memory }}</span></td>
+      </tr>
       {% endfor %}
-      <td><span class="table__allowcopy">{{ scene.total_train_time }}</span></td>
-      <td><span class="table__allowcopy">{{ scene.gpu_memory }}</span></td>
-    </tr>
-    {% endfor %}
-    {% endfor %}
-  </tbody>
-</table>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
