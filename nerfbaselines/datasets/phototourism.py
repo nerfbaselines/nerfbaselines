@@ -39,7 +39,7 @@ def load_phototourism_dataset(path: Union[Path, str], split: str, use_nerfw_spli
             with (path / "nerfw_split.csv").open() as f:
                 reader = csv.reader(f, delimiter="\t")
                 next(reader)
-                split_list = [x[0] for x in reader if x[2] == split]
+                split_list = [x[0] for x in reader if x[1] and x[2] == split]
                 assert len(split_list) > 0, f"{split} list is empty"
         else:
             logging.warning(

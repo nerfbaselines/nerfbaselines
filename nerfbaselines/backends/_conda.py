@@ -70,11 +70,11 @@ def conda_get_install_script(spec: CondaBackendSpec, package_path: Optional[str]
 was_message=0
 if [ -d {shlex.quote(os.path.dirname(os.path.dirname(env_path)))} ]; then
     for hash in $(ls -1 {shlex.quote(os.path.dirname(os.path.dirname(env_path)))}); do
-        if [ "$was_message" -eq 0 ]; then
-            echo "Clearing old environments"
-            was_message=1
-        fi
         if [ "$hash" != {shlex.quote(environment_hash)} ]; then
+            if [ "$was_message" -eq 0 ]; then
+                echo "Clearing old environments"
+                was_message=1
+            fi
             echo "   Removing old environment $hash"
             rm -rf {shlex.quote(os.path.dirname(os.path.dirname(env_path)))}"/$hash"
         fi

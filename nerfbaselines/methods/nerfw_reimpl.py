@@ -1,51 +1,345 @@
-import shlex
-from argparse import ArgumentParser
+import tempfile
+import sys
+from collections import defaultdict
+import contextlib
 import os
-from functools import cached_property
+from queue import Queue
+from threading import Thread
+import pickle
+import tqdm
+import math
+from contextlib import contextmanager
+import warnings
+import glob
+import logging
+from argparse import ArgumentParser
+from functools import partial
 from typing import Optional, Iterable, Sequence
-from nerfbaselines.utils import remap_error
-from nerfbaselines.types import Method, Dataset, Cameras, RenderOutput, OptimizeEmbeddingsOutput, ModelInfo, MethodInfo
+from nerfbaselines.utils import remap_error, flatten_hparams, convert_image_dtype
+from nerfbaselines.types import Method, Dataset, Cameras, RenderOutput, OptimizeEmbeddingsOutput, ModelInfo, MethodInfo, CameraModel, get_args
+from nerfbaselines.pose_utils import invert_transform, pad_poses
+from nerfbaselines import cameras as _cameras
+
+import pytorch_lightning as pl
 from pytorch_lightning import Trainer
 import numpy as np
+import torch
+
+
+from pytorch_lightning import loggers as _loggers
+try:
+    from pytorch_lightning.loggers import TestTubeLogger as _
+    del _
+except ImportError:
+    _loggers.TestTubeLogger = _loggers.TensorBoardLogger
+from datasets import phototourism as pl_phototourism_dataset
+from models.rendering import render_rays
 import train
 
 
-def _config_overrides_to_args_list(args_list, config_overrides):
-    for k, v in config_overrides.items():
-        if str(v).lower() == "true":
-            v = True
-        if str(v).lower() == "false":
-            v = False
-        if isinstance(v, bool):
-            if v:
-                if f'--no-{k}' in args_list:
-                    args_list.remove(f'--no-{k}')
-                if f'--{k}' not in args_list:
-                    args_list.append(f'--{k}')
-            else:
-                if f'--{k}' in args_list:
-                    args_list.remove(f'--{k}')
-                else:
-                    args_list.append(f"--no-{k}")
-        elif f'--{k}' in args_list:
-            args_list[args_list.index(f'--{k}') + 1] = str(v)
+logger = logging.getLogger("nerfw-reimpl")
+warnings.filterwarnings("ignore", ".*does not have many workers.*")
+
+
+class CallbackIterator:
+    def __init__(self, run):
+        self.run_callback = run
+        self._queue = Queue(maxsize=1)
+        self._thread = None
+        self._pause_sentinel = object()
+        self._end_sentinel = object()
+        self._exception_sentinel = object()
+        self._result_sentinel = object()
+
+    def _run(self):
+        try:
+            def _block(obj=None):
+                self._queue.put((self._result_sentinel, obj))
+                self._queue.put((self._pause_sentinel, None))
+                self._queue.put((self._pause_sentinel, None))
+            self.run_callback(_block)
+            self._queue.put((self._end_sentinel, None))
+        except Exception as e:
+            self._queue.put((self._exception_sentinel, e))
+
+    def __iter__(self):
+        assert self._thread is None, "Iterator is already running"
+        self._thread = Thread(target=self._run, daemon=True)
+        self._thread.start()
+        return self
+
+    def __next__(self):
+        if self._thread is None:
+            raise RuntimeError("Iterator is not running. Call iter() first")
+        sentinel = self._pause_sentinel
+        while sentinel == self._pause_sentinel:
+            sentinel, out = self._queue.get()
+        if sentinel is self._end_sentinel:
+            raise StopIteration()
+        elif sentinel is self._exception_sentinel:
+            raise out
+        elif sentinel is self._result_sentinel:
+            return out
         else:
-            args_list.append(f"--{k}")
-            args_list.append(str(v))
+            raise RuntimeError("Invalid sentinel")
 
 
-def get_opts(args):
+
+def patch_nerfw_rempl():
+    # Fix bug in the nerf_pl codebase
+    # From the README:
+    #   There is a difference between the paper: I didn't add the appearance embedding in the coarse model while it should. 
+    #   Please change this line to self.encode_appearance = encode_appearance to align with the paper.
+    from models.nerf import NeRF
+    old_init = NeRF.__init__
+    def new_init(self, *args, **kwargs):
+        old_init(self, *args, **kwargs)
+        self.encode_appearance = self.encode_appearance
+    NeRF.__init__ = new_init
+
+    # All memory is in cache, using more workers is just a waste
+    from train import NeRFSystem
+    old_train_dataloader = NeRFSystem.train_dataloader
+    def _train_dataloader(self):
+        from train import DataLoader
+        old_Dataloader = DataLoader.__init__
+        try:
+            def _init(*args, **kwargs):
+                kwargs["num_workers"] = 0
+                kwargs.pop("prefetch_factor", None)
+                return old_Dataloader(*args, **kwargs)
+            DataLoader.__init__ = _init
+            dl = old_train_dataloader(self)
+        finally:
+            DataLoader.__init__ = old_Dataloader
+        assert dl.num_workers == 0, f"Failed to patch DataLoader. num_workers ({dl.num_workers}) != 0"
+        logger.info("Patched DataLoader to num_workers=0 to avoid OOM")
+        return dl
+    NeRFSystem.train_dataloader = _train_dataloader
+
+
+patch_nerfw_rempl()
+
+
+class CameraTransformer:
+    def __init__(self, scale_factor=None, points3D_xyz=None):
+        if points3D_xyz is not None:
+            points3D_xyz = torch.from_numpy(points3D_xyz).float()
+        self.scale_factor = scale_factor
+        self.points3D_xyz = points3D_xyz
+        self._nears_fars_cache = None
+
+    @staticmethod
+    @torch.no_grad()
+    def _get_nears_fars(points3D_xyz, cameras):
+        # Compute near and far bounds for each image individually
+        xyz_world = points3D_xyz
+        xyz_world_h = torch.cat([xyz_world, torch.ones_like(xyz_world[..., :1])], -1)
+        nears, fars = [], [] # {id_: distance}
+        w2c_mats = [torch.from_numpy(pad_poses(invert_transform(cameras.poses[i]))).float() for i in range(len(cameras))]
+        for i in range(len(cameras)):
+            xyz_cam_i = (xyz_world_h @ w2c_mats[i].T)[:, :3] # xyz in the ith cam coordinate
+            xyz_cam_i = xyz_cam_i[xyz_cam_i[:, 2]>0] # filter out points that lie behind the cam
+            nears.append(torch.quantile(xyz_cam_i[:, 2], 0.01*0.1))
+            fars.append(torch.quantile(xyz_cam_i[:, 2], 0.01*99.9))
+        nears = torch.stack(nears).cpu().float().numpy()
+        fars = torch.stack(fars).cpu().float().numpy()
+        return nears, fars
+
+    def save(self, checkpoint_data):
+        checkpoint_data["scale_factor"] = self.scale_factor
+        checkpoint_data["points3D_xyz"] = self.points3D_xyz.cpu().numpy()
+
+    @staticmethod
+    def build_from_dataset(dataset):
+        cameras = dataset["cameras"]
+        points3D_xyz = torch.from_numpy(dataset["points3D_xyz"]).float()
+        nears, fars = CameraTransformer._get_nears_fars(points3D_xyz, cameras)
+
+        min_near = nears.min()
+        max_far = fars.max()
+        scale_factor = max_far/5 # so that the max far is scaled to 5
+        logger.info(f"Min far: {min_near:.6f}, Max far: {max_far:.6f}, scale_factor: {scale_factor:.6f}")
+
+        out = CameraTransformer(scale_factor, dataset["points3D_xyz"].copy())
+        out._nears_fars_cache = (cameras.poses, (nears, fars))
+        return out
+
+    def get_rays(self, cameras, include_ts=False):
+        device = torch.device("cpu")
+        if self._nears_fars_cache is not None and np.array_equal(self._nears_fars_cache[0], cameras.poses):
+            # Speedup: reuse the cached nears and fars for the training dataset
+            nears, fars = self._nears_fars_cache[1]
+        else:
+            nears, fars = self._get_nears_fars(self.points3D_xyz, cameras)
+        self._nears_fars_cache = None
+
+        nears /= self.scale_factor
+        fars /= self.scale_factor
+
+        # Create rays
+        num_rays = cameras.image_sizes.prod(-1).sum()
+        all_rays = torch.zeros((num_rays, 8 if not include_ts else 9), dtype=torch.float32)
+        offset = 0
+        cameras_th = cameras.apply(lambda x, _: torch.from_numpy(x).to(device))
+        for i in range(len(cameras)):
+            xy = _cameras.get_image_pixels(cameras_th.image_sizes[i]).to(torch.float32)
+            # We do not add +0.5 offset to pixel coords to be consistent with nerf_pl codebase
+            # https://github.com/kwea123/nerf_pl/blob/52aeb387da64a9ad9a0f914ea9b049ffc598b20c/datasets/ray_utils.py#L5
+            rays_o, rays_d = _cameras.unproject(cameras_th[i:i+1], xy)
+            # Normalize directions as in the nerf_pl codebase
+            rays_d = torch.nn.functional.normalize(rays_d, dim=-1)
+            rays_o = rays_o / float(self.scale_factor)
+            rays_o, rays_d = rays_o.cpu(), rays_d.cpu()
+            nrays_ = len(rays_o)
+            # Save memory by reusing the same tensor
+            all_rays[offset:offset+nrays_, 0:3] = rays_o
+            all_rays[offset:offset+nrays_, 3:6] = rays_d
+            all_rays[offset:offset+nrays_, 6] = float(nears[i])
+            all_rays[offset:offset+nrays_, 7] = float(fars[i])
+            if include_ts:
+                all_rays[offset:offset+nrays_, 8] = i
+            offset += nrays_
+        assert offset == num_rays, f"Offset mismatch {offset} != {num_rays}"
+        return all_rays
+
+
+class PhototourismDataset(pl_phototourism_dataset.PhototourismDataset):
+    def __init__(self, dataset: Dataset, camera_transformer: CameraTransformer, *, split, **kwargs):
+        if split != "train":
+            return None
+        self.dataset = dataset
+        self.camera_transformer = camera_transformer
+        self.dataset_images = None
+        if dataset is not None:
+            self.dataset_images = dataset["images"]
+        super().__init__(**kwargs)
+        assert self.img_downscale == 1, "img_downscale should be 1"
+
+    def read_meta(self):
+        if self.dataset is None:
+            return
+        cameras = self.dataset["cameras"]
+        self.all_rays = None
+
+        # Compress rays to save memory
+        num_rays = cameras.image_sizes.prod(-1).sum()
+        self.all_rays_d = torch.zeros((num_rays, 3), dtype=torch.float32)
+        self.sparse_rays_onf = torch.zeros((len(cameras), 3 + 2), dtype=torch.float32)
+        self.sparse_rays_i = torch.zeros((num_rays,), dtype=torch.long)
+
+        # Needed here to fix __len__
+        self.all_rays = self.all_rays_d
+
+        offset = 0
+        for i in range(len(cameras)):
+            rays = self.camera_transformer.get_rays(cameras[i:i+1])
+            self.all_rays_d[offset:offset+len(rays), :] = rays[:, 3:6]
+            # Test if the assumptions are valid
+            assert torch.allclose(rays[:, 6], rays[:1, 6]), f"Near mismatch {rays[:, 6]} != {rays[0, 6]}"
+            assert torch.allclose(rays[:, 7], rays[:1, 7]), f"Far mismatch {rays[:, 7]} != {rays[0, 7]}"
+            assert torch.allclose(rays[:, :3], rays[:1, :3]), f"Origins mismatch {rays[:, :3]} != {rays[:1, :3]}"
+            self.sparse_rays_onf[i, :3] = rays[0, :3]
+            self.sparse_rays_onf[i, 3:] = rays[0, 6:]
+            self.sparse_rays_i[offset:offset+len(rays)] = i
+            offset += len(rays)
+        assert offset == num_rays, f"Offset mismatch {offset} != {num_rays}"
+
+        self.N_images_train = len(cameras)
+
+        self.all_rgbs = torch.zeros((num_rays, 3), dtype=torch.uint8)
+        self.all_rgbs = torch.cat([torch.from_numpy(x).view(-1, 3) for x in self.dataset_images], 0)
+        assert len(self.all_rgbs) == num_rays, f"RGBs and rays size mismatch {len(self.all_rgbs)} != {num_rays}"
+        assert self.all_rgbs.dtype == torch.uint8, f"RGBs should be uint8, got {self.all_rgbs.dtype}"
+
+        # Save some memory
+        del self.dataset_images
+        del self.dataset["images"]
+
+
+        logger.info(f"Loaded {self.N_images_train} images for training")
+        logger.info(f"Cached {num_rays} rays")
+
+    def __getitem__(self, idx):
+        rays_d = self.all_rays_d[idx]
+        sparse_idx = self.sparse_rays_i[idx]
+        rays_o = self.sparse_rays_onf[sparse_idx, :3]
+        near_far = self.sparse_rays_onf[sparse_idx, 3:]
+        rays = torch.cat([rays_o, rays_d, near_far], 0)
+        return {
+            'rays': rays,
+            'ts': sparse_idx,
+            'rgbs': self.all_rgbs[idx].float() / 255.0
+        }
+
+
+def _override_train_iteration(model, old, cb, *args, **kwargs):
+    cb(None)
+    metrics = {}
+    def log(name, value, *args, **kwargs):
+        metrics[name] = value
+    model.log, old_log = log, model.log
+    try:
+        loss = old(*args, **kwargs)
+    finally:
+        model.log = old_log
+    cb((loss, metrics))
+    return loss
+
+
+def _system_setup(old_setup, train_dataset, camera_transformer, *args, **kwargs):
+    # Patch datasets
+    old_train_datasets = train.dataset_dict.copy()
+    try:
+        train.dataset_dict.clear()
+        train.dataset_dict["phototourism"] = partial(PhototourismDataset, train_dataset, camera_transformer)
+        old_setup(*args, **kwargs)
+    finally:
+        train.dataset_dict.clear()
+        train.dataset_dict.update(old_train_datasets)
+
+
+def get_opts(config_overrides):
     parse_args = ArgumentParser.parse_args
     try:
         ArgumentParser.parse_args = lambda self: self
         parser = train.get_opts()
     except Exception as e:
         print(f"Failed to load options: {e}")
-        print("KKKK")
         raise RuntimeError(f"Failed to load options: {e}")
     finally:
         ArgumentParser.parse_args = parse_args
-    return parser.parse_args(args)
+
+    # Set default values
+    parser.add_argument("--steps_per_epoch", type=int, default=15000)
+    parser.add_argument("--appearance_optim_finetune_tau", type=bool, default=True)
+    parser.add_argument("--appearance_optim_steps", type=int, default=1000)
+    parser.add_argument("--appearance_optim_lr", type=float, default=0.01)
+    parser.set_defaults(
+        dataset_name="phototourism",
+        N_samples=256,
+        N_importance=256,
+        N_a = 48,
+        N_tau = 16,
+        chunk=16384,
+        batch_size=1024,
+        beta_min = 0.1,
+        num_epochs=20,
+        num_gpus=8,
+        img_downscale=1,
+        encode_a=True,
+        encode_t=True,
+        appearance_optim_finetune_tau=True,
+    )
+    hparams = parser.parse_args(["--root_dir", "<empty>"])
+    type_registry = {x.option_strings[-1].lstrip("-"): x.type for x in parser._actions}
+    if config_overrides is not None:
+        for k, v in config_overrides.items():
+            vtype = type_registry.get(k, None)
+            if vtype is not None:
+                v = vtype(v)
+            setattr(hparams, k, v)
+    return hparams
 
 
 class NeRFWReimpl(Method):
@@ -56,70 +350,133 @@ class NeRFWReimpl(Method):
                  checkpoint: Optional[str] = None,
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
+        self._train_iterator = None
         self.trainer = None
         self.hparams = None
         self.checkpoint = checkpoint
         self.gaussians = None
         self.background = None
-        self.step = 0
 
-        self.scene = None
+        self._loaded_step = None
+        self._num_pixels = None
+        self._setup(train_dataset, config_overrides)
 
-        # Setup parameters
-        self._args_list = ["--root_dir", "<empty>"]
-        if checkpoint is not None:
-            with open(os.path.join(checkpoint, "args.txt"), "r", encoding="utf8") as f:
-                self._args_list = shlex.split(f.read())
+    def _setup(self, train_dataset, config_overrides):
+        # Validate config overrides
+        if config_overrides is not None:
+            assert "N_vocab" not in config_overrides, "N_vocab cannot be overridden"
 
-        if self.checkpoint is None and config_overrides is not None:
-            _config_overrides_to_args_list(self._args_list, config_overrides)
+        # Setup parameters and camera transformer
+        ckpt_file = None
+        self._num_pixels = None
+        if self.checkpoint is not None:
+            # Get checkpoint path
+            ckpts = glob.glob(os.path.join(self.checkpoint, "*.ckpt"))
+            assert len(ckpts) == 1, f"Expected one checkpoint file, got {len(ckpts)}"
+            ckpt_file = ckpts[0]
+            ckpt_data = torch.load(ckpt_file, map_location="cpu")
+            hparams = get_opts(config_overrides)
+            for k, v in ckpt_data["hyper_parameters"].items():
+                setattr(hparams, k, v)
+            self._loaded_step = ckpt_data["global_step"]
+            self._num_pixels = ckpt_data.get("num_pixels", 10)
+            camera_transformer_data = ckpt_data.get("camera_transformer", None)
+            if camera_transformer_data is not None:
+                self.camera_transformer = CameraTransformer(**camera_transformer_data)
+            else:
+                if train_dataset is not None:
+                    warnings.warn("Camera transformer not found in the checkpoint, trying to reconstruct it from the dataset")
+                    self.camera_transformer = CameraTransformer.build_from_dataset(train_dataset)
+                else:
+                    raise ValueError("Camera transformer not found in the checkpoint and no dataset provided")
+        else:
+            # Add default parameters from the train dataset
+            hparams = get_opts(config_overrides)
+            hparams.N_vocab = len(train_dataset["images"])
+            self.camera_transformer = CameraTransformer.build_from_dataset(train_dataset)
+            self._num_pixels = sum(a*b for a, b in train_dataset["cameras"].image_sizes)
+        self.hparams = hparams
 
-        self._load_config()
-
-        if self.checkpoint is None:
-            # Verify parameters are set correctly
-            if train_dataset["metadata"].get("name") == "blender":
-                assert self.dataset.white_background, "white_background should be True for blender dataset"
-
-        self._setup(train_dataset)
-
-    def _load_config(self):
-        self.hparams = get_opts(self._args_list)
-
-    def _setup(self, train_dataset):
+        # Load PL module
+        try:
+            # Patch for newer PL
+            del train.NeRFSystem.validation_epoch_end
+        except AttributeError:
+            pass
         system = train.NeRFSystem(self.hparams)
+        system.setup = partial(_system_setup, system.setup, train_dataset, self.camera_transformer)
+        system.val_dataloader = pl.LightningModule.val_dataloader
+        system.validation_step = pl.LightningModule.validation_step
+        self.system = system
+        if self.checkpoint is not None:
+            system.load_state_dict(ckpt_data["state_dict"])
+
+        # Patch PL trying to detect slurm
+        os.environ.pop("SLURM_NTASKS", None)
+        os.environ.pop("SLURM_JOB_NAME", None)
+
+        # Setup trainer
         trainer = Trainer(max_epochs=self.hparams.num_epochs,
-                          resume_from_checkpoint=self.checkpoint,
-                          weights_summary=None,
-                          gpus=self.hparams.num_gpus,
-                          accelerator='ddp' if self.hparams.num_gpus>1 else None,
-                          num_sanity_val_steps=1,
+                          devices=self.hparams.num_gpus if train_dataset is not None else 1,
+                          accelerator="cuda",
+                          strategy="ddp",
+                          barebones=True,
+                          num_sanity_val_steps=0,
+                          limit_train_batches=self.hparams.steps_per_epoch,
+                          enable_progress_bar=False,
                           benchmark=True,
                           profiler=None)
-        class CException(Exception):
-            pass
+        # Setup training
+        if train_dataset is not None:
+            with tempfile.NamedTemporaryFile() as tmpfile:
+                pickle.dump({
+                    "train_dataset": train_dataset,
+                    "config_overrides": config_overrides,
+                    "checkpoint": self.checkpoint,
+                }, tmpfile)
+                tmpfile.flush()
+                tmpfile.seek(0)
+                sys.argv = [os.path.abspath(__file__), tmpfile.name]
+                os.environ["_NB_DISABLE_LOGGING"] = "1"
+                def _run_training(yield_cb):
+                    system.training_step = partial(_override_train_iteration, system, system.training_step, yield_cb)
+                    # Patch yield_cb to pause the training after each step
+                    trainer.fit(system, ckpt_path=ckpt_file)
 
-        old_ts = trainer.fit_loop.on_train_start
+                # Fix PL adding barrier after save.
+                old_barrier = trainer.strategy.barrier
+                def _barrier(name, *args, **kwargs):
+                    if name != "Trainer.save_checkpoint":
+                        # print("Barrier", name, os.environ.get("LOCAL_RANK", None))
+                        return old_barrier(name, *args, **kwargs)
+                    else:
+                        logger.info(f"Skipping barrier for {name}")
+                trainer.strategy.barrier = _barrier
 
-        def _interrupt_init(self):
-            old_ts()
-            raise CException()
-
-        trainer.fit_loop.on_train_start = _interrupt_init
-        try:
-            trainer.fit(system)
-        except CException:
-            pass
+                # Run training stopping after each training step
+                self._train_iterator = iter(CallbackIterator(_run_training))
+                next(self._train_iterator)
+                logger.info(f"Model initialized for training")
+        else:
+            trainer.strategy._lightning_module = trainer.strategy.model = self.system.to("cuda")
+            trainer.model.setup("eval")
+            trainer._checkpoint_connector._restore_modules_and_callbacks(ckpt_file)
+            # We need to fix the trainer.global_step and trainer.current_epoch
+            del Trainer.global_step
+            trainer.global_step = ckpt_data["global_step"]
+            if "current_epoch" in ckpt_data:
+                del Trainer.current_epoch
+                trainer.current_epoch = ckpt_data["current_epoch"]
+            logger.info(f"Model initialized for evaluation")
         self.trainer = trainer
 
-    @cached_property
-    def _loaded_step(self):
-        loaded_step = None
-        if self.checkpoint is not None:
-            if not os.path.exists(self.checkpoint):
-                raise RuntimeError(f"Model directory {self.checkpoint} does not exist")
-            loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(str(self.checkpoint)) if x.startswith("chkpnt-"))[-1]
-        return loaded_step
+    @property
+    def _model(self):
+        model = self.trainer.model
+        if hasattr(model, "module"):
+            # Unwrap DDP
+            model = model.module
+        return model
 
     @classmethod
     def get_method_info(cls):
@@ -127,202 +484,169 @@ class NeRFWReimpl(Method):
         return MethodInfo(
             name=cls._method_name,
             required_features=frozenset(("color", "points3D_xyz")),
-            supported_camera_models=frozenset(("pinhole",)),
+            supported_camera_models=frozenset(get_args(CameraModel)),
         )
 
     def get_info(self) -> ModelInfo:
+        num_iterations = self.hparams.num_epochs * min(15000, ((self._num_pixels + self.hparams.batch_size - 1) // self.hparams.batch_size))
+        hparamsflat = flatten_hparams(vars(self.hparams), separator=".")
+        hparamsflat.pop("root_dir", None)
+        hparamsflat.pop("prefixes_to_ignore", None)
+        hparamsflat.pop("refresh_every", None)
+        hparamsflat.pop("exp_name", None)
+        hparamsflat.pop("img_downscale", None)
+        hparamsflat.pop("img_wh", None)
+        hparamsflat.pop("use_cache", None)
         return ModelInfo(
-            num_iterations=self.opt.iterations,
+            num_iterations=num_iterations,
             loaded_step=self._loaded_step,
             loaded_checkpoint=self.checkpoint,
-            hparams=(
-                flatten_hparams(dict(itertools.chain(vars(self.dataset).items(), vars(self.opt).items(), vars(self.pipe).items()))) 
-                if self.dataset is not None else {}),
+            hparams=hparamsflat,
             **self.get_method_info(),
         )
 
-    def _build_scene(self, dataset):
-        opt = copy.copy(self.dataset)
-        with tempfile.TemporaryDirectory() as td:
-            os.mkdir(td + "/sparse")
-            opt.source_path = td  # To trigger colmap loader
-            opt.model_path = td if dataset is not None else str(self.checkpoint)
-            backup = sceneLoadTypeCallbacks["Colmap"]
+    @contextmanager 
+    def _with_eval_embedding(self, embedding_a, embedding_t):
+        torch.autograd.set_detect_anomaly(True)
+        model = self.trainer.model
+        context = contextlib.nullcontext
+        if hasattr(model, "module"):
+            # Unwrap DDP
+            context = model.no_sync
+            model = model.module
+        model = self._model
+        device = next(iter(model.parameters())).device
+        is_training = model.training
+        old_requires_grad = [x.requires_grad for x in model.parameters()]
+        with context():
+            def render(rays, ts, output_device=None):
+                if isinstance(embedding_a, np.ndarray):
+                    embedding_a_ = torch.tensor(embedding_a, device=device)
+                elif embedding_a is None:
+                    embedding_a_ = self._model.embedding_a.weight.data.mean(0).cpu().numpy()
+                else:
+                    embedding_a_ = embedding_a.to(device)
+                if isinstance(embedding_t, np.ndarray):
+                    embedding_t_ = torch.tensor(embedding_t, device=device)
+                elif embedding_t is None:
+                    embedding_t_ = self._model.embedding_t.weight.data.mean(0).cpu().numpy()
+                else:
+                    embedding_t_ = embedding_t.to(device)
+                def expand_embedding(embedding, ts):
+                    emb = embedding.view([1] * len(ts.shape) + [-1])
+                    emb = emb.expand(list(ts.shape) + [-1])
+                    return emb
+                B = rays.shape[0]
+                results = defaultdict(list)
+                for i in range(0, B, self.hparams.chunk):
+                    tspart = ts[i:i+self.hparams.chunk]
+                    rendered_ray_chunks = \
+                        render_rays(model.models,
+                                    model.embeddings,
+                                    rays[i:i+self.hparams.chunk],
+                                    tspart,
+                                    self.hparams.N_samples,
+                                    self.hparams.use_disp,
+                                    0,
+                                    0,
+                                    self.hparams.N_importance,
+                                    self.hparams.chunk, # chunk size is effective in val mode
+                                    model.train_dataset.white_back,
+                                    a_embedded=expand_embedding(embedding_a_, tspart),
+                                    t_embedded=expand_embedding(embedding_t_, tspart),
+                                    test_time=True)
+                    for k, v in rendered_ray_chunks.items():
+                        if output_device is not None:
+                            v = v.to(output_device)
+                        results[k] += [v]
+                for k, v in results.items():
+                    results[k] = torch.cat(v, 0)
+                return results
             try:
-                info = self.get_info()
-                def colmap_loader(*args, **kwargs):
-                    return _convert_dataset_to_gaussian_splatting(dataset, td, white_background=self.dataset.white_background, scale_coords=self.dataset.scale_coords)
-                sceneLoadTypeCallbacks["Colmap"] = colmap_loader
-                scene = Scene(opt, self.gaussians, load_iteration=info["loaded_step"] if dataset is None else None)
-                # NOTE: This is a hack to match the RNG state of GS on 360 scenes
-                _tmp = list(range((len(next(iter(scene.train_cameras.values()))) + 6) // 7))
-                random.shuffle(_tmp)
-                return scene
+                for p in model.parameters():
+                    p.requires_grad = False
+                    pass
+                model.eval()
+                yield render
             finally:
-                sceneLoadTypeCallbacks["Colmap"] = backup
+                model.train(is_training)
+                for p, r in zip(model.parameters(), old_requires_grad):
+                    p.requires_grad = r
 
+    @torch.no_grad()
     def render(self, cameras: Cameras, embeddings=None) -> Iterable[RenderOutput]:
-        if embeddings is not None:
-            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
-        assert np.all(cameras.camera_types == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
-        sizes = cameras.image_sizes
-        poses = cameras.poses
-        intrinsics = cameras.intrinsics
+        model = self._model
+        device = next(iter(model.parameters())).device
+        assert device.type == "cuda", "Model is not on GPU"
+        for i in range(len(cameras)):
+            rays = self.camera_transformer.get_rays(cameras[i:i+1]).to(device) # (H*W, 8)
+            ts = torch.zeros((len(rays),), dtype=torch.long, device=device)
 
-        with torch.no_grad():
-            for i, pose in enumerate(poses):
-                viewpoint_cam = _load_caminfo(i, pose, intrinsics[i], f"{i:06d}.png", sizes[i], scale_coords=self.dataset.scale_coords)
-                viewpoint = loadCam(self.dataset, i, viewpoint_cam, 1.0)
-                image = torch.clamp(render(viewpoint, self.gaussians, self.pipe, self.background)["render"], 0.0, 1.0)
-                color = image.detach().permute(1, 2, 0).cpu().numpy()
-                yield {
-                    "color": color,
-                }
+            embedding = embeddings[i] if embeddings is not None else None
+            na = self.hparams.N_a
+            with self._with_eval_embedding(embedding[..., :na], embedding[..., na:]) as model:
+                results = model(rays, ts, output_device=torch.device("cpu"))
 
-    def train_iteration(self, step):
-        self.step = step
-        iteration = step + 1  # Gaussian Splatting is 1-indexed
-        del step
-
-        self.gaussians.update_learning_rate(iteration)
-
-        # Every 1000 its we increase the levels of SH up to a maximum degree
-        if iteration % 1000 == 0:
-            self.gaussians.oneupSHdegree()
-
-        # Pick a random Camera
-        if not self._viewpoint_stack:
-            loadCam.was_called = False
-            self._viewpoint_stack = self.scene.getTrainCameras().copy()
-            if any(not getattr(cam, "_patched", False) for cam in self._viewpoint_stack):
-                raise RuntimeError("could not patch loadCam!")
-        viewpoint_cam = self._viewpoint_stack.pop(randint(0, len(self._viewpoint_stack) - 1))
-
-        # Render
-        bg = torch.rand((3), device="cuda") if self.opt.random_background else self.background
-
-        render_pkg = render(viewpoint_cam, self.gaussians, self.pipe, bg)
-        image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
-
-        # Loss
-        gt_image = viewpoint_cam.original_image.cuda()
-        sampling_mask = viewpoint_cam.sampling_mask.cuda() if viewpoint_cam.sampling_mask is not None else None
-
-        # Apply mask
-        if sampling_mask is not None:
-            image = image * sampling_mask + (1.0 - sampling_mask) * image.detach()
-
-        Ll1 = l1_loss(image, gt_image)
-        ssim_value = ssim(image, gt_image)
-        loss = (1.0 - self.opt.lambda_dssim) * Ll1 + self.opt.lambda_dssim * (1.0 - ssim_value)
-        loss.backward()
-        
-        with torch.no_grad():
-            psnr_value = 10 * torch.log10(1 / torch.mean((image - gt_image) ** 2))
-            metrics = {
-                "l1_loss": Ll1.detach().cpu().item(), 
-                "loss": loss.detach().cpu().item(), 
-                "psnr": psnr_value.detach().cpu().item(),
+            typ = 'fine' if 'rgb_fine' in results else 'coarse'
+            W, H = cameras.image_sizes[i]
+            img = results[f'rgb_{typ}'].view(H, W, 3) # (3, H, W)
+            depth = results[f'depth_{typ}'].view(H, W) # (3, H, W)
+            yield {
+                "color": img.detach().cpu().numpy(),
+                "depth": depth.detach().cpu().numpy(),
             }
 
-            # Densification
-            if iteration < self.opt.densify_until_iter:
-                # Keep track of max radii in image-space for pruning
-                self.gaussians.max_radii2D[visibility_filter] = torch.max(self.gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
-                self.gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
+    @property
+    def _is_rank0(self):
+        return self.trainer.global_rank == 0
 
-                if iteration > self.opt.densify_from_iter and iteration % self.opt.densification_interval == 0:
-                    size_threshold = 20 if iteration > self.opt.opacity_reset_interval else None
-                    self.gaussians.densify_and_prune(self.opt.densify_grad_threshold, 0.005, self.scene.cameras_extent, size_threshold)
+    def _finish_training(self):
+        self._train_iterator = None
+        # Lightning moves everything to CPU, we need to move it back to GPU
+        model = self._model.to("cuda").eval()
+        self.trainer.strategy._lightning_module = self.trainer.strategy.model = model
+        logger.info(f"Model initialized for evaluation")
 
-                if iteration % self.opt.opacity_reset_interval == 0 or (self.dataset.white_background and iteration == self.opt.densify_from_iter):
-                    self.gaussians.reset_opacity()
-
-            # Optimizer step
-            if iteration < self.opt.iterations + 1:
-                self.gaussians.optimizer.step()
-                self.gaussians.optimizer.zero_grad(set_to_none=True)
-
-        self.step = self.step + 1
+    def train_iteration(self, step):
+        del step
+        out = None
+        while out is None:
+            out = next(self._train_iterator)
+        # Backward pass after train_iterator return
+        try:
+            next(self._train_iterator)
+        except StopIteration:  # Last step
+            logging.info("Training stopped")
+            self._finish_training()
+        loss, metrics = out
+        def _get(value):
+            if isinstance(value, torch.Tensor):
+                return value.detach().cpu().item()
+            return value
+        metrics = {
+            (k[len("train/"):] if k.startswith("train/") else k): _get(v) for k, v in metrics.items()
+        }
+        metrics["loss"] = _get(loss)
         return metrics
 
     def save(self, path: str):
-        # checkpoint_callback = \
-        #     ModelCheckpoint(filepath=os.path.join(f'ckpts/{hparams.exp_name}',
-        #                                            '{epoch:d}'),
-        #                 monitor='val/psnr',
-        #                 mode='max',
-        #                 save_top_k=-1)
+        if not self._is_rank0:
+            logging.debug("Skipping save on non-rank0 process")
+            return
+        os.makedirs(path, exist_ok=True)
+        weights_only = False
+        ckpt_data = self.trainer._checkpoint_connector.dump_checkpoint(weights_only)
 
-        with open(str(path) + "/args.txt", "w", encoding="utf8") as f:
-            f.write(shlex_join(self._args_list))
+        # Add camera transformer
+        ckpt_data["camera_transformer"] = {}
+        self.camera_transformer.save(ckpt_data["camera_transformer"])
+        ckpt_data["num_pixels"] = self._num_pixels
+        filepath = os.path.join(path, f"checkpoint.{self.trainer.global_step}.ckpt")
+        self.trainer.strategy.save_checkpoint(ckpt_data, filepath)
 
-    def export_demo(self, path: str, *, viewer_transform, viewer_initial_pose):
-        model: GaussianModel = self.gaussians
-        transform, scale = get_transform_and_scale(viewer_transform)
-        R, t = transform[..., :3, :3], transform[..., :3, 3]
-        xyz = model._xyz.detach().cpu().numpy()
-        xyz = (xyz @ R.T + t[None, :]) * scale
-        normals = np.zeros_like(xyz)
-
-        f_dc = model._features_dc.detach().cpu().transpose(2, 1).numpy()
-        f_rest = model._features_rest.detach().cpu().transpose(2, 1).numpy()
-
-        # Rotate sh using Winger's group on SO3
-        features = rotate_spherical_harmonics(R, np.concatenate((f_dc, f_rest), axis=-1))
-        features = features.reshape(features.shape[0], -1)
-        f_dc, f_rest = features[..., :f_dc.shape[-1]], features[..., f_dc.shape[-1]:]
-
-        # fuse opacity and scale
-        opacities = model.get_opacity.detach().cpu().numpy()
-        gs_scale = model.scaling_inverse_activation(model.get_scaling * scale).detach().cpu().numpy()
-        
-        rotation = model.get_rotation.detach().cpu().numpy()
-        rotation_update = rotation_matrix_to_quaternion(R)
-        rotation = quaternion_multiply(rotation_update, rotation)
-
-        dtype_full = [(attribute, 'f4') for attribute in model.construct_list_of_attributes()]
-
-        elements = np.empty(xyz.shape[0], dtype=dtype_full)
-        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, gs_scale, rotation), axis=1)
-        elements[:] = list(map(tuple, attributes))
-        el = PlyElement.describe(elements, 'vertex')
-
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            ply_file = os.path.join(tmpdirname, "gaussian_splat.ply")
-            out_file = os.path.join(tmpdirname, "gaussian_splat.ksplat")
-            ply_data = PlyData([el])
-            ply_data.write(ply_file)
-            logging.info(f"Converting to ksplat format: {ply_file} -> {out_file}")
-
-            # Convert to ksplat format
-            subprocess.check_call(["bash", "-c", f"""
-if [ ! -e /tmp/gaussian-splats-3d ]; then
-    rm -rf "/tmp/gaussian-splats-3d-tmp"
-    git clone https://github.com/mkkellogg/GaussianSplats3D.git "/tmp/gaussian-splats-3d-tmp"
-    cd /tmp/gaussian-splats-3d-tmp
-    npm install
-    npm run build
-    cd "$PWD"
-    mv /tmp/gaussian-splats-3d-tmp /tmp/gaussian-splats-3d
-fi
-node /tmp/gaussian-splats-3d/util/create-ksplat.js {shlex.quote(ply_file)} {shlex.quote(out_file)}
-"""])
-            output = Path(path)
-            os.rename(out_file, output / "scene.ksplat")
-            wget(
-                "https://raw.githubusercontent.com/gzuidhof/coi-serviceworker/7b1d2a092d0d2dd2b7270b6f12f13605de26f214/coi-serviceworker.min.js", 
-                output / "coi-serviceworker.min.js")
-            wget(
-                "https://raw.githubusercontent.com/jkulhanek/nerfbaselines/bd328ea7d68942eea76037baed50501daa3a2425/web/public/three.module.min.js",
-                output / "three.module.min.js")
-            wget(
-                "https://raw.githubusercontent.com/jkulhanek/nerfbaselines/bd328ea7d68942eea76037baed50501daa3a2425/web/public/gaussian-splats-3d.module.min.js",
-                output / "gaussian-splats-3d.module.min.js")
-            format_vector = lambda v: "[" + ",".join(f'{x:.3f}' for x in v) + "]"  # noqa: E731
-            with (output / "index.html").open("w", encoding="utf8") as f, \
-                open(Path(__file__).parent / "gaussian_splatting_demo.html", "r", encoding="utf8") as template:
-                f.write(template.read().replace("{up}", format_vector(viewer_initial_pose.reshape(-1))))
+    def _get_default_embedding(self):
+        if self.hparams.encode_a:
+            return self._model.embedding_a.weight.data.mean(0).cpu().numpy()
 
     def optimize_embeddings(
         self, 
@@ -336,7 +660,72 @@ node /tmp/gaussian-splats-3d/util/create-ksplat.js {shlex.quote(ply_file)} {shle
             dataset: Dataset.
             embeddings: Optional initial embeddings.
         """
-        return None
+        torch.cuda.empty_cache()
+        cameras = dataset["cameras"]
+        model = self._model
+        device = next(iter(model.parameters())).device
+        assert device.type == "cuda", "Model is not on GPU"
+        for i in range(len(dataset["cameras"])):
+            embedding = embeddings[i] if embeddings is not None else None
+            # TODO: nondefault embedding
+            if embedding is not None:
+                embedding_th = torch.from_numpy(embedding).to(device=device)
+                embedding_a = embedding_th[..., :self.hparams.N_a]
+                embedding_t = embedding_th[..., self.hparams.N_a:]
+            else:
+                embedding_a = self._model.embedding_a.weight.mean(0)
+                embedding_t = self._model.embedding_t.weight.mean(0)
+
+            param_a = torch.nn.Parameter(embedding_a.clone().detach().to(device=device).requires_grad_(True), requires_grad=True)
+            param_t = torch.nn.Parameter(embedding_t.clone().detach().to(device=device).requires_grad_(True), requires_grad=True)
+            params = [param_a, param_t] if self.hparams.appearance_optim_finetune_tau else [param_a]
+            optim = torch.optim.Adam(params, lr=self.hparams.appearance_optim_lr)
+            num_steps = self.hparams.appearance_optim_steps
+            lr_sched = torch.optim.lr_scheduler.StepLR(optim, step_size=num_steps//3, gamma=0.1)
+            mses = []
+            psnrs = []
+            all_rays = self.camera_transformer.get_rays(cameras[i:i+1]) # (H*W, 8)
+            w, h = cameras.image_sizes[i]
+            img_data = dataset["images"][i]
+            all_rgbs = torch.from_numpy(convert_image_dtype(img_data[:h, :w], np.float32).reshape(-1, img_data.shape[-1])) # (H*W, 3)
+            assert all_rays.size(0) == all_rgbs.size(0), f"Rays and images size mismatch {all_rays.size(0)} != {all_rgbs.size(0)}"
+            with self._with_eval_embedding(param_a, param_t) as model, \
+                 tqdm.tqdm(total=num_steps, desc=f"Optimizing image embedding [{i}/{len(cameras)}]") as pbar:
+                for _ in range(num_steps):
+                    optim.zero_grad()
+                    local_indices = torch.randperm(len(all_rays))[:self.hparams.batch_size]
+                    rays = all_rays[local_indices].to(device)
+                    rgbs = all_rgbs[local_indices].to(device)
+                    ts = torch.zeros((len(rays),), dtype=torch.long, device=device)
+
+                    results = model(rays, ts)
+                    typ = 'fine' if 'rgb_fine' in results else 'coarse'
+                    img = results[f'rgb_{typ}']
+                    mse = torch.nn.functional.mse_loss(img, rgbs).mean()
+                    mse.backward()
+                    assert torch.isfinite(param_a.grad).all()
+                    assert torch.isfinite(param_t.grad).all()
+                    optim.step()
+                    lr_sched.step()
+                    mses.append(mse.item())
+                    psnrs.append(10 * math.log10(1 / mse.item()))
+                    pbar.set_postfix({"mse": f"{mse.item():.4f}", "psnr": f"{psnrs[-1]:.3f}"})
+                    pbar.update()
+
+            render_output = None
+            appearance_embedding = np.concatenate((param_a.detach().cpu().numpy(), param_t.detach().cpu().numpy()), -1)
+            for render_output in self.render(cameras[i:i+1], [appearance_embedding] if appearance_embedding is not None else None):
+                pass
+            assert render_output is not None
+            yield {
+                "embedding": appearance_embedding,
+                "render_output": render_output,
+                "metrics": {
+                    "psnr": psnrs,
+                    "mse": mses,
+                    "loss": mses,
+                }
+            }
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
         """
@@ -345,4 +734,27 @@ node /tmp/gaussian-splats-3d/util/create-ksplat.js {shlex.quote(ply_file)} {shle
         Args:
             index: Index of the image.
         """
-        return None
+        model = self._model
+        out = []
+        if self.hparams.encode_a:
+            out.append(model.embedding_a.weight.data[index].cpu().numpy())
+        if self.hparams.encode_t:
+            out.append(model.embedding_t.weight.data[index].cpu().numpy())
+        return np.concatenate(out, -1) if out else None
+
+
+if __name__ == "__main__":
+    # Run DDP loop
+    from nerfbaselines.utils import setup_logging
+    setup_logging(False)  # setup_logging("disabled")
+    logger = logging.getLogger("slave")
+    logger.setLevel(logging.INFO)
+    logger.info("Launching slave process")
+    with open(sys.argv[1], "rb") as f:
+        kwargs = pickle.load(f)
+
+    method = NeRFWReimpl(**kwargs)
+    del kwargs
+    info = method.get_info()
+    for i in range(info.get("loaded_step") or 0, info["num_iterations"]):
+        method.train_iteration(i)

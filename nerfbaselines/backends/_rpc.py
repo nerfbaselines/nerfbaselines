@@ -113,6 +113,7 @@ def customize_wrapper_separated_fs(local_shared_path, backend_shared_path, mount
 
         # We replace the __call__ with a custom init
         old_init = ns["__call__"].__func__
+
         @staticmethod
         @functools.wraps(old_init)
         def __call__(*args, **kwargs):

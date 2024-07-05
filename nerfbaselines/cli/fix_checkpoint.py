@@ -105,6 +105,7 @@ def fix_checkpoint(checkpoint_path, new_checkpoint, load_train_dataset_fn, backe
                 method.save(_new_checkpoint)
                 with open(os.path.join(_new_checkpoint, "nb-info.json"), mode="w+", encoding="utf8") as f:
                     json.dump(serialize_nb_info(nb_info), f, indent=2)
+                logging.info(f"Checkpoint temporarily saved to {new_checkpoint}")
 
                 if changes_tracker is not None:
                     changes_tracker.add_dir_changes((), checkpoint_path, _new_checkpoint)
@@ -115,6 +116,7 @@ def fix_checkpoint(checkpoint_path, new_checkpoint, load_train_dataset_fn, backe
                 method_new: Method = method_cls(checkpoint=_new_checkpoint)
 
                 # Test if we can render
+                logging.info("Rendering a testing image")
                 out = list(method_new.render(train_dataset["cameras"][:1]))
                 assert len(out) == 1, f"Rendering failed: {out}"
         except Exception as e:

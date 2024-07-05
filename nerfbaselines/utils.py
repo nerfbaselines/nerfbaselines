@@ -296,11 +296,20 @@ class Formatter(logging.Formatter):
             return message
 
 
-def setup_logging(verbose: bool):
+def setup_logging(verbose: Union[bool, Literal['disabled']]):
     kwargs: Dict[str, Any] = {}
     if sys.version_info >= (3, 8):
         kwargs["force"] = True
-    if verbose >= 1:
+    if verbose == "disabled":
+        logging.basicConfig(level=logging.FATAL, **kwargs)
+        logging.getLogger('PIL').setLevel(logging.FATAL)
+        try:
+            import tqdm as _tqdm
+            old_init = _tqdm.tqdm.__init__
+            _tqdm.tqdm.__init__ = lambda *args, disable=None, **kwargs: old_init(*args, disable=True, **kwargs)
+        except ImportError:
+            pass
+    elif verbose:
         logging.basicConfig(level=logging.DEBUG, **kwargs)
         logging.getLogger('PIL').setLevel(logging.WARNING)
     else:
@@ -523,10 +532,15 @@ def apply_colormap(array: TTensor, *, pallete: str = "viridis", invert: bool = F
     # TODO: remove matplotlib dependency
     import matplotlib
     import matplotlib.colors
+    try:
+        import matplotlib.colormaps as colormaps
+    except ImportError:
+        import matplotlib.cm as _colormaps
+        colormaps = vars(_colormaps)
 
     # Map to a color scale
     array_long = cast(TTensor, _xnp_astype(array * 255, xnp.int32, xnp=xnp).clip(0, 255))
-    colormap = matplotlib.colormaps[pallete]
+    colormap = colormaps[pallete]
     colormap_colors = None
     if isinstance(colormap, matplotlib.colors.ListedColormap):
         colormap_colors = colormap.colors
