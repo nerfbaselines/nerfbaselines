@@ -67,6 +67,7 @@ conda develop "$PWD/internal/pycolmap/pycolmap"
         "paper_authors": ["Jonathan T. Barron", "Ben Mildenhall", "Dor Verbin", "Pratul P. Srinivasan", "Peter Hedman"],
         "paper_link": "https://arxiv.org/pdf/2111.12077.pdf",
         "link": "https://jonbarron.info/mipnerf360/",
+        "licenses": [{"name": "Apache 2.0","url": "https://raw.githubusercontent.com/google-research/multinerf/main/LICENSE"}],
     },
     "dataset_overrides": {
         "blender": { "base_config": "blender_256.gin" },

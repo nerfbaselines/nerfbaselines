@@ -93,6 +93,7 @@ This method trains very fast (~6 min) and renders also fast ~3 FPS.""",
         "paper_link": "https://nvlabs.github.io/instant-ngp/assets/mueller2022instant.pdf",
         "link": "https://nvlabs.github.io/instant-ngp/",
         "paper_results": paper_results,
+        "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/NVlabs/instant-ngp/master/LICENSE.txt"}],
     },
     "backends_order": ["docker", "conda"],
     "dataset_overrides": {

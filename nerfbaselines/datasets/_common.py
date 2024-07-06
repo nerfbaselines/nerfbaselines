@@ -12,7 +12,7 @@ from ..cameras import camera_model_to_int
 from ..types import Dataset, Literal, Cameras, UnloadedDataset
 from .. import cameras
 from ..utils import padded_stack
-from ..pose_utils import rotation_matrix, pad_poses, unpad_poses, viewmatrix, apply_transform
+from ..pose_utils import rotation_matrix, pad_poses, unpad_poses, apply_transform
 
 
 TDataset = TypeVar("TDataset", bound=Union[Dataset, UnloadedDataset])

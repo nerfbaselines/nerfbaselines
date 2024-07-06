@@ -56,6 +56,7 @@ pip install plyfile six
         "paper_link": "https://arxiv.org/pdf/2203.09517.pdf",
         "paper_results": official_results,
         "link": "https://apchenstu.github.io/TensoRF/",
+        "licenses": [{"name": "MIT", "url": "https://github.com/apchenstu/TensoRF/blob/main/LICENSE"}],
     },
     "dataset_overrides": {
         "blender": { "base_config": "lego.txt" },

@@ -78,6 +78,7 @@ fi
         "paper_authors": ["Bernhard Kerbl", "Georgios Kopanas", "Thomas Leimkühler", "George Drettakis"],
         "paper_link": "https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/3d_gaussian_splatting_low.pdf",
         "link": "https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/",
+        "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/graphdeco-inria/gaussian-splatting/main/LICENSE.md"}],
     },
     "dataset_overrides": {
         "blender": { "white_background": True, },

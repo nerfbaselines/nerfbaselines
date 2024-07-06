@@ -85,6 +85,7 @@ register(
         "description": """Zip-NeRF is a radiance field method which addresses the aliasing problem in the case of hash-grid based methods (iNGP-based).
 Instead of sampling along the ray it samples along a spiral path - approximating integration along the frustum. """,
         "paper_results": zipnerf_paper_results,
+        "licenses": [{"name": "Apache 2.0","url": "https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE"}],
     },
 )
 
@@ -92,12 +93,13 @@ register(
     CamP_ZipNerfSpec,
     name="camp",
     metadata={
-        "name": "Zip-NeRF",
+        "name": "CamP",
         "paper_title": "CamP: Camera Preconditioning for Neural Radiance Fields",
         "paper_authors": ["Keunhong Park", "Philipp Henzler", "Ben Mildenhall", "Jonathan T. Barron", "Ricardo Martin-Brualla"],
         "paper_link": "https://arxiv.org/pdf/2308.10902.pdf",
         "link": "https://camp-nerf.github.io/",
         "description": """CamP is an extension of Zip-NeRF which adds pose refinement to the training process. """,
+        "licenses": [{"name": "Apache 2.0","url": "https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE"}],
     },
     kwargs={
         "camp": True,

@@ -118,55 +118,21 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 
 
 ### Reproducing results
-| Method                  | Mip-NeRF 360  | Blender    | NerfStudio | Tanks and Temples | LLFF    |
-|:-----------------------:|:-------------:|:----------:|:----------:|:-----------------:|:-------:|
-| NerfStudio              | 🥇 gold       | 🥇 gold    | ❔         | 🥇 gold           | ❌      |
-| Instant-NGP             | 🥇 gold       | 🥇 gold    | 🥇 gold    | 🥇 gold           | ❌      |
-| Gaussian Splatting      | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      |
-| Mip-Splatting           | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      |
-| Gaussian Opacity Fields | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      |
-| Tetra-NeRF              | 🥈 silver     | 🥈 silver  | ❔         | ❔                | ❌      |
-| Mip-NeRF 360            | 🥇 gold       | 🥇 gold    | ❔         | ❔                | ❌      |
-| Zip-NeRF                | 🥇 gold       | 🥇 gold    | 🥇 gold    | 🥇 gold           | ❌      |
-| CamP                    | ❔            | ❔         | ❔         | ❔                | ❌      |
-| TensoRF                 | ❌            | 🥇 gold    | ❔         | ❔                | 🥇 gold |
-| NeRF                    | ❔            | 🥇 gold    | ❔         | ❔                | ❔      |
-
-
-## Implementation status
-Methods:
-- [x] NerfStudio (Nerfacto)
-- [x] Instant-NGP
-- [x] Gaussian Splatting
-- [x] Mip-Splatting
-- [x] Gaussian Opacity Fields
-- [x] Tetra-NeRF
-- [x] Mip-NeRF 360
-- [x] Zip-NeRF
-- [x] CamP
-- [x] TensoRF
-- [x] K-Planes
-- [ ] Nerf-W (open source reimplementation)
-- [ ] NeRF on-the-go
-- [ ] TRIPS
-- [ ] Mip-NeRF
-- [ ] NeRF
-
-Datasets/features:
-- [x] Mip-NeRF 360 dataset
-- [x] Blender dataset
-- [x] any COLMAP dataset
-- [x] any NerfStudio dataset
-- [x] LLFF dataset
-- [x] Tanks and Temples dataset
-- [x] Photo Tourism dataset and evaluation protocol
-- [x] Bundler dataset format
-- [x] automatic dataset download
-- [x] interactive viewer and trajectory editor
-- [x] undistorting images for methods that do not support complex camera models (Gaussian Splatting)
-- [x] logging to tensorboard, wandb
-- [ ] HDR images support
-- [ ] RAW images support
+| Method                  | Mip-NeRF 360  | Blender    | NerfStudio | Tanks and Temples | LLFF    | Photo Tourism |
+|:-----------------------:|:-------------:|:----------:|:----------:|:-----------------:|:-------:|:-------------:|
+| NerfStudio              | 🥇 gold       | 🥇 gold    | ❔         | 🥇 gold           | ❌      | ❔            |
+| Instant-NGP             | 🥇 gold       | 🥇 gold    | 🥇 gold    | 🥇 gold           | ❌      | ❔            |
+| Gaussian Splatting      | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      | ❔            |
+| Mip-Splatting           | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      | ❔            |
+| Gaussian Opacity Fields | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      | ❔            |
+| Tetra-NeRF              | 🥈 silver     | 🥈 silver  | ❔         | ❔                | ❌      | ❔            |
+| Mip-NeRF 360            | 🥇 gold       | 🥇 gold    | ❔         | ❔                | ❌      | ❔            |
+| Zip-NeRF                | 🥇 gold       | 🥇 gold    | 🥇 gold    | 🥇 gold           | ❌      | ❔            |
+| CamP                    | ❔            | ❔         | ❔         | ❔                | ❌      | ❔            |
+| TensoRF                 | ❌            | 🥇 gold    | ❔         | ❔                | 🥇 gold | ❔            |
+| NeRF                    | ❔            | 🥇 gold    | ❔         | ❔                | ❔      | ❔            |
+| K-Planes                | ❔            | 🥇 gold    | ❔         | ❔                | ❔      | 🥈 silver     |
+| Nerf-W (reimpl.)        | ❔            |  ❔        | ❔         | ❔                | ❔      | 🥇 gold       |
 
 ## Contributing
 Contributions are very much welcome. Please open a PR with a dataset/method/feature that you want to contribute. The goal of this project is to slowly expand by implementing more and more methods.
@@ -186,15 +152,19 @@ If you use this project in your research, please cite the following paper:
 This project is licensed under the [MIT license](https://raw.githubusercontent.com/jkulhanek/nerfbaselines/main/LICENSE)
 Each implemented method is licensed under the license provided by the authors of the method.
 For the currently implemented methods, the following licenses apply:
-- NerfStudio: [Apache 2.0](https://raw.githubusercontent.com/nerfstudio-project/nerfstudio/main/LICENSE)
-- Instant-NGP: [custom, research purposes only](https://raw.githubusercontent.com/NVlabs/instant-ngp/master/LICENSE.txt) 
-- Gaussian-Splatting: [custom, research purposes only](https://raw.githubusercontent.com/graphdeco-inria/gaussian-splatting/main/LICENSE.md)
-- Mip-Splatting: [custom, research purposes only](https://raw.githubusercontent.com/autonomousvision/mip-splatting/main/LICENSE.md)
-- Gaussian Opacity Fields: [custom, research purposes only](https://raw.githubusercontent.com/autonomousvision/gaussian-opacity-fields/main/LICENSE.md)
-- Tetra-NeRF: [MIT](https://raw.githubusercontent.com/jkulhanek/tetra-nerf/master/LICENSE), [Apache 2.0](https://raw.githubusercontent.com/nerfstudio-project/nerfstudio/main/LICENSE)
-- Mip-NeRF 360: [Apache 2.0](https://raw.githubusercontent.com/google-research/multinerf/main/LICENSE)
-- Zip-NeRF: [Apache 2.0](https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE)
 - CamP: [Apache 2.0](https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE)
+- Gaussian Opacity Fields: [custom, research only](https://raw.githubusercontent.com/autonomousvision/gaussian-opacity-fields/main/LICENSE.md)
+- Gaussian Splatting: [custom, research only](https://raw.githubusercontent.com/graphdeco-inria/gaussian-splatting/main/LICENSE.md)
+- Instant NGP: [custom, research only](https://raw.githubusercontent.com/NVlabs/instant-ngp/master/LICENSE.txt)
+- K-Planes: [BSD 3](https://raw.githubusercontent.com/sarafridov/K-Planes/main/LICENSE)
+- Mip-NeRF 360: [Apache 2.0](https://raw.githubusercontent.com/google-research/multinerf/main/LICENSE)
+- Mip-Splatting: [custom, research only](https://raw.githubusercontent.com/autonomousvision/mip-splatting/main/LICENSE.md)
+- NeRF-W (reimplementation): [MIT](https://raw.githubusercontent.com/kwea123/nerf_pl/master/LICENSE)
+- NeRF: [MIT](https://github.com/bmild/nerf/blob/master/LICENSE)
+- TensoRF: [MIT](https://github.com/apchenstu/TensoRF/blob/main/LICENSE)
+- Tetra-NeRF: [MIT](https://raw.githubusercontent.com/jkulhanek/tetra-nerf/master/LICENSE)
+- Zip-NeRF: [Apache 2.0](https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE)
+
 
 ## Acknowledgements
 A big thanks to the authors of all implemented methods for the great work they have done.

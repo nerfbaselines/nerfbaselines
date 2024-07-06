@@ -1,46 +1,47 @@
 """
 NOTE: there is slight difference from K-Planes official implementation.
-In the official implementation, the closest camera bounds are used for rendering test images.
-Here, we make it more stable by using the top 5 closest cameras.
+(Photo Tourism): In the official implementation, the closest camera bounds are used for rendering test images.
+                 Here, we make it more stable by using the top 5 closest cameras.
 """
 import shutil
 import glob
 import tqdm
 import requests
-import io
 import pprint
 import warnings
-import shlex
-import argparse
 import importlib.util
 import logging
 import os
 import pprint
 from contextlib import contextmanager
-from typing import List, Dict, Any, Optional, Iterable, Sequence
+from typing import Optional, Iterable, Sequence
 import numpy as np
 import torch
 import torch.utils.data
-from functools import cached_property
+from functools import cached_property, partial
 from nerfbaselines.utils import NoGPUError
 
 
 # Patch resource.setrlimit
 import resource
 _backup = resource.setrlimit
+
+def _noop(out=None, *args, **kwargs):
+    del args, kwargs
+    return out
+
 try:
-    resource.setrlimit = lambda *args, **kwargs: None
-    import plenoxels.configs as cfg_package
-    from plenoxels.main import init_trainer
-    from plenoxels.runners import base_trainer
-    from plenoxels.runners import video_trainer
-    from plenoxels.runners import phototourism_trainer
-    from plenoxels.runners import static_trainer
-    from plenoxels.utils.create_rendering import render_to_path, decompose_space_time
-    from plenoxels.utils.parse_args import parse_optfloat
-    from plenoxels.datasets import phototourism_dataset as ptdataset
-    import plenoxels.datasets.synthetic_nerf_dataset as sndataset
-    from plenoxels.datasets.intrinsics import Intrinsics
+    resource.setrlimit = _noop
+    import plenoxels.configs as cfg_package  # type: ignore
+    from plenoxels.main import init_trainer  # type: ignore
+    from plenoxels.runners import base_trainer  # type: ignore
+    from plenoxels.runners import video_trainer  # type: ignore
+    from plenoxels.runners import phototourism_trainer  # type: ignore
+    from plenoxels.runners import static_trainer  # type: ignore
+    from plenoxels.utils.parse_args import parse_optfloat  # type: ignore
+    from plenoxels.datasets import phototourism_dataset as ptdataset  # type: ignore
+    import plenoxels.datasets.synthetic_nerf_dataset as sndataset  # type: ignore
+    from plenoxels.datasets.intrinsics import Intrinsics  # type: ignore
 except EnvironmentError as e:
     # tcnn import error
     if "unknown compute capability. ensure pytorch with cuda support is installed." in str(e).lower():
@@ -53,7 +54,7 @@ del _backup
 
 from nerfbaselines.types import Dataset, RenderOutput, OptimizeEmbeddingsOutput
 from nerfbaselines.types import Method, MethodInfo, ModelInfo, Cameras, camera_model_to_int
-from nerfbaselines.utils import remap_error, flatten_hparams, convert_image_dtype
+from nerfbaselines.utils import flatten_hparams, convert_image_dtype
 from nerfbaselines.io import get_torch_checkpoint_sha
 import tempfile
 
@@ -61,9 +62,12 @@ import tempfile
 # Patch SummaryWriter
 class NoopWritter:
     def __init__(self, *args, **kwargs):
+        del args, kwargs
         pass
     def __getattr__(self, name):
-        return lambda *args, **kwargs: None
+        del name
+        return _noop
+
 base_trainer.SummaryWriter = NoopWritter
 
 
@@ -79,7 +83,6 @@ class LambdaModule(torch.nn.Module):
 @contextmanager
 def _patch_kplanes_phototourism_dataset(dataset, camera_bounds_index):
     # Patch kplanes dataset
-    # TODO:!!!
     with tempfile.TemporaryDirectory(suffix=dataset["metadata"].get("scene") if dataset is not None else None) as tmpdir:
         ptinit_backup = ptdataset.PhotoTourismDataset.__init__
         pt_getidsforsplit = ptdataset.get_ids_for_split
@@ -92,16 +95,20 @@ def _patch_kplanes_phototourism_dataset(dataset, camera_bounds_index):
         cached_data = None
         poses = kinvs = res = bounds = None
         if dataset is not None:
-            poses, kinvs, res = transform_cameras(dataset["cameras"])
+            cameras = dataset["cameras"]
+            poses, kinvs, res = transform_cameras(cameras)
             bounds = camera_bounds_index.bounds
             assert len(poses) == len(bounds), f"Expected {len(poses)} == {len(bounds)}"
         def pt_init(self, datadir, *args, **kwargs):
+            del datadir
             if dataset is None:
                 kwargs["split"] = "render"
             ptinit_backup(self, tmpdir, *args, **kwargs)
         def pt_getidsforsplit(datadir, split):
+            del datadir, split
             return list(range(len(dataset["cameras"]))), dataset["image_paths"]
         def pt_loadcamerametadata(datadir, idx):
+            del datadir
             return poses[idx], kinvs[idx], bounds[idx], res[idx]
         def pt_readpng(impath):
             imgid = dataset["image_paths"].index(impath)
@@ -111,13 +118,15 @@ def _patch_kplanes_phototourism_dataset(dataset, camera_bounds_index):
             else:
                 img = dataset["images"][imgid]
             img = torch.from_numpy(convert_image_dtype(img, np.float32))
-            img = img.permute(1, 2, 0).contiguous()  # H, W, C
-            return img
+            return img  # H, W, C
         def pt_renderposes(self, *args, **kwargs):
+            del self, args, kwargs
             return None, None, None, None
         def torchload(path, *args, **kwargs):
+            del path, args, kwargs
             return cached_data
         def torchsave(obj, path, *args, **kwargs):
+            del path, args, kwargs
             nonlocal cached_data
             cached_data = obj
         try:
@@ -128,7 +137,8 @@ def _patch_kplanes_phototourism_dataset(dataset, camera_bounds_index):
             ptdataset.load_camera_metadata = pt_loadcamerametadata
             ptdataset.read_png = pt_readpng
             ptdataset.pt_render_poses = pt_renderposes
-            ptdataset.PhotoTourismDataset.get_num_train_images = lambda *args, **kwargs: 0
+            num_images = len(dataset["cameras"]) if dataset is not None else 0
+            ptdataset.PhotoTourismDataset.get_num_train_images = partial(_noop, num_images)
             yield None
         finally:
             torch.load = torchload_backup
@@ -143,6 +153,7 @@ def _patch_kplanes_phototourism_dataset(dataset, camera_bounds_index):
 
 @contextmanager
 def _patch_kplanes_static_datasets(dataset, camera_bounds_index):
+    del camera_bounds_index
     # Patch kplanes dataset
     # TODO:!!!
     with tempfile.TemporaryDirectory(suffix=dataset["metadata"].get("scene") if dataset is not None else None) as tmpdir:
@@ -151,14 +162,17 @@ def _patch_kplanes_static_datasets(dataset, camera_bounds_index):
         load_360_frames_backup = sndataset.load_360_frames
         load_360_intrinsics_backup = sndataset.load_360_intrinsics
         def init(self, datadir, split, *args, **kwargs):
+            del datadir
             if dataset is None:
                 split = "render"
             init_backup(self, tmpdir, split, *args, **kwargs)
 
         def load_360_frames(datadir, split, max_frames):
+            del datadir, split, max_frames
             return None, None
 
         def load_360_images(frames, datadir, split, downsample):
+            del frames, datadir, split
             if dataset is None:
                 return torch.zeros((1, 8, 8, 3,), dtype=torch.float32), torch.zeros((1, 3, 4), dtype=torch.float32)
             dataset_downscale = dataset['metadata'].get('downsample_factor', 1.0)
@@ -171,6 +185,7 @@ def _patch_kplanes_static_datasets(dataset, camera_bounds_index):
             return imgs, torch.from_numpy(poses)
 
         def load_360_intrinsics(*args, **kwargs):
+            del args, kwargs
             if dataset is None:
                 return Intrinsics(height=8, width=8, focal_x=8, focal_y=8, center_x=4, center_y=4)
             height, width = dataset["images"][0].shape[:2]
@@ -362,7 +377,7 @@ class KPlanes(Method):
         config_root = os.path.join(os.path.dirname(os.path.abspath(cfg_package.__file__)), "final")
         if self.checkpoint is None:  #  or not os.path.exists(os.path.join(self.checkpoint, "config.py")):
             # Load config
-            config_path = (config_overrides or {}).copy().pop("config_path", None)
+            config_path = (config_overrides or {}).copy().pop("config", None)
             if config_path is None:
                 config_path = "NeRF/nerf_hybrid.py"
             config_path = os.path.join(config_root, config_path)
@@ -432,7 +447,7 @@ class KPlanes(Method):
             trainer.load_model(
                 torch.load(checkpoint_path, map_location="cpu"), 
                 training_needed=True)
-        trainer.post_step = lambda *args, **kwargs: None
+        trainer.post_step = _noop
         self.data = data
 
     def _patch_model(self):
@@ -648,7 +663,81 @@ class KPlanes(Method):
             dataset: Dataset.
             embeddings: Optional initial embeddings.
         """
-        return None
+        old_test_appearance_embedding = getattr(self.trainer.model.field, 'test_appearance_embedding', None)
+        param_trainable = {}
+        for pn, p in self.trainer.model.named_parameters():
+            param_trainable[pn] = p.requires_grad
+        is_train = self.trainer.model.training
+        old_add_scalar = self.trainer.writer.add_scalar
+        try:
+          # 1. Initialize test appearance code
+            tst_embedding = torch.nn.Embedding(
+                1, self.trainer.model.field.appearance_embedding_dim
+            ).to(self.trainer.device)
+            self.trainer.model.field.test_appearance_embedding = tst_embedding
+            self.trainer.model.field.test_appearance_embedding.requires_grad_(True)
+
+            # 2. Setup parameter trainability
+            self.trainer.model.eval()
+            for pn, p in self.trainer.model.named_parameters():
+                p.requires_grad_(False)
+            self.trainer.model.field.test_appearance_embedding.requires_grad_(True)
+
+            losses = []
+            # Patch to grab losses
+            def add_scalar(tag, value, step):
+                assert tag.startswith("appearance_loss_"), f"Unexpected tag {tag}"
+                losses.append(value)
+                return old_add_scalar(tag, value, step)
+            self.trainer.writer.add_scalar = add_scalar
+
+            # 3. Optimize
+            cameras = dataset["cameras"]
+            for img_idx in range(len(cameras)):
+                data = next(self._get_eval_data(cameras[img_idx:img_idx+1]))
+                imgs_left = torch.from_numpy(convert_image_dtype(dataset["images"][img_idx], np.float32))
+                data["imgs_left"] = imgs_left.view(-1, imgs_left.shape[-1])
+                with torch.autograd.no_grad():
+                    if embeddings is not None:
+                        tst_embedding.weight.data.copy_(torch.from_numpy(embeddings[img_idx])[None])
+                    else:
+                        tst_embedding.weight.data.copy_(
+                            self.trainer.model.field.appearance_embedding.weight
+                                .detach()
+                                .mean(dim=0, keepdim=True)
+                        )
+
+                # Patch to grab losses
+                losses.clear()
+
+                # Optimize
+                self.trainer.optimize_appearance_step(data, 0)
+                appearance_embedding = tst_embedding.weight.data.cpu().numpy().copy()
+
+                # Render
+                render_output = None
+                for render_output in self.render(cameras[img_idx:img_idx+1], [appearance_embedding]):
+                    pass
+                assert render_output is not None
+                yield {
+                    "embedding": appearance_embedding,
+                    "render_output": render_output,
+                    "metrics": {
+                        "loss": losses.copy(),
+                    }
+                }
+
+        finally:
+            self.trainer.model.field.test_appearance_embedding.requires_grad_(False)
+            del self.trainer.model.field.test_appearance_embedding
+
+            # 4. Reset parameter trainability
+            if old_test_appearance_embedding is not None:
+                self.trainer.model.field.test_appearance_embedding = old_test_appearance_embedding
+            for pn, p in self.trainer.model.named_parameters():
+                p.requires_grad_(param_trainable[pn])
+            self.trainer.model.train(is_train)
+            self.trainer.writer.add_scalar = old_add_scalar
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
         """

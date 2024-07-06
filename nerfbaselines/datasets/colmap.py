@@ -351,7 +351,7 @@ def load_colmap_dataset(path: Union[Path, str],
     train_indices = np.arange(len(image_paths))
     if split is not None:
         if test_indices is None and ((path / "train_list.txt").exists() or (path / "test_list.txt").exists()):
-            logging.info(f"colmap dataloader is loading split data from {path / f'{split}_list.txt'}")
+            logging.info(f"Colmap dataloader is loading split data from {path / f'{split}_list.txt'}")
             train_indices = None
             for split in ("train", split):
                 split_image_names = set((path / f"{split}_list.txt").read_text().splitlines())
@@ -359,7 +359,7 @@ def load_colmap_dataset(path: Union[Path, str],
                 if indices.sum() == 0:
                     raise DatasetNotFoundError(f"no images found for split {split} in {path / f'{split}_list.txt'}")
                 if indices.sum() < len(split_image_names):
-                    logging.warning(f"only {indices.sum()} images found for split {split} in {path / f'{split}_list.txt'}")
+                    logging.warning(f"Only {indices.sum()} images found for split {split} in {path / f'{split}_list.txt'}")
                 if split == "train":
                     train_indices = indices
             assert train_indices is not None

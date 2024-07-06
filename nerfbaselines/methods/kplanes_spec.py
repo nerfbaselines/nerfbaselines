@@ -36,12 +36,13 @@ fi
         "paper_authors": ["Sara Fridovich-Keil", "Giacomo Meanti", "Frederik Warburg", "Benjamin Recht", "Angjoo Kanazawa"],
         "paper_link": "https://arxiv.org/pdf/2301.10241",
         "link": "https://sarafridov.github.io/K-Planes/",
+        "licenses": [{"name": "BSD 3", "url": "https://raw.githubusercontent.com/sarafridov/K-Planes/main/LICENSE"}],
     },
     "dataset_overrides": {
-        "blender": { "base_config": "NeRF/nerf_hybrid.py", },
-        "phototourism/trevi-fountain": { "base_config": "Phototourism/trevi_hybrid.py", },
-        "phototourism/brandenburg-gate": { "base_config": "Phototourism/brandenburg_hybrid.py", },
-        "phototourism/sacre-coeur": { "base_config": "Phototourism/sacrecoeur_hybrid.py", },
+        "blender": { "config": "NeRF/nerf_hybrid.py", },
+        "phototourism/trevi-fountain": { "config": "Phototourism/trevi_hybrid.py", },
+        "phototourism/brandenburg-gate": { "config": "Phototourism/brandenburg_hybrid.py", },
+        "phototourism/sacre-coeur": { "config": "Phototourism/sacrecoeur_hybrid.py", },
     }
 }
 

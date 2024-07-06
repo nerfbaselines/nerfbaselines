@@ -14,6 +14,37 @@ from nerfbaselines._constants import WEBPAGE_URL
 import tempfile
 
 
+def update_licenses(readme: str):
+    from nerfbaselines.registry import get_supported_methods, get_method_spec
+    lines = readme.rstrip(os.linesep).splitlines()
+
+    def simplify(s: str):
+        return s.lower().replace(" ", "").replace("-", "").replace("_", "")
+
+    # Locate old section
+    section_start = next((x for x in range(len(lines)) if simplify(f"For the currently implemented methods, the following licenses apply:") in simplify(lines[x])), None)
+    if section_start is None:
+        raise RuntimeError(f"Could not locate licenses section in README.md")
+    section_end = next((x for x in range(section_start + 1, len(lines)) if lines[x].startswith("##")), len(lines))
+
+    # Replace old results with new results
+    methods_licenses = []
+    for method in get_supported_methods():
+        spec = get_method_spec(method).get("metadata", {})
+        if ":" in method:
+            continue
+        if spec.get("licenses"):
+            licenses = ", ".join(["[{name}]({url})".format(**x) for x in spec["licenses"]])
+            method_name = spec.get("name", method)
+            methods_licenses.append(f"- {method_name}: {licenses}")
+    methods_licenses.sort()
+    new_section = f"""{lines[section_start]}
+{os.linesep.join(methods_licenses)}
+
+"""
+    return os.linesep.join(lines[:section_start] + [new_section] + lines[section_end:]) + os.linesep
+
+
 def update_dataset_results(readme: str, dataset):
     lines = readme.rstrip(os.linesep).splitlines()
 
@@ -51,6 +82,7 @@ def main():
     readme = readme_path.read_text()
     for dataset in ["mipnerf360", "blender", "tanksandtemples"]:
         readme = update_dataset_results(readme, dataset)
+    readme = update_licenses(readme)
     readme_path.write_text(readme)
 
 

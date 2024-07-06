@@ -10,7 +10,6 @@ import math
 import logging
 from pathlib import Path
 from typing import Optional, Union, List, Any, Dict, Tuple, cast
-import warnings
 from tqdm import tqdm
 import numpy as np
 import click
@@ -44,46 +43,55 @@ def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, st
     start = time.perf_counter()
     # Pseudo-randomly select an image based on the step
     total_rays = 0
-    logging.info(f"rendering single image at step={step}")
+    logging.info(f"Rendering single {split} image at step={step}")
     predictions = None
     for predictions in evaluation_protocol.render(method, dataset_slice):
         pass
     assert predictions is not None, "render failed to compute predictions"
     elapsed = time.perf_counter() - start
 
-    # Log to wandb
+    metrics = {}
+    for _metrics in evaluation_protocol.evaluate([predictions], dataset_slice):
+        metrics = cast(Dict[str, Union[str, int, float]], _metrics)
+    w, h = dataset_slice["cameras"].image_sizes[0]
+    gt = images[0][:h, :w]
+    color = predictions["color"]
+
+    # Print metrics to console
+    metric_to_show = None
+    if "psnr" in metrics:
+        metric_to_show = "psnr"
+    elif "loss" in metrics:
+        metric_to_show = "loss"
+    if metric_to_show is not None:
+        logging.info(f"Evaluated single {split} image at step={step}, {metric_to_show}={metrics[metric_to_show]:.4f}")
+
+    background_color = dataset_slice["metadata"].get("background_color", None)
+    dataset_colorspace = dataset_slice["metadata"].get("color_space", "srgb")
+    color_srgb = image_to_srgb(color, np.uint8, color_space=dataset_colorspace, background_color=background_color)
+    gt_srgb = image_to_srgb(gt, np.uint8, color_space=dataset_colorspace, background_color=background_color)
+
+    image_path = dataset_slice["image_paths"][0]
+    images_root = dataset_slice.get("image_paths_root")
+    if images_root is not None:
+        if str(image_path).startswith(str(images_root)):
+            image_path = str(Path(image_path).relative_to(images_root))
+
+    metrics["image-path"] = image_path
+    metrics["fps"] = 1 / elapsed
+    metrics["rays-per-second"] = total_rays / elapsed
+    metrics["time"] = elapsed
+
+    # Add depth
+    depth = None
+    if "depth" in predictions:
+        near_far = dataset_slice["cameras"].nears_fars[0] if dataset_slice["cameras"].nears_fars is not None else None
+        depth = visualize_depth(predictions["depth"], expected_scale=expected_scene_scale, near_far=near_far)
+
+    # Log to loggers
     if logger:
         logging.debug(f"logging image to {logger}")
 
-        # Log to wandb
-        metrics = {}
-        for _metrics in evaluation_protocol.evaluate([predictions], dataset_slice):
-            metrics = cast(Dict[str, Union[str, int, float]], _metrics)
-
-        w, h = dataset_slice["cameras"].image_sizes[0]
-        gt = images[0][:h, :w]
-        color = predictions["color"]
-
-        background_color = dataset_slice["metadata"].get("background_color", None)
-        dataset_colorspace = dataset_slice["metadata"].get("color_space", "srgb")
-        color_srgb = image_to_srgb(color, np.uint8, color_space=dataset_colorspace, background_color=background_color)
-        gt_srgb = image_to_srgb(gt, np.uint8, color_space=dataset_colorspace, background_color=background_color)
-
-        image_path = dataset_slice["image_paths"][0]
-        images_root = dataset_slice.get("image_paths_root")
-        if images_root is not None:
-            if str(image_path).startswith(str(images_root)):
-                image_path = str(Path(image_path).relative_to(images_root))
-
-        metrics["image-path"] = image_path
-        metrics["fps"] = 1 / elapsed
-        metrics["rays-per-second"] = total_rays / elapsed
-        metrics["time"] = elapsed
-
-        depth = None
-        if "depth" in predictions:
-            near_far = dataset_slice["cameras"].nears_fars[0] if dataset_slice["cameras"].nears_fars is not None else None
-            depth = visualize_depth(predictions["depth"], expected_scale=expected_scene_scale, near_far=near_far)
         log_metrics(logger, metrics, prefix=f"eval-few-{split}/", step=step)
 
         color_vis = make_image_grid(gt_srgb, color_srgb)
@@ -125,11 +133,11 @@ def eval_all(method: Method, logger: Optional[Logger], dataset: Dataset, *, outp
             os.unlink(output)
         else:
             shutil.rmtree(output)
-        logging.warning(f"removed existing predictions at {output}")
+        logging.warning(f"Removed existing predictions at {output}")
 
     if os.path.exists(output_metrics):
         os.unlink(output_metrics)
-        logging.warning(f"removed existing results at {output_metrics}")
+        logging.warning(f"Removed existing results at {output_metrics}")
 
     start = time.perf_counter()
     num_vis_images = 16
@@ -141,7 +149,7 @@ def eval_all(method: Method, logger: Optional[Logger], dataset: Dataset, *, outp
             method,
             dataset,
             output=output,
-            description=f"rendering all images at step={step}",
+            description=f"Rendering all images at step={step}",
             nb_info=nb_info,
             evaluation_protocol=evaluation_protocol,
         ),
@@ -373,7 +381,7 @@ class Trainer:
                 else:
                     raise ValueError(f"Unknown logger {logger}")
             self._logger = ConcatLogger(loggers)
-            logging.info("initialized loggers: " + ",".join(self.loggers))
+            logging.info("Initialized loggers: " + ",".join(self.loggers))
         return self._logger
 
     def _update_resource_utilization_info(self):
@@ -385,7 +393,7 @@ class Trainer:
             update = True
             util = self._resources_utilization_info
         if update:
-            logging.debug(f"computing resource utilization at step={self.step}")
+            logging.debug(f"Computing resource utilization at step={self.step}")
             new_util = cast(Dict[str, int], get_resources_utilization_info())
             for k, v in new_util.items():
                 if k not in util:
@@ -459,7 +467,7 @@ class Trainer:
 
     def eval_all(self):
         if self.test_dataset is None:
-            logging.warning("skipping eval_all on test dataset - no test dataset")
+            logging.warning("Skipping eval_all on test dataset - no test dataset")
             return
         logger = self.get_logger()
         nb_info = self._get_nb_info()
@@ -479,7 +487,7 @@ class Trainer:
         eval_few(self.method, logger, dataset_slice, split="train", step=self.step, evaluation_protocol=self._evaluation_protocol)
         
         if self.test_dataset is None:
-            logging.warning("skipping eval_few on test dataset - no eval dataset")
+            logging.warning("Skipping eval_few on test dataset - no eval dataset")
             return
 
         idx = rand_number % len(self.test_dataset["image_paths"])
@@ -525,7 +533,7 @@ def train_command(
         elif _vis in loggers_registry:
             _loggers.add(_vis)
         else:
-            raise RuntimeError(f"unknown logging tool {_vis}")
+            raise RuntimeError(f"Unknown logging tool {_vis}")
     loggers = frozenset(_loggers)
     del logger
     del _loggers
@@ -557,7 +565,7 @@ def train_command(
 
             with registry.build_method(method_name, backend_name) as method_cls:
                 # Load train dataset
-                logging.info("loading train dataset")
+                logging.info("Loading train dataset")
                 method_info = method_cls.get_method_info()
                 required_features = method_info.get("required_features", frozenset())
                 supported_camera_models = method_info.get("supported_camera_models", frozenset(("pinhole",)))
@@ -569,7 +577,7 @@ def train_command(
                 assert train_dataset["cameras"].image_sizes is not None, "image sizes must be specified"
 
                 # Load eval dataset
-                logging.info("loading eval dataset")
+                logging.info("Loading eval dataset")
                 test_dataset = load_dataset(_data, 
                                             split="test", 
                                             features=required_features, 

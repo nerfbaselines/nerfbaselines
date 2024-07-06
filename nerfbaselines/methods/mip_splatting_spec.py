@@ -69,6 +69,7 @@ fi
         "paper_authors": ["Zehao Yu", "Anpei Chen", "Binbin Huang", "Torsten Sattler", "Andreas Geiger"],
         "paper_link": "https://arxiv.org/pdf/2311.16493.pdf",
         "link": "https://niujinshuchong.github.io/mip-splatting/",
+        "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/autonomousvision/mip-splatting/main/LICENSE.md"}],
     },
     "dataset_overrides": {
         "blender": { "white_background": True, },

@@ -32,6 +32,7 @@ conda develop "$PWD"
     "metadata": {
         "name": "NeRF-W (reimplementation)",
         "description": "Unofficial reimplementation of NeRF-W. Does not reach the performance reported in the original paper, but is widely used for benchmarking.",
+        "licenses": [{"name": "MIT", "url": "https://raw.githubusercontent.com/kwea123/nerf_pl/master/LICENSE"}],
     }
 }
 

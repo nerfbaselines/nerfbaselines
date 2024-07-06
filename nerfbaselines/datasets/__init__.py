@@ -17,13 +17,13 @@ def download_dataset(path: str, output: Union[str, Path]):
     for name, download_fn in get_dataset_downloaders().items():
         try:
             download_fn(path, str(output))
-            logging.info(f"downloaded {name} dataset with path {path}")
+            logging.info(f"Downloaded {name} dataset with path {path}")
             return
         except DatasetNotFoundError as e:
             logging.debug(e)
-            logging.debug(f"path {path} is not supported by {name} dataset")
+            logging.debug(f"Path {path} is not supported by {name} dataset")
             errors[name] = str(e)
-    raise MultiDatasetError(errors, f"no supported dataset found for path {path}")
+    raise MultiDatasetError(errors, f"No supported dataset found for path {path}")
 
 
 @overload
@@ -77,7 +77,7 @@ def load_dataset(
         # We assume the 
         loader, path = path.split("://", 1)
         if loader not in dict(loaders):
-            raise ValueError(f"unknown dataset loader {loader}")
+            raise ValueError(f"Unknown dataset loader {loader}")
         loaders = [(loader, dict(loaders)[loader])]
 
     errors = {}
@@ -85,19 +85,19 @@ def load_dataset(
     for name, load_fn in loaders:
         try:
             dataset_instance = load_fn(path, split=split, features=features, **kwargs)
-            logging.info(f"loaded {name} dataset from path {path} using loader {name}")
+            logging.info(f"Loaded {name} dataset from path {path} using loader {name}")
             break
         except DatasetNotFoundError as e:
             logging.debug(e)
             logging.debug(f"{name} dataset not found in path {path}")
             errors[name] = str(e)
     else:
-        raise MultiDatasetError(errors, f"no supported dataset found in path {path}")
+        raise MultiDatasetError(errors, f"No supported dataset found in path {path}")
 
     # Set correct eval protocol
     eval_protocol = get_dataset_spec(name).get("evaluation_protocol", "default")
     if dataset_instance["metadata"].get("evaluation_protocol", "default") != eval_protocol:
-        raise RuntimeError(f"evaluation protocol mismatch: {dataset_instance['metadata']['evaluation_protocol']} != {eval_protocol}")
+        raise RuntimeError(f"Evaluation protocol mismatch: {dataset_instance['metadata']['evaluation_protocol']} != {eval_protocol}")
     dataset_instance["metadata"]["evaluation_protocol"] = eval_protocol
 
     if load_features:

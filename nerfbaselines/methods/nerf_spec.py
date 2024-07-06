@@ -50,6 +50,7 @@ conda develop "$PWD"
         "paper_authors": ["Ben Mildenhall", "Pratul P. Srinivasan", "Matthew Tancik", "Jonathan T. Barron", "Ravi Ramamoorthi", "Ren Ng"],
         "paper_link": "https://arxiv.org/pdf/2003.08934.pdf",
         "link": "https://www.matthewtancik.com/nerf",
+        "licenses": [{"name": "MIT", "url": "https://github.com/bmild/nerf/blob/master/LICENSE"}],
     },
     "dataset_overrides": {
         "blender": { "config": "blender_config.txt" },

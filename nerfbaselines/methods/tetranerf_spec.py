@@ -52,6 +52,7 @@ TetraNeRFSpec: MethodSpec = {
         "link": "https://jkulhanek.com/tetra-nerf",
         "description": """Tetra-NeRF is a method that represents the scene as tetrahedral mesh obtained using Delaunay tetrahedralization. The input point cloud has to be provided (for COLMAP datasets the point cloud is automatically extracted). This is the official implementation
     from the paper.""",
+        "licenses": [{"name": "MIT", "url":"https://raw.githubusercontent.com/jkulhanek/tetra-nerf/master/LICENSE"}],
     },
 }
 
