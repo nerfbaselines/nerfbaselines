@@ -389,7 +389,7 @@ def trajectory_get_embeddings(method: Method, trajectory: Trajectory) -> Optiona
     # Interpolate embeddings
     out = []
     for frame in trajectory["frames"]:
-        embedding = frame.get("appearance_weights") @ appearance_embeddings_np
+        embedding = (frame.get("appearance_weights") @ appearance_embeddings_np).astype(appearance_embeddings_np.dtype)
         out.append(embedding)
     return out
 

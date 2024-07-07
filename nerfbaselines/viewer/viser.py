@@ -1,3 +1,4 @@
+import tempfile
 from functools import reduce
 import logging
 import io
@@ -45,11 +46,31 @@ from ..datasets import load_dataset
 from ..backends._rpc import EventCancellationToken
 from ..utils import image_to_srgb, visualize_depth, apply_colormap
 from ..io import load_trajectory, save_trajectory
+from ..evaluation import render_frames, trajectory_get_embeddings, trajectory_get_cameras
 
 
 ControlType = Literal["object-centric", "default"]
 VISER_SCALE_RATIO = 10.0
 T = TypeVar("T")
+
+
+def _handle_gui_error(server):
+    def wrap(fn):
+        def wrapped(*args, **kwargs):
+            gui = server
+            if isinstance(args[0], viser.GuiEvent):
+                gui = server.get_clients()[args[0].client_id]
+            try:
+                return fn(*args, **kwargs)
+            except Exception as e:
+                modal = gui.add_gui_modal("Error occured")
+                with modal:
+                    gui.add_gui_markdown(f"An error occured: \n{e}")
+                    gui.add_gui_button("Close").on_click(lambda _: modal.close())
+                logging.exception(e)
+                return None
+        return wrapped
+    return wrap
 
 
 def simple_cache(fn):
@@ -367,7 +388,7 @@ class ViewerState:
         if source.get("type") != "interpolation" or source.get("interpolation") not in {"none", "kochanek-bartels", "ellipse"}:
             raise RuntimeError("The viewer only supports 'kochanek-bartels', 'none' interpolation for the camera trajectory")
         def validate_appearance(appearance):
-            if appearance and not appearance.get("embedding_train_index"):
+            if appearance and appearance.get("embedding_train_index", None) is None:
                 raise RuntimeError("Setting appearance is only supported through embedding_train_index")
             return appearance
         validate_appearance(source.get("default_appearance"))
@@ -440,9 +461,9 @@ class ViewerState:
                 focal_length = three_js_perspective_camera_focal_length(fov, h)
                 intrinsics = np.array([focal_length, focal_length, w / 2, h / 2], dtype=np.float32)
                 frames.append(TrajectoryFrame({
-                    "pose": pose[:3, :],
+                    "pose": pose[:3, :].astype(np.float32),
                     "intrinsics": intrinsics,
-                    "appearance_weights": weights,
+                    "appearance_weights": weights.astype(np.float32),
                 }))
         source: Dict = {
             "type": "interpolation",
@@ -479,6 +500,7 @@ def _add_keypoint_onclick_callback(server: ViserServer, state, index, handle):
     global _camera_edit_panel
 
     @handle.on_click
+    @_handle_gui_error(server)
     def _(_):
         global _camera_edit_panel
         keyframe = state.camera_path_keyframes[index]
@@ -553,6 +575,7 @@ def _add_keypoint_onclick_callback(server: ViserServer, state, index, handle):
                 )
 
                 @train_embed_dropdown.on_update
+                @_handle_gui_error(server)
                 def _(_) -> None:
                     val = None
                     if train_embed_dropdown.value != "none" and train_embed_dropdown.value in state.image_names_train:
@@ -569,6 +592,7 @@ def _add_keypoint_onclick_callback(server: ViserServer, state, index, handle):
 
 
         @override_fov.on_update
+        @_handle_gui_error(server)
         def _(_) -> None:
             override_fov_degrees.disabled = not override_fov.value
             state.camera_path_keyframes = tuple(
@@ -577,6 +601,7 @@ def _add_keypoint_onclick_callback(server: ViserServer, state, index, handle):
             )
 
         @override_fov_degrees.on_update
+        @_handle_gui_error(server)
         def _(_) -> None:
             fov = override_fov_degrees.value
             state.camera_path_keyframes = tuple(
@@ -585,6 +610,7 @@ def _add_keypoint_onclick_callback(server: ViserServer, state, index, handle):
             )
 
         @delete_button.on_click
+        @_handle_gui_error(server)
         def _(event: viser.GuiEvent) -> None:
             global _camera_edit_panel
             assert event.client is not None
@@ -594,6 +620,7 @@ def _add_keypoint_onclick_callback(server: ViserServer, state, index, handle):
                 exit_button = event.client.add_gui_button("Cancel")
 
                 @confirm_button.on_click
+                @_handle_gui_error(server)
                 def _(_) -> None:
                     global _camera_edit_panel
                     assert camera_edit_panel is not None
@@ -609,6 +636,7 @@ def _add_keypoint_onclick_callback(server: ViserServer, state, index, handle):
                     modal.close()
 
         @go_to_button.on_click
+        @_handle_gui_error(server)
         def _(event: viser.GuiEvent) -> None:
             assert event.client is not None
             client = event.client
@@ -1031,7 +1059,7 @@ class BindableViserServer(ViserServer):
                     handle_update = partial(_update_binding, binding)
             _update_component(None, None)
             assert handle is not None, "Failed to build component"
-            if "order" not in kwargs:
+            if "order" not in kwargs and hasattr(handle, "order"):
                 kwargs["order"] = handle.order
 
             if not bindings_to_remove:
@@ -1069,6 +1097,124 @@ class BindableViserServer(ViserServer):
         return _add_gui
 
 
+class ViewerRenderer:
+    def __init__(self,
+                 method: Optional[Method]):
+        self.method = method
+        self._cancellation_token = None
+        self._output_type_options = ()
+        self._task_queue = []
+
+    def update(self):
+        if not self._task_queue:
+            return
+        
+        task = self._task_queue.pop(0)
+        task_type = task.pop("type")
+        error_callback = task.pop("error_callback", None)
+        try:
+            if task_type == "render_video":
+                self._render_video(**task)
+            else:
+                raise ValueError(f"Unknown task type: {task['type']}")
+        except Exception as e:
+            if error_callback is not None:
+                error_callback(e)
+            else:
+                raise
+
+    def _render_video(self, trajectory, callback):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = os.path.join(tmpdir, "video.mp4")
+            # Embed the appearance
+            embeddings = trajectory_get_embeddings(self.method, trajectory)
+            cameras = trajectory_get_cameras(trajectory)
+            render_frames(self.method, 
+                          cameras, 
+                          embeddings=embeddings, 
+                          output=output, 
+                          output_type="color", 
+                          nb_info={}, 
+                          fps=trajectory["fps"])
+            logging.info(f"Output saved to {output}")
+            with open(output, "rb") as file:
+                data = file.read()
+        callback(data)
+
+    def add_render_video_task(self, trajectory: Trajectory, callback, error_callback=None):
+        self._task_queue.append({
+            "type": "render_video",
+            "trajectory": trajectory,
+            "callback": callback,
+            "error_callback": error_callback,
+        })
+
+    @property
+    def output_type_options(self):
+        return self._output_type_options
+
+    def render(self, 
+               camera, *, 
+               embedding=None, 
+               allow_cancel=False,
+               output_type=None, 
+               background_color=None,
+               split_output_type=False,
+               split_percentage=0.5,
+               output_aspect_ratio=None):
+        if self.method is None:
+            # No need to render anything
+            return None
+
+        try:
+            if allow_cancel:
+                scope = self._cancellation_token = EventCancellationToken()
+            else:
+                scope = contextlib.nullcontext()
+            with scope:
+                for outputs in self.method.render(camera, embeddings=[embedding] if embedding is not None else None):
+                    pass
+                assert outputs is not None, "Method did not return any outputs"
+            self._cancellation_token = None
+            
+        except CancelledException:
+            # if we got interrupted, don't send the output to the viewer
+            return None
+        assert outputs is not None, "Method did not return any outputs"
+
+        def render_single(name):
+            assert outputs is not None, "Method did not return any outputs"
+            name = name or "color"
+            image = outputs[name]
+            if name == "color":
+                bg_color = np.array(background_color, dtype=np.uint8)
+                render = image_to_srgb(image, np.uint8, color_space="srgb", allow_alpha=False, background_color=bg_color)
+            elif name == "depth":
+                # Blend depth with correct color pallete
+                render = visualize_depth(image, expected_scale=self._expected_depth_scale)
+            elif name == "accumulation":
+                render = apply_colormap(image, pallete="coolwarm")
+            else:
+                render = image
+            return render
+
+        # Update output options
+        self._output_type_options = tuple(sorted(outputs.keys()))
+
+        render = render_single(output_type)
+        if split_output_type is not None:
+            split_render = render_single(split_output_type)
+            assert render.shape == split_render.shape
+            split_point = int(render.shape[1] * split_percentage)
+            render[:, split_point:] = split_render[:, split_point:]
+
+        if output_aspect_ratio is not None:
+            # If the preview camera is set, we correct the aspect ratio to match client's viewport
+            render = pad_to_aspect_ratio(render, output_aspect_ratio)
+
+        return render
+
+
 class ViserViewer:
     def __init__(self, 
                  method: Optional[Method], 
@@ -1094,6 +1240,7 @@ class ViserViewer:
 
         self.port = port
         self.method = method
+        self.renderer = ViewerRenderer(method)
 
         self.state = state or ViewerState()
         if self.method is not None:
@@ -1126,7 +1273,7 @@ class ViserViewer:
         @self.server.on_client_connect
         def _(client: viser.ClientHandle):
             @client.camera.on_update
-            def _(_camera_handle: viser.CameraHandle):
+            def _(_: viser.CameraHandle):
                 self._render_state.pop(client.client_id, None)
                 self._reset_render(False)
 
@@ -1190,6 +1337,7 @@ class ViserViewer:
         )
 
         @add_button.on_click
+        @_handle_gui_error(server)
         def _(event: viser.GuiEvent) -> None:
             assert event.client_id is not None
             camera = server.get_clients()[event.client_id].camera
@@ -1211,6 +1359,7 @@ class ViserViewer:
         )
 
         @clear_keyframes_button.on_click
+        @_handle_gui_error(server)
         def _(event: viser.GuiEvent) -> None:
             assert event.client_id is not None
             client = server.get_clients()[event.client_id]
@@ -1349,12 +1498,12 @@ class ViserViewer:
 
         export_button = server.add_gui_button(
             "Export trajectory",
-            color="green",
             icon=viser.Icon.FILE_EXPORT,
             hint="Export trajectory file.",
         )
 
         @export_button.on_click
+        @_handle_gui_error(server)
         def _(event: viser.GuiEvent) -> None:
             assert event.client is not None
 
@@ -1366,6 +1515,32 @@ class ViserViewer:
 
             # now write the json file
             self.server.send_file_download("trajectory.json", data)
+
+        render_button = server.add_gui_button(
+            "Render video",
+            color="green",
+            icon=viser.Icon.CAMERA,
+            hint="Render the scene.",
+        )
+
+        @render_button.on_click
+        @_handle_gui_error(server)
+        def _(event: viser.GuiEvent) -> None:
+            assert event.client is not None
+
+            gui = server.get_clients()[event.client_id]
+            modal = gui.add_gui_modal("Rendering video")
+            trajectory = self.state.get_trajectory(self._inv_transform)
+            def _send_video(data):
+                modal.close()
+                self.server.send_file_download("video.mp4", data)
+
+            @_handle_gui_error(server)
+            def _error(error):
+                modal.close()
+                raise error
+            self.renderer.add_render_video_task(trajectory, callback=_send_video, error_callback=_error)
+
 
     def _build_control_panel(self):
         state = self.state
@@ -1402,6 +1577,7 @@ class ViserViewer:
                 hint="The second output",
             )
 
+        @_handle_gui_error(server)
         def _reset_camera_cb(_) -> None:
             for client in server.get_clients().values():
                 client.camera.up_direction = vtf.SO3(client.camera.wxyz) @ np.array([0.0, -1.0, 0.0])
@@ -1529,12 +1705,14 @@ class ViserViewer:
         frustums = {}
         old_camimgs = {}
 
+        @_handle_gui_error(self.server)
         def _set_view_to_camera(handle: viser.SceneNodePointerEvent[viser.CameraFrustumHandle]):
             with handle.client.atomic():
                 handle.client.camera.position = handle.target.position
                 handle.client.camera.wxyz = handle.target.wxyz
             self._reset_render()
 
+        @_handle_gui_error(self.server)
         def _update_frustums(split, _):
             camimgs = getattr(self.state, f"camera_frustums_{split}")
             if camimgs is None or not old_camimgs.get(split) is camimgs:
@@ -1771,9 +1949,8 @@ class ViserViewer:
         setattr(self.state, f"camera_frustums_{split}", (dataset["cameras"], images, paths))
 
     def _update(self):
-        if self.method is None:
-            # No need to render anything
-            return
+        self.renderer.update()
+
         for client in self.server.get_clients().values():
             render_state = self._render_state.get(client.client_id, 0)
             if render_state < 2:
@@ -1816,7 +1993,6 @@ class ViserViewer:
 
                 c2w = get_c2w(cam_pos, cam_wxyz)
                 c2w = apply_transform(self._inv_transform, c2w)
-                outputs = None
 
                 # In state 0, we render a low resolution image to display it fast
                 if render_state == 0:
@@ -1843,66 +2019,43 @@ class ViserViewer:
                     image_sizes=np.array([[w, h]], dtype=np.int32),
                     nears_fars=None,
                 )
-
-                try:
-                    if render_state == 1:
-                        scope = self._cancellation_token = EventCancellationToken()
-                    else:
-                        scope = contextlib.nullcontext()
-                    with scope:
-                        for outputs in self.method.render(nb_camera, embeddings=[cam_embedding] if cam_embedding is not None else None):
-                            pass
-                    self._cancellation_token = None
                     
-                except CancelledException:
-                    # if we got interrupted, don't send the output to the viewer
-                    self._render_state.pop(client.client_id, None)
-                    continue
-                assert outputs is not None, "Method did not return any outputs"
-                interval = perf_counter() - start
-
-                def render_single(name):
-                    assert outputs is not None, "Method did not return any outputs"
-                    name = name or "color"
-                    image = outputs[name]
-                    if name == "color":
-                        bg_color = np.array(self.state.background_color, dtype=np.uint8)
-                        render = image_to_srgb(image, np.uint8, color_space="srgb", allow_alpha=False, background_color=bg_color)
-                    elif name == "depth":
-                        # Blend depth with correct color pallete
-                        render = visualize_depth(image, expected_scale=self._expected_depth_scale)
-                    elif name == "accumulation":
-                        render = apply_colormap(image, pallete="coolwarm")
-                    else:
-                        render = image
-                    return render
-
-                # Update output options
-                if set(self.state.output_type_options) != set(outputs.keys()):
-                    self.state.output_type_options = tuple(sorted(outputs.keys()))
-                    if self.state.split_output_type is None:
-                        self.state.split_output_type = next(
-                            (x for x in self.state.output_type_options if x != self.state.output_type), 
-                        self.state.output_type)
-
-                render = render_single(self.state.output_type)
-                if self.state.output_split:
-                    split_render = render_single(self.state.split_output_type)
-                    assert render.shape == split_render.shape
-                    split_point = int(render.shape[1] * self.state.split_percentage)
-                    render[:, split_point:] = split_render[:, split_point:]
-                    
+                output_aspect = None
                 if self._preview_camera is not None:
                     # If the preview camera is set, we correct the aspect ratio to match client's viewport
-                    render = pad_to_aspect_ratio(render, client.camera.aspect)
+                    output_aspect = client.camera.aspect
 
+                render = self.renderer.render(
+                    nb_camera,
+                    embedding=cam_embedding,
+                    background_color=self.state.background_color,
+                    allow_cancel=render_state == 1,
+                    output_type=self.state.output_type, 
+                    split_output_type=self.state.split_output_type if self.state.output_split else None,
+                    split_percentage=self.state.split_percentage if self.state.output_split else None,
+                    output_aspect_ratio=output_aspect)
+
+                # if we got interrupted, don't send the output to the viewer
+                if render is None:
+                    self._render_state.pop(client.client_id, None)
+                    continue
+
+                interval = perf_counter() - start
                 client.set_background_image(render, format="jpeg")
                 self._render_state[client.client_id] = min(self._render_state.get(client.client_id, 0), render_state + 1)
 
                 if render_state == 1 or len(self._render_times) < assert_not_none(self._render_times.maxlen):
                     self._render_times.append(interval / num_rays * num_rays_total)
-                self.state.fps = f"{1.0 / np.mean(self._render_times):.3g}"
-                del outputs
+                del render
+
+        # Update FPS and output options
+        self.state.fps = f"{1.0 / np.mean(self._render_times):.3g}"
+        if set(self.state.output_type_options) != set(self.renderer.output_type_options):
+            self.state.output_type_options = tuple(sorted(self.renderer.output_type_options))
+            if self.state.split_output_type is None:
+                self.state.split_output_type = next(
+                    (x for x in self.state.output_type_options if x != self.state.output_type), 
+                self.state.output_type)
 
 
 def run_viser_viewer(method: Optional[Method] = None, 
