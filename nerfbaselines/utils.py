@@ -531,18 +531,21 @@ def apply_colormap(array: TTensor, *, pallete: str = "viridis", invert: bool = F
     xnp = _get_xnp(array)
     # TODO: remove matplotlib dependency
     import matplotlib
-    import matplotlib.colors
+    colormaps: Dict[str, Any]
+    ListedColormap = None
     try:
-        import matplotlib.colormaps as colormaps
+        import matplotlib.colormaps as _colormaps  # type: ignore
+        colormaps = cast(Dict[str, Any], _colormaps)  # type: ignore
+        ListedColormap = matplotlib.colors.ListedColormap  # type: ignore
     except ImportError:
-        import matplotlib.cm as _colormaps
-        colormaps = vars(_colormaps)
+        import matplotlib.cm as _colormaps  # type: ignore
+        colormaps = cast(Dict[str, Any], vars(_colormaps))  # type: ignore
 
     # Map to a color scale
     array_long = cast(TTensor, _xnp_astype(array * 255, xnp.int32, xnp=xnp).clip(0, 255))
     colormap = colormaps[pallete]
     colormap_colors = None
-    if isinstance(colormap, matplotlib.colors.ListedColormap):
+    if ListedColormap is not None and isinstance(colormap, ListedColormap):  # type: ignore
         colormap_colors = colormap.colors
     else:
         colormap_colors = [list(colormap(i / 255))[:3] for i in range(256)]

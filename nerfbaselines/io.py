@@ -136,7 +136,8 @@ def open_any(
 @contextlib.contextmanager
 def open_any_directory(path: Union[str, Path], mode: OpenMode = "r") -> Iterator[str]:
     path = str(path)
-    path = os.path.abspath(path)
+    if "://" not in path:
+        path = os.path.abspath(path)
 
     components = path.split("/")
     compressed_parts = [

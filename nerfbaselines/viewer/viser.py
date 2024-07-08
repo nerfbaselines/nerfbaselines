@@ -1099,8 +1099,10 @@ class BindableViserServer(ViserServer):
 
 class ViewerRenderer:
     def __init__(self,
-                 method: Optional[Method]):
+                 method: Optional[Method],
+                 expected_depth_scale=0.5):
         self.method = method
+        self._expected_depth_scale = expected_depth_scale
         self._cancellation_token = None
         self._output_type_options = ()
         self._task_queue = []
@@ -1124,6 +1126,8 @@ class ViewerRenderer:
                 raise
 
     def _render_video(self, trajectory, callback):
+        if self.method is None:
+            raise ValueError("No method to render video")
         with tempfile.TemporaryDirectory() as tmpdir:
             output = os.path.join(tmpdir, "video.mp4")
             # Embed the appearance
@@ -1159,9 +1163,9 @@ class ViewerRenderer:
                allow_cancel=False,
                output_type=None, 
                background_color=None,
-               split_output_type=False,
-               split_percentage=0.5,
-               output_aspect_ratio=None):
+               split_output_type: Optional[str] = None,
+               split_percentage: Optional[float] = 0.5,
+               output_aspect_ratio: Optional[float] = None):
         if self.method is None:
             # No need to render anything
             return None
@@ -1172,6 +1176,7 @@ class ViewerRenderer:
             else:
                 scope = contextlib.nullcontext()
             with scope:
+                outputs = None
                 for outputs in self.method.render(camera, embeddings=[embedding] if embedding is not None else None):
                     pass
                 assert outputs is not None, "Method did not return any outputs"
@@ -1205,7 +1210,8 @@ class ViewerRenderer:
         if split_output_type is not None:
             split_render = render_single(split_output_type)
             assert render.shape == split_render.shape
-            split_point = int(render.shape[1] * split_percentage)
+            split_percentage_ = split_percentage if split_percentage is not None else 0.5
+            split_point = int(render.shape[1] * split_percentage_)
             render[:, split_point:] = split_render[:, split_point:]
 
         if output_aspect_ratio is not None:
@@ -1227,20 +1233,20 @@ class ViserViewer:
         self._dataset_metadata = dataset_metadata
 
         control_type = "default"
-        self._expected_depth_scale = 0.5
+        expected_depth_scale = 0.5
         if dataset_metadata is not None:
             self.transform = dataset_metadata.get("viewer_transform").copy()
             self.initial_pose = dataset_metadata.get("viewer_initial_pose").copy()
             control_type = "object-centric" if dataset_metadata.get("type") == "object-centric" else "default"
             self.initial_pose[:3, 3] *= VISER_SCALE_RATIO
-            self._expected_depth_scale = dataset_metadata.get("expected_scene_scale", 0.5)
+            expected_depth_scale = dataset_metadata.get("expected_scene_scale", 0.5)
 
         self.transform[:3, :] *= VISER_SCALE_RATIO
         self._inv_transform = invert_transform(self.transform, True)
 
         self.port = port
         self.method = method
-        self.renderer = ViewerRenderer(method)
+        self.renderer = ViewerRenderer(method, expected_depth_scale=expected_depth_scale)
 
         self.state = state or ViewerState()
         if self.method is not None:
@@ -1527,6 +1533,7 @@ class ViserViewer:
         @_handle_gui_error(server)
         def _(event: viser.GuiEvent) -> None:
             assert event.client is not None
+            assert event.client_id is not None
 
             gui = server.get_clients()[event.client_id]
             modal = gui.add_gui_modal("Rendering video")

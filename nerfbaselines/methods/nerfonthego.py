@@ -1,26 +1,63 @@
+import json
+import functools
 from itertools import chain
 import gc
 import warnings
 import os
 from pathlib import Path
-from typing import Optional
-from nerfbaselines.types import Dataset, Method, MethodInfo, ModelInfo, Cameras, camera_model_to_int
+from typing import Optional, Sequence, Iterable, Union, Dict, cast
+from nerfbaselines.types import Dataset, Method, MethodInfo, ModelInfo, Cameras, camera_model_to_int, OptimizeEmbeddingsOutput, RenderOutput
 from nerfbaselines.utils import convert_image_dtype
+from nerfbaselines.pose_utils import apply_transform
+from nerfbaselines.io import numpy_from_base64
 
-from flax.training import checkpoints
-import flax
-import jax
-from jax import random
-import jax.numpy as jnp
+from flax.training import checkpoints  # type: ignore
+import flax  # type: ignore
+import jax  # type: ignore
+from jax import random  # type: ignore
+import jax.numpy as jnp  # type: ignore
 import numpy as np
-import gin
-import cv2
-from internal import configs
-from internal import utils
-from internal import models
-from internal import train_utils
-from internal import camera_utils
-from internal.datasets import Dataset as GoBaseDataset
+import gin  # type: ignore
+import cv2  # type: ignore
+from PIL import Image
+from tqdm import tqdm
+from internal import configs  # type: ignore
+from internal import utils  # type: ignore
+from internal import models  # type: ignore
+from internal import train_utils  # type: ignore
+from internal import camera_utils  # type: ignore
+from internal.datasets import Dataset as GoBaseDataset  # type: ignore
+
+
+def get_features(images, rate=1):
+    import torch  # type: ignore
+    from torchvision import transforms as T  # type: ignore
+
+    device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
+    dinov2_vits14 = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14')
+    dinov2_vits14.to(device)
+    extractor = dinov2_vits14
+
+    IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
+    IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
+
+    all_features = []
+    for img in tqdm(images, desc='Extracting features'):
+        H, W = img.shape[:2]
+        RESIZE_H = (H // rate) // 14 * 14
+        RESIZE_W = (W // rate) // 14 * 14
+        pil_img = Image.fromarray(img).convert('RGB')
+        transform = T.Compose([
+            T.Resize((RESIZE_H, RESIZE_W)),
+            T.ToTensor(),
+            T.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD),
+        ])
+        img = transform(pil_img)[:3].unsqueeze(0)
+        with torch.no_grad():
+            features_dict = extractor.forward_features(img.cuda())
+            features = features_dict['x_norm_patchtokens'].view(RESIZE_H // 14, RESIZE_W // 14, -1)
+        all_features.append(features.detach().cpu().numpy())
+    return all_features
 
 
 def gin_config_to_dict(config_str: str):
@@ -40,9 +77,15 @@ def gin_config_to_dict(config_str: str):
             return v
         if v == "None":
             return None
-        if "." in v or "e" in v:
+        try:
+            return int(v, 0)  # int
+        except ValueError:
+            pass
+        try:
             return float(v)  # float
-        return int(v)  # int
+        except ValueError:
+            pass
+        return str(v)
 
     lines = config_str.splitlines()
     i = 0
@@ -71,10 +114,16 @@ def gin_config_to_dict(config_str: str):
 
 
 class GoDataset(GoBaseDataset):
-    def __init__(self, dataset: Dataset, config, eval=False):
+    def __init__(self, dataset: Union[None, Dataset, Dict], config, eval=False, dataparser_transform=None):
         self.dataset = dataset
         self._rendering_mode = eval
-        super().__init__("train", None, config)
+        self.dataparser_transform = dataparser_transform
+        is_render = config.is_render
+        try:
+            config.is_render = eval
+            super().__init__("train" if not eval else "test", None, config)
+        finally:
+            config.is_render = is_render
 
     def load_feat(self, path, feat_rate, factor):
         image_dir = f'images_{factor}' if f'images_{factor}' in path else 'images'
@@ -121,7 +170,7 @@ class GoDataset(GoBaseDataset):
 
         # read in features
         # TODO: fix features
-        features = None
+        features = np.zeros((0, 384), dtype=np.float32)
         if not self._rendering_mode:
             features = [self.load_feat(x, config.feat_rate, config.factor) for x in dataset["images"]]
             features = np.stack(features, axis=0)
@@ -143,9 +192,13 @@ class GoDataset(GoBaseDataset):
         # Separate out 360 versus forward facing scenes.
         assert not config.forward_facing, "Forward facing scenes not supported."
 
-        # Rotate/scale poses to align ground with xy plane and fit to unit cube.
-        poses, transform = camera_utils.transform_poses_pca(poses)
-        self.colmap_to_world_transform = transform
+        if self.dataparser_transform is not None:
+            self.colmap_to_world_transform = transform = self.dataparser_transform
+            poses = apply_transform(self.dataparser_transform, poses)
+        else:
+            # Rotate/scale poses to align ground with xy plane and fit to unit cube.
+            poses, transform = camera_utils.transform_poses_pca(poses)
+            self.colmap_to_world_transform = transform[:3, :4]
 
         self.poses = poses
         self.images = images
@@ -176,44 +229,52 @@ class NeRFOnthego(Method):
         self.cameras = None
         self.loss_threshold = None
         self.dataset = None
-        self.config = None
         self.model = None
         self._config_str = None
         self._dataparser_transform = None
 
         # Setup config
-        self.config = self._load_config(config_overrides=config_overrides)
-
         if checkpoint is not None:
-            self._dataparser_transform = np.loadtxt(Path(checkpoint) / "dataparser_transform.txt")
+            if os.path.exists(os.path.join(checkpoint, "dataparser_transform.json")):
+                with open(os.path.join(checkpoint, "dataparser_transform.json"), "r") as f:
+                    meta = json.load(f)
+                    self._dataparser_transform = numpy_from_base64(meta["colmap_to_world_transform_base64"])
+            elif os.path.exists(os.path.join(checkpoint, "dataparser_transform.txt")):
+                warnings.warn("Using deprecated text format for dataparser_transform. Please upgrade the checkpoint.")
+                with open(os.path.join(checkpoint, "dataparser_transform.txt"), "r") as f:
+                    self._dataparser_transform = np.loadtxt(f)
+            else:
+                raise ValueError("Could not find dataparser_transform.{txt,json} in the checkpoint.")
             self.step = self._loaded_step = int(next(iter((x for x in os.listdir(checkpoint) if x.startswith("checkpoint_")))).split("_")[1])
+            self._config_str = (Path(checkpoint) / "config.gin").read_text()
+            self.config = self._load_config()
+        else:
+            self.config = self._load_config(config_overrides=config_overrides)
 
         self._setup(train_dataset)
 
     def _load_config(self, config_overrides=None):
         if self.checkpoint is None:
             # Find the config files root
-            import train
+            import train  # type: ignore
 
             configs_path = str(Path(train.__file__).absolute().parent / "configs")
-            config_path = "360_dino.gin"
-            if (config_overrides or {}).get("base_config") is not None:
-                config_path = config_overrides["base_config"]
+            config_overrides = (config_overrides or {}).copy()
+            config_path = config_overrides.pop("base_config", None) or "360.gin"
             config_path = os.path.join(configs_path, config_path)
             gin.unlock_config()
             gin.config.clear_config(clear_constants=True)
             gin.parse_config_file(config_path, skip_unknown=True)
             gin.parse_config([
-                f'{k} = {v}' for k, v in (config_overrides or {}).items() if k != "base_config"
+                f'{k} = {v}' for k, v in (config_overrides or {}).items()
             ])
-            gin.finalize()
-            self._config_str = gin.operative_config_str()
+            # gin.bind_parameter("Config.max_steps", num_iterations)
         else:
-            self._config_str = (Path(self.checkpoint) / "config.gin").read_text()
+            assert self._config_str is not None, "Config string must be set when loading from checkpoint"
             gin.unlock_config()
             gin.config.clear_config(clear_constants=True)
             gin.parse_config(self._config_str, skip_unknown=False)
-            gin.finalize()
+        gin.finalize()
         config = configs.Config()
         return config
 
@@ -235,29 +296,7 @@ class NeRFOnthego(Method):
             **self.get_method_info()
         )
 
-    def _setup_eval(self):
-        rng = random.PRNGKey(20200823)
-        np.random.seed(20201473 + jax.process_index())
-        rng, key = random.split(rng)
-
-        dummy_rays = utils.dummy_rays(include_exposure_idx=self.config.rawnerf_mode, include_exposure_values=True)
-        self.model, variables = models.construct_model(rng, dummy_rays, self.config)
-
-        state, self.lr_fn = train_utils.create_optimizer(self.config, variables)
-        self.render_eval_pfn = train_utils.create_render_fn(self.model)
-
-        if self.checkpoint is not None:
-            state = checkpoints.restore_checkpoint(self.checkpoint, state)
-        # Resume training at the step of the last checkpoint.
-        state = flax.jax_utils.replicate(state)
-        self.loss_threshold = 1.0
-
-        # Prefetch_buffer_size = 3 x batch_size.
-        rng = rng + jax.process_index()  # Make random seed separate across hosts.
-        self.rngs = random.split(rng, jax.local_device_count())  # For pmapping RNG keys.
-        self.state = state
-
-    def _setup(self, train_dataset: Dataset, *, config_overrides=None):
+    def _setup(self, train_dataset: Optional[Dataset]):
         rng = random.PRNGKey(20200823)
         # Shift the numpy random seed by process_index() to shuffle data loaded by different
         # hosts.
@@ -292,10 +331,14 @@ class NeRFOnthego(Method):
             self.pdataset_iter = iter(pdataset)
             gc.disable()  # Disable automatic garbage collection for efficiency.
         else:
-            dummy_rays = utils.dummy_rays(include_exposure_idx=self.config.rawnerf_mode, include_exposure_values=True)
-            self.model, variables = models.construct_model(rng, dummy_rays, self.config)
-            self.state, self.lr_fn = train_utils.create_optimizer(self.config, variables)
-            self.render_eval_pfn = train_utils.create_render_fn(self.model)
+            _, state, self.render_eval_pfn, _, _ = train_utils.setup_model(self.config, rng)
+            state = checkpoints.restore_checkpoint(self.config.checkpoint_dir, state)
+            step = int(state.step)
+            assert step == self.get_info().get("loaded_step", step), f"Loaded step {step} does not match expected step {self.get_info().get('loaded_step', step)}"
+
+            variables = state.params
+            state, self.lr_fn = train_utils.create_optimizer(self.config, variables)
+            self.state = state
 
         num_params = jax.tree_util.tree_reduce(lambda x, y: x + jnp.prod(jnp.array(y.shape)), variables, initializer=0)
         print(f"Number of parameters being optimized: {num_params}")
@@ -377,7 +420,6 @@ class NeRFOnthego(Method):
         # We reuse the same random number generator from the optimization step
         # here on purpose so that the visualization matches what happened in
         # training.
-        xnp = jnp
         sizes = cameras.image_sizes
         poses = cameras.poses
         eval_variables = flax.jax_utils.unreplicate(self.state).params
@@ -394,29 +436,19 @@ class NeRFOnthego(Method):
             dataparser_transform=self._dataparser_transform,
         )
 
-        for i, test_case in enumerate(test_dataset):
-            rendering = models.render_image(functools.partial(self.render_eval_pfn, eval_variables, self.train_frac), test_case.rays, self.rngs[0], self.config, verbose=False)
+        for _, test_case in enumerate(test_dataset):
+            rendering = models.render_image(functools.partial(self.render_eval_pfn, eval_variables, self.train_frac), test_case.rays, None, self.config, verbose=False)
 
             accumulation = rendering["acc"]
-            eps = np.finfo(accumulation.dtype).eps
             color = rendering["rgb"]
-            if not self.model.opaque_background:
-                color = xnp.concatenate(
-                    (
-                        # Unmultiply alpha.
-                        xnp.where(accumulation[..., None] > eps, xnp.divide(color, xnp.clip(accumulation[..., None], eps, None)), xnp.zeros_like(rendering["rgb"])),
-                        accumulation[..., None],
-                    ),
-                    -1,
-                )
             depth = np.array(rendering["distance_mean"], dtype=np.float32)
             assert len(accumulation.shape) == 2
             assert len(depth.shape) == 2
-            yield {
+            yield cast(RenderOutput, {
                 "color": np.array(color, dtype=np.float32),
                 "depth": np.array(depth, dtype=np.float32),
                 "accumulation": np.array(accumulation, dtype=np.float32),
-            }
+            })
 
     def optimize_embeddings(
         self, 
@@ -430,6 +462,7 @@ class NeRFOnthego(Method):
             dataset: Dataset.
             embeddings: Optional initial embeddings.
         """
+        del dataset, embeddings
         raise NotImplementedError()
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
@@ -439,5 +472,6 @@ class NeRFOnthego(Method):
         Args:
             index: Index of the image.
         """
+        del index
         return None
 

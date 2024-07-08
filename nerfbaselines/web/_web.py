@@ -206,7 +206,7 @@ def _reload_data_loading():
 
 
 def start_dev_server(raw_data):
-    from livereload import Server
+    from livereload import Server  # type: ignore
 
     with tempfile.TemporaryDirectory() as output:
         input_path = os.path.dirname(os.path.abspath(__file__))

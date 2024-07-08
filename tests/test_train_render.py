@@ -284,7 +284,7 @@ def test_train_command_extras(tmp_path):
         registry.pop("_test", None)
 
 
-def test_train_command_undistort(tmp_path, wandb_init_run):
+def test_train_command_undistort(tmp_path, wandb_init_run, mock_extras):
     metrics._LPIPS_CACHE.clear()
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
