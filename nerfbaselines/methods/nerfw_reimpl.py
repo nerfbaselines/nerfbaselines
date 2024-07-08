@@ -523,17 +523,17 @@ class NeRFWReimpl(Method):
                 if isinstance(embedding_a, np.ndarray):
                     embedding_a_ = torch.tensor(embedding_a, device=device)
                 elif embedding_a is None:
-                    embedding_a_ = self._model.embedding_a.weight.data.mean(0).cpu().numpy()
+                    embedding_a_ = self._model.embedding_a.weight.data.mean(0).to(device)
                 else:
                     embedding_a_ = embedding_a.to(device)
                 if isinstance(embedding_t, np.ndarray):
                     embedding_t_ = torch.tensor(embedding_t, device=device)
                 elif embedding_t is None:
-                    embedding_t_ = self._model.embedding_t.weight.data.mean(0).cpu().numpy()
+                    embedding_t_ = self._model.embedding_t.weight.data.mean(0).to(device)
                 else:
                     embedding_t_ = embedding_t.to(device)
                 def expand_embedding(embedding, ts):
-                    emb = embedding.view([1] * len(ts.shape) + [-1])
+                    emb = embedding.view(*([1] * len(ts.shape) + [-1]))
                     emb = emb.expand(list(ts.shape) + [-1])
                     return emb
                 B = rays.shape[0]
@@ -584,7 +584,8 @@ class NeRFWReimpl(Method):
 
             embedding = embeddings[i] if embeddings is not None else None
             na = self.hparams.N_a
-            with self._with_eval_embedding(embedding[..., :na], embedding[..., na:]) as model:
+            embedding_a, embedding_t = (embedding[..., :na], embedding[..., na:]) if embedding is not None else (None, None)
+            with self._with_eval_embedding(embedding_a, embedding_t) as model:
                 results = model(rays, ts, output_device=torch.device("cpu"))
 
             typ = 'fine' if 'rgb_fine' in results else 'coarse'
