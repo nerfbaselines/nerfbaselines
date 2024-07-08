@@ -80,6 +80,10 @@ def _discover_specs() -> List[Tuple[str, "MethodSpec"]]:
         if "method" not in spec and ("load_dataset_function" not in spec or "priority" not in spec) and "evaluation_protocol" not in spec:
             logging.warning(f"Could not process entry point {spec} as it is not an instance of MethodSpec or DatasetSpec")
             continue
+        if "method" in spec:
+            # For method spec, we set the default backend to python, we also drop other backends
+            spec = spec.copy()
+            spec["backends_order"] = ["python"] + [b for b in spec.get("backends_order", []) if b != "python"]
         types.append((name, spec))
 
     types_to_register = (
