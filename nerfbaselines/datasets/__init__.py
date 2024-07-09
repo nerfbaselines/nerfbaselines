@@ -6,6 +6,7 @@ from ._common import dataset_load_features as dataset_load_features
 from ._common import dataset_index_select as dataset_index_select
 from ._common import new_dataset as new_dataset
 from ._common import DatasetNotFoundError, MultiDatasetError
+from ._common import experimental_parse_dataset_path
 from ..types import UnloadedDataset, Literal
 
 
@@ -60,6 +61,9 @@ def load_dataset(
     from ..registry import get_dataset_loaders, get_dataset_spec
 
     path = str(path)
+    path, _kwargs = experimental_parse_dataset_path(path)
+    _kwargs.update(kwargs)
+    kwargs = _kwargs
     if features is None:
         features = frozenset(("color",))
     if supported_camera_models is None:

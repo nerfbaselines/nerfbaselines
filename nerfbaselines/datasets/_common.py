@@ -18,6 +18,15 @@ from ..pose_utils import rotation_matrix, pad_poses, unpad_poses, apply_transfor
 TDataset = TypeVar("TDataset", bound=Union[Dataset, UnloadedDataset])
 
 
+def experimental_parse_dataset_path(path: str):
+    # NOTE: This is an experimental feature likely to change
+    kwargs = {}
+    if "#" in path:
+        path, urlquery = path.split("#", 1)
+        kwargs = dict(x.split("=") for x in urlquery.split("&"))
+    return path, kwargs
+
+
 def single(xs):
     out = None
     for x in xs:

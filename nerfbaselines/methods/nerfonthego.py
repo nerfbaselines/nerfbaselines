@@ -208,6 +208,19 @@ class GoDataset(GoBaseDataset):
         self.features = features
         self.assignments = assignments
 
+    def start(self):
+        if self.split == "train":
+            return super().start()
+
+    def __iter__(self):
+        if self.split == "train":
+            return super().__iter__()
+        return self._iter_eval()
+
+    def _iter_eval(self):
+        for i in range(self._n_examples):
+            yield self.generate_ray_batch(i)
+
 
 class NeRFOnthego(Method):
     _method_name: str = "nerfonthego"
@@ -436,7 +449,7 @@ class NeRFOnthego(Method):
             dataparser_transform=self._dataparser_transform,
         )
 
-        for _, test_case in enumerate(test_dataset):
+        for i, test_case in enumerate(test_dataset):
             rendering = models.render_image(functools.partial(self.render_eval_pfn, eval_variables, self.train_frac), test_case.rays, None, self.config, verbose=False)
 
             accumulation = rendering["acc"]
