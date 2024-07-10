@@ -117,7 +117,7 @@ jobs:
     name: run-tests-docker
     needs: setup
     strategy:
-      # fail-fast: false
+      fail-fast: false
       matrix:
         # method: [instant-ngp,gaussian-splatting,tetra-nerf,mipnerf360,nerfacto]
         method: ${{ fromJson(needs.setup.outputs.docker_methods) }}
@@ -155,7 +155,7 @@ jobs:
     name: run-tests-apptainer
     needs: setup
     strategy:
-      # fail-fast: false
+      fail-fast: false
       matrix:
         # method: [instant-ngp,gaussian-splatting,tetra-nerf,mipnerf360,nerfacto]
         method: ${{ fromJson(needs.setup.outputs.apptainer_methods) }}
@@ -209,7 +209,7 @@ jobs:
     name: run-tests-conda
     needs: setup
     strategy:
-      # fail-fast: false
+      fail-fast: false
       matrix:
         method: ${{ fromJson(needs.setup.outputs.conda_methods) }}
     steps:

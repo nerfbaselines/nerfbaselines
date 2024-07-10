@@ -154,11 +154,12 @@ def render_command(checkpoint: str, data: str, output: str, split: str, verbose:
 @click.option("--checkpoint", type=str, required=True)
 @click.option("--trajectory", type=str, required=True)
 @click.option("--output", type=click.Path(path_type=str), default=None, help="output a mp4/directory/tar.gz file")
+@click.option("--resolution", type=str, default=None, help="Override the resolution of the output")
 @click.option("--output-type", type=click.Choice(get_args(OutputType)), default="color", help="output type")
 @click.option("--verbose", "-v", is_flag=True)
 @click.option("--backend", "backend_name", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @handle_cli_error
-def render_trajectory_command(checkpoint: Union[str, Path], trajectory: str, output: Union[str, Path], output_type: OutputType, verbose, backend_name):
+def render_trajectory_command(checkpoint: Union[str, Path], trajectory: str, output: Union[str, Path], output_type: OutputType, verbose, backend_name, resolution=None):
     checkpoint = str(checkpoint)
     setup_logging(verbose)
 
@@ -170,6 +171,28 @@ def render_trajectory_command(checkpoint: Union[str, Path], trajectory: str, out
     with open_any(trajectory, "r") as f:
         _trajectory = load_trajectory(f)
     cameras = trajectory_get_cameras(_trajectory)
+
+    # Override resolution
+    if resolution is not None:
+        w, h = tuple(map(int, resolution.split("x")))
+        aspect = _trajectory["image_size"][0] / _trajectory["image_size"][1]
+        if w < 0:
+            assert h > 0, "Either width or height must be positive"
+            w = ((int(h * aspect) + abs(w) - 1) // abs(w)) * abs(w)
+        elif h < 0:
+            assert w > 0, "Either width or height must be positive"
+            h = ((int(w / aspect) + abs(h) - 1) // abs(h)) * abs(h)
+        logging.info(f"Resizing to {w}x{h}")
+
+        # Rescale cameras
+        oldw = cameras.image_sizes[..., 0]
+        oldh = cameras.image_sizes[..., 1]
+        cameras.intrinsics[..., 0] *= w / oldw
+        cameras.intrinsics[..., 1] *= h / oldh
+        cameras.intrinsics[..., 2] *= w / oldw
+        cameras.intrinsics[..., 3] *= h / oldh
+        cameras.image_sizes[..., 0] = w
+        cameras.image_sizes[..., 1] = h
 
     # Read method nb-info
     logging.info(f"Loading checkpoint {checkpoint}")

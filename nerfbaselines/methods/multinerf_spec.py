@@ -23,7 +23,7 @@ MultiNeRFSpec: MethodSpec = {
     "method": ".multinerf:MultiNeRF",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
-        "python_version": "3.9",
+        "python_version": "3.11",
         "install_script": """# Clone the repo.
 git clone https://github.com/google-research/multinerf.git
 cd multinerf
@@ -34,22 +34,29 @@ conda develop "$PWD"
 
 # Install requirements.
 python -m pip install --upgrade pip
-python -m pip install --upgrade 'numpy<2.0.0' "jax[cuda11_pip]==0.4.23" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+python -m pip install --upgrade "jax[cuda11_pip]==0.4.23" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 python -m pip install \
-    'numpy<=2.0.0' \
-    flax==0.7.5 \
-    opencv-python==4.9.0.80 \
-    pillow==10.2.0 \
-    tensorboard==2.15.1 \
-    tensorflow==2.15.0.post1 \
-    gin-config==0.5.0 \
-    dm-pix==0.4.2 \
-    rawpy==0.19.0 \
-    mediapy==1.2.0 \
-    'scipy<1.13.0'
-# scipy 1.13.0 is not supported by the older jax
-# https://github.com/google/jax/discussions/18995
-# python -m pip install 'scipy<1.13.0'
+    "chex==0.1.85" \
+    "dm-pix==0.4.2" \
+    "ffmpeg" \
+    "flax==0.7.5" \
+    "gin-config==0.5.0" \
+    "immutabledict==4.1.0" \
+    "jax==0.4.23" \
+    "jaxcam==0.1.1" \
+    "jaxlib==0.4.23" \
+    "mediapy==1.2.0" \
+    "ml_collections" \
+    "numpy==1.26.4" \
+    "opencv-python==4.9.0.80" \
+    "pillow==10.2.0" \
+    "rawpy==0.19.0" \
+    "scipy==1.11.0" \
+    "tensorboard==2.15.1" \
+    "tensorflow==2.15.0" \
+    "ml-dtypes==0.2.0" \
+    "orbax-checkpoint==0.4.4"
+
 
 # Manually install rmbrualla's `pycolmap` (don't use pip's! It's different).
 git clone https://github.com/rmbrualla/pycolmap.git ./internal/pycolmap
