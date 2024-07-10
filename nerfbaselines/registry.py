@@ -1,3 +1,4 @@
+import importlib.util
 import types
 import sys
 import logging
@@ -12,7 +13,7 @@ if sys.version_info < (3, 10):
 else:
     from importlib.metadata import entry_points
 from .types import Method, TypedDict, Required, FrozenSet, NotRequired, LoadDatasetFunction, DownloadDatasetFunction, EvaluationProtocol
-from .types import DatasetSpecMetadata, Logger
+from .types import DatasetSpecMetadata, Logger, Literal
 
 if TYPE_CHECKING:
     from .backends import BackendName, CondaBackendSpec, DockerBackendSpec, ApptainerBackendSpec
@@ -20,6 +21,8 @@ else:
     BackendName = str
     CondaBackendSpec = DockerBackendSpec = ApptainerBackendSpec = dict
 T = TypeVar("T")
+METHOD_SPECS_PATH = os.path.join(os.path.expanduser("~/.config/nerfbaselines/methods"))
+SpecType = Literal["method", "dataset", "evaluation_protocol"]
 
 
 def assert_not_none(value: Optional[T]) -> T:
@@ -62,29 +65,41 @@ loggers_registry["wandb"] = lambda *args, **kwargs: _import_type("nerfbaselines.
 loggers_registry["tensorboard"] = lambda path, **kwargs: _import_type("nerfbaselines.logging:TensorboardLogger")(os.path.join(path, "tensorboard"), **kwargs)
 evaluation_protocols_registry["default"] = {"evaluation_protocol": "nerfbaselines.evaluation:DefaultEvaluationProtocol"}
 evaluation_protocols_registry["nerf"] = {"evaluation_protocol": "nerfbaselines.evaluation:NerfEvaluationProtocol"}
+_collected_register_calls = None
 
 
-def _discover_specs() -> List[Tuple[str, "MethodSpec"]]:
+def _load_locally_installed_methods():
+    if not os.path.exists(METHOD_SPECS_PATH):
+        return []
+    # Register locally installed methods
+    global _collected_register_calls
+    try:
+        _collected_register_calls = output = []
+
+        for file in os.listdir(METHOD_SPECS_PATH):
+            if not file.endswith(".py"):
+                continue
+            # Import the module from the file
+            path = os.path.join(METHOD_SPECS_PATH, file)
+            spec = importlib.util.spec_from_file_location(file, path)
+            if spec is None or spec.loader is None:
+                continue
+            cfg = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(cfg)
+    finally:
+        _collected_register_calls = None
+    return output
+
+
+def _discover_specs() -> List[Tuple[str, "MethodSpec", str]]:
     """
     Discovers all methods, datasets, evaluation protocols registered using the `nerfbaselines.specs` entrypoint.
     And also methods, datasets, evaluation protocols in the NERFBASELINES_METHODS, NERFBASELINES_DATASETS, 
     NERFBASELINES_REGISTER environment variables.
     """
+    global _collected_register_calls
     types = []
-    discovered_entry_points = entry_points(group="nerfbaselines.specs")
-    for name in discovered_entry_points.names:
-        spec = discovered_entry_points[name].load()
-        if not isinstance(spec, dict):
-            logging.warning(f"Could not entry point {spec} as it is not an instance of dict")
-            continue
-        if "method" not in spec and ("load_dataset_function" not in spec or "priority" not in spec) and "evaluation_protocol" not in spec:
-            logging.warning(f"Could not process entry point {spec} as it is not an instance of MethodSpec or DatasetSpec")
-            continue
-        if "method" in spec:
-            # For method spec, we set the default backend to python, we also drop other backends
-            spec = spec.copy()
-            spec["backends_order"] = ["python"] + [b for b in spec.get("backends_order", []) if b != "python"]
-        types.append((name, spec))
+    registered_methods = set()
 
     types_to_register = (
         os.environ.get("NERFBASELINES_METHODS", "") + "," +
@@ -112,17 +127,38 @@ def _discover_specs() -> List[Tuple[str, "MethodSpec"]]:
             assert isinstance(spec, dict), "Invalid instance type"
 
             # Register based on object type
-            if "method" in spec:
-                types.append((name, spec))
-            elif "load_dataset_function" in spec and "priority" in spec:
-                types.append((name, spec))
-            elif "evaluation_protocol" in spec:
-                types.append((name, spec))
-            else:
-                raise ValueError(f"Could not determine type of object {spec}")
+            _get_spec_type(cast(Any, spec))
+            types.append((name, spec, "environment_variable"))
     except Exception as e:
         logging.exception(e)
         logging.error("Could not load methods from environment variables NERFBASELINES_METHODS, NERFBASELINES_DATASETS, NERFBASELINES_REGISTER")
+    registered_methods = set((name, _get_spec_type(spec)) for name, spec, _ in types)
+
+    discovered_entry_points = entry_points(group="nerfbaselines.specs")
+    for name in discovered_entry_points.names:
+        try:
+            _collected_register_calls = temptypes = []
+            spec = discovered_entry_points[name].load()
+            for name, spec in temptypes:
+                if "method" in spec:
+                    # For method spec, we set the default backend to python, we also drop other backends
+                    spec = spec.copy()
+                    spec["backends_order"] = ["python"] + [b for b in spec.get("backends_order", []) if b != "python"]
+                if (name, _get_spec_type(spec)) in registered_methods:
+                    logging.warning(f"Not registering spec {name} as was supplied from an environment variable")
+                    continue
+                types.append((name, spec, "spec"))
+        finally:
+            _collected_register_calls = None
+    registered_methods = set((name, _get_spec_type(spec)) for name, spec, _ in types)
+
+    # Register locally installed methods
+    # We skip the ones registered using entrypoints (can be inside PYTHON backend 
+    for name, spec in _load_locally_installed_methods():
+        if (name, _get_spec_type(spec)) in registered_methods:
+            logging.debug(f"Skipping locally installed spec {name} as it is already registered")
+            continue
+        types.append((name, spec, "local"))
 
     return types
 
@@ -185,9 +221,9 @@ def _auto_register(force=False):
             importlib.import_module(f".datasets.{package}", __package__)
     # Reset the fastpath since we will be loading modules dynamically now
     _registration_fastpath = None
-    
+
     # Register all external methods
-    for name, spec in _discover_specs():
+    for name, spec, _ in _discover_specs():
         register(spec, name=name)
 
     # If we restrict methods to some subset, remove all other registered methods from the registry
@@ -220,6 +256,17 @@ def _make_entrypoint_absolute(entrypoint: str) -> str:
     return ":".join((module, name))
 
 
+def _get_spec_type(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"]) -> SpecType:
+    if "method" in spec:
+        return "method"
+    elif "load_dataset_function" in spec and "priority" in spec:
+        return "dataset"
+    elif "evaluation_protocol" in spec:
+        return "evaluation_protocol"
+    else:
+        raise ValueError(f"Could not determine type of object {spec}")
+
+
 def register(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"], *, 
              name: str, 
              metadata=None, 
@@ -228,7 +275,9 @@ def register(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"],
     if metadata is None:
         metadata = {}
     spec = spec.copy()
-    if "method" in spec:
+    spec_type = _get_spec_type(spec)
+    if spec_type == "method":
+        spec = cast("MethodSpec", spec)
         assert name not in methods_registry, f"Method {name} already registered"
         spec["method"] = _make_entrypoint_absolute(spec["method"])
         spec.update(
@@ -236,8 +285,12 @@ def register(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"],
             metadata={**(spec.get("metadata") or {}), **(metadata or {})})
         if dataset_overrides is not None:
             spec["dataset_overrides"] = dataset_overrides
-        methods_registry[name] = spec
-    elif "load_dataset_function" in spec and "priority" in spec:
+        if _collected_register_calls is not None:
+            _collected_register_calls.append((name, spec))
+        else:
+            methods_registry[name] = spec
+    elif spec_type == "dataset":
+        spec = cast("DatasetSpec", spec)
         assert name not in datasets_registry, f"Dataset {name} already registered"
         assert dataset_overrides is None, "Parameter dataset_overrides is only valid for methods"
         spec["load_dataset_function"] = _make_entrypoint_absolute(spec["load_dataset_function"])
@@ -253,12 +306,19 @@ def register(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"],
             })
             register(eval_protocol, name=eval_protocol_name)
             spec["evaluation_protocol"] = eval_protocol_name
-        datasets_registry[name] = spec
-    elif "evaluation_protocol" in spec:
+        if _collected_register_calls is not None:
+            _collected_register_calls.append((name, spec))
+        else:
+            datasets_registry[name] = spec
+    elif spec_type == "evaluation_protocol":
+        spec = cast("EvaluationProtocolSpec", spec)
         assert name not in evaluation_protocols_registry, f"Evaluation protocol {name} already registered"
         assert dataset_overrides is None, "Parameter dataset_overrides is only valid for methods"
         spec["evaluation_protocol"] = _make_entrypoint_absolute(spec["evaluation_protocol"])
-        evaluation_protocols_registry[name] = spec
+        if _collected_register_calls is not None:
+            _collected_register_calls.append((name, spec))
+        else:
+            evaluation_protocols_registry[name] = spec
     else:
         raise ValueError(f"Could not determine type of object {spec}")
 
