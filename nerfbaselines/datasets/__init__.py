@@ -1,3 +1,5 @@
+import json
+import os
 from typing import Union, Optional, overload
 import logging
 from pathlib import Path
@@ -88,8 +90,17 @@ def load_dataset(
     dataset_instance = None
     for name, load_fn in loaders:
         try:
+            meta = {}
+            if os.path.exists(os.path.join(path, "info.json")):
+                with open(os.path.join(path, "info.json"), "r") as f:
+                    meta = json.load(f)
+                meta.pop("loader", None)
+                for k, v in meta.pop("loader_kwargs", {}).items():
+                    if k not in kwargs:
+                        kwargs[k] = v
             dataset_instance = load_fn(path, split=split, features=features, **kwargs)
             logging.info(f"Loaded {name} dataset from path {path} using loader {name}")
+            dataset_instance["metadata"].update(meta)
             break
         except DatasetNotFoundError as e:
             logging.debug(e)

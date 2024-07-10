@@ -1,3 +1,5 @@
+import json
+import functools
 import warnings
 import gc
 import logging
@@ -9,7 +11,7 @@ import PIL.ExifTags
 from tqdm import tqdm
 from typing import Optional, TypeVar, Tuple, Union, List, Sequence, Dict, cast, overload
 from ..cameras import camera_model_to_int
-from ..types import Dataset, Literal, Cameras, UnloadedDataset
+from ..types import Dataset, Literal, Cameras, UnloadedDataset, LoadDatasetFunction
 from .. import cameras
 from ..utils import padded_stack
 from ..pose_utils import rotation_matrix, pad_poses, unpad_poses, apply_transform

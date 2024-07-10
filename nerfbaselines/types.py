@@ -448,6 +448,7 @@ class LoadDatasetFunction(Protocol):
     def __call__(self, 
                  path: str, 
                  split: str, 
+                 *,
                  features: Optional[FrozenSet[DatasetFeature]] = None, 
                  **kwargs) -> UnloadedDataset:
         ...
