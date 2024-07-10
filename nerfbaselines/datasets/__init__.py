@@ -68,6 +68,8 @@ def load_dataset(
     kwargs = _kwargs
     if features is None:
         features = frozenset(("color",))
+    kwargs["features"] = features
+    del features
     if supported_camera_models is None:
         supported_camera_models = frozenset(("pinhole",))
     # If path is and external path, we download the dataset first
@@ -79,26 +81,33 @@ def load_dataset(
         path = str(path)
 
     loaders = list(get_dataset_loaders())
+    loaders_override = False
     if "://" in path:
         # We assume the 
         loader, path = path.split("://", 1)
         if loader not in dict(loaders):
             raise ValueError(f"Unknown dataset loader {loader}")
+        loaders_override = True
         loaders = [(loader, dict(loaders)[loader])]
+
+    # Try loading info if exists
+    loader = None
+    meta = {}
+    if os.path.exists(os.path.join(path, "info.json")):
+        with open(os.path.join(path, "info.json"), "r") as f:
+            meta = json.load(f)
+        loader = meta.pop("loader", None)
+        if loader is not None and not loaders_override:
+            loaders = [(loader, dict(loaders)[loader])]
+        for k, v in meta.pop("loader_kwargs", {}).items():
+            if k not in kwargs:
+                kwargs[k] = v
 
     errors = {}
     dataset_instance = None
     for name, load_fn in loaders:
         try:
-            meta = {}
-            if os.path.exists(os.path.join(path, "info.json")):
-                with open(os.path.join(path, "info.json"), "r") as f:
-                    meta = json.load(f)
-                meta.pop("loader", None)
-                for k, v in meta.pop("loader_kwargs", {}).items():
-                    if k not in kwargs:
-                        kwargs[k] = v
-            dataset_instance = load_fn(path, split=split, features=features, **kwargs)
+            dataset_instance = load_fn(path, split=split, **kwargs)
             logging.info(f"Loaded {name} dataset from path {path} using loader {name}")
             dataset_instance["metadata"].update(meta)
             break
@@ -116,5 +125,5 @@ def load_dataset(
     dataset_instance["metadata"]["evaluation_protocol"] = eval_protocol
 
     if load_features:
-        return dataset_load_features(dataset_instance, features=features, supported_camera_models=supported_camera_models)
+        return dataset_load_features(dataset_instance, features=kwargs["features"], supported_camera_models=supported_camera_models)
     return dataset_instance

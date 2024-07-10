@@ -120,8 +120,8 @@ def open_any(
             file.seek(0)
             progress_bar.close()
             if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
-                logging.error(
-                    f"Failed to download {path}. {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes."
+                logging.warning(
+                    f"While downloading {path}, {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes."
                 )
             yield file
         return

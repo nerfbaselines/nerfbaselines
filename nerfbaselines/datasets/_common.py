@@ -9,9 +9,9 @@ import numpy as np
 import PIL.Image
 import PIL.ExifTags
 from tqdm import tqdm
-from typing import Optional, TypeVar, Tuple, Union, List, Sequence, Dict, cast, overload
+from typing import Optional, TypeVar, Tuple, Union, List, Sequence, Dict, cast, overload, Any
 from ..cameras import camera_model_to_int
-from ..types import Dataset, Literal, Cameras, UnloadedDataset, LoadDatasetFunction
+from ..types import Dataset, Literal, Cameras, UnloadedDataset
 from .. import cameras
 from ..utils import padded_stack
 from ..pose_utils import rotation_matrix, pad_poses, unpad_poses, apply_transform
@@ -20,9 +20,9 @@ from ..pose_utils import rotation_matrix, pad_poses, unpad_poses, apply_transfor
 TDataset = TypeVar("TDataset", bound=Union[Dataset, UnloadedDataset])
 
 
-def experimental_parse_dataset_path(path: str):
+def experimental_parse_dataset_path(path: str) -> Tuple[str, Dict[str, Any]]:
     # NOTE: This is an experimental feature likely to change
-    kwargs = {}
+    kwargs: Dict[str, Any] = {}
     if "#" in path:
         path, urlquery = path.split("#", 1)
         kwargs = dict(x.split("=") for x in urlquery.split("&"))
@@ -247,6 +247,10 @@ def dataset_load_features(
     resize = dataset["metadata"].get("downscale_loaded_factor")
     if resize == 1:
         resize = None
+
+    image_paths_root = dataset.get("image_paths_root")
+    if image_paths_root is not None:
+        logging.info(f"Loading images from {image_paths_root}")
 
     i = 0
     for p in tqdm(dataset["image_paths"], desc="loading images", dynamic_ncols=True):
