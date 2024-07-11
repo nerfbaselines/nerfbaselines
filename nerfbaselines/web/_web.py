@@ -112,6 +112,7 @@ def get_data(raw_data):
     return {
         "datasets": datasets,
         "methods": methods,
+        "method_licenses": _get_method_licenses(),
     }
 
 
@@ -242,6 +243,20 @@ def start_dev_server(raw_data):
         server._setup_logging = lambda: None
         logging.info("Starting dev server")
         server.serve(root=output)
+
+
+def _get_method_licenses():
+    from nerfbaselines.registry import get_supported_methods, get_method_spec
+
+    implemented_methods = []
+    for method in get_supported_methods():
+        spec = get_method_spec(method).get("metadata", {})
+        if ":" in method:
+            continue
+        if spec.get("licenses"):
+            implemented_methods.append({"name": spec.get("name", method), "licenses": spec["licenses"]})
+    implemented_methods.sort(key=lambda x: x.get("name", None))
+    return implemented_methods
 
 
 def _prepare_data(data_path, datasets=None):

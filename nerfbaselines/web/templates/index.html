@@ -58,15 +58,9 @@ This work was supported by the Czech Science Foundation (GA&#268;R) EXPRO (grant
       Each implemented method is licensed under the license provided by the authors of the method.
       For the currently implemented methods, the following licenses apply:
       <ul>
-        <li>NerfStudio: <a href="https://raw.githubusercontent.com/nerfstudio-project/nerfstudio/main/LICENSE">Apache 2.0</a></li>
-        <li>Instant-NGP: <a href="{https://raw.githubusercontent.com/NVlabs/instant-ngp/master/LICENSE.txt">custom, research purposes only</a></li>
-        <li>Gaussian-Splatting: <a href="{https://raw.githubusercontent.com/graphdeco-inria/gaussian-splatting/main/LICENSE.md">custom, research purposes only</a></li>
-        <li>Mip-Splatting: <a href="{https://raw.githubusercontent.com/autonomousvision/mip-splatting/main/LICENSE.md">custom, research purposes only</a></li>
-        <li>Gaussian Opacity Fields: <a href="{https://raw.githubusercontent.com/autonomousvision/gaussian-opacity-fields/main/LICENSE.md">custom, research purposes only</a></li>
-        <li>Tetra-NeRF: <a href="{https://raw.githubusercontent.com/jkulhanek/tetra-nerf/master/LICENSE">MIT</a>, <a href="{https://raw.githubusercontent.com/nerfstudio-project/nerfstudio/main/LICENSE">Apache 2.0</a></li>
-        <li>Mip-NeRF 360: <a href="{https://raw.githubusercontent.com/google-research/multinerf/main/LICENSE">Apache 2.0</a></li>
-        <li>Zip-NeRF: <a href="{https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE">Apache 2.0</a></li>
-        <li>CamP: <a href="{https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE">Apache 2.0</a></li>
+        {% for method in method_licenses %}
+        <li>{{ method.name }}: {% for license in method.licenses %}<a href="{{ license.url }}">{{ license.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</li>
+        {% endfor %}
       </ul>
     </p>
   </section>
