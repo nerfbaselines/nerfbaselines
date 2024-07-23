@@ -313,7 +313,9 @@ def setup_logging(verbose: Union[bool, Literal['disabled']]):
         logging.basicConfig(level=logging.DEBUG, **kwargs)
         logging.getLogger('PIL').setLevel(logging.WARNING)
     else:
+        import warnings
         logging.basicConfig(level=logging.INFO, **kwargs)
+        warnings.formatwarning = lambda message, *args, **kwargs: message
     for handler in logging.root.handlers:
         handler.setFormatter(Formatter())
     logging.captureWarnings(True)

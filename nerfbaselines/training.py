@@ -500,7 +500,7 @@ class Trainer:
 @click.option("--checkpoint", type=click.Path(path_type=str), default=None)
 @click.option("--data", type=str, required=True)
 @click.option("--output", type=str, default=".")
-@click.option("--logger", type=click.Choice(["none", "wandb", "tensorboard", "wandb+tensorboard"]), default="tensorboard", help="Logger to use. Defaults to tensorboard.")
+@click.option("--logger", type=click.Choice(["none", "wandb", "tensorboard", "wandb,tensorboard"]), default="tensorboard", help="Logger to use. Defaults to tensorboard.")
 @click.option("--verbose", "-v", is_flag=True)
 @click.option("--save-iters", type=IndicesClickType(), default=Indices([-1]), help="When to save the model")
 @click.option("--eval-few-iters", type=IndicesClickType(), default=Indices.every_iters(2_000), help="When to evaluate on few images")
@@ -527,7 +527,7 @@ def train_command(
     if config_overrides is None:
         config_overrides = {}
     _loggers = set()
-    for _vis in logger.split("+"):
+    for _vis in logger.split(","):
         if _vis == "none":
             pass
         elif _vis in loggers_registry:
