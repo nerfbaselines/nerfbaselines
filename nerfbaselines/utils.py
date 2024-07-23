@@ -628,8 +628,9 @@ def get_resources_utilization_info(pid: Optional[int] = None) -> ResourcesUtiliz
         info["memory"] = (mem + 1024 - 1) // 1024
     except FileNotFoundError:
         pass
-    except subprocess.CalledProcessError:
-        pass
+    except Exception:
+        # We cannot read the GPUs since we already failed getting the list of processes
+        return info
 
     try:
         gpu_memory = 0
@@ -638,8 +639,12 @@ def get_resources_utilization_info(pid: Optional[int] = None) -> ResourcesUtiliz
         out = subprocess.check_output("nvidia-smi --query-compute-apps=pid,used_memory,gpu_uuid,gpu_name --format=csv,noheader,nounits".split(), text=True).splitlines()
         for line in out:
             cpid, used_memory, uuid, gpu_name = tuple(x.strip() for x in line.split(",", 3))
-            cpid = int(cpid)
-            used_memory = int(used_memory)
+            try:
+                cpid = int(cpid)
+                used_memory = int(used_memory)
+            except ValueError:
+                # Unused GPUs could sometimes return [N/A]
+                continue
             if cpid in all_processes:
                 gpu_memory += used_memory
                 if uuid not in uuids:
@@ -649,7 +654,7 @@ def get_resources_utilization_info(pid: Optional[int] = None) -> ResourcesUtiliz
         info["gpu_memory"] = gpu_memory
     except FileNotFoundError:
         pass
-    except subprocess.CalledProcessError:
+    except Exception:
         pass
 
     return info
