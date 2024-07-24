@@ -609,7 +609,7 @@ def train_command(
                     train_dataset=train_dataset,
                     test_dataset=test_dataset,
                     method=method,
-                    output=output,
+                    output=output_path,
                     save_iters=save_iters,
                     eval_all_iters=eval_all_iters,
                     eval_few_iters=eval_few_iters,

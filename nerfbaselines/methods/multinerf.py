@@ -3,13 +3,13 @@ import warnings
 import os
 from typing import Optional, Iterable, Sequence
 from pathlib import Path
+import io
+import base64
 import numpy as np
 import functools
 import gc
 from nerfbaselines.types import Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput
 from nerfbaselines.types import Cameras, camera_model_to_int
-from nerfbaselines.utils import padded_stack
-from nerfbaselines.io import numpy_to_base64, numpy_from_base64
 
 try:
     # We need to import torch before jax to load correct CUDA libraries
@@ -29,6 +29,28 @@ from internal import models
 from internal import train_utils  # pylint: disable=unused-import
 from internal import utils
 from internal import raw_utils
+
+
+def numpy_to_base64(array: np.ndarray) -> str:
+    with io.BytesIO() as f:
+        np.save(f, array)
+        return base64.b64encode(f.getvalue()).decode("ascii")
+
+
+def numpy_from_base64(data: str) -> np.ndarray:
+    with io.BytesIO(base64.b64decode(data)) as f:
+        return np.load(f)
+
+
+def padded_stack(tensors) -> np.ndarray:
+    if not isinstance(tensors, (tuple, list)):
+        return tensors
+    max_shape = tuple(max(s) for s in zip(*[x.shape for x in tensors]))
+    out_tensors = []
+    for x in tensors:
+        pads = [(0, m - s) for s, m in zip(x.shape, max_shape)]
+        out_tensors.append(np.pad(x, pads))
+    return np.stack(out_tensors, 0)
 
 
 def patch_multinerf_with_multicam():

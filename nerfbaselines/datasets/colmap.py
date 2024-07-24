@@ -199,6 +199,14 @@ def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.nda
     return intrinsics, camera_model_to_int(camera_model), distortion_params, (image_width, image_height)
 
 
+def _select_indices_llff(image_names, llffhold=8):
+    inds = np.argsort(image_names)
+    all_indices = np.arange(len(image_names))
+    indices_train = inds[all_indices % llffhold != 0]
+    indices_test = inds[all_indices % llffhold == 0]
+    return indices_train, indices_test
+
+
 def load_colmap_dataset(path: Union[Path, str],
         split: Optional[str] = None, 
         *,
@@ -355,7 +363,7 @@ def load_colmap_dataset(path: Union[Path, str],
             train_indices = None
             for split in ("train", split):
                 split_image_names = set((path / f"{split}_list.txt").read_text().splitlines())
-                indices = np.array([name in split_image_names for i, name in enumerate(image_names)], dtype=bool)
+                indices = np.array([name in split_image_names for name in image_names], dtype=bool)
                 if indices.sum() == 0:
                     raise DatasetNotFoundError(f"no images found for split {split} in {path / f'{split}_list.txt'}")
                 if indices.sum() < len(split_image_names):
@@ -363,14 +371,21 @@ def load_colmap_dataset(path: Union[Path, str],
                 if split == "train":
                     train_indices = indices
             assert train_indices is not None
+            logging.info(f"Colmap dataloader is using LLFF split with {train_indices.sum()} training images")
+        elif test_indices is None:
+            train_indices, test_indices_array = _select_indices_llff(image_names)
+            indices = train_indices if split == "train" else test_indices_array
+            logging.info(f"Colmap dataloader is using LLFF split with {len(train_indices)} training and {len(test_indices_array)} test images")
         else:
-            if test_indices is None:
-                test_indices = Indices.every_iters(8)
             dataset_len = len(image_paths)
             test_indices.total = dataset_len
             test_indices_array: np.ndarray = np.array([i in test_indices for i in range(dataset_len)], dtype=bool)
             train_indices = np.logical_not(test_indices_array)
             indices = train_indices if split == "train" else test_indices_array
+
+            # Apply indices to sorted image names (COLMAP order is arbitrary)
+            indices = np.argsort(image_names)[indices]
+            logging.info(f"Colmap dataloader is using LLFF split with {train_indices.sum()} training and {test_indices_array.sum()} test images")
 
     viewer_transform, viewer_pose = get_default_viewer_transform(all_cameras[train_indices].poses, None)
     dataset = new_dataset(

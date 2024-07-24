@@ -16,6 +16,14 @@ KNOWN_ATTRIBUTES = "w h f fx fy cx cy k1 k2 k3 k4 p1 p2 delta_cx delta_cy filena
 CoordinateSystem = Literal["opengl", "opencv"]
 
 
+def _select_indices_llff(image_names, llffhold=8):
+    inds = np.argsort(image_names)
+    all_indices = np.arange(len(image_names))
+    indices_train = inds[all_indices % llffhold != 0]
+    indices_test = inds[all_indices % llffhold == 0]
+    return indices_train, indices_test
+
+
 def get_split_and_train_indices(image_names, path, split):
     num_images = len(image_names)
     indices = None
@@ -36,11 +44,8 @@ def get_split_and_train_indices(image_names, path, split):
                     train_indices = indices
             assert train_indices is not None
         else:
-            dataset_len = num_images
-            test_indices = list(range(0, num_images, 8))
-            test_indices_array: np.ndarray = np.array([i in test_indices for i in range(dataset_len)], dtype=bool)
-            train_indices = np.logical_not(test_indices_array)
-            indices = train_indices if split == "train" else test_indices_array
+            train_indices, test_indices = _select_indices_llff(image_names)
+            indices = train_indices if split == "train" else test_indices
     return indices, train_indices
 
 

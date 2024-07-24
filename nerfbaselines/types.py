@@ -431,6 +431,11 @@ class EvaluationProtocol(Protocol):
         ...
 
 
+class LicenseSpec(TypedDict, total=True):
+    name: str
+    url: str
+
+
 class DatasetSpecMetadata(TypedDict, total=False):
     id: str
     name: str
@@ -442,6 +447,7 @@ class DatasetSpecMetadata(TypedDict, total=False):
     metrics: List[str]
     default_metric: str
     scenes: List[Dict[str, str]]
+    licenses: List[LicenseSpec]
 
 
 class LoadDatasetFunction(Protocol):

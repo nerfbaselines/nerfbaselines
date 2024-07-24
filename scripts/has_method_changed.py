@@ -138,7 +138,12 @@ def git_has_change(*paths):
             root_path = os.path.commonpath(paths)
         elif len(paths) == 1:
             root_path = os.path.dirname(paths[0])
-        subprocess.check_output(["git", "diff", "--exit-code", "HEAD~1", "--", *paths], cwd=root_path)
+        # Check for changes in the last commit
+        subprocess.check_output("git diff --exit-code HEAD~1 --".split() + list(paths), cwd=root_path)
+        # Check for untracked files
+        subprocess.run("git ls-files --exclude-standard --error-unmatch --".split() + list(paths), 
+                       cwd=root_path, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                       check=True)
     except subprocess.CalledProcessError:
         return True
     return False

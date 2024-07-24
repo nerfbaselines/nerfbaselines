@@ -10,7 +10,7 @@ import numpy as np
 from . import metrics
 from . import datasets
 from . import registry
-from .types import Literal, Optional, TypedDict, DatasetSpecMetadata
+from .types import Literal, Optional, TypedDict, DatasetSpecMetadata, LicenseSpec, NotRequired
 from ._constants import WEBPAGE_URL
 
 
@@ -40,6 +40,7 @@ class DatasetInfo(TypedDict):
     paper_authors: List[str]
     paper_link: str
     link: str
+    licenses: NotRequired[List[LicenseSpec]]
 
 
 def get_dataset_info(dataset: str) -> DatasetInfo:

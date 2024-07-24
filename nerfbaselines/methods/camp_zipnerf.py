@@ -5,6 +5,8 @@ from collections import namedtuple
 import json
 import logging
 import os
+import io
+import base64
 from typing import Optional, Iterable, Sequence
 from pathlib import Path
 import numpy as np
@@ -12,7 +14,6 @@ import functools
 import gc
 from nerfbaselines.types import Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput
 from nerfbaselines.types import Cameras, camera_model_to_int
-from nerfbaselines.io import numpy_to_base64, numpy_from_base64
 try:
     # We need to import torch before jax to load correct CUDA libraries
     import torch
@@ -42,6 +43,17 @@ os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.65"
 # jax.config.parse_flags_with_absl()
 
 TIME_PRECISION = 1000  # Internally represent integer times in milliseconds.
+
+
+def numpy_to_base64(array: np.ndarray) -> str:
+    with io.BytesIO() as f:
+        np.save(f, array)
+        return base64.b64encode(f.getvalue()).decode("ascii")
+
+
+def numpy_from_base64(data: str) -> np.ndarray:
+    with io.BytesIO(base64.b64decode(data)) as f:
+        return np.load(f)
 
 
 def np_to_jax(x):

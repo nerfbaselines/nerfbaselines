@@ -121,7 +121,7 @@ def wandb_init_run():
         yield
 
 
-@pytest.mark.parametrize("vis", ["none", "wandb", "tensorboard", "wandb+tensorboard"])
+@pytest.mark.parametrize("vis", ["none", "wandb", "tensorboard", "wandb,tensorboard"])
 def test_train_command(mock_extras, tmp_path, wandb_init_run, vis):
     # if sys.version_info[:2] == (3, 7) and vis == "tensorboard":
     #     # TODO: Investigate why this test fails in Python 3.7

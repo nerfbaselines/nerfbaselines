@@ -1,4 +1,5 @@
 *.swp
+.*.swo
 **/__pycache__
 cu-config.yml
 dist/

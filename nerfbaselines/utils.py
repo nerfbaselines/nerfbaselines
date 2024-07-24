@@ -602,6 +602,8 @@ class ResourcesUtilizationInfo(TypedDict, total=False):
 
 @run_on_host()
 def get_resources_utilization_info(pid: Optional[int] = None) -> ResourcesUtilizationInfo:
+    import platform
+
     if pid is None:
         pid = os.getpid()
 
@@ -609,34 +611,67 @@ def get_resources_utilization_info(pid: Optional[int] = None) -> ResourcesUtiliz
 
     # Get all cpu memory and running processes
     all_processes = set((pid,))
-    try:
-        mem = 0
-        out = subprocess.check_output("ps -ax -o pid= -o ppid= -o rss=".split(), text=True).splitlines()
-        mem_used: Dict[int, int] = {}
-        children = {}
-        for line in out:
-            cpid, ppid, used_memory = map(int, line.split())
-            mem_used[cpid] = used_memory
-            children.setdefault(ppid, set()).add(cpid)
-        all_processes = set()
-        stack = [pid]
-        while stack:
-            cpid = stack.pop()
-            all_processes.add(cpid)
-            mem += mem_used[cpid]
-            stack.extend(children.get(cpid, []))
-        info["memory"] = (mem + 1024 - 1) // 1024
-    except FileNotFoundError:
-        pass
-    except Exception:
-        # We cannot read the GPUs since we already failed getting the list of processes
-        return info
+    current_platform = platform.system()
+
+    if current_platform == "Windows":  # Windows
+        def get_memory_usage_windows(pid: int) -> int:
+            try:
+                process = subprocess.Popen(
+                    ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                    stdout=subprocess.PIPE,
+                    text=True
+                )
+                out, _ = process.communicate()
+                mem_usage_str = out.strip().split(',')[4].strip('"').replace(' K', '').replace(',', '')
+                return int(mem_usage_str) * 1024  # Convert KB to bytes
+            except Exception:
+                return 0
+        try:
+            mem = get_memory_usage_windows(pid)
+            all_processes = set((pid,))
+            out = subprocess.check_output(
+                ["wmic", "process", "where", f"(ParentProcessId={pid})", "get", "ProcessId"],
+                text=True
+            )
+            children_pids = [int(line.strip()) for line in out.strip().split() if line.strip().isdigit()]
+            for child_pid in children_pids:
+                mem += get_memory_usage_windows(child_pid)
+                all_processes.add(child_pid)
+            info["memory"] = (mem + 1024 - 1) // 1024
+        except Exception:
+            logging.error(f"Failed to get resource usage information on {current_platform}", exc_info=True)
+            return info
+    else:  # Linux or macOS
+        try:
+            mem = 0
+            out = subprocess.check_output("ps -ax -o pid= -o ppid= -o rss=".split(), text=True).splitlines()
+            mem_used: Dict[int, int] = {}
+            children = {}
+            for line in out:
+                cpid, ppid, used_memory = map(int, line.split())
+                mem_used[cpid] = used_memory
+                children.setdefault(ppid, set()).add(cpid)
+            all_processes = set()
+            stack = [pid]
+            while stack:
+                cpid = stack.pop()
+                all_processes.add(cpid)
+                mem += mem_used[cpid]
+                stack.extend(children.get(cpid, []))
+            info["memory"] = (mem + 1024 - 1) // 1024
+        except Exception:
+            logging.error(f"Failed to get resource usage information on {current_platform}", exc_info=True)
+            return info
 
     try:
         gpu_memory = 0
         gpus = {}
         uuids = set()
-        out = subprocess.check_output("nvidia-smi --query-compute-apps=pid,used_memory,gpu_uuid,gpu_name --format=csv,noheader,nounits".split(), text=True).splitlines()
+        nvidia_smi_command = "nvidia-smi --query-compute-apps=pid,used_memory,gpu_uuid,gpu_name --format=csv,noheader,nounits"
+        if current_platform == "Windows":
+            out = subprocess.check_output("nvidia-smi --query-compute-apps=pid,used_memory,gpu_uuid,gpu_name --format=csv,noheader,nounits", shell=True, text=True).splitlines()
+        else:
+            out = subprocess.check_output(nvidia_smi_command.split(), text=True).splitlines()
         for line in out:
             cpid, used_memory, uuid, gpu_name = tuple(x.strip() for x in line.split(",", 3))
             try:
@@ -652,10 +687,9 @@ def get_resources_utilization_info(pid: Optional[int] = None) -> ResourcesUtiliz
                     gpus[gpu_name] = gpus.get(gpu_name, 0) + 1
         info["gpu_name"] = ",".join(f"{k}:{v}" if v > 1 else k for k, v in gpus.items())
         info["gpu_memory"] = gpu_memory
-    except FileNotFoundError:
-        pass
     except Exception:
-        pass
+        logging.error(f"Failed to get GPU utilization on {current_platform}", exc_info=True)
+        return info
 
     return info
 

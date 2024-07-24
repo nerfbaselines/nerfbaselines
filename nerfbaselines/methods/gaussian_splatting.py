@@ -24,8 +24,7 @@ import tempfile
 import numpy as np
 from PIL import Image
 from nerfbaselines.types import Method, MethodInfo, ModelInfo, OptimizeEmbeddingsOutput, RenderOutput
-from nerfbaselines.types import Cameras, camera_model_to_int
-from nerfbaselines.datasets import Dataset
+from nerfbaselines.types import Cameras, camera_model_to_int, Dataset
 from nerfbaselines.utils import cached_property, flatten_hparams, remap_error
 from nerfbaselines.pose_utils import get_transform_and_scale
 from nerfbaselines.math_utils import rotate_spherical_harmonics, rotation_matrix_to_quaternion, quaternion_multiply

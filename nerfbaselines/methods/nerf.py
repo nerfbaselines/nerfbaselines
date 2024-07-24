@@ -28,9 +28,7 @@ import tempfile
 from argparse import ArgumentParser
 
 from nerfbaselines.types import Dataset, OptimizeEmbeddingsOutput, RenderOutput, MethodInfo, ModelInfo
-from nerfbaselines.types import Cameras, CameraModel, get_args
-from nerfbaselines import Method
-from nerfbaselines.types import Optional
+from nerfbaselines.types import Cameras, CameraModel, get_args, Method, Optional
 from nerfbaselines.utils import convert_image_dtype
 from nerfbaselines.pose_utils import pad_poses, apply_transform, unpad_poses, invert_transform
 from nerfbaselines import cameras as _cameras

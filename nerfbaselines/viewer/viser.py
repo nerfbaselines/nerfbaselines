@@ -34,7 +34,7 @@ import viser.transforms as tf
 from ..pose_utils import apply_transform, get_transform_and_scale, invert_transform
 from scipy import interpolate
 
-from ..types import Method, Dataset, FrozenSet, DatasetFeature, Literal, TypeVar
+from ..types import Method, Dataset, FrozenSet, DatasetFeature, Literal, TypeVar, CameraModel, get_args
 from ..types import new_cameras
 from ..types import TrajectoryFrameAppearance, TrajectoryFrame, TrajectoryKeyframe, Trajectory, TrajectoryInterpolationSource
 from ..types import KochanekBartelsInterpolationSource
@@ -1690,7 +1690,8 @@ class ViserViewer:
                 points, rgb = self.state.input_points
                 transform, scale = get_transform_and_scale(self.transform)
                 points = np.concatenate([points, np.ones((len(points), 1))], -1) @ transform.T
-                points = points[..., :-1] / points[..., -1:]
+                if points.shape[-1] == 4:
+                    points = points[..., :-1] / points[..., -1:]
                 points *= scale
                 if rgb is None:
                     rgb = np.full((len(points), 3), 255, dtype=np.uint8)
@@ -2098,8 +2099,9 @@ def run_viser_viewer(method: Optional[Method] = None,
 
         test_dataset = load_dataset(data, split="test", features=features, load_features=False)
 
-        server.add_dataset_views(dataset_load_features(test_dataset, features), "test")
-        server.add_dataset_views(dataset_load_features(train_dataset, features), "train")
+        supported_camera_models = frozenset(get_args(CameraModel))
+        server.add_dataset_views(dataset_load_features(test_dataset, features, supported_camera_models=supported_camera_models), "test")
+        server.add_dataset_views(dataset_load_features(train_dataset, features, supported_camera_models=supported_camera_models), "train")
 
     elif nb_info is not None:
         dataset_metadata = nb_info.get("dataset_metadata")
