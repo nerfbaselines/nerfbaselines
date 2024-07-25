@@ -25,7 +25,7 @@ def test_render(use_remote_method):
         def get_info(self) -> ModelInfo:
             return {**self.get_method_info(), "num_iterations": 13}
 
-        def render(self, cameras, embeddings=None) -> Iterable[RenderOutput]:
+        def render(self, cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
             yield {"color": np.full(tuple(), 23)}
             yield {"color": np.full(tuple(), 26)}
 
@@ -75,7 +75,7 @@ def use_remote_method():
                 def optimize_embeddings(self, *args, **kwargs):
                     raise NotImplementedError()
 
-                def render(self, cameras, embeddings=None) -> Iterable[RenderOutput]:
+                def render(self, cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
                     for i in range(100):
                         sleep(0.001)
                         yield {"color": np.full(tuple(), i)}
@@ -166,7 +166,7 @@ def test_render_cancellable(use_remote_method):
             return {**self.get_method_info(), "num_iterations": 13}
 
         @cancellable
-        def render(self, cameras, embeddings=None) -> Iterable[RenderOutput]:
+        def render(self, cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
             for i in range(400):
                 sleep(0.001)
                 yield {"color": np.full(tuple(), i)}

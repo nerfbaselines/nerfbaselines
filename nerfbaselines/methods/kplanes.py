@@ -539,6 +539,7 @@ class KPlanes(Method):
             name=cls._method_name,
             required_features=frozenset(("color", "points3D_xyz", "images_points3D_indices")),
             supported_camera_models=frozenset(("pinhole",)),
+            supported_outputs=("color", "depth"),
         )
 
     def get_info(self) -> ModelInfo:
@@ -601,7 +602,8 @@ class KPlanes(Method):
         else:
             raise NotImplementedError("Only phototourism, nerfsynthetic datasets are supported")
 
-    def render(self, cameras: Cameras, embeddings=None) -> Iterable[RenderOutput]:
+    def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
+        del options
         assert np.all(cameras.camera_types == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
 
         def load_embeddings(i, indices):

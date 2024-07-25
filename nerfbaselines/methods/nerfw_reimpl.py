@@ -485,6 +485,7 @@ class NeRFWReimpl(Method):
             name=cls._method_name,
             required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset(get_args(CameraModel)),
+            supported_outputs=("color", "depth"),
         )
 
     def get_info(self) -> ModelInfo:
@@ -574,7 +575,8 @@ class NeRFWReimpl(Method):
                     p.requires_grad = r
 
     @torch.no_grad()
-    def render(self, cameras: Cameras, embeddings=None) -> Iterable[RenderOutput]:
+    def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
+        del options
         model = self._model
         device = next(iter(model.parameters())).device
         assert device.type == "cuda", "Model is not on GPU"

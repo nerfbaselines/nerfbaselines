@@ -107,6 +107,7 @@ exclude = ["**/node_modules",
     "nerfbaselines/methods/tetranerf.py",
     "nerfbaselines/methods/kplanes.py",
     "nerfbaselines/methods/trips/**/*",
+    "scripts/**/*",
 ]
 defineConstant = { DEBUG = true }
 

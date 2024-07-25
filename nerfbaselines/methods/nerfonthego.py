@@ -298,6 +298,7 @@ class NeRFOnthego(Method):
             name=cls._method_name,
             required_features=frozenset(("color",)),
             supported_camera_models=frozenset(("pinhole", "opencv", "opencv_fisheye")),
+            supported_outputs=("color", "depth", "accumulation"),
         )
 
     def get_info(self):
@@ -426,7 +427,8 @@ class NeRFOnthego(Method):
             with (Path(path) / "config.gin").open("w+") as f:
                 f.write(self._config_str)
 
-    def render(self, cameras: Cameras, embeddings=None):
+    def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
+        del options
         if embeddings is not None:
             raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
         # Test-set evaluation.

@@ -14,12 +14,12 @@ register(name="seathru-nerf", spec={
         "paper_link": "https://openaccess.thecvf.com/content/CVPR2023/papers/Levy_SeaThru-NeRF_Neural_Radiance_Fields_in_Scattering_Media_CVPR_2023_paper.pdf",
         "link": "https://sea-thru-nerf.github.io/",
         "licenses": [{"name": "Apache 2.0","url": "https://raw.githubusercontent.com/deborahLevy130/seathru_NeRF/master/LICENSE"}],
-        "metrics": ["psnr", "ssim", "lpips_vgg"],
+        "metrics": ["psnr", "ssim", "lpips"],
         "default_metric": "psnr",
         "scenes": [
             {
-                "id": "curao",
-                "name": "Curao"
+                "id": "curasao",
+                "name": "Curasao"
             },
             {
                 "id": "panama",

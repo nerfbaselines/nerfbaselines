@@ -80,7 +80,8 @@ class _TestMethod(Method):
     def optimize_embeddings(self, *args, **kwargs):
         raise NotImplementedError()
 
-    def render(self, cameras: Cameras, embeddings=None) -> Iterable[RenderOutput]:
+    def render(self, cameras: Cameras, *, embeddings=None, **kwargs) -> Iterable[RenderOutput]:
+        del kwargs
         assert embeddings is None
         _TestMethod._render_call_step.append(_TestMethod._last_step)
         for i in range(len(cameras)):

@@ -235,6 +235,7 @@ class TensoRF(Method):
             name=cls._method_name,
             required_features=frozenset(("color",)),
             supported_camera_models=frozenset(get_args(CameraModel)),
+            supported_outputs=("color", "depth"),
         )
 
     def get_info(self) -> ModelInfo:
@@ -475,7 +476,8 @@ class TensoRF(Method):
         return output
 
     @torch.no_grad()
-    def render(self, cameras: Cameras, embeddings=None) -> Iterable[RenderOutput]:
+    def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
+        del options
         if embeddings is not None:
             raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
         assert self.metadata.get("dataset_metadata") is not None, "Missing dataset_metadata"

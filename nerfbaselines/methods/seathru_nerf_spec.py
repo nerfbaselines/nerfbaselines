@@ -3,6 +3,9 @@ from ..registry import MethodSpec, register
 
 
 paper_results = {
+    "seathru-nerf/curasao": { "psnr": 30.48, "ssim": 0.87, "lpips": 0.20 },
+    "seathru-nerf/panama": { "psnr": 27.89, "ssim": 0.83, "lpips": 0.22 },
+    "seathru-nerf/japanese-gradens": { "psnr": 21.83, "ssim": 0.77, "lpips": 0.25 },
 }
 
 

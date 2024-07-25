@@ -36,7 +36,7 @@ except ImportError:
 
 import torch
 
-from nerfbaselines.types import Method, MethodInfo, OptimizeEmbeddingsOutput, RenderOutput, ModelInfo
+from nerfbaselines.types import Method, MethodInfo, OptimizeEmbeddingsOutput, RenderOutput, ModelInfo, RenderOptions
 from nerfbaselines.types import Cameras, camera_model_to_int
 from nerfbaselines.datasets import Dataset
 from nerfbaselines.utils import cached_property, flatten_hparams, remap_error
@@ -339,6 +339,7 @@ class MipSplatting(Method):
             name=cls._method_name,
             required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset(("pinhole",)),
+            supported_outputs=("color",),
         )
 
     def get_info(self) -> ModelInfo:
@@ -373,7 +374,8 @@ class MipSplatting(Method):
             finally:
                 sceneLoadTypeCallbacks["Colmap"] = backup
 
-    def render(self, cameras: Cameras, embeddings=None) -> Iterable[RenderOutput]:
+    def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
+        del options
         if embeddings is not None:
             raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
         assert np.all(cameras.camera_types == camera_model_to_int("pinhole")), "Only pinhole cameras supported"

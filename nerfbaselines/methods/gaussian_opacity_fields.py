@@ -332,6 +332,7 @@ class GaussianOpacityFields(Method):
             name=cls._method_name,
             required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset(("pinhole",)),
+            supported_outputs=("color", "normal", "depth", "accumulation", "distortion_map"),
         )
 
     def get_info(self) -> ModelInfo:
@@ -366,7 +367,8 @@ class GaussianOpacityFields(Method):
             finally:
                 sceneLoadTypeCallbacks["Colmap"] = backup
 
-    def render(self, cameras: Cameras, embeddings=None) -> Iterable[RenderOutput]:
+    def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
+        del options
         assert np.all(cameras.camera_types == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
         sizes = cameras.image_sizes
         poses = cameras.poses

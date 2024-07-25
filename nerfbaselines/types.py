@@ -305,6 +305,7 @@ class MethodInfo(TypedDict, total=False):
     name: Required[str]
     required_features: FrozenSet[DatasetFeature]
     supported_camera_models: FrozenSet
+    supported_outputs: Tuple[str, ...]
 
 
 class ModelInfo(TypedDict, total=False):
@@ -317,6 +318,11 @@ class ModelInfo(TypedDict, total=False):
     required_features: FrozenSet[DatasetFeature]
     supported_camera_models: FrozenSet
     hparams: Dict[str, Any]
+    supported_outputs: Tuple[str, ...]
+
+
+class RenderOptions(TypedDict, total=False):
+    outputs: Tuple[str, ...]
 
 
 @runtime_checkable
@@ -385,7 +391,7 @@ class Method(Protocol):
         raise NotImplementedError()
 
     @abstractmethod
-    def render(self, cameras: Cameras, embeddings: Optional[Sequence[np.ndarray]] = None) -> Iterable[RenderOutput]:  # [h w c]
+    def render(self, cameras: Cameras, *, embeddings: Optional[Sequence[np.ndarray]] = None, options: Optional[RenderOptions] = None) -> Iterable[RenderOutput]:  # [h w c]
         """
         Render images.
 

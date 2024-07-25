@@ -324,7 +324,8 @@ class NBDataset(MNDataset):
             if self._pixtocam_ndc is not None:
                 self.pixtocam_ndc = self._pixtocam_ndc
             else:
-                self.pixtocam_ndc = self.pixtocams.reshape(-1, 3, 3)[0]
+                pixtocam_idx = min(enumerate(self.dataset["image_paths"]), key=lambda x: len(x[1]))[0]
+                self.pixtocam_ndc = self.pixtocams.reshape(-1, 3, 3)[pixtocam_idx]
 
         if self._dataparser_transform is not None:
             transform = self._dataparser_transform
@@ -476,9 +477,9 @@ class SeaThruNeRF(Method):
     def _load_config(self, config_overrides=None):
         if self.checkpoint is None:
             # Find the config files root
-            import train
+            import render
 
-            configs_path = str(Path(train.__file__).absolute().parent / "configs")
+            configs_path = str(Path(render.__file__).absolute().parent / "configs")
             config_overrides = (config_overrides or {}).copy()
             config_path = config_overrides.pop("base_config", None) or "llff_256_uw.gin"
             config_path = os.path.join(configs_path, config_path)
@@ -505,6 +506,7 @@ class SeaThruNeRF(Method):
             name=cls._method_name,
             required_features=frozenset(("color",)),
             supported_camera_models=frozenset(("pinhole", "opencv", "opencv_fisheye")),
+            supported_outputs=("color", "depth", "accumulation"),
         )
 
     def get_info(self):
@@ -662,7 +664,8 @@ class SeaThruNeRF(Method):
             with (Path(path) / "config.gin").open("w+") as f:
                 f.write(self._config_str)
 
-    def render(self, cameras: Cameras, embeddings=None):
+    def render(self, cameras: Cameras, *, embeddings=None, options=None):
+        del options
         if embeddings is not None:
             raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
         # Test-set evaluation.

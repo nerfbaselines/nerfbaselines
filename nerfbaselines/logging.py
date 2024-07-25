@@ -284,6 +284,7 @@ class ConcatLogger(BaseLogger):
 
 class TensorboardLoggerEvent(BaseLoggerEvent):
     def __init__(self, logdir, summaries, step):
+        os.makedirs(logdir, exist_ok=True)
         self._step = step
         self._logdir = logdir
         self._summaries = summaries

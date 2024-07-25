@@ -12,10 +12,10 @@ from dataclasses import fields
 from pathlib import Path
 import copy
 import tempfile
-from typing import Iterable, Optional, TypeVar, List, Tuple, Any, Sequence
+from typing import Iterable, Optional, TypeVar, Sequence
 import numpy as np
 from nerfbaselines.types import Method, OptimizeEmbeddingsOutput, MethodInfo, ModelInfo
-from nerfbaselines.types import Dataset, RenderOutput, new_cameras
+from nerfbaselines.types import Dataset, RenderOutput
 from nerfbaselines.types import Cameras, camera_model_from_int
 from nerfbaselines.utils import convert_image_dtype
 from nerfbaselines.utils import cast_value, remap_error
@@ -384,6 +384,7 @@ class NerfStudio(Method):
                     "opencv_fisheye",
                 )
             ),
+            supported_outputs=("color", "depth", "accumulation"),
         )
 
     def get_info(self) -> ModelInfo:
@@ -398,7 +399,8 @@ class NerfStudio(Method):
         )
 
     @torch.no_grad()
-    def render(self, cameras: Cameras, embeddings=None) -> Iterable[RenderOutput]:
+    def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
+        del options
         if embeddings is not None:
             raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
         poses = cameras.poses.copy()
