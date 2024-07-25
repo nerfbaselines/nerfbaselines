@@ -118,21 +118,22 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 
 
 ### Reproducing results
-| Method                  | Mip-NeRF 360  | Blender    | NerfStudio | Tanks and Temples | LLFF    | Photo Tourism |
-|:-----------------------:|:-------------:|:----------:|:----------:|:-----------------:|:-------:|:-------------:|
-| NerfStudio              | 🥇 gold       | 🥇 gold    | ❔         | 🥇 gold           | ❌      | ❔            |
-| Instant-NGP             | 🥇 gold       | 🥇 gold    | 🥇 gold    | 🥇 gold           | ❌      | ❔            |
-| Gaussian Splatting      | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      | ❔            |
-| Mip-Splatting           | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      | ❔            |
-| Gaussian Opacity Fields | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      | ❔            |
-| Tetra-NeRF              | 🥈 silver     | 🥈 silver  | ❔         | ❔                | ❌      | ❔            |
-| Mip-NeRF 360            | 🥇 gold       | 🥇 gold    | ❔         | ❔                | ❌      | ❔            |
-| Zip-NeRF                | 🥇 gold       | 🥇 gold    | 🥇 gold    | 🥇 gold           | ❌      | ❔            |
-| CamP                    | ❔            | ❔         | ❔         | ❔                | ❌      | ❔            |
-| TensoRF                 | ❌            | 🥇 gold    | ❔         | ❔                | 🥇 gold | ❔            |
-| NeRF                    | ❔            | 🥇 gold    | ❔         | ❔                | ❔      | ❔            |
-| K-Planes                | ❔            | 🥇 gold    | ❔         | ❔                | ❔      | 🥈 silver     |
-| Nerf-W (reimpl.)        | ❔            |  ❔        | ❔         | ❔                | ❔      | 🥇 gold       |
+| Method                  | Mip-NeRF 360  | Blender    | NerfStudio | Tanks and Temples | LLFF    | Photo Tourism | SeaThru-NeRF |
+|:-----------------------:|:-------------:|:----------:|:----------:|:-----------------:|:-------:|:-------------:|:------------:|
+| NerfStudio              | 🥇 gold       | 🥇 gold    | ❔         | 🥇 gold           | ❌      | ❔            | ❔           |
+| Instant-NGP             | 🥇 gold       | 🥇 gold    | 🥇 gold    | 🥇 gold           | ❌      | ❔            | ❔           |
+| Gaussian Splatting      | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      | ❔            | ❔           | 
+| Mip-Splatting           | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      | ❔            | ❔           |
+| Gaussian Opacity Fields | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      | ❔            | ❔           |
+| Tetra-NeRF              | 🥈 silver     | 🥈 silver  | ❔         | ❔                | ❌      | ❔            | ❔           |
+| Mip-NeRF 360            | 🥇 gold       | 🥇 gold    | ❔         | ❔                | ❌      | ❔            | ❔           |
+| Zip-NeRF                | 🥇 gold       | 🥇 gold    | 🥇 gold    | 🥇 gold           | ❌      | ❔            | ❔           |
+| CamP                    | ❔            | ❔         | ❔         | ❔                | ❌      | ❔            | ❔           |
+| TensoRF                 | ❌            | 🥇 gold    | ❔         | ❔                | 🥇 gold | ❔            | ❔           |
+| NeRF                    | ❔            | 🥇 gold    | ❔         | ❔                | ❔      | ❔            | ❔           |
+| K-Planes                | ❔            | 🥇 gold    | ❔         | ❔                | ❔      | 🥈 silver     | ❔           |
+| Nerf-W (reimpl.)        | ❔            |  ❔        | ❔         | ❔                | ❔      | 🥇 gold       | ❔           |
+| SeaThru-NeRF            | ❔            |  ❔        | ❔         | ❔                | ❔      | ❔            | 🥇 gold      |
 
 ## Contributing
 Contributions are very much welcome. Please open a PR with a dataset/method/feature that you want to contribute. The goal of this project is to slowly expand by implementing more and more methods.
@@ -161,6 +162,7 @@ For the currently implemented methods, the following licenses apply:
 - Mip-Splatting: [custom, research only](https://raw.githubusercontent.com/autonomousvision/mip-splatting/main/LICENSE.md)
 - NeRF-W (reimplementation): [MIT](https://raw.githubusercontent.com/kwea123/nerf_pl/master/LICENSE)
 - NeRF: [MIT](https://github.com/bmild/nerf/blob/master/LICENSE)
+- SeaThru-NeRF: [Apache 2.0](https://raw.githubusercontent.com/deborahLevy130/seathru_NeRF/master/LICENSE)
 - TensoRF: [MIT](https://github.com/apchenstu/TensoRF/blob/main/LICENSE)
 - Tetra-NeRF: [MIT](https://raw.githubusercontent.com/jkulhanek/tetra-nerf/master/LICENSE)
 - Zip-NeRF: [Apache 2.0](https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE)
