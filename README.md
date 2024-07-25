@@ -122,8 +122,8 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 |:-----------------------:|:-------------:|:----------:|:----------:|:-----------------:|:-------:|:-------------:|:------------:|
 | NerfStudio              | 🥇 gold       | 🥇 gold    | ❔         | 🥇 gold           | ❌      | ❔            | ❔           |
 | Instant-NGP             | 🥇 gold       | 🥇 gold    | 🥇 gold    | 🥇 gold           | ❌      | ❔            | ❔           |
-| Gaussian Splatting      | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      | ❔            | ❔           | 
-| Mip-Splatting           | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      | ❔            | ❔           |
+| Gaussian Splatting      | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      | ❔            | 🥇 gold      | 
+| Mip-Splatting           | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      | ❔            | 🥇 gold      |
 | Gaussian Opacity Fields | 🥇 gold       | 🥇 gold    | ❌         | 🥇 gold           | ❌      | ❔            | ❔           |
 | Tetra-NeRF              | 🥈 silver     | 🥈 silver  | ❔         | ❔                | ❌      | ❔            | ❔           |
 | Mip-NeRF 360            | 🥇 gold       | 🥇 gold    | ❔         | ❔                | ❌      | ❔            | ❔           |

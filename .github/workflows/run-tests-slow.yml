@@ -117,6 +117,7 @@ jobs:
     runs-on: ubuntu-latest
     name: run-tests-docker
     needs: setup
+    if: ${{ needs.setup.outputs.docker_methods != '' && toJson(fromJson(needs.setup.outputs.docker_methods)) != '[]' }}
     strategy:
       fail-fast: false
       matrix:
@@ -155,6 +156,7 @@ jobs:
     runs-on: ubuntu-latest
     name: run-tests-apptainer
     needs: setup
+    if: ${{ needs.setup.outputs.apptainer_methods != '' && toJson(fromJson(needs.setup.outputs.apptainer_methods)) != '[]' }}
     strategy:
       fail-fast: false
       matrix:
@@ -209,6 +211,7 @@ jobs:
     runs-on: ubuntu-latest
     name: run-tests-conda
     needs: setup
+    if: ${{ needs.setup.outputs.conda_methods != '' && toJson(fromJson(needs.setup.outputs.conda_methods)) != '[]' }}
     strategy:
       fail-fast: false
       matrix:
