@@ -301,11 +301,16 @@ class OptimizeEmbeddingsOutput(TypedDict):
     metrics: NotRequired[Dict[str, Sequence[float]]]
 
 
+class RenderOutputType(TypedDict, total=False):
+    name: Required[str]
+    type: Literal["color", "depth"]
+
+
 class MethodInfo(TypedDict, total=False):
     name: Required[str]
     required_features: FrozenSet[DatasetFeature]
     supported_camera_models: FrozenSet
-    supported_outputs: Tuple[str, ...]
+    supported_outputs: Tuple[Union[str, RenderOutputType], ...]
 
 
 class ModelInfo(TypedDict, total=False):

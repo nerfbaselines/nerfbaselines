@@ -3,7 +3,7 @@ import json
 import warnings
 import os
 import io
-from typing import Optional, Iterable, Sequence
+from typing import Optional, Iterable, Sequence, TYPE_CHECKING
 from pathlib import Path
 import base64
 import functools
@@ -14,22 +14,24 @@ from nerfbaselines.types import Cameras, camera_model_to_int
 
 try:
     # We need to import torch before jax to load correct CUDA libraries
-    import torch
+    import torch as __torch  # type: ignore
+    if TYPE_CHECKING:
+        _ = __torch
 except ImportError:
-    torch = None
-import gin
-import jax
-from jax import random
-import jax.numpy as jnp
-import flax
-from flax.training import checkpoints
-from internal.datasets import Dataset as MNDataset
-from internal import camera_utils
-from internal import configs
-from internal import models
-from internal import train_utils  # pylint: disable=unused-import
-from internal import utils
-from internal import raw_utils
+    pass
+import gin  # type: ignore
+import jax  # type: ignore
+from jax import random  # type: ignore
+import jax.numpy as jnp  # type: ignore
+import flax  # type: ignore
+from flax.training import checkpoints  # type: ignore
+from internal.datasets import Dataset as MNDataset  # type: ignore
+from internal import camera_utils  # type: ignore
+from internal import configs  # type: ignore
+from internal import models  # type: ignore
+from internal import train_utils  # type: ignore
+from internal import utils  # type: ignore
+from internal import raw_utils  # type: ignore
 
 
 def numpy_to_base64(array: np.ndarray) -> str:
@@ -477,7 +479,7 @@ class SeaThruNeRF(Method):
     def _load_config(self, config_overrides=None):
         if self.checkpoint is None:
             # Find the config files root
-            import render
+            import render  # type: ignore
 
             configs_path = str(Path(render.__file__).absolute().parent / "configs")
             config_overrides = (config_overrides or {}).copy()
@@ -506,7 +508,14 @@ class SeaThruNeRF(Method):
             name=cls._method_name,
             required_features=frozenset(("color",)),
             supported_camera_models=frozenset(("pinhole", "opencv", "opencv_fisheye")),
-            supported_outputs=("color", "depth", "accumulation"),
+            supported_outputs=(
+                "color", 
+                "depth", 
+                "accumulation",
+                { "name": "depth_mean", "type": "depth" },
+                { "name": "color_clean", "type": "color" },
+                { "name": "color_backscatter", "type": "color" },
+            ),
         )
 
     def get_info(self):
@@ -522,6 +531,7 @@ class SeaThruNeRF(Method):
         rng = random.PRNGKey(20200823)
         np.random.seed(20201473 + jax.process_index())
         rng, key = random.split(rng)
+        del key
 
         dummy_rays = utils.dummy_rays(include_exposure_idx=self.config.rawnerf_mode, include_exposure_values=True)
         self.model, variables = models.construct_model(rng, dummy_rays, self.config)
@@ -672,7 +682,6 @@ class SeaThruNeRF(Method):
         # We reuse the same random number generator from the optimization step
         # here on purpose so that the visualization matches what happened in
         # training.
-        xnp = jnp
         sizes = cameras.image_sizes
         poses = cameras.poses
         eval_variables = flax.jax_utils.unreplicate(self.state).params
@@ -690,19 +699,18 @@ class SeaThruNeRF(Method):
             pixtocam_ndc=self._pixtocam_ndc,
         )
 
-        for i, test_case in enumerate(test_dataset):
-            rendering = models.render_image(functools.partial(self.render_eval_pfn, eval_variables, self.train_frac), test_case.rays, self.rngs[0], self.config, verbose=False)
-
-            accumulation = rendering["acc"]
-            color = rendering["rgb"]
-            depth = np.array(rendering["distance_mean"], dtype=np.float32)
-            assert len(accumulation.shape) == 2
-            assert len(depth.shape) == 2
-            yield {
-                "color": np.array(color, dtype=np.float32),
-                "depth": np.array(depth, dtype=np.float32),
-                "accumulation": np.array(accumulation, dtype=np.float32),
+        for test_case in test_dataset:
+            rendering = models.render_image(
+                functools.partial(self.render_eval_pfn, eval_variables, self.train_frac), test_case.rays, self.rngs[0], self.config, verbose=False)
+            out = {
+                "color": np.array(rendering["rgb"], dtype=np.float32),
+                "accumulation": np.array(rendering["acc"], dtype=np.float32),
+                "depth": np.array(rendering["distance_median"], dtype=np.float32),
+                "depth_mean": np.array(rendering["distance_mean"], dtype=np.float32),
+                "color_clean": np.array(rendering["direct"], dtype=np.float32),
+                "color_backscatter": np.array(rendering["bs"], dtype=np.float32),
             }
+            yield out
 
     def optimize_embeddings(
         self, 
@@ -716,6 +724,7 @@ class SeaThruNeRF(Method):
             dataset: Dataset.
             embeddings: Optional initial embeddings.
         """
+        del dataset, embeddings
         raise NotImplementedError()
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
@@ -725,5 +734,6 @@ class SeaThruNeRF(Method):
         Args:
             index: Index of the image.
         """
+        del index
         return None
 

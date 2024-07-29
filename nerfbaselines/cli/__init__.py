@@ -219,43 +219,6 @@ def render_trajectory_command(checkpoint: Union[str, Path], trajectory: str, out
             logging.info(f"Output saved to {output}")
 
 
-@main.command("install-method", hidden=True)
-@click.option("--method", type=click.Choice(list(registry.get_supported_methods())), required=False, default=None)
-@click.option("--spec", type=str, required=False)
-@click.option("--backend", "backend_name", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
-@click.option("--verbose", "-v", is_flag=True)
-@handle_cli_error
-def install_command(method, spec, backend_name, verbose=False):
-    setup_logging(verbose)
-    if method is not None:
-        method_spec = registry.get_method_spec(method)
-        backend_impl = backends.get_backend(method_spec, backend_name)
-        logging.info(f"Using method: {method}, backend: {backend_impl.name}")
-        backend_impl.install()
-    elif spec is not None:
-        with open_any(spec, "r") as f:
-            filename = spec.split("?")[0].split("#")[0].split("/")[-1]
-            if not filename.endswith(".py"):
-                raise RuntimeError(f"Spec file {filename} must be a python file")
-            spec_text = f.read().decode("utf-8")
-            os.makedirs(registry.METHOD_SPECS_PATH, exist_ok=True)
-            if os.path.exists(os.path.join(registry.METHOD_SPECS_PATH, filename)):
-                logging.error(f"Spec file {filename} already exists")
-                sys.exit(1)
-            with open(os.path.join(registry.METHOD_SPECS_PATH, filename), "w") as f:
-                f.write(spec_text)
-        logging.info(f"Spec file {filename} saved to {registry.METHOD_SPECS_PATH}")
-        # If the backend_name was supplied from the command line, install the backend
-        # Test click.get_current_context() param source
-        registry._auto_register(force=True)
-        if click.get_current_context().get_parameter_source("backend_name") == click.core.ParameterSource.COMMANDLINE:
-            backend_impl = backends.get_backend(spec, backend_name)
-            logging.info(f"Using backend: {backend_impl.name}")
-            backend_impl.install()
-    else:
-        raise RuntimeError("Either --method or --spec must be provided")
-
-
 @main.command("build-docker-image", hidden=True)
 @click.option("--method", type=click.Choice(list(registry.get_supported_methods("docker"))), required=False)
 @click.option("--environment", type=str, required=False)
@@ -300,5 +263,6 @@ main.add_lazy_command("nerfbaselines.cli.test_method", "test-method")
 main.add_lazy_command("nerfbaselines.cli.generate_web", "generate-web", hidden=True)
 main.add_lazy_command("nerfbaselines.cli.generate_dataset_results:main", "generate-dataset-results")
 main.add_lazy_command("nerfbaselines.cli.fix_checkpoint:main", "fix-checkpoint")
+main.add_lazy_command("nerfbaselines.cli.install_method:main", "install-method")
 main.add_lazy_command("nerfbaselines.cli.fix_output_artifact:main", "fix-output-artifact")
 main.add_lazy_command("nerfbaselines.training:train_command", "train")

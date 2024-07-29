@@ -1,3 +1,4 @@
+import contextlib
 import importlib.util
 import types
 import sys
@@ -68,14 +69,23 @@ evaluation_protocols_registry["nerf"] = {"evaluation_protocol": "nerfbaselines.e
 _collected_register_calls = None
 
 
+@contextlib.contextmanager
+def collect_register_calls(output: List[Tuple[str, Any]]):
+    global _collected_register_calls
+    old = _collected_register_calls
+    try:
+        _collected_register_calls = output
+        yield
+    finally:
+        _collected_register_calls = old
+
+
 def _load_locally_installed_methods():
     if not os.path.exists(METHOD_SPECS_PATH):
         return []
     # Register locally installed methods
-    global _collected_register_calls
-    try:
-        _collected_register_calls = output = []
-
+    output = []
+    with collect_register_calls(output):
         for file in os.listdir(METHOD_SPECS_PATH):
             if not file.endswith(".py"):
                 continue
@@ -86,8 +96,6 @@ def _load_locally_installed_methods():
                 continue
             cfg = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(cfg)
-    finally:
-        _collected_register_calls = None
     return output
 
 
@@ -98,7 +106,7 @@ def _discover_specs() -> List[Tuple[str, "MethodSpec", str]]:
     NERFBASELINES_REGISTER environment variables.
     """
     global _collected_register_calls
-    types = []
+    _types = []
     registered_methods = set()
 
     types_to_register = (
@@ -114,53 +122,62 @@ def _discover_specs() -> List[Tuple[str, "MethodSpec", str]]:
             if "=" in definition:
                 name, path = definition.split("=")
             logging.info(f"Loading object {name} from environment variable")
-            modname, qualname_separator, qualname = path.partition(":")
-            spec = importlib.import_module(modname)
-            if qualname_separator:
-                for attr in qualname.split("."):
-                    spec = getattr(spec, attr)
-            _name: Optional[str] = spec.pop("name", None)
-            if name is None and _name is not None:
-                name = _name
-            if name is None:
-                raise ValueError(f"Could not find name for object {spec}")
-            assert isinstance(spec, dict), "Invalid instance type"
+            register_calls = []
+            with collect_register_calls(register_calls):
+                modname, qualname_separator, qualname = path.partition(":")
+                spec = importlib.import_module(modname)
+                if qualname_separator:
+                    for attr in qualname.split("."):
+                        spec = getattr(spec, attr)
 
-            # Register based on object type
-            _get_spec_type(cast(Any, spec))
-            types.append((name, spec, "environment_variable"))
+            # If spec is a module, we register all register_calls
+            if isinstance(spec, types.ModuleType):
+                assert name is None, "If the registered type is module, no name should be provided"
+                for _name, _spec in register_calls:
+                    _types.append((_name, _spec, "environment_variable"))
+                del _name, _spec
+            else:
+                # If it's a dict, we register it directly
+                # Register based on object type
+                _name: Optional[str] = spec.pop("name", None)
+                if name is None and _name is not None:
+                    name = _name
+                if name is None:
+                    raise ValueError(f"Could not find name for object {spec}")
+                assert isinstance(spec, dict), "Invalid instance type"
+
+                get_spec_type(cast(Any, spec))
+                _types.append((name, spec, "environment_variable"))
     except Exception as e:
         logging.exception(e)
         logging.error("Could not load methods from environment variables NERFBASELINES_METHODS, NERFBASELINES_DATASETS, NERFBASELINES_REGISTER")
-    registered_methods = set((name, _get_spec_type(spec)) for name, spec, _ in types)
+    registered_methods = set((name, get_spec_type(spec)) for name, spec, _ in _types)
 
     discovered_entry_points = entry_points(group="nerfbaselines.specs")
     for name in discovered_entry_points.names:
-        try:
-            _collected_register_calls = temptypes = []
+        temptypes = []
+        with collect_register_calls(temptypes):
             spec = discovered_entry_points[name].load()
             for name, spec in temptypes:
                 if "method" in spec:
                     # For method spec, we set the default backend to python, we also drop other backends
                     spec = spec.copy()
                     spec["backends_order"] = ["python"] + [b for b in spec.get("backends_order", []) if b != "python"]
-                if (name, _get_spec_type(spec)) in registered_methods:
+                if (name, get_spec_type(spec)) in registered_methods:
                     logging.warning(f"Not registering spec {name} as was supplied from an environment variable")
                     continue
-                types.append((name, spec, "spec"))
-        finally:
-            _collected_register_calls = None
-    registered_methods = set((name, _get_spec_type(spec)) for name, spec, _ in types)
+                _types.append((name, spec, "spec"))
+    registered_methods = set((name, get_spec_type(spec)) for name, spec, _ in _types)
 
     # Register locally installed methods
     # We skip the ones registered using entrypoints (can be inside PYTHON backend 
     for name, spec in _load_locally_installed_methods():
-        if (name, _get_spec_type(spec)) in registered_methods:
+        if (name, get_spec_type(spec)) in registered_methods:
             logging.debug(f"Skipping locally installed spec {name} as it is already registered")
             continue
-        types.append((name, spec, "local"))
+        _types.append((name, spec, "local"))
 
-    return types
+    return _types
 
 
 def partialmethod(cls, method_name, **kwargs):
@@ -256,7 +273,7 @@ def _make_entrypoint_absolute(entrypoint: str) -> str:
     return ":".join((module, name))
 
 
-def _get_spec_type(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"]) -> SpecType:
+def get_spec_type(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"]) -> SpecType:
     if "method" in spec:
         return "method"
     elif "load_dataset_function" in spec and "priority" in spec:
@@ -275,10 +292,11 @@ def register(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"],
     if metadata is None:
         metadata = {}
     spec = spec.copy()
-    spec_type = _get_spec_type(spec)
+    spec_type = get_spec_type(spec)
     if spec_type == "method":
         spec = cast("MethodSpec", spec)
-        assert name not in methods_registry, f"Method {name} already registered"
+        if _collected_register_calls is None:
+            assert name not in methods_registry, f"Method {name} already registered"
         spec["method"] = _make_entrypoint_absolute(spec["method"])
         spec.update(
             kwargs={**(spec.get("kwargs") or {}), **(kwargs or {})}, 
@@ -291,7 +309,8 @@ def register(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"],
             methods_registry[name] = spec
     elif spec_type == "dataset":
         spec = cast("DatasetSpec", spec)
-        assert name not in datasets_registry, f"Dataset {name} already registered"
+        if _collected_register_calls is None:
+            assert name not in datasets_registry, f"Dataset {name} already registered"
         assert dataset_overrides is None, "Parameter dataset_overrides is only valid for methods"
         spec["load_dataset_function"] = _make_entrypoint_absolute(spec["load_dataset_function"])
         download_fn = spec.get("download_dataset_function")
@@ -312,7 +331,8 @@ def register(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"],
             datasets_registry[name] = spec
     elif spec_type == "evaluation_protocol":
         spec = cast("EvaluationProtocolSpec", spec)
-        assert name not in evaluation_protocols_registry, f"Evaluation protocol {name} already registered"
+        if _collected_register_calls is None:
+            assert name not in evaluation_protocols_registry, f"Evaluation protocol {name} already registered"
         assert dataset_overrides is None, "Parameter dataset_overrides is only valid for methods"
         spec["evaluation_protocol"] = _make_entrypoint_absolute(spec["evaluation_protocol"])
         if _collected_register_calls is not None:

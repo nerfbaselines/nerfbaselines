@@ -82,6 +82,7 @@ def load_dataset(
 
     loaders = list(get_dataset_loaders())
     loaders_override = False
+    loader = None
     if "://" in path:
         # We assume the 
         loader, path = path.split("://", 1)
@@ -91,17 +92,26 @@ def load_dataset(
         loaders = [(loader, dict(loaders)[loader])]
 
     # Try loading info if exists
-    loader = None
     meta = {}
-    if os.path.exists(os.path.join(path, "info.json")):
-        with open(os.path.join(path, "info.json"), "r") as f:
+    info_fname = "nb-info.json"
+    if (os.path.exists(os.path.join(path, "info.json")) and 
+        not os.path.exists(os.path.join(path, info_fname))):
+        info_fname = "info.json"
+    if os.path.exists(os.path.join(path, info_fname)):
+        logging.info(f"Loading dataset metadata from {os.path.join(path, info_fname)}")
+        with open(os.path.join(path, info_fname), "r") as f:
             meta = json.load(f)
-        loader = meta.pop("loader", None)
-        if loader is not None and not loaders_override:
-            loaders = [(loader, dict(loaders)[loader])]
-        for k, v in meta.pop("loader_kwargs", {}).items():
-            if k not in kwargs:
-                kwargs[k] = v
+        loader_ = meta.pop("loader", None)
+        if loader is None:
+            loader = loader_
+            if loader is not None and not loaders_override:
+                loaders = [(loader, dict(loaders)[loader])]
+        if loader_ is None or loader == loader_:
+            for k, v in meta.pop("loader_kwargs", {}).items():
+                if k not in kwargs:
+                    kwargs[k] = v
+        else:
+            logging.warning(f"Not using loader_kwargs because dataset's loader: {loader_} does not match specified loader: {loader}")
 
     errors = {}
     dataset_instance = None
