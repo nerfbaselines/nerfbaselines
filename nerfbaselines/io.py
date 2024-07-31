@@ -557,6 +557,9 @@ def save_predictions(output: str, predictions: Iterable[RenderOutput], dataset: 
                 save_image(f, gt_image)
             with open_fn(f"color/{relative_name.with_suffix('.png')}") as f:
                 save_image(f, pred_image)
+            if dataset.get("foreground_masks") is not None:
+                with open_fn(f"foreground-mask/{relative_name.with_suffix('.png')}") as f:
+                    save_image(f, dataset["foreground_masks"][i][:h, :w])
 
             with open_fn(f"cameras/{relative_name.with_suffix('.npz')}") as f:
                 save_cameras_npz(f, dataset["cameras"][i])

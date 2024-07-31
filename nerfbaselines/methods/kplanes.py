@@ -151,21 +151,42 @@ def _patch_kplanes_phototourism_dataset(dataset, camera_bounds_index):
             ptdataset.PhotoTourismDataset.get_num_train_images = pt_getnumtrainimages
 
 
+_static_init_backup = sndataset.SyntheticNerfDataset
+_static_load_360_images_backup = sndataset.load_360_images
+_static_load_360_frames_backup = sndataset.load_360_frames
+_static_load_360_intrinsics_backup = sndataset.load_360_intrinsics
+
+
 @contextmanager
 def _patch_kplanes_static_datasets(dataset, camera_bounds_index):
-    del camera_bounds_index
     # Patch kplanes dataset
     # TODO:!!!
     with tempfile.TemporaryDirectory(suffix=dataset["metadata"].get("scene") if dataset is not None else None) as tmpdir:
-        init_backup = sndataset.SyntheticNerfDataset.__init__
-        load_360_images_backup = sndataset.load_360_images
-        load_360_frames_backup = sndataset.load_360_frames
-        load_360_intrinsics_backup = sndataset.load_360_intrinsics
-        def init(self, datadir, split, *args, **kwargs):
-            del datadir
-            if dataset is None:
-                split = "render"
-            init_backup(self, tmpdir, split, *args, **kwargs)
+        class _CustomSyntheticDataset(sndataset.SyntheticNerfDataset):
+            def __init__(self, datadir, split, *args, **kwargs):
+                del datadir
+                if dataset is None:
+                    split = "render"
+                _static_init_backup.__init__(self, tmpdir, split, *args, **kwargs)
+                del self.near_far
+                print("RO", self.rays_o.shape)
+                near_fars = camera_bounds_index.bounds.repeat(dataset["cameras"].image_sizes.prod(-1), -2)
+                assert near_fars.shape[:-1] == self.rays_o.shape[:-1], f"Expected near_fars {near_fars.shape} to match rays_o {self.rays_o.shape}"
+                assert near_fars.shape[-1] == 2
+                self.near_fars = torch.from_numpy(near_fars)
+
+            def __getitem__(self, idx):
+                out, indices = sndataset.BaseDataset.__getitem__(self, idx, return_idxs=True)
+                pixels = out["imgs"]
+                # White color by default for blender dataset
+                out["bg_color"] = torch.ones(1, 3, dtype=torch.float32, device=pixels.device if pixels is not None else "cuda")
+                if pixels is not None and pixels.shape[-1] == 4:
+                    pixels = pixels[..., :3] * pixels[..., 3:] + out["bg_color"] * (1.0 - pixels[..., 3:])
+                out["imgs"] = pixels
+                for k, v in out.items():
+                    print(k, v.shape if hasattr(v, "shape") else v)
+                out["near_fars"] = self.near_fars[indices]
+                return out
 
         def load_360_frames(datadir, split, max_frames):
             del datadir, split, max_frames
@@ -191,17 +212,20 @@ def _patch_kplanes_static_datasets(dataset, camera_bounds_index):
             height, width = dataset["images"][0].shape[:2]
             fl_x, fl_y, cx, cy = dataset["cameras"].intrinsics.mean(0)
             return Intrinsics(height=height, width=width, focal_x=fl_x, focal_y=fl_y, center_x=cx, center_y=cy)
+        from plenoxels.runners import static_trainer
         try:
-            sndataset.SyntheticNerfDataset.__init__ = init
+            sndataset.SyntheticNerfDataset = _CustomSyntheticDataset
+            static_trainer.SyntheticNerfDataset = _CustomSyntheticDataset
             sndataset.load_360_images = load_360_images
             sndataset.load_360_frames = load_360_frames
             sndataset.load_360_intrinsics = load_360_intrinsics
             yield None
         finally:
-            sndataset.SyntheticNerfDataset.__init__ = init_backup
-            sndataset.load_360_images = load_360_images_backup
-            sndataset.load_360_frames = load_360_frames_backup
-            sndataset.load_360_intrinsics = load_360_intrinsics_backup
+            static_trainer.SyntheticNerfDataset = _static_init_backup
+            sndataset.SyntheticNerfDataset = _static_init_backup
+            sndataset.load_360_images = _static_load_360_images_backup
+            sndataset.load_360_frames = _static_load_360_frames_backup
+            sndataset.load_360_intrinsics = _static_load_360_intrinsics_backup
 
 
 def load_data(model_type: str, data_downsample, data_dirs, validate_only: bool, render_only: bool, dataset, camera_bounds_index, **kwargs):
@@ -219,9 +243,10 @@ def load_data(model_type: str, data_downsample, data_dirs, validate_only: bool, 
             )
     else:
         with _patch_kplanes_static_datasets(dataset, camera_bounds_index):
-            return static_trainer.load_data(
+            data = static_trainer.load_data(
                 data_downsample, data_dirs, validate_only=validate_only,
                 render_only=render_only, **kwargs)
+            return data
 
 
 def save_config(path, config):
@@ -338,6 +363,7 @@ class CameraBoundsIndex:
             bounds.append(np.array([dl1, dh1], dtype=np.float32))
         bounds = np.stack(bounds, 0)
         poses = poses[:, :3, :]
+        logging.info(f"Estimated camera bounds: {bounds.min(0)} - {bounds.max(0)}")
         return CameraBoundsIndex(poses, bounds, offsets=np.array([0.0, 0.0], dtype=np.float32))
 
     def query(self, poses):
@@ -375,11 +401,13 @@ class KPlanes(Method):
 
         # Setup config
         config_root = os.path.join(os.path.dirname(os.path.abspath(cfg_package.__file__)), "final")
+        default_config = False
         if self.checkpoint is None:  #  or not os.path.exists(os.path.join(self.checkpoint, "config.py")):
             # Load config
             config_path = (config_overrides or {}).copy().pop("config", None)
             if config_path is None:
                 config_path = "NeRF/nerf_hybrid.py"
+                default_config = True
             config_path = os.path.join(config_root, config_path)
         else:
             # Load config from checkpoint
@@ -395,6 +423,8 @@ class KPlanes(Method):
         config = cfg.config
         config["logdir"] = "<empty>"
         config["expname"] = ""
+        if default_config:
+            config["data_dirs"] = ["<default>lego"]
         if self.checkpoint is not None:
             config.update(config_overrides or {})
         self.config = config

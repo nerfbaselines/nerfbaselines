@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+import zipfile
 import tarfile
 import time
 import io
@@ -5,7 +7,7 @@ from functools import wraps
 import logging
 import os
 import typing
-from typing import Dict, Union, Iterable, TypeVar, Optional, cast, List
+from typing import Dict, Union, Iterable, TypeVar, Optional, cast, List, Tuple
 import numpy as np
 import json
 from pathlib import Path
@@ -15,6 +17,7 @@ from tqdm import tqdm
 from .datasets import new_dataset
 from .utils import (
     read_image, 
+    apply_colormap,
     convert_image_dtype, 
     run_on_host,
     image_to_srgb,
@@ -89,6 +92,14 @@ def compute_metrics(pred, gt, *, reduce: bool = True, run_lpips_vgg: bool = Fals
     return out
 
 
+def path_is_video(path: str) -> bool:
+    return (path.endswith(".mp4") or 
+            path.endswith(".avi") or 
+            path.endswith(".gif") or 
+            path.endswith(".webp") or
+            path.endswith(".mov"))
+
+
 def evaluate(predictions: str, 
              output: str, 
              description: str = "evaluating", 
@@ -132,6 +143,13 @@ def evaluate(predictions: str,
         gt_images = [
             read_image(predictions_path / "gt-color" / name) for name in relpaths
         ]
+        foreground_masks = [
+            read_image(predictions_path / "foreground-mask" / (os.path.splitext(name)[0] + ".png")) for name in relpaths
+        ] if (predictions_path / "foreground-mask").exists() else None
+        if foreground_masks is not None:
+            logging.info("Foreground masks found for evaluation")
+        else:
+            logging.info("Foreground masks not found for evaluation")
         with suppress_type_checks():
             from pprint import pprint
             pprint(nb_info)
@@ -141,6 +159,7 @@ def evaluate(predictions: str,
                 image_paths_root=str(predictions_path / "color"),
                 metadata=typing.cast(Dict, nb_info.get("render_dataset_metadata", nb_info.get("dataset_metadata", {}))),
                 images=gt_images)
+            dataset["foreground_masks"] = foreground_masks
 
             # Evaluate the prediction
             with tqdm(desc=description, dynamic_ncols=True, total=len(relpaths)) as progress:
@@ -202,7 +221,25 @@ class DefaultEvaluationProtocol(EvaluationProtocol):
             gt = image_to_srgb(gt, np.uint8, color_space=color_space, background_color=background_color)
             pred_f = convert_image_dtype(pred, np.float32)
             gt_f = convert_image_dtype(gt, np.float32)
-            yield compute_metrics(pred_f[None], gt_f[None], run_lpips_vgg=self._lpips_vgg, reduce=True)
+            out = compute_metrics(pred_f[None], gt_f[None], run_lpips_vgg=self._lpips_vgg, reduce=True)
+            if dataset.get("foreground_masks") is not None:
+                mask = dataset["foreground_masks"][i]
+                mask = convert_image_dtype(mask, np.float32)[..., None]
+
+                mse = (pred_f - gt_f)**2
+                out["mse_foreground"] = (mse * mask).sum().item() / mask.sum().item()
+                out["mse_background"] = (mse * (1 - mask)).sum().item() / (1 - mask).sum().item()
+                out["psnr_foreground"] = metrics.psnr(out["mse_foreground"])
+                out["psnr_background"] = metrics.psnr(out["mse_background"])
+                out["lpips_foreground"] = metrics.lpips(gt_f*mask, pred_f*mask)
+                out["lpips_background"] = metrics.lpips(gt_f*(1-mask), pred_f*(1-mask))
+
+                ssim_map = metrics.dmpix_ssim.__wrapped__(metrics._normalize_input(gt_f), metrics._normalize_input(pred_f), return_map=True).mean(-1, keepdims=True)
+                padding0, padding1 = mask.shape[0] - ssim_map.shape[0], mask.shape[1] - ssim_map.shape[1]
+                mask_croped = mask[padding0//2:-(padding0//2), padding1//2:-(padding1//2)]
+                out["ssim_foreground"] = (ssim_map * mask_croped).sum().item() / mask_croped.sum().item()
+                out["ssim_background"] = (ssim_map * (1 - mask_croped)).sum().item() / (1 - mask_croped).sum().item()
+            yield out
 
     def accumulate_metrics(self, metrics: Iterable[Dict[str, Union[float, int]]]) -> Dict[str, Union[float, int]]:
         acc = {}
@@ -295,59 +332,160 @@ def render_frames(
     fps: float,
     embeddings: Optional[List[np.ndarray]] = None,
     description: str = "rendering frames",
-    output_type: OutputType = "color",
+    output_names: Tuple[str, ...] = ("color",),
     nb_info: Optional[dict] = None,
 ) -> None:
-    output = Path(output)
+    output = str(output) if isinstance(output, Path) else output
     assert cameras.image_sizes is not None, "cameras.image_sizes must be set"
     info = method.get_info()
     render = with_supported_camera_models(info.get("supported_camera_models", frozenset(("pinhole",))))(method.render)
     color_space = "srgb"
     background_color = nb_info.get("background_color") if nb_info is not None else None
     expected_scene_scale = nb_info.get("expected_scene_scale") if nb_info is not None else None
+    output_types_map = {
+        (x["name"] if isinstance(x, dict) else x): (x.get("type", x["name"]) if isinstance(x, dict) else x)
+        for x in info.get("supported_outputs", ["color"])
+    }
+    for output_name in output_names:
+        if output_name not in output_types_map:
+            raise ValueError(f"Output type {output_name} not supported by method. Supported types: {list(output_types_map.keys())}")
 
     def _predict_all(allow_transparency=True):
         predictions = render(cameras, embeddings=embeddings)
         for i, pred in enumerate(tqdm(predictions, desc=description, total=len(cameras), dynamic_ncols=True)):
-            pred_image = image_to_srgb(pred["color"], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
-            if output_type == "color":
-                yield pred_image
-            elif output_type == "depth":
-                assert "depth" in pred, "Method does not output depth"
-                depth_rgb = visualize_depth(pred["depth"], near_far=cameras.nears_fars[i] if cameras.nears_fars is not None else None, expected_scale=expected_scene_scale)
-                yield convert_image_dtype(depth_rgb, np.uint8)
-            else:
-                raise RuntimeError(f"Output type {output_type} is not supported.")
+            out = {}
+            for output_name in output_names:
+                output_type = output_types_map[output_name]
+                if output_type == "color":
+                    pred_image = image_to_srgb(pred[output_name], np.uint8, 
+                                               color_space=color_space, 
+                                               allow_alpha=allow_transparency, 
+                                               background_color=background_color)
+                    out[output_name] = pred_image
+                elif output_type == "depth":
+                    depth_rgb = visualize_depth(
+                            pred[output_name], 
+                            near_far=cameras.nears_fars[i] if cameras.nears_fars is not None else None, 
+                            expected_scale=expected_scene_scale)
+                    out[output_name] = convert_image_dtype(depth_rgb, np.uint8)
+                elif output_type == "accumulation":
+                    out[output_name] = convert_image_dtype(apply_colormap(pred[output_name], pallete="coolwarm"), np.uint8)
+                else:
+                    raise RuntimeError(f"Output type {output_type} is not supported.")
+            yield out
 
-    if str(output).endswith(".tar.gz"):
-        with tarfile.open(output, "w:gz") as tar:
-            for i, frame in enumerate(_predict_all()):
+    @contextmanager
+    def _zip_writer(output):
+        with zipfile.ZipFile(output, "w") as zip:
+            i = 0
+            def _write_frame(frame):
+                nonlocal i
                 rel_path = f"{i:05d}.png"
-                tarinfo = tarfile.TarInfo(name=rel_path)
-                tarinfo.mtime = int(time.time())
-                with io.BytesIO() as f:
-                    f.name = rel_path
-                    tarinfo.size = f.tell()
-                    f.seek(0)
-                    save_image(f, frame)
-                    tar.addfile(tarinfo=tarinfo, fileobj=f)
-    elif str(output).endswith(".mp4") or str(output).endswith(".gif"):
+                framedata = frame if isinstance(frame, dict) else {None: frame}
+                for key, image in framedata.items():
+                    lpath = f"{key}/{rel_path}" if key is not None else rel_path
+
+                    date_time = time.localtime(time.time())[:6]
+                    zinfo = zipfile.ZipInfo(lpath, date_time)
+                    zinfo.compress_type = zip.compression
+                    zinfo._compresslevel = zip.compresslevel
+                    zinfo.external_attr = 0o600 << 16     # ?rw-------
+
+                    with zip.open(zinfo, 'w') as dest:
+                        dest.name = lpath
+                        save_image(dest, image)
+                i += 1
+            yield _write_frame
+
+    @contextmanager
+    def _targz_writer(output):
+        with tarfile.open(output, "w:gz") as tar:
+            i = 0
+            def _write_frame(frame):
+                nonlocal i
+                rel_path = f"{i:05d}.png"
+                framedata = frame if isinstance(frame, dict) else {None: frame}
+                for key, image in framedata.items():
+                    lpath = f"{key}/{rel_path}" if key is not None else rel_path
+                    tarinfo = tarfile.TarInfo(name=lpath)
+                    tarinfo.mtime = int(time.time())
+                    with io.BytesIO() as f:
+                        f.name = lpath
+                        save_image(f, image)
+                        tarinfo.size = f.tell()
+                        f.seek(0)
+                        tar.addfile(tarinfo=tarinfo, fileobj=f)
+                i += 1
+            yield _write_frame
+
+    @contextmanager
+    def _video_writer(output):
         # Handle video
         import mediapy
 
-        w, h = cameras.image_sizes[0]
-        codec = 'h264'
-        if str(output).endswith(".gif"):
-            codec = "gif"
-        with mediapy.VideoWriter(output, (h, w), metadata=mediapy.VideoMetadata(len(cameras), (h, w), fps, bps=None), fps=fps, codec=codec) as writer:
-            for i, frame in enumerate(_predict_all(allow_transparency=False)):
+        codec = 'h264' if not output.endswith(".gif") else "gif"
+        writer = None
+        try:
+            def _add_frame(frame):
+                nonlocal writer
+                if isinstance(frame, dict):
+                    frame = np.concatenate(list(frame.values()), axis=1)
+                if writer is None:
+                    writer = mediapy.VideoWriter(output, frame.shape[:-1], fps=fps, codec=codec)
+                    writer.__enter__()
                 writer.add_image(frame)
-    else:
+            yield _add_frame
+        finally:
+            if writer is not None:
+                writer.close()
+                writer = None
+
+    @contextmanager
+    def _folder_writer(output):
         os.makedirs(output, exist_ok=True)
-        for i, frame in enumerate(_predict_all()):
+        i = 0
+        def _add_frame(frame):
+            nonlocal i
             rel_path = f"{i:05d}.png"
-            with open(os.path.join(output, rel_path), "wb") as f:
-                save_image(f, frame)
+            if isinstance(frame, dict):
+                for key, image in frame.items():
+                    os.makedirs(os.path.join(output, key), exist_ok=True)
+                    with open(os.path.join(output, key, rel_path), "wb") as f:
+                        save_image(f, image)
+            else:
+                with open(os.path.join(output, rel_path), "wb") as f:
+                    save_image(f, frame)
+            i += 1
+        yield _add_frame
+
+    writers = {}
+    try:
+        for output_name in output_names:
+            loutput = output.format(output=output_name)
+            if loutput not in writers:
+                if path_is_video(loutput):
+                    writer_obj = _video_writer(loutput)
+                elif loutput.endswith(".zip"):
+                    writer_obj = _zip_writer(loutput)
+                elif loutput.endswith(".tar.gz"):
+                    writer_obj = _targz_writer(loutput)
+                else:
+                    writer_obj = _folder_writer(loutput)
+                writers[loutput] = (writer_obj, writer_obj.__enter__(), (output_name,))
+            else:
+                writer_obj, writer, _outs = writers[loutput]
+                writers[loutput] = (writer_obj, writer, _outs + (output_name,))
+
+        for frame in _predict_all():
+            for _, writer, _outs in writers.values():
+                if len(_outs) == 1:
+                    writer(frame[_outs[0]])
+                else:
+                    writer({name: frame[name] for name in _outs})
+    finally:
+        # Release all writers
+        for writer_obj, _, _ in writers.values():
+            writer_obj.__exit__(None, None, None)
 
 
 def trajectory_get_cameras(trajectory: Trajectory) -> Cameras:

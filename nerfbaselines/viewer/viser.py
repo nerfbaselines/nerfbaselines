@@ -1106,7 +1106,12 @@ class ViewerRenderer:
         self._cancellation_token = None
         self._output_type_options = ()
         self._task_queue = []
-
+        self._output_types = {}
+        if self.method is not None:
+            method_info = self.method.get_info()
+            self._output_types = {
+                (self.method, x if isinstance(x, str) else x["name"]): {"name": x, "type": x} if isinstance(x, str) else x for x in method_info.get("supported_outputs", ("color",))}
+            
     def update(self):
         if not self._task_queue:
             return
@@ -1137,7 +1142,7 @@ class ViewerRenderer:
                           cameras, 
                           embeddings=embeddings, 
                           output=output, 
-                          output_type="color", 
+                          output_names=("color",), 
                           nb_info={}, 
                           fps=trajectory["fps"])
             logging.info(f"Output saved to {output}")
@@ -1190,26 +1195,25 @@ class ViewerRenderer:
         def render_single(name):
             assert outputs is not None, "Method did not return any outputs"
             name = name or "color"
+            rtype_spec = self._output_types.get((self.method, name))
+            rtype = rtype_spec.get("type", name)
             image = outputs[name]
-            if name == "color":
+            if rtype == "color":
                 bg_color = np.array(background_color, dtype=np.uint8)
                 render = image_to_srgb(image, np.uint8, color_space="srgb", allow_alpha=False, background_color=bg_color)
-            elif name == "depth":
+            elif rtype == "depth":
                 # Blend depth with correct color pallete
                 render = visualize_depth(image, expected_scale=self._expected_depth_scale)
-            elif name == "accumulation":
+            elif rtype == "accumulation":
                 render = apply_colormap(image, pallete="coolwarm")
             else:
                 render = image
             return render
 
-        # Update output options
-        self._output_type_options = tuple(sorted(outputs.keys()))
-
         render = render_single(output_type)
         if split_output_type is not None:
             split_render = render_single(split_output_type)
-            assert render.shape == split_render.shape
+            assert render.shape == split_render.shape, f"Output shapes do not match: {render.shape} vs {split_render.shape}"
             split_percentage_ = split_percentage if split_percentage is not None else 0.5
             split_point = int(render.shape[1] * split_percentage_)
             render[:, split_point:] = split_render[:, split_point:]
@@ -1250,6 +1254,18 @@ class ViserViewer:
 
         self.state = state or ViewerState()
         if self.method is not None:
+            method_info = self.method.get_info()
+            self.state.output_type_options = tuple(sorted([
+                x["name"] if isinstance(x, dict) else x
+                for x in method_info.get("supported_outputs", ("color",))
+            ]))
+            if "color" not in self.state.output_type_options:
+                self.state.output_type = next(iter(self.state.output_type_options))
+            else:
+                self.state.output_type = "color"
+            self.state.split_output_type = next(
+                (x for x in self.state.output_type_options if x != self.state.output_type), 
+                self.state.output_type)
             try:
                 self.state.supports_appearance_from_train_images = self.method.get_train_embedding(0) is not None
             except (AttributeError, NotImplementedError):
@@ -2058,12 +2074,6 @@ class ViserViewer:
 
         # Update FPS and output options
         self.state.fps = f"{1.0 / np.mean(self._render_times):.3g}"
-        if set(self.state.output_type_options) != set(self.renderer.output_type_options):
-            self.state.output_type_options = tuple(sorted(self.renderer.output_type_options))
-            if self.state.split_output_type is None:
-                self.state.split_output_type = next(
-                    (x for x in self.state.output_type_options if x != self.state.output_type), 
-                self.state.output_type)
 
 
 def run_viser_viewer(method: Optional[Method] = None, 
