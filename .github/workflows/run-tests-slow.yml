@@ -15,6 +15,7 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: "3.x"
+    - uses: federicocarboni/setup-ffmpeg@v3.1
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
@@ -40,6 +41,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - uses: federicocarboni/setup-ffmpeg@v3.1
       - name: Install nerfbaselines
         run: |
           pip install --upgrade pip
@@ -86,6 +88,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: 3.9
+      - uses: federicocarboni/setup-ffmpeg@v3.1
       - name: Install nerfbaselines
         run: |
           pip install --upgrade pip
@@ -133,6 +136,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: 3.9
+      - uses: federicocarboni/setup-ffmpeg@v3.1
       - name: Install nerfbaselines
         run: |
           pip install --upgrade pip
@@ -176,6 +180,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: 3.9
+      - uses: federicocarboni/setup-ffmpeg@v3.1
       - name: Install nerfbaselines
         run: |
           pip install --upgrade pip
@@ -226,6 +231,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: 3.9
+      - uses: federicocarboni/setup-ffmpeg@v3.1
       - name: Install nerfbaselines
         run: |
           pip install --upgrade pip
@@ -261,6 +267,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: 3.9
+      - uses: federicocarboni/setup-ffmpeg@v3.1
       - name: Install nerfbaselines
         run: |
           pip install --upgrade pip

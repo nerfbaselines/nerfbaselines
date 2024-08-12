@@ -11,14 +11,32 @@ import pytest
 from pathlib import Path
 import numpy as np
 from PIL import Image
-# from nerfbaselines.utils import setup_logging
-# 
-# setup_logging(True)
 
 
 class _nullcontext(contextlib.nullcontext):
     def __call__(self, fn):
         return fn
+
+
+
+@contextlib.contextmanager
+def patch_modules(update):
+    _empty = object()
+    old_values = {k: sys.modules.get(k, _empty) for k in update}
+    try:
+        for k, v in update.items():
+            sys.modules[k] = v  # type: ignore
+        yield None
+    finally:
+        for k, v in old_values.items():
+            if v is _empty:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v  # type: ignore
+
+@pytest.fixture(name="patch_modules")
+def patch_modules_fixture():
+    return patch_modules
 
 
 def make_dataset(path: Path, num_images=10):
@@ -101,7 +119,7 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python", config
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
     from nerfbaselines.training import train_command
     from nerfbaselines.io import get_checkpoint_sha
-    from nerfbaselines.cli import render_command
+    from nerfbaselines.cli.render import render_command
     from nerfbaselines.utils import Indices, remap_error
     from nerfbaselines.utils import NoGPUError
     from nerfbaselines.io import deserialize_nb_info
@@ -209,7 +227,7 @@ def run_test_train_fixture(tmp_path_factory, request: pytest.FixtureRequest):
 
 
 @pytest.fixture
-def mock_torch():
+def mock_torch(patch_modules):
     torch = mock.MagicMock()
 
     class Tensor(np.ndarray):
@@ -413,8 +431,8 @@ def mock_torch():
             return x
 
     torch.nn.Sequential = Sequential
-    
-    with mock.patch.dict(sys.modules, {
+
+    with patch_modules({
         "torch": torch, 
         "torch.nn": torch.nn,
         "torchvision": torchvision}):
@@ -438,8 +456,12 @@ def no_extras(request):
         def __getattribute__(self, __name: str):
             raise ImportError("torch not available")
 
-    with mock.patch.dict(sys.modules, {
-        "torch": FailedTorch(),
-    }):
+    old_torch = sys.modules.get("torch", None)
+    try:
+        sys.modules["torch"] = FailedTorch()  # type: ignore
         yield None
-        return
+    finally:
+        if old_torch is not None:
+            sys.modules["torch"] = old_torch
+        else:
+            sys.modules.pop("torch", None)

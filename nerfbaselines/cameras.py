@@ -1,5 +1,5 @@
 import sys
-from typing import Tuple, Dict, cast, Any, TYPE_CHECKING
+from typing import Tuple, Dict, cast, Any, TYPE_CHECKING, Optional, Union
 import numpy as np
 from .utils import padded_stack, is_broadcastable, convert_image_dtype
 from .types import Protocol, runtime_checkable, CameraModel, camera_model_to_int
@@ -206,16 +206,21 @@ def _undistort(camera_types: TTensor, distortion_params: TTensor, uv: TTensor, x
     pinhole_mask = camera_types == camera_model_to_int("pinhole")
     if xnp.all(pinhole_mask):
         return uv
-    out = None
+    out: Optional[TTensor] = None
     for cam, distortion in _DISTORTIONS.items():
         mask = camera_types == camera_model_to_int(cam)
         if xnp.any(mask):
             if xnp.all(mask):
                 return _iterative_undistortion(distortion, uv, distortion_params, xnp=xnp, **kwargs)
             else:
-                if out is None:
-                    out = _xnp_copy(uv, xnp=xnp)
-                out[mask] = cast(TTensor, _iterative_undistortion(distortion, uv[mask], distortion_params[mask], xnp=xnp, **kwargs))
+                out_update = cast(TTensor, _iterative_undistortion(distortion, uv[mask], distortion_params[mask], xnp=xnp, **kwargs))  # type: ignore
+                if xnp.__name__.startswith("jax"):
+                    _old_out = uv if out is None else out
+                    _old_out.at[mask].set(out_update)  # type: ignore
+                else:
+                    if out is None:
+                        out = _xnp_copy(uv, xnp=xnp)
+                    out[mask] = out_update  # type: ignore
     if out is None:
         out = uv
     return out

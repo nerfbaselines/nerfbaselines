@@ -375,7 +375,7 @@ def test_render_command(tmp_path, output_type):
 
     
     from nerfbaselines.training import train_command
-    from nerfbaselines.cli import render_command
+    from nerfbaselines.cli.render import render_command
     from nerfbaselines.registry import methods_registry as registry, MethodSpec
 
     _ns_prefix_backup = os.environ.get("NS_PREFIX", None)
@@ -401,7 +401,6 @@ def test_render_command(tmp_path, output_type):
         # render_command(checkpoint, data, output, split, verbose, backend)
         if output_type == "folder":
             output = tmp_path / "output2"
-            (tmp_path / "output2").mkdir()
         else:
             output = tmp_path / "output2.tar.gz"
         assert render_command.callback is not None

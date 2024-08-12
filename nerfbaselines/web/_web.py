@@ -47,6 +47,18 @@ def _format_cell(value, id):
         return value
 
 
+def _resolve_data_link(data, method, dataset, scene):
+    output_artifacts = method.get("output_artifacts", {})
+    if "{dataset}/{scene}" in output_artifacts:
+        output_artifact = output_artifacts["{dataset}/{scene}"]
+        if output_artifact.get("link", None) is not None:
+            return output_artifact["link"]
+
+    resolved_paths = data.get("resolved_paths", {})
+    link = resolved_paths.get(f"{method['id']}/{dataset}/{scene}.zip", None)
+    return link
+
+
 def get_dataset_data(raw_data):
     data = copy.deepcopy(raw_data)
     dataset = data["id"]
@@ -71,7 +83,7 @@ def get_dataset_data(raw_data):
             **scenes_map.get(s["id"], {}),
             "demo_link": None,
             "data_link": (
-                f"https://huggingface.co/jkulhanek/nerfbaselines/resolve/main/{m['id']}/{dataset}/{s['id']}.zip" if s["id"] in m["scenes"]
+                _resolve_data_link(data, m, dataset, s["id"]) if s["id"] in m["scenes"]
                 else None
             )
         } for s in data["scenes"]]
@@ -290,9 +302,16 @@ def _prepare_data(data_path, datasets=None):
         # Clone results repository
         with tempfile.TemporaryDirectory() as tmpdir:
             subprocess.check_call("git clone https://huggingface.co/jkulhanek/nerfbaselines".split() + [tmpdir], env={"GIT_LFS_SKIP_SMUDGE": "1"})
+            # List all paths in tmpdir
+            existing_paths = [os.path.relpath(os.path.join(root, file), tmpdir) for root, _, files in os.walk(tmpdir) for file in files]
+            resolved_paths = {
+                path: f"https://huggingface.co/jkulhanek/nerfbaselines/resolve/main/{path}"
+                for path in existing_paths
+            }
             for dataset in datasets:
                 dataset_info = compile_dataset_results(tmpdir, dataset)
                 dataset_info["id"] = dataset
+                dataset_info["resolved_paths"] = resolved_paths
                 raw_data.append(dataset_info)
     return raw_data
 

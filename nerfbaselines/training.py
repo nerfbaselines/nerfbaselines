@@ -195,6 +195,7 @@ def eval_all(method: Method, logger: Optional[Logger], dataset: Dataset, *, outp
                          display_name="color", 
                          description="left: gt, right: prediction", 
                          step=step)
+    return metrics
 
 
 Visualization = Literal["none", "wandb", "tensorboard"]
@@ -227,6 +228,7 @@ class Trainer:
             raise RuntimeError(f"Method {self.model_info['name']} must specify the default number of iterations")
 
         self.output = output
+        logging.info(f"Output directory: {output}")
 
         self.save_iters = save_iters
         self.eval_few_iters = eval_few_iters
@@ -415,8 +417,10 @@ class Trainer:
         logger = self.get_logger()
 
         update_frequency = 100
+        final_metrics = None
         with tqdm(total=self.num_iterations, initial=self.step, desc="training") as pbar:
             for i in range(self.step, self.num_iterations):
+                final_metrics = None
                 self.step = i
                 metrics = self.train_iteration()
                 # Checkpoint changed, reset sha
@@ -448,7 +452,11 @@ class Trainer:
                 if self.step in self.eval_few_iters:
                     self.eval_few()
                 if self.step in self.eval_all_iters:
-                    self.eval_all()
+                    final_metrics = self.eval_all()
+
+        # We can print the results because the evaluation was run for the last step
+        if final_metrics is not None:
+            logging.info("Final evaluation results:\n" + "\n".join(f"   {k}: {v:.4f}" for k, v in final_metrics.items()))
 
         # Save if not saved by default
         if self.step not in self.save_iters:
@@ -471,9 +479,9 @@ class Trainer:
             return
         logger = self.get_logger()
         nb_info = self._get_nb_info()
-        eval_all(self.method, logger, self.test_dataset, 
-                 step=self.step, evaluation_protocol=self._evaluation_protocol,
-                 split="test", nb_info=nb_info, output=self.output)
+        return eval_all(self.method, logger, self.test_dataset, 
+                        step=self.step, evaluation_protocol=self._evaluation_protocol,
+                        split="test", nb_info=nb_info, output=self.output)
 
     def eval_few(self):
         logger = self.get_logger()

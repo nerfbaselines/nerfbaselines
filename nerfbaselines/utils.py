@@ -558,7 +558,7 @@ def apply_colormap(array: TTensor, *, pallete: str = "viridis", invert: bool = F
         pallete_array = cast(TTensor, xnp.array(colormap_colors, dtype=xnp.float32))  # type: ignore
     if invert:
         array_long = 255 - array_long
-    out = cast(TTensor, pallete_array[array_long])
+    out = cast(TTensor, pallete_array[array_long])  # type: ignore
     return _xnp_astype(out * 255, xnp.uint8, xnp=xnp)
 
 

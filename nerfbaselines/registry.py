@@ -135,7 +135,7 @@ def _discover_specs() -> List[Tuple[str, "MethodSpec", str]]:
                 assert name is None, "If the registered type is module, no name should be provided"
                 for _name, _spec in register_calls:
                     _types.append((_name, _spec, "environment_variable"))
-                del _name, _spec
+                    del _name, _spec
             else:
                 # If it's a dict, we register it directly
                 # Register based on object type

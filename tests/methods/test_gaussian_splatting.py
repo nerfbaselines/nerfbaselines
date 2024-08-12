@@ -10,11 +10,9 @@ METHOD_NAME = "gaussian-splatting"
 
 
 @pytest.fixture
-def mock_gaussian_splatting(mock_torch):
+def mock_gaussian_splatting(mock_torch, patch_modules):
     torch = mock_torch
-    with mock.patch.dict(
-        sys.modules,
-        {
+    with patch_modules({
             "arguments": mock.MagicMock(),
             "gaussian_renderer": mock.MagicMock(),
             "scene": mock.MagicMock(),
@@ -138,6 +136,7 @@ def mock_gaussian_splatting(mock_torch):
 
         cast(mock.MagicMock, sys.modules["gaussian_renderer"]).render = render
         yield None
+        sys.modules.pop("nerfbaselines.methods.gaussian_splatting", None)
 
 
 @pytest.mark.method(METHOD_NAME)

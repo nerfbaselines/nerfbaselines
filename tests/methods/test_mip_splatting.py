@@ -10,11 +10,9 @@ METHOD_NAME = "mip-splatting"
 
 
 @pytest.fixture
-def mock_mip_splatting(mock_torch):
+def mock_mip_splatting(mock_torch, patch_modules):
     torch = mock_torch
-    with mock.patch.dict(
-        sys.modules,
-        {
+    with patch_modules({
             "arguments": mock.MagicMock(),
             "gaussian_renderer": mock.MagicMock(),
             "scene": mock.MagicMock(),
@@ -144,6 +142,7 @@ def mock_mip_splatting(mock_torch):
 
         cast(mock.MagicMock, sys.modules["gaussian_renderer"]).render = render
         yield None
+        sys.modules.pop("nerfbaselines.methods.mip_splatting", None)
 
 
 @pytest.mark.method(METHOD_NAME)
