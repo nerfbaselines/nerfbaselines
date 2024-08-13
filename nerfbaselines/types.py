@@ -442,8 +442,8 @@ class EvaluationProtocol(Protocol):
         ...
 
 
-class LicenseSpec(TypedDict, total=True):
-    name: str
+class LicenseSpec(TypedDict, total=False):
+    name: Required[str]
     url: str
 
 

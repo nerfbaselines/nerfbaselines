@@ -112,7 +112,7 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 | [Zip-NeRF](https://jkulhanek.com/nerfbaselines/m-zipnerf)                                | **24.628** | **0.840** | **0.131** |  5h 44m 9s |    26.6 GB |
 | [Mip-Splatting](https://jkulhanek.com/nerfbaselines/m-mip-splatting)                     |   *23.930* |   *0.833* |     0.166 |    15m 56s |     7.3 GB |
 | [Gaussian Splatting](https://jkulhanek.com/nerfbaselines/m-gaussian-splatting)           |     23.827 |     0.831 |   *0.165* |  *13m 48s* |     6.9 GB |
-| [Gaussian Opacity Fields](https://jkulhanek.com/nerfbaselines/m-gaussian-opacity-fields) |     22.395 |     0.825 |     0.172 |          - |          - |
+| [Gaussian Opacity Fields](https://jkulhanek.com/nerfbaselines/m-gaussian-opacity-fields) |     22.395 |     0.825 |     0.172 |    40m 25s |    26.3 GB |
 | [NerfStudio](https://jkulhanek.com/nerfbaselines/m-nerfacto)                             |     22.043 |     0.743 |     0.270 |    19m 27s | **3.7 GB** |
 | [Instant NGP](https://jkulhanek.com/nerfbaselines/m-instant-ngp)                         |     21.623 |     0.712 |     0.340 | **4m 27s** |   *4.1 GB* |
 
@@ -154,6 +154,7 @@ This project is licensed under the [MIT license](https://raw.githubusercontent.c
 Each implemented method is licensed under the license provided by the authors of the method.
 For the currently implemented methods, the following licenses apply:
 - CamP: [Apache 2.0](https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE)
+- GS-W: unknown
 - Gaussian Opacity Fields: [custom, research only](https://raw.githubusercontent.com/autonomousvision/gaussian-opacity-fields/main/LICENSE.md)
 - Gaussian Splatting: [custom, research only](https://raw.githubusercontent.com/graphdeco-inria/gaussian-splatting/main/LICENSE.md)
 - Instant NGP: [custom, research only](https://raw.githubusercontent.com/NVlabs/instant-ngp/master/LICENSE.txt)
@@ -165,6 +166,7 @@ For the currently implemented methods, the following licenses apply:
 - SeaThru-NeRF: [Apache 2.0](https://raw.githubusercontent.com/deborahLevy130/seathru_NeRF/master/LICENSE)
 - TensoRF: [MIT](https://github.com/apchenstu/TensoRF/blob/main/LICENSE)
 - Tetra-NeRF: [MIT](https://raw.githubusercontent.com/jkulhanek/tetra-nerf/master/LICENSE)
+- WildGaussians: [MIT](https://raw.githubusercontent.com/jkulhanek/wild-gaussians/main/LICENSE), [custom, research only](https://raw.githubusercontent.com/graphdeco-inria/gaussian-splatting/main/LICENSE.md)
 - Zip-NeRF: [Apache 2.0](https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE)
 
 

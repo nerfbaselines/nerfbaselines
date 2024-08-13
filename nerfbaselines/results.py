@@ -7,6 +7,7 @@ from pathlib import Path
 import json
 import warnings
 import numpy as np
+from .io import open_any
 from . import metrics
 from . import datasets
 from . import registry
@@ -111,43 +112,85 @@ def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes
     if scenes is not None:
         dataset_info_scenes = dataset_info["scenes"] = [(dataset_info_scenes or {}).get(x, dict(id=x)) for x in scenes]
     dataset_info["methods"] = []
+    method_data_map = {}
+    agg_metrics = {}
+
+    def _add_scene_data(scene_id, method_id, method_data, scene_results):
+        method_data_ = method_data_map.get(method_id, None)
+        if method_data_ is None:
+            method_data_ = method_data.copy()
+            method_data_["id"] = method_id
+            method_data_["scenes"] = {}
+            method_data_map[method_id] = method_data_
+            dataset_info["methods"].append(method_data_)
+        method_data = method_data_
+
+        results = load_metrics_from_results(scene_results)
+        if scene_id in method_data_["scenes"]:
+            raise RuntimeError(f"Scene {scene_id} already exists for method {method_id}")
+        method_data["scenes"][scene_id] = {}
+        for k, v in results.items():
+            method_data["scenes"][scene_id][k] = round(np.mean(v), 5)
+
+    # Fill the results from the methods registry
+    for method_id in registry.get_supported_methods():
+        method_spec = registry.get_method_spec(method_id)
+        method_data = method_spec.get("metadata", {}).copy()
+        output_artifacts = method_data.get("output_artifacts", {})
+        for key, info in output_artifacts.items():
+            if not key.startswith(dataset + "/"):
+                continue
+
+            scene_id = key[len(dataset) + 1:]
+            # Skip scenes missing from dataset_info_scenes
+            if dataset_info_scenes is not None and not any(x["id"] == scene_id for x in dataset_info_scenes):
+                continue
+
+            assert info["link"].endswith(".zip"), f"Output artifact link {info['link']} does not end with .zip"
+            results_link = info["link"][:-4] + ".json"
+            with open_any(results_link, "r") as f:
+                results = json.load(f)
+            _add_scene_data(scene_id, method_id, method_data, results)
+
+    
     for method_id in os.listdir(results_path):
         # Skip methods not evaluated on the dataset
         if not any(results_path.joinpath(method_id, dataset).glob("*.json")):
             continue
 
         method_spec = registry.get_method_spec(method_id)
-        method_data = method_spec.get("metadata", {}).copy()
-        method_data["id"] = method_id
-        method_data["scenes"] = {}
+        method_data = method_spec.get("metadata", {})
+        for path in results_path.joinpath(method_id, dataset).glob("*.json"):
+            scene_id = path.stem
 
-        # Load the results
-        agg_metrics = {}
+            # Skip scenes missing from dataset_info_scenes
+            if dataset_info_scenes is not None and not any(x["id"] == scene_id for x in dataset_info_scenes):
+                continue
 
-        local_scenes = dataset_info_scenes
-        if local_scenes is None:
-            local_scenes = [dict(id=x.stem) for x in results_path.joinpath(method_id, dataset).glob("*.json")]
-
-        for scene in local_scenes:
-            scene_id = scene["id"]
             scene_results_path = results_path.joinpath(method_id, dataset, scene_id + ".json")
             if not scene_results_path.exists():
                 warnings.warn(f"Results file {scene_results_path} does not exist")
                 continue
             scene_results = json.loads(scene_results_path.read_text(encoding="utf8"))
-            results = load_metrics_from_results(scene_results)
-            method_data["scenes"][scene_id] = {}
-            for k, v in results.items():
-                method_data["scenes"][scene_id][k] = mv = round(np.mean(v), 5)
-                if k not in agg_metrics:
-                    agg_metrics[k] = []
-                agg_metrics[k].append(mv)
+            _add_scene_data(scene_id, method_id, method_data, scene_results)
 
-        if dataset_info_scenes is not None:
-            for k, v in agg_metrics.items():
-                if len(v) == len(dataset_info["scenes"]):
+    # Aggregate the metrics
+    if dataset_info_scenes is not None:
+        for method_data in dataset_info["methods"]:
+            agg_metrics = {}
+            for k, scene in method_data["scenes"].items():
+                for k, v in scene.items():
+                    if k not in agg_metrics:
+                        agg_metrics[k] = []
+                    agg_metrics[k].append(v)
+            if len(method_data["scenes"]) == len(dataset_info_scenes):
+                for k, v in agg_metrics.items():
                     method_data[k] = round(np.mean(v), 5)
-        dataset_info["methods"].append(method_data)
+
+    # Reorder scenes using the dataset_info_scenes order and add missing data
+    if dataset_info_scenes is not None:
+        for method_data in dataset_info["methods"]:
+            method_data["scenes"] = {x["id"]: {**x, **method_data["scenes"][x["id"]]} for x in dataset_info_scenes if x["id"] in method_data["scenes"]}
     return dataset_info
 
 

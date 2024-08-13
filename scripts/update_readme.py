@@ -34,7 +34,7 @@ def update_licenses(readme: str):
         if ":" in method:
             continue
         if spec.get("licenses"):
-            licenses = ", ".join(["[{name}]({url})".format(**x) for x in spec["licenses"]])
+            licenses = ", ".join(["[{name}]({url})".format(**x) if "url" in x else x["name"] for x in spec["licenses"]])
             method_name = spec.get("name", method)
             methods_licenses.append(f"- {method_name}: {licenses}")
     methods_licenses.sort()
