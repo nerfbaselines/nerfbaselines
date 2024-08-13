@@ -121,14 +121,15 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python", config
     from nerfbaselines.io import get_checkpoint_sha
     from nerfbaselines.cli.render import render_command
     from nerfbaselines.utils import Indices, remap_error
-    from nerfbaselines.utils import NoGPUError
+    from nerfbaselines.utils import is_gpu_error
     from nerfbaselines.io import deserialize_nb_info
 
     # train_command.callback(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters)
     (tmp_path / "output").mkdir()
     num_steps = [13]
     try:
-        train_cmd = remap_error(train_command.callback)
+        train_cmd = train_command.callback
+        assert train_cmd is not None
         old_init = Trainer.__init__
         
         def __init__(self, *args, **kwargs):
@@ -139,8 +140,10 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python", config
                     v.total = self.num_iterations + 1
         with mock.patch.object(Trainer, '__init__', __init__):
             train_cmd(method_name, None, str(dataset_path), str(tmp_path / "output"), False, backend, Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), logger="none", config_overrides=config_overrides)
-    except NoGPUError:
-        pytest.skip("no GPU available")
+    except Exception as e:
+        if is_gpu_error(e):
+            pytest.skip("no GPU available")
+        raise
 
     # Test if model was saved at the end
     assert (tmp_path / "output" / "checkpoint-13").exists()
@@ -162,7 +165,8 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python", config
     assert get_checkpoint_sha(str(tmp_path / "output" / "checkpoint-13")) == info["checkpoint_sha256"], "checkpoint sha mismatch"
 
     # Test restore checkpoint and render
-    render_cmd = remap_error(render_command.callback)
+    render_cmd = render_command.callback
+    assert render_cmd is not None
     # render_command(checkpoint, data, output, split, verbose, backend):
     render_cmd(str(tmp_path / "output" / "checkpoint-13"), str(dataset_path), str(tmp_path / "output-render"), "test", verbose=False, backend_name=backend)
 

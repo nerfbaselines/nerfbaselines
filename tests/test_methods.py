@@ -4,7 +4,7 @@ from nerfbaselines import registry
 from nerfbaselines.datasets import load_dataset
 from nerfbaselines.types import Method
 from nerfbaselines.backends import Backend
-from nerfbaselines.utils import NoGPUError
+from nerfbaselines.utils import is_gpu_error
 import tempfile
 
 
@@ -49,8 +49,10 @@ def test_supported_methods():
 ##                 for out in method.render(dataset["cameras"][:1]):
 ##                     assert "color" in out
 ##                 assert out is not None
-##     except NoGPUError:
-##         pytest.skip("No GPU available")
+##    except Exception as e:
+##        if is_gpu_error(e):
+##            pytest.skip("No GPU available")
+##        raise
 
 
 @pytest.mark.conda
@@ -70,8 +72,10 @@ def test_method_conda(blender_dataset_path, method_name):
                 method.save(tmpdir)
 
                 method = method_cls(checkpoint=tmpdir)
-    except NoGPUError:
-        pytest.skip("No GPU available")
+    except Exception as e:
+        if is_gpu_error(e):
+            pytest.skip("No GPU available")
+        raise
 
 
 
@@ -92,8 +96,10 @@ def test_method_docker(blender_dataset_path, method_name):
                 method.save(tmpdir)
 
                 method = method_cls(checkpoint=tmpdir)
-    except NoGPUError:
-        pytest.skip("No GPU available")
+    except Exception as e:
+        if is_gpu_error(e):
+            pytest.skip("No GPU available")
+        raise
 
 
 @pytest.mark.apptainer
@@ -113,5 +119,7 @@ def test_method_apptainer(blender_dataset_path, method_name):
                 method.save(tmpdir)
 
                 method = method_cls(checkpoint=tmpdir)
-    except NoGPUError:
-        pytest.skip("No GPU available")
+    except Exception as e:
+        if is_gpu_error(e):
+            pytest.skip("No GPU available")
+        raise

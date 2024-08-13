@@ -115,7 +115,7 @@ conda deactivate
 {shlex_join(["conda", "create", "--prefix", env_path, "-y", "-c", "conda-forge", "--override-channels"] + args)}
 conda activate {shlex.quote(env_path)}
 echo -e 'channels:\n  - conda-forge\n' > {shlex.quote(os.path.join(env_path, ".condarc"))}
-conda install -y pip conda-build
+conda install -y pip conda-build ffmpeg
 pip install --upgrade pip setuptools
 mkdir -p {shlex.quote(os.path.join(env_path, "src"))}
 cd {shlex.quote(os.path.join(env_path, "src"))}

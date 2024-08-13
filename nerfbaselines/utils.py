@@ -92,32 +92,38 @@ def assert_not_none(value: Optional[T]) -> T:
     assert value is not None
     return value
 
+
+def is_gpu_error(e: Exception) -> bool:
+    if isinstance(e, NoGPUError):
+        return True
+    if isinstance(e, RuntimeError):
+        return "Found no NVIDIA driver on your system." in str(e)
+    if isinstance(e, EnvironmentError):
+        return "unknown compute capability. ensure pytorch with cuda support is installed." in str(e).lower()
+    if isinstance(e, ImportError):
+        return "libcuda.so.1: cannot open shared object file" in str(e)
+    return False
+
+
 class NoGPUError(RuntimeError):
-    def __init__(self, message="No GPUs available"):
+    def __init__(self, message="GPUs not available"):
         super().__init__(message)
 
 
 def remap_error(fn):
+    if getattr(fn, "__error_remap__", False):
+        return fn
+
     @wraps(fn)
     def wrapped(*args, **kwargs):
         try:
             return fn(*args, **kwargs)
-        except RuntimeError as e:
-            # torch driver error
-            if "Found no NVIDIA driver on your system." in str(e):
+        except Exception as e:
+            if is_gpu_error(e):
                 raise NoGPUError from e
-            raise
-        except EnvironmentError as e:
-            # tcnn import error
-            if "unknown compute capability. ensure pytorch with cuda support is installed." in str(e).lower():
-                raise NoGPUError from e
-            raise
-        except ImportError as e:
-            # pyngp import error
-            if "libcuda.so.1: cannot open shared object file" in str(e):
-                raise NoGPUError from e
-            raise
+            raise e
 
+    wrapped.__error_remap__ = True  # type: ignore
     return wrapped
 
 

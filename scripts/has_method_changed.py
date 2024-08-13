@@ -98,7 +98,7 @@ def get_method_dependency_tree(root_path, method_name, backend=None):
     method_module_level = len(_method_module_name) - len(method_module_name)
     if method_module_level:
         method_module_name = "nerfbaselines.methods".split(".")[:-method_module_level] + [method_module_name]
-    if "method" in method_spec:
+    if "method" in method_spec and method_module_name.startswith("nerfbaselines.methods"):
         dep_tree.update(get_dependency_tree(
             root_path=root_path,
             module_path=method_module_name))

@@ -13,12 +13,14 @@ def mock_results(results_path, datasets, methods):
     from nerfbaselines import registry
     from nerfbaselines.io import _encode_values
 
-    root = Path(nerfbaselines.__file__).absolute().parent
     for method in methods:
+        spec = registry.get_method_spec(method)
         for dataset in datasets:
             dinfo = cast(Any, registry.datasets_registry[dataset].get("metadata", {}).copy())
             for scene_data in dinfo["scenes"]:
                 scene = scene_data["id"]
+                if spec.get("metadata", {}).get("output_artifacts", {}).get(f"{dataset}/{scene}"):
+                    continue
 
                 # Create results
                 results_path.joinpath(method, dataset).mkdir(parents=True, exist_ok=True)

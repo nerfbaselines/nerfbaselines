@@ -15,7 +15,6 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: "3.x"
-    - uses: federicocarboni/setup-ffmpeg@v3.1
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
@@ -41,7 +40,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - uses: federicocarboni/setup-ffmpeg@v3.1
+      - uses: federicocarboni/setup-ffmpeg@v2
       - name: Install nerfbaselines
         run: |
           pip install --upgrade pip
@@ -54,7 +53,7 @@ jobs:
             pip install tensorboard==2.11.2
             pip install 'protobuf<4' 
           fi
-          pytest -rA
+          pytest -rA --require-ffmpeg
       - name: Test if README results are up to date
         run: |
           for dataset in blender mipnerf360 nerfstudio; do
@@ -71,7 +70,7 @@ jobs:
       - name: Run dev-extras tests
         run: |
           pyright
-          pytest --run-extras
+          pytest --run-extras --require-ffmpeg
         if: ${{ steps.dev-extras.outcome == 'success' }}
 
   setup:
@@ -88,7 +87,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: 3.9
-      - uses: federicocarboni/setup-ffmpeg@v3.1
       - name: Install nerfbaselines
         run: |
           pip install --upgrade pip
@@ -136,7 +134,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: 3.9
-      - uses: federicocarboni/setup-ffmpeg@v3.1
       - name: Install nerfbaselines
         run: |
           pip install --upgrade pip
@@ -180,7 +177,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: 3.9
-      - uses: federicocarboni/setup-ffmpeg@v3.1
       - name: Install nerfbaselines
         run: |
           pip install --upgrade pip
@@ -231,7 +227,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: 3.9
-      - uses: federicocarboni/setup-ffmpeg@v3.1
       - name: Install nerfbaselines
         run: |
           pip install --upgrade pip
@@ -267,7 +262,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: 3.9
-      - uses: federicocarboni/setup-ffmpeg@v3.1
       - name: Install nerfbaselines
         run: |
           pip install --upgrade pip

@@ -390,12 +390,13 @@ def _verify_mp4_single(tmp_path, num_cams):
         for frame in video:
             assert frame.shape == (30, 20, 3)
     except RuntimeError as e:
-        # Skip for Py37 because there is incompatibility with the mediapy library and ffmpeg
-        if sys.version_info < (3, 8) and "Unable to find frames in video" in str(e):
-            raise pytest.skip("Skip for Python 3.7 (incompatibility with mediapy and ffmpeg)") from e
+        # Skip because there is incompatibility with the mediapy library and ffmpeg
+        if "Unable to find frames in video" in str(e):
+            pytest.skip("Skip because of incompatibility between mediapy and ffmpeg")
         raise e
 
 
+@pytest.mark.ffmpeg
 def test_render_frames_mp4_single(tmp_path):
     method = FakeMethod()
     cameras = _mock_cameras(num_cams)
@@ -408,6 +409,7 @@ def test_render_frames_mp4_single(tmp_path):
     _verify_mp4_single(tmp_path, num_cams)
 
 
+@pytest.mark.ffmpeg
 def test_render_frames_mp4_single_command(tmp_path):
     _test_render_trajectory_command(tmp_path, "out.mp4")
     _verify_mp4_single(tmp_path, num_cams)
@@ -423,12 +425,13 @@ def _verify_mp4_multi(tmp_path, num_cams, all_output_names):
         for frame in video:
             assert frame.shape == (30, 20*len(all_output_names), 3)
     except RuntimeError as e:
-        # Skip for Py37 because there is incompatibility with the mediapy library and ffmpeg
-        if sys.version_info < (3, 8) and "Unable to find frames in video" in str(e):
-            raise pytest.skip("Skip for Python 3.7 (incompatibility with mediapy and ffmpeg)") from e
+        # Skip because there is incompatibility with the mediapy library and ffmpeg
+        if "Unable to find frames in video" in str(e):
+            pytest.skip("Skip because of incompatibility between mediapy and ffmpeg")
         raise e
 
 
+@pytest.mark.ffmpeg
 def test_render_frames_mp4_multi(tmp_path):
     method = FakeMethod()
     cameras = _mock_cameras(num_cams)
@@ -442,6 +445,7 @@ def test_render_frames_mp4_multi(tmp_path):
     _verify_mp4_multi(tmp_path, num_cams, all_output_names)
 
 
+@pytest.mark.ffmpeg
 def test_render_frames_mp4_multi_command(tmp_path):
     all_output_names = tuple(x if isinstance(x, str) else x["name"] for x in FakeMethod().get_info()["supported_outputs"])
     _test_render_trajectory_command(tmp_path, "out-multi.mp4", "--output-names", ",".join(all_output_names))
@@ -459,11 +463,12 @@ def _verify_mp4_multi_format(path, all_output_names, num_cams):
             for frame in video:
                 assert frame.shape == (30, 20, 3)
     except RuntimeError as e:
-        # Skip for Py37 because there is incompatibility with the mediapy library and ffmpeg
-        if sys.version_info < (3, 8) and "Unable to find frames in video" in str(e):
-            raise pytest.skip("Skip for Python 3.7 (incompatibility with mediapy and ffmpeg)") from e
+        # Skip because there is incompatibility with the mediapy library and ffmpeg
+        if "Unable to find frames in video" in str(e):
+            pytest.skip("Skip because of incompatibility between mediapy and ffmpeg")
         raise e
 
+@pytest.mark.ffmpeg
 def test_render_frames_mp4_multi_format(tmp_path):
     method = FakeMethod()
     cameras = _mock_cameras(num_cams)
@@ -480,6 +485,7 @@ def test_render_frames_mp4_multi_format(tmp_path):
     _verify_mp4_multi_format(path, all_output_names, num_cams)
 
 
+@pytest.mark.ffmpeg
 def test_render_frames_mp4_multi_format_command(tmp_path):
     all_output_names = tuple(x if isinstance(x, str) else x["name"] for x in FakeMethod().get_info()["supported_outputs"])
     _test_render_trajectory_command(tmp_path, "{output}.mp4", "--output-names", ",".join(all_output_names))

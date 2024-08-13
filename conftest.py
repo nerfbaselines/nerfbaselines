@@ -1,3 +1,4 @@
+import subprocess
 import re
 from typing import List
 import pytest
@@ -8,6 +9,7 @@ def pytest_addoption(parser):
     parser.addoption("--run-conda", action="store_true", default=False, help="run conda tests")
     parser.addoption("--run-apptainer", action="store_true", default=False, help="run apptainer tests")
     parser.addoption("--run-extras", action="store_true", default=False, help="run extras tests")
+    parser.addoption("--require-ffmpeg", action="store_true", default=False, help="require ffmpeg tests to be run")
     parser.addoption("--method", action="append", default=[], help="run only these methods")
     parser.addoption("--method-regex", default=None, help="run only methods matching regex")
 
@@ -18,6 +20,7 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "apptainer: mark test as requiring apptainer")
     config.addinivalue_line("markers", "extras: mark test as requiring other dependencies")
     config.addinivalue_line("markers", "method: mark test as running only a specific method")
+    config.addinivalue_line("markers", "ffmpeg: mark test as requiring ffmpeg to be present")
 
 
 def pytest_collection_modifyitems(config, items: List[pytest.Item]):
@@ -54,6 +57,12 @@ def pytest_collection_modifyitems(config, items: List[pytest.Item]):
         for item in items:
             if "extras" in item.keywords:
                 item.add_marker(pytest.mark.skip(reason="need --run-extras option to run"))
+
+    if not config.getoption("--require-ffmpeg"):
+        has_ffmpeg = subprocess.call(["which", "ffmpeg"]) == 0
+        for item in items:
+            if "ffmpeg" in item.keywords and not has_ffmpeg:
+                item.add_marker(pytest.mark.skip(reason="need --require-ffmpeg option or ffmpeg installed to run"))
 
     methods = config.getoption("--method")
     method_regex = config.getoption("--method-regex")
