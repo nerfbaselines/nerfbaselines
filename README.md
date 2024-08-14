@@ -133,6 +133,8 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 | NeRF                    | ❔            | 🥇 gold    | ❔         | ❔                | ❔      | ❔            | ❔           |
 | K-Planes                | ❔            | 🥇 gold    | ❔         | ❔                | ❔      | 🥈 silver     | ❔           |
 | Nerf-W (reimpl.)        | ❔            |  ❔        | ❔         | ❔                | ❔      | 🥇 gold       | ❔           |
+| GS-W        | ❔            |  ❔        | ❔         | ❔                | ❔      | 🥇 gold       | ❔           |
+| WildGaussians        | ❔            |  ❔        | ❔         | ❔                | ❔      | 🥇 gold       | ❔           |
 | SeaThru-NeRF            | ❔            |  ❔        | ❔         | ❔                | ❔      | ❔            | 🥇 gold      |
 
 ## Contributing
