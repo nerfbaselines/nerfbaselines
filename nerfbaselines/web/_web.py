@@ -49,8 +49,8 @@ def _format_cell(value, id):
 
 def _resolve_data_link(data, method, dataset, scene):
     output_artifacts = method.get("output_artifacts", {})
-    if "{dataset}/{scene}" in output_artifacts:
-        output_artifact = output_artifacts["{dataset}/{scene}"]
+    if f"{dataset}/{scene}" in output_artifacts:
+        output_artifact = output_artifacts[f"{dataset}/{scene}"]
         if output_artifact.get("link", None) is not None:
             return output_artifact["link"]
 
