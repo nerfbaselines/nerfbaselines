@@ -1,0 +1,16 @@
+{% macro info_box(data, metric_id, metric_name) %}
+{% if metric_id in data.paper_results %}
+{% if (metric_id + "_note") in data.paper_results %}
+<i class="ti ti-info-circle table__infoicon table__infoicon-with-note"></i>
+<div class="table__infobox table__infobox-note">
+  <span>Paper's {{ metric_name }}: {{ data.paper_results[metric_id] }}</span>
+  <p>{{ data.paper_results[metric_id + "_note"] }}</p>
+</div>
+{% else %}
+<i class="ti ti-info-circle table__infoicon"></i>
+<div class="table__infobox">
+  <span>Paper's {{ metric_name }}: {{ data.paper_results[metric_id] }}</span>
+</div>
+{% endif %}
+{% endif %}
+{% endmacro %}

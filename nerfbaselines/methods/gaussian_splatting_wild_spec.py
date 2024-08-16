@@ -58,6 +58,7 @@ fi
         "note": "The appearance embeddings are stored per Gaussian and therefore the memory consumption is huge when interpolating between two appearance embeddings. Furthermore, the training dataset is required during inference to compute the appearance embeddings and therefore is only enabled for default datasets.",
         "paper_title": "Gaussian in the Wild: 3D Gaussian Splatting for Unconstrained Image Collections",
         "paper_authors": ["Dongbin Zhang", "Chuming Wang", "Weitao Wang", "Peihao Li", "Minghan Qin", "Haoqian Wang"],
+        "paper_results": paper_results,
         "paper_link": "https://arxiv.org/pdf/2403.15704.pdf",
         "link": "https://eastbeanzhang.github.io/GS-W/",
         "licenses": [{"name": "unknown"}],

@@ -2,17 +2,18 @@ import os
 from ..registry import MethodSpec, register
 
 
+_BLENDER_NOTE = """Instant-NGP trained and evaluated on black background instead of white."""
 paper_results = {
     # blender scenes: Mic Ficus Chair Hotdog Materials Drums Ship Lego
     # blender PSNRs: 36.22 33.51 35.00 37.40 29.78 26.02 31.10 36.39 
-    "blender/mic": {"psnr": 36.22},
-    "blender/ficus": {"psnr": 33.51},
-    "blender/chair": {"psnr": 35.00},
-    "blender/hotdog": {"psnr": 37.40},
-    "blender/materials": {"psnr": 29.78},
-    "blender/drums": {"psnr": 26.02},
-    "blender/ship": {"psnr": 31.10},
-    "blender/lego": {"psnr": 36.39},
+    "blender/mic": {"psnr": 36.22, "note": _BLENDER_NOTE},
+    "blender/ficus": {"psnr": 33.51, "note": _BLENDER_NOTE},
+    "blender/chair": {"psnr": 35.00, "note": _BLENDER_NOTE},
+    "blender/hotdog": {"psnr": 37.40, "note": _BLENDER_NOTE},
+    "blender/materials": {"psnr": 29.78, "note": _BLENDER_NOTE},
+    "blender/drums": {"psnr": 26.02, "note": _BLENDER_NOTE},
+    "blender/ship": {"psnr": 31.10, "note": _BLENDER_NOTE},
+    "blender/lego": {"psnr": 36.39, "note": _BLENDER_NOTE},
 }
 
 

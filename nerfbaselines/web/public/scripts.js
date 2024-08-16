@@ -103,15 +103,46 @@ function init() {
   }
   // Table
   // - Copy
-  const copycells = document.querySelectorAll(".table .table__allowcopy");
-  for (var i = 0; i < copycells.length; i++) {
-    const copycell = copycells[i];
+  document.querySelectorAll(".table .table__allowcopy").forEach(function (copycell) {
     copycell.addEventListener("click", function(e) {
-      const cell = e.target.closest("td");
-      const text = cell.innerText;
+      const text = copycell.innerText;
       navigator.clipboard.writeText(text);
     });
+  });
+  // - Tooltips
+  function updateInfobox(tooltip) {
+    const vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0)
+    const td = tooltip.closest("td");
+    const tooltipbb = tooltip.getBoundingClientRect();
+    if (tooltipbb.width >= vw*0.70) {
+      tooltip.style.left = (vw*0.1) + "px";
+      return;
+    }
+    const tdbb = td.querySelector("span").getBoundingClientRect();
+    let clientLeft = tdbb.x;
+    clientLeft = Math.min(Math.max(clientLeft, 0), vw-tooltipbb.width);
+    tooltip.style.left = clientLeft + "px";
   }
+  let currentInfobox = null;
+  const tooltips = document.querySelectorAll(".table .table__infobox");
+  const tableContainers = document.querySelectorAll(".table-container");
+  const infoboxes = document.querySelectorAll(".table .table__infobox");
+  for (var i=0; i<tableContainers.length; ++i) {
+    tableContainers[i].addEventListener("scroll", function(e) {
+      e.target.querySelectorAll(".table__infobox").forEach(function(tooltip) {
+        updateInfobox(tooltip);
+      });
+    });
+  }
+  window.addEventListener("resize", function(e) {
+    if (currentInfobox) {
+      updateInfobox(currentInfobox);
+    }
+  });
+  infoboxes.forEach(function(tooltip) {
+    currentInfobox = tooltip;
+    tooltip.closest("td").addEventListener("mouseenter", function(e) { updateInfobox(tooltip); });
+  });
 }
 
 if (document.readyState === 'loading') {

@@ -1,3 +1,4 @@
+{% import "_macros.html" as macros %}
 <div class="table-container">
   <table class="table">
     <thead class="table__header">
@@ -7,22 +8,22 @@
       <th><span class="table__sortbutton" title="Sort by {{ metric.name }} (ascending)">{{ metric.name }} <i class="ti" /></span></th>
       {% endfor %}
       <th><span class="table__sortbutton" title="Sort by time (ascending)">Time <i class="ti" /></span></th>
-      <th><span class="table__sortbutton" title="Sort by GPU Mem. (ascending)">GPU Mem. <i class="ti" /></span></th>
+      <th><span class="table__sortbutton" title="Sort by GPU mem. (ascending)">GPU mem. <i class="ti" /></span></th>
     </thead>
     <tbody class="expand-root">
       {% for scene in scenes %}
       <tr>
         <td class="w70">
           {% if scene.data_link %}
-          <a href="{{ scene.data_link }}" title="Download checkpoint and predictions for scene {{ scene.name }}" class="ti ti-download ti-green"></a>
+          <a href="{{ scene.data_link }}" title="Download checkpoint and predictions for scene {{ scene.name }}" class="ti table__action ti-download ti-green"></a>
           {% endif %}
         </td>
         <td class="w120">{{ scene.name }}</td>
         {% for metric in metrics %}
-        <td><span class="table__allowcopy">{{ scene[metric.id] }}</span></td>
+        <td><span class="table__allowcopy">{{ scene[metric.id] }}</span>{{ macros.info_box(scene, metric.id, metric.name) }}</td>
         {% endfor %}
-        <td><span class="table__allowcopy">{{ scene.total_train_time }}</span></td>
-        <td><span class="table__allowcopy">{{ scene.gpu_memory }}</span></td>
+        <td><span class="table__allowcopy">{{ scene.total_train_time }}</span>{{ macros.info_box(scene, "total_train_time", "train. time") }}</td>
+        <td><span class="table__allowcopy">{{ scene.gpu_memory }}</span>{{ macros.info_box(scene, "gpu_memory", "GPU mem.") }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -31,10 +32,10 @@
         <td class="w70"></td>
         <td class="w120">Average</td>
         {% for metric in metrics %}
-        <td><span class="table__allowcopy">{{ average[metric.id] }}</span></td>
+        <td><span class="table__allowcopy">{{ average[metric.id] }}</span>{{ macros.info_box(average, metric.id, metric.name) }}</td>
         {% endfor %}
-        <td><span class="table__allowcopy">{{ average.total_train_time }}</span></td>
-        <td><span class="table__allowcopy">{{ average.gpu_memory }}</span></td>
+        <td><span class="table__allowcopy">{{ average.total_train_time }}</span>{{ macros.info_box(average, "total_train_time", "train. time") }}</td>
+        <td><span class="table__allowcopy">{{ average.gpu_memory }}</span>{{ macros.info_box(average, "gpu_memory", "GPU mem.") }}</td>
       </tr>
   </table>
 </div>

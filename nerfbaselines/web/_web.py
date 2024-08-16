@@ -59,35 +59,86 @@ def _resolve_data_link(data, method, dataset, scene):
     return link
 
 
+def _get_method_data(data, method: str):
+    dataset = data["id"]
+    metrics = data["metrics"] + [{"id": "total_train_time"}, {"id": "gpu_memory"}]
+    sign_map = {m["id"]: 1 if m["ascending"] else -1 for m in data["metrics"] if "ascending" in m}
+    m = next(x for x in data["methods"] if x["id"] == method)
+    scenes_map = {s["id"]: s for s in data["scenes"]}
+
+    scenes = [{
+        **{m["id"]: "-" for m in metrics},
+        **{k: _format_cell(v, k) for k, v in m["scenes"].get(s["id"], {}).items()},
+        **scenes_map.get(s["id"], {}),
+        "demo_link": None,
+        "data_link": (
+            _resolve_data_link(data, m, dataset, s["id"]) if s["id"] in m["scenes"]
+            else None
+        )
+    } for s in data["scenes"]]
+    
+    average = {
+        mid["id"]: _format_cell(_get_average([m["scenes"].get(s["id"]) or {} for s in data["scenes"]], mid["id"], sign_map.get(mid["id"], 1)), mid["id"])
+        for mid in metrics
+    }
+
+    if "paper_results" in m:
+        paper_scenes = {k[len(f"{dataset}/"):]: v for k, v in m["paper_results"].items() if k.startswith(f"{dataset}/")}
+        for s in scenes:
+            s["paper_results"] = paper_scenes.get(s["id"], {}).copy()
+            if "note" in s["paper_results"]:
+                for k in list(s["paper_results"]):
+                    if k.endswith("note"):
+                        continue
+                    if f"{k}_note" not in s["paper_results"]:
+                        s["paper_results"][f"{k}_note"] = s["paper_results"]["note"]
+
+        average_paper_results = {}
+        if len(paper_scenes) == len(data["scenes"]):
+            for mid in metrics:
+                values = [s["paper_results"].get(mid["id"], None) for s in scenes]
+                if any(v is None for v in values):
+                    continue
+                average_paper_results[mid["id"]] = _format_cell(sum(values) / len(values), mid["id"])
+
+        notes = {}
+        for scene in paper_scenes.values():
+            for k, v in scene.items():
+                if not k.endswith("note"):
+                    continue
+                if k not in notes:
+                    notes[k] = v
+                elif notes[k] != v:
+                    notes[k] = None
+        notes = {k: v for k, v in notes.items() if v is not None}
+        if "note" in notes:
+            for k in average_paper_results:
+                if k.endswith("note"):
+                    continue
+                if f"{k}_note" not in list(notes):
+                    notes[f"{k}_note"] = notes["note"]
+        average_paper_results.update(notes)
+        average["paper_results"] = average_paper_results
+    return {
+        **m,
+        "slug": _clean_slug(m["id"]),
+        "average": average, 
+        "scenes": scenes,
+    }
+
+
 def get_dataset_data(raw_data):
     data = copy.deepcopy(raw_data)
-    dataset = data["id"]
     default_metric = data.get("default_metric") or data["metrics"][0]["id"]
     sign = next((1 if m.get("ascending") else -1 for m in data["metrics"] if m["id"] == default_metric), None)
     if sign is None:
         sign = 1
-    scenes_map = {s["id"]: s for s in data["scenes"]}
     data["slug"] = _clean_slug(raw_data["id"])
     data["methods"].sort(key=lambda x: sign * x.get(default_metric, -float("inf")))
-    extended_metrics = data["metrics"] + [{"id": "total_train_time"}, {"id": "gpu_memory"}]
-    data["methods"] = [{
-        **m,
-        "slug": _clean_slug(m["id"]),
-        "average": {
-            mid["id"]: _format_cell(_get_average([m["scenes"].get(s["id"]) or {} for s in data["scenes"]], mid["id"], sign), mid["id"])
-            for mid in extended_metrics
-        },
-        "scenes": [{
-            **{m["id"]: "-" for m in extended_metrics},
-            **{k: _format_cell(v, k) for k, v in m["scenes"].get(s["id"], {}).items()},
-            **scenes_map.get(s["id"], {}),
-            "demo_link": None,
-            "data_link": (
-                _resolve_data_link(data, m, dataset, s["id"]) if s["id"] in m["scenes"]
-                else None
-            )
-        } for s in data["scenes"]]
-    } for m in data["methods"]]
+    data["methods"] = [
+        _get_method_data(data, m["id"])
+        for m in data["methods"]
+    ]
     return data
 
 

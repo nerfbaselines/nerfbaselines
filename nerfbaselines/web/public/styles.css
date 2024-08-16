@@ -307,7 +307,7 @@ h2 .ti {
   background-color: rgb(255, 255, 255);
   box-sizing: border-box;
   box-shadow: rgba(0, 0, 0, 0.05) 0px 0.0625rem 0.1875rem, rgba(0, 0, 0, 0.1) 0px 0.0625rem 0.125rem;
-  overflow: hidden;
+  overflow-x: hidden;
   transition: all 100ms ease-in-out 0s;
   border: 0.0625rem solid rgb(222, 226, 230);
   /*border-radius: 0.25rem;*/
@@ -422,7 +422,7 @@ h2 .ti {
   cursor: copy;
   display: inline-block;
 }
-.table tbody > tr > td .ti {
+.table tbody > tr > td .ti.table__action {
   cursor: pointer;
   display: inline-block;
   font-size: 1.3rem;
@@ -445,4 +445,41 @@ h2 .ti {
   color: var(--green-color);
 }
 
+.table td .table__infobox {
+  font-weight: normal;
+  visibility: hidden;
+  max-width: calc(max(32ch, 80vw));
+  background-color: black;
+  color: #eee;
+  text-align: left;
+  padding: 0.8em 1.2em;
+  border-radius: 6px;
+ 
+  /* Position the tooltip text - see examples below! */
+  position: absolute;
+  z-index: 1;
+}
+ 
+.table td .table__infobox-note {
+  width: calc(min(32ch, 80vw));
+}
+.table td .table__infobox p {
+  margin-top: 1em;
+  font-size: 0.8em;
+  text-wrap: wrap;
+  text-align: left;
+}
+
+.table__infoicon {
+  opacity: 0.4;
+}
+.table__infoicon.table__infoicon-with-note {
+  opacity: 0.8;
+  color: var(--blue-color);
+}
+
+/* Show the tooltip text when you mouse over the tooltip container */
+.table td:hover .table__infobox {
+  visibility: visible;
+}
 /* </table styles> */
