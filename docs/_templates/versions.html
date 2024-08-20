@@ -1,0 +1,24 @@
+{% if versions.split(",")|length > 1 %}
+<div class="rst-versions" data-toggle="rst-versions" role="note" aria-label="versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    Version: {{ current_version }}
+    <span class="fa fa-caret-down"></span>
+  </span>
+  <div class="rst-other-versions">
+    <dl>
+      <dt>{{ _('Versions') }}</dt>
+      {% for the_version in versions.split(",") %}
+        {% set the_class = "" %}
+        {% if the_version == current_version %}
+          {% set the_class = "rst-current-item" %}
+        {% endif %}
+        {% if the_version == "latest" %}
+        <dd class="{{ the_class }}"><a href="{{ base_path }}/">{{ the_version }}</a></dd>
+        {% else %}
+        <dd class="{{ the_class }}"><a href="{{ base_path }}/{{ the_version }}/">{{ the_version }}</a></dd>
+        {% endif %}
+      {% endfor %}
+    </dl>
+  </div>
+</div>
+{% endif %}

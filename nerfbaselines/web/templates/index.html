@@ -5,7 +5,7 @@
 {% block content %}
 <header class="main-header">
   <div class="main-header__top-row">
-    <img src="./logo.png" alt="NerfBaselines" />
+    <img src="{{ base_path }}/logo.png" alt="NerfBaselines" />
     <h1>
       <span>Nerf<br/>Baselines</span>
     </h1>
@@ -13,6 +13,7 @@
   <div class="main-header__buttons-row">
     <a class="button" href="https://github.com/jkulhanek/nerfbaselines"><i class="ti ti-brand-github-filled"></i> GitHub</a>
     <a class="button" href="https://arxiv.org/pdf/2406.17345.pdf"><i class="ti ti-file-type-pdf"></i> Paper</a>
+    {% if has_docs %}<a class="button" href="{{ base_path }}/docs"><i class="ti ti-book-2"></i> Docs</a>{% endif %}
   </div>
   <p class="main-header__abstract">
     NerfBaselines is a framework for <strong>evaluating and comparing existing NeRF methods</strong>.

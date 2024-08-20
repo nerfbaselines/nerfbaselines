@@ -1,0 +1,13 @@
+<a class="sidebar-brand centered" href="{{ pathto(master_doc) }}">
+  {% block brand_content %}
+  <div class="sidebar-logo-container">
+    <img class="sidebar-logo" src="{{ logo_url }}" alt="Logo"/>
+    <span class="sidebar-brand-text">{{ docstitle if docstitle else project }}<span class="sidebar-brand-version">Version: {{ current_version }}</span></span>
+  </div>
+  {% endblock brand_content %}
+</a>
+<div class="sidebar-brand-links">
+  <a href="https://jkulhanek.com/nerfbaselines/"><i class="ti ti-globe"></i> Website</a> &middot;
+  <a href="https://github.com/jkulhanek/nerfbaselines"><i class="ti ti-brand-github-filled"></i> GitHub</a> &middot;
+  <a href="https://arxiv.org/pdf/2406.17345.pdf"><i class="ti ti-file-type-pdf"></i> Paper</a>
+</div>

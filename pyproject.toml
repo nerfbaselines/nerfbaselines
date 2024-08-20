@@ -47,12 +47,17 @@ Homepage = "https://jkulhanek.com/nerfbaselines"
 "Bug Tracker" = "https://github.com/jkulhanek/nerfbaselines/issues"
 
 [project.optional-dependencies]
-viewer = [
-    'viser<0.2.0',
-]
 web = [
-    'jinja2==3.1.4',
-    'livereload==2.7.0'
+    'jinja2>=3.1.4',
+    'livereload>=2.7.0',
+    'sphinx-click>=6.0.0',
+    'sphinx>=4.2.0',
+    'sphinx-rtd-theme>=2.0.0',
+    'sphinxcontrib-apidoc>=0.5.0',
+    'sphinxext-opengraph>=0.9.1',
+    'sphinx-copybutton>=0.5.2',
+    'furo>=2022.1.0',
+    'myst_parser>=4.0.0',
 ]
 dev = [
     'torch',
@@ -87,6 +92,7 @@ line-length = 200
 exclude = ["**/node_modules",
     "**/__pycache__",
     "**/build",
+    "docs/**/*",
     "nerfbaselines/viewer/nerfstudio.py",
     "nerfbaselines/methods/camp_zipnerf.py",
     "nerfbaselines/methods/gaussian_splatting.py",

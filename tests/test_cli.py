@@ -12,7 +12,8 @@ from unittest import mock
     "build-docker-image".split(),
     "download-dataset dataset".split(),
     "generate-dataset-results".split(),
-    "generate-web --output output".split(),
+    "web build --output output".split(),
+    "web dev".split(),
     "viewer".split(),
 ])
 def test_cli_command(args):

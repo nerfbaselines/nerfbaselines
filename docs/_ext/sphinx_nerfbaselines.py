@@ -1,0 +1,277 @@
+from typing import TYPE_CHECKING
+import sphinx.application
+from docutils import nodes
+
+from docutils.parsers.rst import directives
+from sphinx.util.docutils import SphinxDirective
+if TYPE_CHECKING:
+    from nerfbaselines.registry import MethodSpec
+
+
+class NerfBaselinesDirective(SphinxDirective):
+    """A directive to render a method."""
+    has_content = False
+    optional_arguments = 1
+    option_spec = {
+        'names-wildcard': directives.unchanged,
+        'names-regex': directives.unchanged,
+        'long-ids': directives.flag,
+    }
+
+    def _get_all_objects(self):
+        import nerfbaselines.registry
+        self._register_all()
+
+        try:
+            methods_registry = nerfbaselines.registry.methods_registry
+        except AttributeError:
+            methods_registry = nerfbaselines.registry.registry
+        for name, spec in methods_registry.items():
+            metadata = getattr(spec, "metadata", None)
+            if metadata is None:
+                try:
+                    metadata = spec.get("metadata")
+                except AttributeError:
+                    pass
+            if metadata is None:
+                continue
+            yield "methods/" + name, spec
+
+        try:
+            for name, spec in nerfbaselines.registry.datasets_registry.items():
+                yield "datasets/" + name, spec
+        except AttributeError:
+            pass
+
+        try:
+            for name, spec in nerfbaselines.registry.evaluation_protocols_registry.items():
+                yield "evaluation-protocols/" + name, spec
+        except AttributeError:
+            pass
+
+        try:
+            for name, spec in nerfbaselines.registry.loggers_registry.items():
+                yield "loggers/" + name, spec
+        except AttributeError:
+            pass
+
+    def _render_method(self, name, spec: 'MethodSpec'):
+        # If short-ids is not set, remove the prefix
+        if 'long-ids' not in self.options:
+            name = name.split("/", 1)[-1]
+
+        from nerfbaselines import backends
+        meta = getattr(spec, "metadata", None)
+        if meta is None:
+            try:
+                meta = spec.get("metadata")
+            except AttributeError:
+                pass
+        assert meta is not None, f"Method {name} has no metadata"
+        section = nodes.section(
+            '',
+            nodes.title(text=meta["name"]),
+            ids=[name],
+            names=[nodes.fully_normalize_name(name)],
+        )
+        if meta.get("paper_title"):
+            section += nodes.rubric("", nodes.Text(meta["paper_title"]))
+
+        fields = []
+        if meta.get("paper_authors"):
+            fields.append(nodes.field('', 
+                                      nodes.field_name('', nodes.Text("Authors")), 
+                                      nodes.field_body('', nodes.Text(', '.join(meta.get("paper_authors"))))))
+        if meta.get("paper_link"):
+            link = nodes.paragraph('')
+            link += nodes.reference('', nodes.Text(meta["paper_link"]), internal=False, refuri=meta["paper_link"])
+            fields.append(nodes.field('', 
+                                      nodes.field_name('', nodes.Text("Paper")), 
+                                      nodes.field_body('', link)))
+        if meta.get("link"):
+            link = nodes.paragraph('')
+            link += nodes.reference('', nodes.Text(meta["link"]), internal=False, refuri=meta["link"])
+            fields.append(nodes.field('', 
+                                      nodes.field_name('', nodes.Text("Web")), 
+                                      nodes.field_body('', link)))
+
+        if meta.get("licenses"):
+            licenses = nodes.paragraph('')
+            for i, li in enumerate(meta.get("licenses")):
+                if isinstance(li, str):
+                    li = {"name": li}
+                if i != 0:
+                    licenses += nodes.Text(", ")
+                if li.get("url"):
+                    licenses += nodes.reference('', nodes.Text(li["name"]), internal=False, refuri=li["url"])
+                else:
+                    licenses += nodes.Text(li["name"])
+            fields.append(nodes.field('', 
+                                      nodes.field_name('', nodes.Text("Licenses")), 
+                                      nodes.field_body('', licenses)))
+
+        fields.append(nodes.field('', 
+                                  nodes.field_name('', nodes.Text("ID")), 
+                                  nodes.field_body('', nodes.Text(name))))
+
+        try:
+            supported_backends = backends._get_implemented_backends(spec)
+            fields.append(nodes.field('', 
+                                      nodes.field_name('', nodes.Text("Backends")), 
+                                      nodes.field_body('', nodes.Text(", ".join(supported_backends)))))
+        except AttributeError:
+            pass
+        section += nodes.field_list('', *fields)
+        section += nodes.paragraph("", nodes.Text(meta["description"]))
+        return section
+
+    def _register_all(self):
+        import nerfbaselines.registry
+        # Calls register_all
+        try:
+            nerfbaselines.registry.get_supported_methods()
+        except:
+            # Older versions of nerfbaselines
+            nerfbaselines.registry.supported_methods()
+
+    def _resolve_evaluation_protocol(self, name):
+        import nerfbaselines.registry
+        self._register_all()
+        resolve_target = getattr(self.env.config, 'linkcode_resolve', None)
+        name = nerfbaselines.registry.evaluation_protocols_registry[name]["evaluation_protocol"]
+        module, fullname = name.split(":", 1)
+        return resolve_target("py", {"module": module, "fullname": fullname})
+
+    def _render_dataset(self, name, spec):
+        # If long-ids is not set, remove the prefix
+        qualname = name
+        name = name.split("/", 1)[-1]
+        if 'long-ids' not in self.options:
+            qualname = name
+
+        meta = spec.get("metadata", {})
+        if not "name" in meta:
+            # Pure dataloader
+            return None
+        name = meta.get("name", name)
+        section = nodes.section(
+            '',
+            nodes.title(text=name),
+            ids=[qualname],
+            names=[nodes.fully_normalize_name(qualname)],
+        )
+        if meta.get("paper_title"):
+            section += nodes.rubric("", nodes.Text(meta["paper_title"]))
+
+        fields = []
+        if meta.get("paper_authors"):
+            fields.append(nodes.field('', 
+                                      nodes.field_name('', nodes.Text("Authors")), 
+                                      nodes.field_body('', nodes.Text(', '.join(meta.get("paper_authors"))))))
+        if meta.get("paper_link"):
+            link = nodes.paragraph('')
+            link += nodes.reference('', nodes.Text(meta["paper_link"]), internal=False, refuri=meta["paper_link"])
+            fields.append(nodes.field('', 
+                                      nodes.field_name('', nodes.Text("Paper")), 
+                                      nodes.field_body('', link)))
+        if meta.get("link"):
+            link = nodes.paragraph('')
+            link += nodes.reference('', nodes.Text(meta["link"]), internal=False, refuri=meta["link"])
+            fields.append(nodes.field('', 
+                                      nodes.field_name('', nodes.Text("Web")), 
+                                      nodes.field_body('', link)))
+
+        if meta.get("licenses"):
+            licenses = nodes.paragraph('')
+            for i, li in enumerate(meta.get("licenses")):
+                if isinstance(li, str):
+                    li = {"name": li}
+                if i != 0:
+                    licenses += nodes.Text(", ")
+                if li.get("url"):
+                    licenses += nodes.reference('', nodes.Text(li["name"]), internal=False, refuri=li["url"])
+                else:
+                    licenses += nodes.Text(li["name"])
+            fields.append(nodes.field('', 
+                                      nodes.field_name('', nodes.Text("Licenses")), 
+                                      nodes.field_body('', licenses)))
+
+        fields.append(nodes.field('', 
+                                  nodes.field_name('', nodes.Text("ID")), 
+                                  nodes.field_body('', nodes.Text(name))))
+
+        evaluation_protocol = spec.get("evaluation_protocol") or "default"
+        evaluation_protocol_target = self._resolve_evaluation_protocol(evaluation_protocol)
+        link = nodes.paragraph('')
+        link += nodes.reference('', nodes.Text(evaluation_protocol + " (source code)"), internal=False, refuri=evaluation_protocol_target)
+        fields.append(nodes.field('', 
+                                  nodes.field_name('', nodes.Text("Evaluation protocol")),
+                                  nodes.field_body('', link)))
+
+        section += nodes.field_list('', *fields)
+        section += nodes.paragraph("", nodes.Text(meta["description"]) if meta.get("description") else "")
+        return section
+
+    def _render_evaluation_protocol(self, name, spec):
+        section = nodes.section(
+            '',
+            nodes.title(text=name),
+            ids=[name],
+            names=[nodes.fully_normalize_name(name)],
+        )
+        return section
+
+    def _render_logger(self, name, spec):
+        section = nodes.section(
+            '',
+            nodes.title(text=name),
+            ids=[name],
+            names=[nodes.fully_normalize_name(name)],
+        )
+        return section
+
+    def run(self) -> list[nodes.Node]:
+        names = []
+        supported_objects = dict(self._get_all_objects())
+        if len(self.arguments) == 1:
+            names = [self.arguments[0]]
+        elif 'names-wildcard' in self.options:
+            # Wildcard matching
+            import fnmatch
+            for name in supported_objects:
+                if fnmatch.fnmatch(name, self.options['names-wildcard']):
+                    names.append(name)
+        elif 'names-regex' in self.options:
+            import re
+            for name in supported_objects:
+                if re.match(self.options['names-regex'], name):
+                    names.append(name)
+        else:
+            names = supported_objects.keys()
+
+        sections = []
+        for name in names:
+            spec = supported_objects[name]
+            if name.startswith("methods/"):
+                section = self._render_method(name, spec)
+            elif name.startswith("datasets/"):
+                section = self._render_dataset(name, spec)
+            elif name.startswith("evaluation-protocols/"):
+                section = self._render_evaluation_protocol(name, spec)
+            elif name.startswith("loggers/"):
+                section = self._render_logger(name, spec)
+            else:
+                raise ValueError(f"Unknown object type {name}")
+            if section is not None:
+                sections.append(section)
+        return sections
+
+
+def setup(app: sphinx.application.Sphinx):
+    app.add_directive('nerfbaselines', NerfBaselinesDirective)
+
+    return {
+        'version': '0.1',
+        'parallel_read_safe': True,
+        'parallel_write_safe': True,
+    }

@@ -1,0 +1,126 @@
+/* style for furo */
+/* foro - brand */
+.sidebar-logo {
+  display: block;
+  margin: 0 auto;
+  max-width: 26%;
+}
+
+.sidebar-logo-container {
+  display: flex;
+  align-items: center;
+  gap: 0.5em; 
+}
+
+.sidebar-brand-text {
+  font-size: 1.12em;
+  font-weight: 700;
+  text-align: left;
+  margin: 0;
+}
+
+.sidebar-brand-text .sidebar-brand-version {
+  font-size: 0.6rem;
+  font-weight: 700;
+  margin-top: 0.1rem;
+  display: block;
+  color: var(--color-foreground-muted);
+}
+
+.sidebar-brand-links {
+  margin-top: -0.2em;
+  font-size: 0.8rem;
+  text-align: center;
+  flex-shrink: 0;
+  padding: 0 var(--sidebar-item-spacing-horizontal) var(--sidebar-item-spacing-vertical) var(--sidebar-item-spacing-horizontal) ;
+  text-decoration: none;
+}
+
+
+/* furo - field-list fix */
+#methods dl.field-list,
+#datasets dl.field-list {
+  margin-top: 0;
+}
+
+#methods dl.field-list dt,
+#datasets dl.field-list dt {
+  font-weight: 700;
+  margin-top: 0;
+  margin-right: 0.5em;
+  float: left;
+  clear: left;
+}
+
+#datasets dl.field-list dd,
+#methods dl.field-list dd {
+  margin-left: 1em;
+}
+
+#datasets dl.field-list dd > p,
+#methods dl.field-list dd > p {
+  margin: 0;
+  display: inline;
+}
+
+#datasets dl.field-list dd a,
+#methods dl.field-list dd a {
+  word-break: break-all;
+}
+
+/* furo - rst-versions */
+.rst-versions {
+  position: static;
+  width: 100%;
+  background: transparent;
+  display: block;
+}
+
+.rst-versions .rst-current-version {
+  display: none;
+}
+
+.rst-versions .rst-other-versions dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2em 0.6em;
+  justify-content: space-between;
+}
+
+.rst-versions .rst-other-versions dl::after {
+  content: "";
+  flex: auto;
+}
+
+.rst-versions .rst-other-versions dt {
+  color: var(--color-sidebar-caption-text);
+  font-size: var(--sidebar-caption-font-size);
+  font-weight: 700;
+  margin: var(--sidebar-caption-space-above) 0 0 0;
+  text-transform: uppercase;
+  flex-basis: 100%;
+}
+
+.rst-versions .rst-other-versions {
+  padding: 0;
+  display: block;
+  font-size: var(--sidebar-item-font-size);
+  padding: var(--sidebar-item-spacing-vertical) var(--sidebar-item-spacing-horizontal)
+}
+
+.rst-versions .rst-other-versions .rst-current-item a {
+  color: var(--color-foreground-primary);
+  font-weight: 700;
+}
+.rst-versions .rst-other-versions dd {
+  display: inline-block;
+  padding: 0;
+  margin: 0;
+  font-size: var(--font-size--small);
+}
+.rst-versions .rst-other-versions dd a {
+  color: var(--color-link);
+  text-decoration: none;
+}
+
+

@@ -38,6 +38,7 @@ class LazyGroup(click.Group):
         return super().get_command(ctx, cmd_name)
 
     def list_commands(self, ctx):
+        del ctx
         return sorted(itertools.chain(self._lazy_commands.keys(), self.commands.keys()))
 
     def add_lazy_command(self, package_name: str, command_name: str, hidden=False):
@@ -72,7 +73,7 @@ class LazyGroup(click.Group):
                 formatter.write_dl(rows)
 
 
-@click.group(cls=LazyGroup)
+@click.group(name="nerfbaselines", cls=LazyGroup)
 def main():
     pass
 
@@ -155,7 +156,6 @@ main.add_lazy_command("nerfbaselines.cli.export_demo", "export-demo")
 main.add_lazy_command("nerfbaselines.cli.test_method", "test-method")
 main.add_lazy_command("nerfbaselines.cli.render:render_command", "render")
 main.add_lazy_command("nerfbaselines.cli.render:render_trajectory_command", "render-trajectory")
-main.add_lazy_command("nerfbaselines.cli.generate_web", "generate-web", hidden=True)
 main.add_lazy_command("nerfbaselines.cli.generate_dataset_results:main", "generate-dataset-results")
 main.add_lazy_command("nerfbaselines.cli.fix_checkpoint:main", "fix-checkpoint")
 main.add_lazy_command("nerfbaselines.cli.install_method:main", "install-method")

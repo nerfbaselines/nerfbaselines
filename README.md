@@ -11,7 +11,11 @@ NerfBaselines is a framework for **evaluating and comparing existing NeRF and 3D
 
 Please visit the <a href="https://jkulhanek.com/nerfbaselines">project page to see the results</a> of implemented methods on dataset benchmarks.<br/>
 
-### [Project Page + Results](https://jkulhanek.com/nerfbaselines)  &nbsp;|&nbsp; [Paper](https://arxiv.org/pdf/2406.17345.pdf)
+<h3>
+<a href="https://jkulhanek.com/nerfbaselines">🌐 Web</a>  &nbsp;|&nbsp;
+<a href="https://arxiv.org/pdf/2406.17345.pdf">📄 Paper</a> &nbsp;|&nbsp;
+<a href="https://jkulhanek.com/nerfbaselines/docs/">📚 Docs</a>
+</h3>
 
 ## Getting started
 Start by installing the `nerfbaselines` pip package on your host system.
