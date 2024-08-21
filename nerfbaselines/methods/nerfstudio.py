@@ -289,8 +289,7 @@ def get_pose_transform(poses):
 
 
 class NerfStudio(Method):
-    _method_name: str = "nerfstudio"
-    _nerfstudio_name: Optional[str] = None
+    _default_nerfstudio_name: str = "nerfacto"
     _require_points3D: bool = False
 
     @remap_error
@@ -298,10 +297,15 @@ class NerfStudio(Method):
                  checkpoint: Optional[str] = None,
                  train_dataset: Optional[Dataset] = None, 
                  config_overrides: Optional[dict] = None):
-        assert self._nerfstudio_name is not None, "nerfstudio_name must be set in the subclass"
         self.checkpoint = str(checkpoint) if checkpoint is not None else None
         self.step = 0
         self._loaded_step = None
+        _config_overrides = config_overrides
+        nerfstudio_name = self._default_nerfstudio_name
+        if config_overrides is not None:
+            _config_overrides = (config_overrides or {}).copy()
+            nerfstudio_name = _config_overrides.pop("method", nerfstudio_name)
+
         if checkpoint is not None:
             # Load nerfstudio checkpoint
             with open(os.path.join(checkpoint, "config.yml"), "r", encoding="utf8") as f:
@@ -310,10 +314,8 @@ class NerfStudio(Method):
             if not os.path.exists(model_path):
                 raise RuntimeError(f"Model directory {model_path} does not exist")
             self._loaded_step = self.step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(model_path))[-1]
-        elif self._nerfstudio_name is not None:
-            config = copy.deepcopy(all_methods[self._nerfstudio_name])
         else:
-            raise ValueError("Either checkpoint or name must be provided")
+            config = copy.deepcopy(all_methods[nerfstudio_name])
         self._trainer = None
         self._dm = None
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -370,12 +372,11 @@ class NerfStudio(Method):
     #     print(app_shape)
 
     @classmethod
-    def get_method_info(cls) -> MethodInfo:
+    def get_method_info(cls):
         features = ("color",)
         if cls._require_points3D:
             features = features + ("points3D_xyz", "points3D_rgb")
         return MethodInfo(
-            name=cls._method_name,
             required_features=frozenset(features),
             supported_camera_models=frozenset(
                 (

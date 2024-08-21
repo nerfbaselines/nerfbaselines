@@ -139,8 +139,6 @@ def get_rays(cameras, images=None):
 
 
 class NeRF(Method):
-    _method_name: str = "nerf"
-
     def __init__(self, *,
                  checkpoint: Optional[str] = None, 
                  train_dataset: Optional[Dataset] = None,
@@ -164,10 +162,8 @@ class NeRF(Method):
         self._setup(train_dataset, config_overrides=config_overrides)
 
     @classmethod
-    def get_method_info(cls) -> MethodInfo:
-        assert cls._method_name is not None, "Method was not properly registered"
+    def get_method_info(cls):
         return MethodInfo(
-            name=cls._method_name,
             required_features=frozenset(("color",)),
             supported_camera_models=frozenset(get_args(CameraModel)),
             supported_outputs=("color", "depth", "accumulation"),

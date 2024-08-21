@@ -481,7 +481,8 @@ class ViewerState:
             source["default_transition_duration"] = self.camera_path_default_transition_duration
         if source["interpolation"] == "none" or source["interpolation"] == "ellipse":
             source["default_transition_duration"] = self.camera_path_default_transition_duration
-            fps = 1.0 / self.camera_path_default_transition_duration
+            if source["interpolation"] == "none":
+                fps = 1.0 / self.camera_path_default_transition_duration
         data: Trajectory = {
             "camera_model": "pinhole",
             "image_size": (w, h),

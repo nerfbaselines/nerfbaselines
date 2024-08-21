@@ -56,7 +56,7 @@ class _TestMethod(Method):
     @classmethod
     def get_method_info(cls) -> MethodInfo:
         return {
-            "name": "_test",
+            "method_id": "_test",
             "required_features": frozenset(("color",)),
             "supported_camera_models": frozenset(("pinhole",)),
         }
@@ -64,7 +64,7 @@ class _TestMethod(Method):
 
     def get_info(self) -> ModelInfo:
         return {
-            "name": "_test",
+            "method_id": "_test",
             "loaded_step": None,
             "supported_camera_models": frozenset(
                 (
@@ -139,6 +139,7 @@ def test_train_command(mock_extras, tmp_path, wandb_init_run, vis):
     try:
         os.environ["NS_PREFIX"] = str(tmp_path / "prefix")
         spec: MethodSpec = {
+            "id": "_test",
             "method": _TestMethod.__module__ + ":_TestMethod",
             "conda": {
                 "environment_name": "_test",
@@ -226,6 +227,7 @@ def test_train_command_extras(tmp_path):
 
     try:
         spec: MethodSpec = {
+            "id": "_test",
             "method": _TestMethod.__module__ + ":_TestMethod",
             "conda": {
                 "environment_name": "_test",
@@ -320,6 +322,7 @@ def test_train_command_undistort(tmp_path, wandb_init_run, mock_extras):
     try:
         os.environ["NS_PREFIX"] = str(tmp_path / "prefix")
         spec: MethodSpec = {
+            "id": "_test",
             "method": _TestMethod.__module__ + ":test_train_command_undistort._TestMethod",
             "conda": {
                 "environment_name": "_test",
@@ -387,7 +390,8 @@ def test_render_command(tmp_path, output_type):
                 "environment_name": "_test",
                 "python_version": "3.10",
                 "install_script": "",
-            }
+            },
+            "id": "_test",
         }
         registry["_test"] = spec
 

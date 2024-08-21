@@ -16,7 +16,7 @@ def test_render(use_remote_method):
 
         @classmethod
         def get_method_info(cls) -> MethodInfo:
-            out: MethodInfo = {"name": "_test", "required_features": frozenset(), "supported_camera_models": frozenset()}
+            out: MethodInfo = {"method_id": "_test", "required_features": frozenset(), "supported_camera_models": frozenset()}
             return out
 
         def optimize_embeddings(self, *args, **kwargs):
@@ -66,7 +66,7 @@ def use_remote_method():
 
                 @classmethod
                 def get_method_info(cls) -> MethodInfo:
-                    out: MethodInfo = {"name": "_test"}
+                    out: MethodInfo = {"method_id": "_test"}
                     return out
 
                 def get_info(self) -> ModelInfo:
@@ -156,7 +156,7 @@ def test_render_cancellable(use_remote_method):
         @classmethod
         def get_method_info(cls) -> MethodInfo:
             out: MethodInfo = {
-                "name": "_test",
+                "method_id": "_test",
                 "required_features": frozenset(("color",)),
                 "supported_camera_models": frozenset(("opencv",))
             }

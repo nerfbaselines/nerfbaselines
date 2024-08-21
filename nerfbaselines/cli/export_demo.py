@@ -30,7 +30,8 @@ def main(checkpoint: str, output: str, backend_name, verbose=False):
 
         method_name = nb_info["method"]
         backends.mount(checkpoint_path, checkpoint_path)
-        with registry.build_method(method_name, backend=backend_name) as method_cls:
+        method_spec = registry.get_method_spec(method_name)
+        with registry.build_method(method_spec, backend=backend_name) as method_cls:
             method = method_cls(checkpoint=str(checkpoint_path))
             dataset_info = nb_info["dataset_metadata"]
             method_export_demo = getattr(method, "export_demo", None)

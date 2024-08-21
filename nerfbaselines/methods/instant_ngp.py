@@ -199,8 +199,6 @@ def _config_overrides_fix_types(config_overrides):
 
 
 class InstantNGP(Method):
-    _method_name: str = "instant-ngp"
-
     @remap_error
     def __init__(self, *,
                  checkpoint: Optional[str] = None, 
@@ -228,12 +226,10 @@ class InstantNGP(Method):
 
     @classmethod
     def get_method_info(cls):
-        assert cls._method_name is not None, "Method was not properly registered"
         return MethodInfo(
-            name=cls._method_name,
             required_features=frozenset(("color",)), 
             supported_camera_models=frozenset(("pinhole", "opencv", "opencv_fisheye")),
-            supported_outputs=frozenset(("color", "accumulation")),
+            supported_outputs=("color", "accumulation"),
         )
 
     def get_info(self) -> ModelInfo:

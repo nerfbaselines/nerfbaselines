@@ -46,26 +46,6 @@ if TYPE_CHECKING:
     import torch
     import jax.numpy as jnp
 
-if TYPE_CHECKING:
-    cached_property = property
-else:
-    try:
-        from functools import cached_property
-    except ImportError:
-
-        def cached_property(func):  # type: ignore
-            key = "__cached_prop_" + func.__name__
-
-            @wraps(func)
-            def fn_cached(self):
-                if key not in self.__dict__:
-                    self.__dict__[key] = result = func(self)
-                else:
-                    result = self.__dict__[key]
-                return result
-
-            return property(fn_cached)
-
 
 T = TypeVar("T")
 TCallable = TypeVar("TCallable", bound=Callable)
@@ -341,28 +321,6 @@ def handle_cli_error(fn):
                 raise e
 
     return wrapped
-
-
-def partialmethod(func, *args, **kwargs):
-    def wrapped(self, *args2, **kwargs2):
-        return func(self, *args, *args2, **kwargs, **kwargs2)
-
-    wrapped.__original_func__ = func  # type: ignore
-    wrapped.__args__ = args  # type: ignore
-    wrapped.__kwargs__ = kwargs  # type: ignore
-    return wrapped
-
-
-def partialclass(cls, *args, **kwargs):
-    def build(ns):
-        cls_dict = cls.__dict__
-        ns["__module__"] = cls_dict["__module__"]
-        ns["__doc__"] = cls_dict["__doc__"]
-        if args or kwargs:
-            ns["__init__"] = partialmethod(cls.__init__, *args, **kwargs)
-        return ns
-
-    return types.new_class(cls.__name__, bases=(cls,), exec_body=build)
 
 
 class Indices:
@@ -803,6 +761,17 @@ class IndicesClickType(click.ParamType):
         return Indices([int(x) for x in value.split(",")])
 
 
+class TupleClickType(click.ParamType):
+    name = "comma-separated-tuple"
+
+    def convert(self, value, param, ctx):
+        if value is None:
+            return None
+        if isinstance(value, tuple):
+            return value
+        return tuple(value.split(","))
+
+
 class SetParamOptionType(click.ParamType):
     name = "key-value"
 
@@ -935,6 +904,7 @@ def run_inside_eval_container(backend_name: Optional[str] = None):
     if backend_name is None:
         backend_name = os.environ.get("NERFBASELINES_BACKEND", None)
     backend = get_backend({
+        "id": "metrics",
         "method": "base",
         "conda": {
             "environment_name": "_metrics", 

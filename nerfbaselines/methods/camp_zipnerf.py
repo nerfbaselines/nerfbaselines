@@ -322,7 +322,6 @@ class MNDataset(datasets.Dataset):
 
 
 class CamP_ZipNeRF(Method):
-    _method_name: str = "camp_zipnerf"
     _camp: bool = False
 
     def __init__(self, 
@@ -411,9 +410,7 @@ class CamP_ZipNeRF(Method):
 
     @classmethod
     def get_method_info(cls):
-        assert cls._method_name is not None, "Method was not properly registered"
         return MethodInfo(
-            name=cls._method_name,
             required_features=frozenset(("color",)),
             supported_camera_models=frozenset(("pinhole", "opencv", "opencv_fisheye")),
             supported_outputs=("color", "depth", "accumulation"),
@@ -657,6 +654,7 @@ class CamP_ZipNeRF(Method):
             dataset: Dataset.
             embeddings: Optional initial embeddings.
         """
+        del dataset, embeddings
         raise NotImplementedError()
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
@@ -666,4 +664,13 @@ class CamP_ZipNeRF(Method):
         Args:
             index: Index of the image.
         """
+        del index
         return None
+
+
+class CamP(CamP_ZipNeRF):
+    _camp = True
+
+
+class ZipNeRF(CamP_ZipNeRF):
+    _camp = False

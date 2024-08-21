@@ -1,8 +1,8 @@
 import os
-from ..registry import MethodSpec, register
+from nerfbaselines.registry import register
 
 
-paper_results = {
+_paper_results = {
     # TODO: ...
 }
 
@@ -38,7 +38,8 @@ conda develop "$PWD/internal/pycolmap/pycolmap"
         "paper_authors": ["Weining Ren", "Zihan Zhu", "Boyang Sun", "Julia Chen", "Marc Pollefeys", "Songyou Peng"],
         "paper_link": "https://arxiv.org/pdf/2405.18715.pdf",
         "link": "https://rwn17.github.io/nerf-on-the-go/",
-        "paper_results": paper_results,
+        "paper_results": _paper_results,
     },
-}, name="nerfonthego")
+    "id": "nerfonthego",
+})
 

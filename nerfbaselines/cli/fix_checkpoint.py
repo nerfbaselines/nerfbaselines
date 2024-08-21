@@ -8,7 +8,7 @@ from pathlib import Path
 import os
 import click
 from typing import cast
-from nerfbaselines.utils import setup_logging, handle_cli_error, SetParamOptionType
+from nerfbaselines.utils import setup_logging, handle_cli_error, SetParamOptionType, TupleClickType
 from nerfbaselines import backends, registry
 from nerfbaselines.types import Method, Dataset
 from nerfbaselines.datasets import load_dataset
@@ -44,7 +44,7 @@ def update_nb_info(nb_info, new_nb_info):
     nb_info.update(new_nb_info)
 
 
-def fix_checkpoint(checkpoint_path, new_checkpoint, load_train_dataset_fn, backend_name, method_name=None, force=False, config_overrides=None, changes_tracker=None):
+def fix_checkpoint(checkpoint_path, new_checkpoint, load_train_dataset_fn, backend_name, method_name=None, force=False, config_overrides=None, changes_tracker=None, presets=None):
     if config_overrides is None:
         config_overrides = {}
 
@@ -74,13 +74,15 @@ def fix_checkpoint(checkpoint_path, new_checkpoint, load_train_dataset_fn, backe
         else:
             method_name = nb_info["method"]
 
-    with registry.build_method(method_name, backend=backend_name) as method_cls:
+    method_spec = registry.get_method_spec(method_name)
+    with registry.build_method(method_spec, backend=backend_name) as method_cls:
         method_info = method_cls.get_method_info()
         train_dataset = load_train_dataset_fn(
              features=method_info.get("required_features"),
              supported_camera_models=method_info.get("supported_camera_models"))
 
-        dataset_overrides = registry.get_dataset_overrides(method_name, train_dataset["metadata"])
+        _presets = registry.get_presets_to_apply(method_spec, train_dataset["metadata"], presets=presets)
+        dataset_overrides = registry.get_config_overrides_from_presets(method_spec, _presets)
         if train_dataset["metadata"].get("name") is None:
             logging.warning("Dataset name not specified, dataset-specific config overrides may not be applied")
         if dataset_overrides is not None:
@@ -99,6 +101,7 @@ def fix_checkpoint(checkpoint_path, new_checkpoint, load_train_dataset_fn, backe
             train_dataset["metadata"],
             method,
             config_overrides=config_overrides,
+            applied_presets=_presets,
         ))
         try:
             with open_any_directory(new_checkpoint, mode="w") as _new_checkpoint:
@@ -135,8 +138,11 @@ def fix_checkpoint(checkpoint_path, new_checkpoint, load_train_dataset_fn, backe
 @click.option("--verbose", "-v", is_flag=True)
 @click.option("--backend", "backend_name", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @click.option("--set", "config_overrides", help="Override a parameter in the method.", type=SetParamOptionType(), multiple=True, default=None)
+@click.option("--presets", type=TupleClickType(), multiple=True, default=None, help=(
+    "Apply a comma-separated list of preset to the method. If no `--presets` is supplied, or if a special `@auto` preset is present,"
+    " the method's default presets are applied (based on the dataset metadata)."))
 @handle_cli_error
-def main(checkpoint: str, data: str, method_name: str, verbose: bool, backend_name, new_checkpoint: str, config_overrides=None):
+def main(checkpoint: str, data: str, method_name: str, verbose: bool, backend_name, new_checkpoint: str, config_overrides=None, presets=None):
     setup_logging(verbose)
     if os.path.exists(new_checkpoint):
         raise RuntimeError(f"New checkpoint path {new_checkpoint} already exists")
@@ -154,7 +160,7 @@ def main(checkpoint: str, data: str, method_name: str, verbose: bool, backend_na
                                 features=features,
                                 supported_camera_models=supported_camera_models)
         changes_tracker = ChangesTracker()
-        fix_checkpoint(_checkpoint_path, new_checkpoint, load_train_dataset_fn, backend_name, method_name=method_name, config_overrides=config_overrides, changes_tracker=changes_tracker)
+        fix_checkpoint(_checkpoint_path, new_checkpoint, load_train_dataset_fn, backend_name, method_name=method_name, config_overrides=config_overrides, changes_tracker=changes_tracker, presets=presets)
 
         # Print changes
         print()

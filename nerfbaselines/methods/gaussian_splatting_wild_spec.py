@@ -1,8 +1,10 @@
 import os
-from ..registry import MethodSpec, register
+from nerfbaselines.types import MethodSpec
+from nerfbaselines.registry import register
+
 
 _PHOTOTOURISM_DISCREPANCY_NOTE = """The original paper reports metrics for test images where the appearance embedding is estimated from the full test image, not just the left half as in the official evaluation protocol. The reported numbers are computed using the official evaluation protocol and are, therefore, lower than the numbers reported in the paper."""
-paper_results = {
+_paper_results = {
     "phototourism/trevi-fountain": { "note": _PHOTOTOURISM_DISCREPANCY_NOTE, "psnr": 22.91, "ssim": 0.8014, "lpips": 0.1563 },
     "phototourism/sacre-coeur": { "note": _PHOTOTOURISM_DISCREPANCY_NOTE, "psnr": 23.24, "ssim": 0.8632, "lpips": 0.1300 },
     "phototourism/brandenburg-gate": { "note": _PHOTOTOURISM_DISCREPANCY_NOTE, "psnr": 27.96, "ssim": 0.9319, "lpips": 0.0862 },
@@ -58,13 +60,12 @@ fi
         "note": "The appearance embeddings are stored per Gaussian and therefore the memory consumption is huge when interpolating between two appearance embeddings. Furthermore, the training dataset is required during inference to compute the appearance embeddings and therefore is only enabled for default datasets.",
         "paper_title": "Gaussian in the Wild: 3D Gaussian Splatting for Unconstrained Image Collections",
         "paper_authors": ["Dongbin Zhang", "Chuming Wang", "Weitao Wang", "Peihao Li", "Minghan Qin", "Haoqian Wang"],
-        "paper_results": paper_results,
+        "paper_results": _paper_results,
         "paper_link": "https://arxiv.org/pdf/2403.15704.pdf",
         "link": "https://eastbeanzhang.github.io/GS-W/",
         "licenses": [{"name": "unknown"}],
     },
-    "dataset_overrides": {},
+    "id": "gaussian-splatting-wild",
 }
 
-register(GaussianSplattingWildSpec, name="gaussian-splatting-wild")
-
+register(GaussianSplattingWildSpec)

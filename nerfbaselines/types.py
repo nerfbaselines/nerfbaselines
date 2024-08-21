@@ -45,6 +45,11 @@ try:
 except ImportError:
     from typing_extensions import FrozenSet
 
+if TYPE_CHECKING:
+    from .backends import BackendName, CondaBackendSpec, DockerBackendSpec, ApptainerBackendSpec
+else:
+    BackendName = str
+    CondaBackendSpec = DockerBackendSpec = ApptainerBackendSpec = dict
 
 if TYPE_CHECKING:
     import torch
@@ -54,7 +59,7 @@ if TYPE_CHECKING:
 NB_PREFIX = os.path.expanduser(os.environ.get("NERFBASELINES_PREFIX", "~/.cache/nerfbaselines"))
 ColorSpace = Literal["srgb", "linear"]
 CameraModel = Literal["pinhole", "opencv", "opencv_fisheye", "full_opencv"]
-DatasetFeature = Literal["color", "points3D_xyz", "points3D_rgb"]
+DatasetFeature = Literal["color", "points3D_xyz", "points3D_rgb", "images_points3D_indices"]
 TTensor = TypeVar("TTensor", np.ndarray, "torch.Tensor", "jnp.ndarray")
 TTensor_co = TypeVar("TTensor_co", np.ndarray, "torch.Tensor", "jnp.ndarray", covariant=True)
 
@@ -307,14 +312,14 @@ class RenderOutputType(TypedDict, total=False):
 
 
 class MethodInfo(TypedDict, total=False):
-    name: Required[str]
+    method_id: Required[str]
     required_features: FrozenSet[DatasetFeature]
     supported_camera_models: FrozenSet
     supported_outputs: Tuple[Union[str, RenderOutputType], ...]
 
 
 class ModelInfo(TypedDict, total=False):
-    name: Required[str]
+    method_id: Required[str]
     num_iterations: Required[int]
     loaded_step: Optional[int]
     loaded_checkpoint: Optional[str]
@@ -576,4 +581,54 @@ class Logger(Protocol):
                       labels: Union[None, List[Dict[str, str]], List[str]] = None) -> None:
         ...
 
+
+
+
+class OutputArtifact(TypedDict, total=False):
+    link: Required[str]
+    
+
+# The following will be allowed in Python 3.13
+# MethodSpecPresetApplyCondition = TypedDict("MethodSpecPresetApplyCondition", {
+#     "dataset": str,
+#     "scene": str,
+# }, total=False)
+# MethodSpecPreset = TypedDict("MethodSpecPreset", {
+#     "@apply": List[MethodSpecPresetApplyCondition],
+#     "@description": str,
+# }, total=False)
+
+
+ImplementationStatus = Literal["working", "reproducing", "not-working", "working-not-reproducing"]
+
+
+class MethodSpec(TypedDict, total=False):
+    id: Required[str]
+    method: Required[str]
+    conda: NotRequired[CondaBackendSpec]
+    docker: NotRequired[DockerBackendSpec]
+    apptainer: NotRequired[ApptainerBackendSpec]
+    metadata: Dict[str, Any]
+    backends_order: List[BackendName]
+    presets: Dict[str, Dict[str, Any]]
+
+    required_features: List[DatasetFeature]
+    supported_camera_models: List[CameraModel]
+    supported_outputs: List[Union[str, RenderOutputType]]
+    output_artifacts: Dict[str, OutputArtifact]
+    implementation_status: Dict[str, ImplementationStatus]
+
+
+class EvaluationProtocolSpec(TypedDict, total=False):
+    id: Required[str]
+    evaluation_protocol: Required[str]
+
+
+class DatasetSpec(TypedDict, total=False):
+    id: Required[str]
+    load_dataset_function: Required[str]
+    priority: Required[int]
+    download_dataset_function: str
+    evaluation_protocol: Union[str, EvaluationProtocolSpec]
+    metadata: DatasetSpecMetadata
 

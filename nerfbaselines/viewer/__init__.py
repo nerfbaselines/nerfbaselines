@@ -79,7 +79,7 @@ def get_orientation_transform(poses):
 @click.option("--backend", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @click.option("--port", type=int, default=6006)
 @handle_cli_error
-def main(checkpoint: str, data, verbose, backend, viewer="viser", port=6006):
+def main(checkpoint: str, data, verbose, backend, port=6006):
     setup_logging(verbose)
 
     def run_viewer(method: Optional[Method] = None, nb_info=None):
@@ -104,7 +104,8 @@ def main(checkpoint: str, data, verbose, backend, viewer="viser", port=6006):
 
             method_name = nb_info["method"]
             backends.mount(checkpoint_path, checkpoint_path)
-            with registry.build_method(method_name, backend=backend) as method_cls:
+            method_spec = registry.get_method_spec(method_name)
+            with registry.build_method(method_spec, backend=backend) as method_cls:
                 method = method_cls(checkpoint=str(checkpoint_path))
                 run_viewer(method, nb_info=nb_info)
     else:

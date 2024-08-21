@@ -5,7 +5,7 @@ from docutils import nodes
 from docutils.parsers.rst import directives
 from sphinx.util.docutils import SphinxDirective
 if TYPE_CHECKING:
-    from nerfbaselines.registry import MethodSpec
+    from nerfbaselines.types import MethodSpec
 
 
 class NerfBaselinesDirective(SphinxDirective):
@@ -121,6 +121,36 @@ class NerfBaselinesDirective(SphinxDirective):
                                       nodes.field_body('', nodes.Text(", ".join(supported_backends)))))
         except AttributeError:
             pass
+
+        info = {}
+        try:
+            from nerfbaselines.results import get_method_info_from_spec
+            info = get_method_info_from_spec(spec)
+        except ImportError:
+            pass
+        def _get_field_value(strings):
+            field_value = nodes.container()
+            for i, string in enumerate(strings):
+                if i > 0:
+                    field_value += nodes.Text(", ")
+                field_value += nodes.literal('', nodes.Text(string))
+            return field_value
+
+        if info.get("supported_camera_models"):
+            fields.append(nodes.field('', 
+                                      nodes.field_name('', nodes.Text("Camera models")), 
+                                      nodes.field_body('', _get_field_value(info.get("supported_camera_models", [])))))
+        if info.get("required_features"):
+            # Use '`{text}`' nodes separated by ', ' string
+            fields.append(nodes.field('', 
+                                      nodes.field_name('', nodes.Text("Required features")), 
+                                      nodes.field_body('', _get_field_value(info.get("required_features", [])))))
+        if info.get("supported_outputs"):
+            supported_outputs = [x if isinstance(x, str) else x["name"] for x in info.get("supported_outputs", [])]
+            fields.append(nodes.field('', 
+                                      nodes.field_name('', nodes.Text("Supported outputs")), 
+                                      nodes.field_body('', _get_field_value(supported_outputs))))
+
         section += nodes.field_list('', *fields)
         section += nodes.paragraph("", nodes.Text(meta["description"]))
         return section

@@ -1,8 +1,9 @@
 import os
-from ..registry import MethodSpec, register
+from nerfbaselines.types import MethodSpec
+from nerfbaselines.registry import register
 
 
-paper_results = {
+_paper_results = {
     "seathru-nerf/curasao": { "psnr": 30.48, "ssim": 0.87, "lpips": 0.20 },
     "seathru-nerf/panama": { "psnr": 27.89, "ssim": 0.83, "lpips": 0.22 },
     "seathru-nerf/japanese-gradens": { "psnr": 21.83, "ssim": 0.77, "lpips": 0.25 },
@@ -67,8 +68,12 @@ conda develop "$PWD/internal/pycolmap/pycolmap"
         "licenses": [{"name": "Apache 2.0","url": "https://raw.githubusercontent.com/deborahLevy130/seathru_NeRF/master/LICENSE"}],
         "description": """Official SeaThru-NeRF implementation.
 It is based on MipNeRF 360 and was disagned for underwater scenes.""",
-        "paper_results": paper_results,
+        "paper_results": _paper_results,
     },
+    "id": "seathru-nerf",
+    "implementation_status": {
+        "seathru-nerf": "reproducing",
+    }
 }
 
-register(SeaThruNeRFSpec, name="seathru-nerf")
+register(SeaThruNeRFSpec)

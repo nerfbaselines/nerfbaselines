@@ -190,8 +190,6 @@ class TensoRFDataset:
 
 
 class TensoRF(Method):
-    _method_name: str = "tensorf"
-
     def __init__(self, *,
                  checkpoint: Optional[str] = None, 
                  train_dataset: Optional[Dataset] = None,
@@ -229,10 +227,8 @@ class TensoRF(Method):
         self.args = config_parser(shlex.join(self._arg_list))
 
     @classmethod
-    def get_method_info(cls) -> MethodInfo:
-        assert cls._method_name is not None, "Method was not properly registered"
+    def get_method_info(cls):
         return MethodInfo(
-            name=cls._method_name,
             required_features=frozenset(("color",)),
             supported_camera_models=frozenset(get_args(CameraModel)),
             supported_outputs=("color", "depth"),

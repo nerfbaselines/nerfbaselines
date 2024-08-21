@@ -247,7 +247,8 @@ def main(input: str,
                 with open(os.path.join(_checkpoint, "nb-info.json"), "r") as f:
                     nb_info = json.load(f)
                     nb_info = deserialize_nb_info(nb_info)
-                with registry.build_method(nb_info["method"], backend=backend_name) as method_cls:
+                method_spec = registry.get_method_spec(nb_info["method"])
+                with registry.build_method(method_spec, backend=backend_name) as method_cls:
                     method = method_cls(checkpoint=_checkpoint)
                     from nerfbaselines.evaluation import render_all_images
                     _eval_protocol = registry.build_evaluation_protocol(evaluation_protocol)

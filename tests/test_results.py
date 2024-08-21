@@ -19,7 +19,7 @@ def mock_results(results_path, datasets, methods):
             dinfo = cast(Any, registry.datasets_registry[dataset].get("metadata", {}).copy())
             for scene_data in dinfo["scenes"]:
                 scene = scene_data["id"]
-                if spec.get("metadata", {}).get("output_artifacts", {}).get(f"{dataset}/{scene}"):
+                if spec.get("output_artifacts", {}).get(f"{dataset}/{scene}"):
                     continue
 
                 # Create results
@@ -71,6 +71,20 @@ def assert_compile_dataset_results_correct(results, dataset):
     assert len(method["scenes"]) > 0
     fscene = next(iter(method["scenes"].values()))
     assert isinstance(fscene.get("psnr"), float)
+
+
+@pytest.mark.parametrize("method", list(registry.keys()))
+def test_get_method_info_from_spec(method):
+    from nerfbaselines.types import MethodInfo
+    from nerfbaselines.results import get_method_info_from_spec
+    from nerfbaselines.registry import get_method_spec
+
+    spec = get_method_spec(method)
+    method_info: MethodInfo = get_method_info_from_spec(spec)
+    print(method_info)
+    # assert isinstance(method_info, MethodInfo)
+    assert isinstance(method_info, dict)
+    assert method_info["method_id"] == method
 
 
 @pytest.mark.parametrize("method", list(registry.keys()))

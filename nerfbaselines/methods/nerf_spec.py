@@ -1,8 +1,9 @@
 import os
-from ..registry import MethodSpec, register
+from nerfbaselines.types import MethodSpec
+from nerfbaselines.registry import register
 
 
-paper_results = {
+_paper_results = {
     # Blender scenes: Chair Drums Ficus Hotdog Lego Materials Mic Ship
     # Blender PSNRs: 33.00 25.01 30.13 36.18 32.54 29.62 32.91 28.65
     # Blender SSIMs: 0.967 0.925 0.964 0.974 0.961 0.949 0.980 0.856
@@ -52,13 +53,14 @@ conda develop "$PWD"
         "link": "https://www.matthewtancik.com/nerf",
         "licenses": [{"name": "MIT", "url": "https://github.com/bmild/nerf/blob/master/LICENSE"}],
     },
-    "dataset_overrides": {
-        "blender": { "config": "blender_config.txt" },
-        "llff": { "config": "llff_config.txt" },
+    "presets": {
+        "blender": { "@apply": [{"dataset": "blender"}], "config": "blender_config.txt" },
+        "llff": { "@apply": [{"dataset": "llff"}], "config": "llff_config.txt" },
+    },
+    "id": "nerf",
+    "implementation_status": {
+        "blender": "reproducing",
     }
 }
 
-register(
-    NeRFSpec,
-    name="nerf",
-)
+register(NeRFSpec)

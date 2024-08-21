@@ -1,5 +1,6 @@
 import os
-from ..registry import MethodSpec, register
+from nerfbaselines.types import MethodSpec
+from nerfbaselines.registry import register
 
 
 _BLENDER_NOTE = """Instant-NGP trained and evaluated on black background instead of white."""
@@ -97,8 +98,9 @@ This method trains very fast (~6 min) and renders also fast ~3 FPS.""",
         "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/NVlabs/instant-ngp/master/LICENSE.txt"}],
     },
     "backends_order": ["docker", "conda"],
-    "dataset_overrides": {
+    "presets": {
         "blender": {
+            "@apply": [{"dataset": "blender"}],
             "testbed.color_space": "SRGB",
             "testbed.nerf.cone_angle_constant": 0,
             "testbed.nerf.training.random_bg_color": False,
@@ -107,6 +109,13 @@ This method trains very fast (~6 min) and renders also fast ~3 FPS.""",
             "keep_coords": True,
         },
     },
+    "id": "instant-ngp",
+    "implementation_status": {
+        "blender": "reproducing",
+        "mipnerf360": "working",
+        "tanksandtemples": "working",
+        "nerfstudio": "working",
+    },
 }
 
-register(InstantNGPSpec, name="instant-ngp")
+register(InstantNGPSpec)

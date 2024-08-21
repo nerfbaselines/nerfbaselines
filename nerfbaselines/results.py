@@ -1,5 +1,9 @@
+import sys
+import contextlib
+from unittest import mock
+import ast
 import math
-from typing import List, Dict, Any, cast, Union
+from typing import List, Dict, Any, cast, Union, Type, Iterator
 import base64
 import os
 import struct
@@ -11,7 +15,8 @@ from .io import open_any
 from . import metrics
 from . import datasets
 from . import registry
-from .types import Literal, Optional, TypedDict, DatasetSpecMetadata, LicenseSpec, NotRequired
+from .types import Literal, Optional, TypedDict, DatasetSpecMetadata, LicenseSpec, NotRequired, MethodInfo, Method
+from .registry import MethodSpec
 from ._constants import WEBPAGE_URL
 
 
@@ -94,6 +99,78 @@ def load_metrics_from_results(results: Dict) -> Dict[str, List[float]]:
     return out
 
 
+@contextlib.contextmanager
+def _mock_build_method(spec: MethodSpec) -> Iterator[Type[Method]]:
+    from nerfbaselines import backends
+    method_implementation = spec.get("method", None)
+    if method_implementation is None:
+        raise RuntimeError(f"Method spec {spec} does not have a method implementation")
+
+    # Resolve method file
+    path, _ = method_implementation.split(":")
+    if not path.startswith("nerfbaselines.methods."):
+        raise RuntimeError(f"Method does not have implementation in the nerfbaselines.methods package: {method_implementation}")
+
+    old_import = __import__
+    def _patch_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if level > 0:
+            return old_import(name, globals, locals, fromlist, level)
+        if name == 'torch' or name.startswith('torch.') or name == "scipy" or name.startswith("jax") or name == "cv2":
+            return mock.MagicMock()
+        try:
+            return old_import(name, globals, locals, fromlist, level)
+        except ImportError:
+            return mock.MagicMock()
+
+    with mock.patch('builtins.__import__', side_effect=_patch_import), \
+        mock.patch('sys.modules', new=sys.modules.copy()):
+        backend_impl = backends.get_backend(spec, "python")
+        with backend_impl:
+            yield cast(Type[Method], backend_impl.wrap(registry._build_method)(spec))
+
+
+def get_method_info_from_spec(spec: MethodSpec) -> MethodInfo:
+    """
+    Get the method info from the method spec without importing the method dependencies.
+    If the method info is loaded from the method implementation, the method spec should have the metadata fields.
+
+    Args:
+        spec: The method spec.
+
+    Returns:
+        The method info.
+    """
+    supported_camera_models = spec.get("supported_camera_models", None)
+    supported_outputs = spec.get("supported_outputs", None)
+    required_features = spec.get("required_features", None)
+    try:
+        with _mock_build_method(spec) as method_cls:
+            method_info = method_cls.get_method_info()
+            # Validate method info wrt the spec
+            if supported_camera_models is not None:
+                assert method_info.get("supported_camera_models") == frozenset(supported_camera_models), f"Method {spec['id']} has different supported_camera_models in the method info"
+            if required_features is not None:
+                assert method_info.get("required_features") == frozenset(required_features), f"Method {spec['id']} has different required_features in the method info"
+            if supported_outputs is not None:
+                assert method_info.get("supported_outputs") == tuple(supported_outputs), f"Method {spec['id']} has different supported_outputs in the method info"
+            return method_info
+    except RuntimeError as e:
+        if "Method does not have implementation in the nerfbaselines.methods package" in str(e):
+            if supported_camera_models is None:
+                raise RuntimeError(f"Method {spec['id']} has external implementation and does not have supported_camera_models in the spec")
+            if required_features is None:
+                raise RuntimeError(f"Method {spec['id']} has external implementation and does not have required_features in the spec")
+            if supported_outputs is None:
+                raise RuntimeError(f"Method {spec['id']} has external implementation and does not have supported_outputs in the spec")
+            return {
+                "method_id": spec["id"], 
+                "supported_camera_models": frozenset(supported_camera_models),
+                "required_features": frozenset(required_features),
+                "supported_outputs": tuple(supported_outputs),
+            }
+        raise
+
+
 def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes: Optional[List[str]] = None) -> Dict[str, Any]:
     """
     Compile the results.json file from the results repository.
@@ -115,7 +192,7 @@ def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes
     method_data_map = {}
     agg_metrics = {}
 
-    def _add_scene_data(scene_id, method_id, method_data, scene_results):
+    def _add_scene_data(scene_id, method_id, method_data, scene_results, output_artifact=None):
         method_data_ = method_data_map.get(method_id, None)
         if method_data_ is None:
             method_data_ = method_data.copy()
@@ -131,12 +208,21 @@ def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes
         method_data["scenes"][scene_id] = {}
         for k, v in results.items():
             method_data["scenes"][scene_id][k] = round(np.mean(v), 5)
+        if output_artifact is not None:
+            method_data["scenes"][scene_id]["output_artifact"] = output_artifact
 
     # Fill the results from the methods registry
     for method_id in registry.get_supported_methods():
         method_spec = registry.get_method_spec(method_id)
         method_data = method_spec.get("metadata", {}).copy()
-        output_artifacts = method_data.get("output_artifacts", {})
+        method_info = get_method_info_from_spec(method_spec)
+        if "supported_camera_models" in method_info:
+            method_data["supported_camera_models"] = list(method_info["supported_camera_models"])
+        if "required_features" in method_info:
+            method_data["required_features"] = list(method_info["required_features"])
+        if "supported_outputs" in method_info:
+            method_data["supported_outputs"] = list(method_info["supported_outputs"])
+        output_artifacts = method_spec.get("output_artifacts", {})
         for key, info in output_artifacts.items():
             if not key.startswith(dataset + "/"):
                 continue
@@ -150,7 +236,7 @@ def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes
             results_link = info["link"][:-4] + ".json"
             with open_any(results_link, "r") as f:
                 results = json.load(f)
-            _add_scene_data(scene_id, method_id, method_data, results)
+            _add_scene_data(scene_id, method_id, method_data, results, info)
 
     
     for method_id in os.listdir(results_path):
@@ -180,6 +266,8 @@ def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes
             agg_metrics = {}
             for k, scene in method_data["scenes"].items():
                 for k, v in scene.items():
+                    if isinstance(v, dict):
+                        continue
                     if k not in agg_metrics:
                         agg_metrics[k] = []
                     agg_metrics[k].append(v)

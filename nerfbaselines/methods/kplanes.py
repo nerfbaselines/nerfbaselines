@@ -18,7 +18,7 @@ from typing import Optional, Iterable, Sequence
 import numpy as np
 import torch
 import torch.utils.data
-from functools import cached_property, partial
+from functools import partial
 from nerfbaselines.utils import NoGPUError
 
 
@@ -355,8 +355,6 @@ class CameraBoundsIndex:
 
 
 class KPlanes(Method):
-    _method_name: str = "kplanes"
-
     def __init__(self, 
                  *,
                  checkpoint: Optional[str] = None,
@@ -375,6 +373,7 @@ class KPlanes(Method):
 
         # Setup config
         config_root = os.path.join(os.path.dirname(os.path.abspath(cfg_package.__file__)), "final")
+        self._loaded_step = None
         if self.checkpoint is None:  #  or not os.path.exists(os.path.join(self.checkpoint, "config.py")):
             # Load config
             config_path = (config_overrides or {}).copy().pop("config", None)
@@ -384,6 +383,11 @@ class KPlanes(Method):
         else:
             # Load config from checkpoint
             config_path = os.path.join(self.checkpoint, "config.py")
+            if not os.path.exists(self.checkpoint):
+                raise RuntimeError(f"Model directory {self.checkpoint} does not exist")
+            ckpt = torch.load(str(self.checkpoint) + f"/model.pth")
+            self._loaded_step = int(ckpt["global_step"]) + 1
+
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpcpath = os.path.join(tmpdir, os.path.basename(config_path))
             shutil.copy(config_path, tmpcpath)
@@ -521,22 +525,9 @@ class KPlanes(Method):
         self.trainer.timer.check("after-step")
         return metrics
 
-    @cached_property
-    def _loaded_step(self):
-        loaded_step = None
-        if self.checkpoint is not None:
-            if not os.path.exists(self.checkpoint):
-                raise RuntimeError(f"Model directory {self.checkpoint} does not exist")
-
-            ckpt = torch.load(str(self.checkpoint) + f"/model.pth")
-            return int(ckpt["global_step"]) + 1
-        return loaded_step
-
     @classmethod
     def get_method_info(cls):
-        assert cls._method_name is not None, "Method was not properly registered"
         return MethodInfo(
-            name=cls._method_name,
             required_features=frozenset(("color", "points3D_xyz", "images_points3D_indices")),
             supported_camera_models=frozenset(("pinhole",)),
             supported_outputs=("color", "depth"),

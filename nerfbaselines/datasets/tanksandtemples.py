@@ -2,17 +2,17 @@ import logging
 import shutil
 import requests
 from pathlib import Path
-from typing import Union
+from typing import Union, Optional, TypeVar
 import tarfile
 from tqdm import tqdm
 import tempfile
 import numpy as np
-from ..utils import assert_not_none
 from ..types import UnloadedDataset
 from ._common import DatasetNotFoundError, get_scene_scale, get_default_viewer_transform, dataset_index_select
 from .colmap import load_colmap_dataset
 
 
+T = TypeVar("T")
 DATASET_NAME = "tanksandtemples"
 BASE_URL = "https://huggingface.co/datasets/jkulhanek/nerfbaselines-data/resolve/main/tanksandtemples"
 _URL = f"{BASE_URL}/{{scene}}.tar.gz"
@@ -45,6 +45,11 @@ SCENES = {
     "meetingroom": True,
     "truck": True,
 }
+
+
+def _assert_not_none(value: Optional[T]) -> T:
+    assert value is not None
+    return value
 
 
 def _select_indices_llff(image_names, llffhold=8):
@@ -125,7 +130,7 @@ def download_tanksandtemples_dataset(path: str, output: Union[Path, str]) -> Non
                 if info.isdir():
                     target.mkdir(exist_ok=True, parents=True)
                 else:
-                    with assert_not_none(z.extractfile(info)) as source, open(target, "wb") as target:
+                    with _assert_not_none(z.extractfile(info)) as source, open(target, "wb") as target:
                         shutil.copyfileobj(source, target)
 
             shutil.rmtree(output, ignore_errors=True)

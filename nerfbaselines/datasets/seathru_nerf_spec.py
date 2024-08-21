@@ -1,7 +1,8 @@
 from ..registry import register
 
 
-register(name="seathru-nerf", spec={
+register({
+    "id": "seathru-nerf",
     "load_dataset_function": ".seathru_nerf:load_seathru_nerf_dataset",
     "priority": 161,
     "download_dataset_function": ".seathru_nerf:download_seathru_nerf_dataset",

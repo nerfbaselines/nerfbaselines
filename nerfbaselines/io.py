@@ -301,7 +301,8 @@ def new_nb_info(train_dataset_metadata,
                 config_overrides, 
                 evaluation_protocol=None,
                 resources_utilization_info=None,
-                total_train_time=None):
+                total_train_time=None,
+                applied_presets=None):
     dataset_metadata = train_dataset_metadata.copy()
     model_info = method.get_info()
 
@@ -311,7 +312,7 @@ def new_nb_info(train_dataset_metadata,
     if not isinstance(evaluation_protocol, str):
         evaluation_protocol = evaluation_protocol.get_name()
     return {
-        "method": model_info["name"],
+        "method": model_info["method_id"],
         "nb_version": __version__,
         "num_iterations": model_info["num_iterations"],
         "total_train_time": round(total_train_time, 5) if total_train_time is not None else None,
@@ -319,6 +320,7 @@ def new_nb_info(train_dataset_metadata,
         # Date time in ISO 8601 format
         "datetime": datetime.utcnow().isoformat(timespec="seconds"),
         "config_overrides": config_overrides,
+        "applied_presets": tuple(sorted(applied_presets)) if applied_presets is not None else None,
         "dataset_metadata": dataset_metadata,
         "evaluation_protocol": evaluation_protocol,
 

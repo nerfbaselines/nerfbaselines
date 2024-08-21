@@ -1,5 +1,6 @@
 import os
-from ..registry import register, MethodSpec
+from nerfbaselines.types import MethodSpec
+from nerfbaselines.registry import register
 
 
 official_results = {
@@ -58,10 +59,16 @@ pip install plyfile six
         "link": "https://apchenstu.github.io/TensoRF/",
         "licenses": [{"name": "MIT", "url": "https://github.com/apchenstu/TensoRF/blob/main/LICENSE"}],
     },
-    "dataset_overrides": {
-        "blender": { "base_config": "lego.txt" },
-        "llff": { "base_config": "flower.txt" },
+    "presets": {
+        "blender": { "@apply": [{ "dataset": "blender"}], "base_config": "lego.txt" },
+        "llff": { "@apply": [{ "dataset": "llff"}], "base_config": "flower.txt" },
     },
+    "id": "tensorf",
+    "implementation_status": {
+        "mipnerf360": "not-working",
+        "blender": "reproducing",
+        "llff": "reproducing",
+    }
 }
 
-register(TensoRFSpec, name="tensorf")
+register(TensoRFSpec)

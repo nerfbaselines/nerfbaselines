@@ -19,7 +19,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -e '.'
-        pip install twine pytest build pyright 'typeguard<4.3.0'
+        pip install twine pytest build pyright 'typeguard<4.3.0' pytest-benchmark
     - name: Test if README results are up to date
       run: |
         python scripts/update_readme.py
@@ -45,7 +45,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -e .
-          pip install pytest pyright 'typeguard<4.3.0'
+          pip install pytest pyright 'typeguard<4.3.0' pytest-benchmark
       - name: Run pyright, pytests
         run: |
           if [[ "${{ matrix.python }}" == "3.7" ]]; then
@@ -138,7 +138,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -e .
-          pip install pytest pyright 'typeguard<4.3.0'
+          pip install pytest pyright 'typeguard<4.3.0' pytest-benchmark
       - name: Test install method
         run: |
           export TCNN_CUDA_ARCHITECTURES="80"
@@ -181,7 +181,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -e .
-          pip install pytest pyright 'typeguard<4.3.0'
+          pip install pytest pyright 'typeguard<4.3.0' pytest-benchmark
       - name: Test install method
         run: |
           export TCNN_CUDA_ARCHITECTURES="80"
@@ -231,7 +231,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -e .
-          pip install pytest pyright 'typeguard<4.3.0'
+          pip install pytest pyright 'typeguard<4.3.0' pytest-benchmark
       - uses: conda-incubator/setup-miniconda@v3
         with:
           miniforge-version: "latest"
@@ -266,7 +266,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -e .
-          pip install pytest pyright 'typeguard<4.3.0'
+          pip install pytest pyright 'typeguard<4.3.0' pytest-benchmark
       - name: Test datasets
         run: |
           scene_name="${{ matrix.dataset }}"

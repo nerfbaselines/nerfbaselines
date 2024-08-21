@@ -51,9 +51,8 @@ def _format_cell(value, id):
 
 
 def _resolve_data_link(data, method, dataset, scene):
-    output_artifacts = method.get("output_artifacts", {})
-    if f"{dataset}/{scene}" in output_artifacts:
-        output_artifact = output_artifacts[f"{dataset}/{scene}"]
+    output_artifact = method["scenes"][scene].get("output_artifact")
+    if output_artifact is not None:
         if output_artifact.get("link", None) is not None:
             return output_artifact["link"]
 
@@ -411,11 +410,12 @@ def _get_method_licenses():
 
     implemented_methods = []
     for method in get_supported_methods():
-        spec = get_method_spec(method).get("metadata", {})
+        spec = get_method_spec(method)
+        meta = spec.get("metadata", {})
         if ":" in method:
             continue
-        if spec.get("licenses"):
-            implemented_methods.append({"name": spec.get("name", method), "licenses": spec["licenses"]})
+        if meta.get("licenses"):
+            implemented_methods.append({"name": meta.get("name", method), "licenses": meta["licenses"]})
     implemented_methods.sort(key=lambda x: x.get("name", None))
     return implemented_methods
 
