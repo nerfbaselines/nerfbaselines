@@ -1,8 +1,9 @@
 import os
-from ..registry import MethodSpec, register
+from nerfbaselines.types import MethodSpec
+from nerfbaselines.registry import register
 
 
-paper_results = {
+_paper_results = {
     # blender scenes: chair drums ficus hotdog lego materials mic ship 
     # blender PSNRs: 35.05 25.01 33.31 36.16 34.75 29.30 35.49 31.13
     # blender SSIMs: 0.990 0.947 0.989 0.989 0.987 0.968 0.993 0.994
@@ -40,49 +41,38 @@ TetraNeRFSpec: MethodSpec = {
         "home_path": "/home/user",
         "build_script": "",  # Force build
     },
-    "kwargs": {
-        "require_points3D": True,
-        "nerfstudio_name": None,
-    },
     "metadata": {
         "name": "Tetra-NeRF",
         "paper_title": "Tetra-NeRF: Representing Neural Radiance Fields Using Tetrahedra",
         "paper_authors": ["Jonas Kulhanek", "Torsten Sattler"],
         "paper_link": "https://arxiv.org/pdf/2304.09987.pdf",
+        "paper_results": _paper_results,
         "link": "https://jkulhanek.com/tetra-nerf",
         "description": """Tetra-NeRF is a method that represents the scene as tetrahedral mesh obtained using Delaunay tetrahedralization. The input point cloud has to be provided (for COLMAP datasets the point cloud is automatically extracted). This is the official implementation
     from the paper.""",
         "licenses": [{"name": "MIT", "url":"https://raw.githubusercontent.com/jkulhanek/tetra-nerf/master/LICENSE"}],
     },
+    "presets": {
+        "blender": { "@apply": [{"dataset": "blender"}], "pipeline.datamanager.dataparser": "blender-data", }
+    },
+    "id": "tetra-nerf",
+    "implementation_status": {
+        "mipnerf360": "working-not-reproducing",
+        "blender": "working-not-reproducing",
+    }
 }
 
-register(
-    TetraNeRFSpec, 
-    name="tetra-nerf", 
-    kwargs={
-        "nerfstudio_name": "tetra-nerf-original", 
-        "require_points3D": True
-    },
-    metadata={
-        "paper_results": paper_results,
-    },
-    dataset_overrides={
-        "blender": { "pipeline.datamanager.dataparser": "blender-data", }
-    }
-)
-
-register(
-    TetraNeRFSpec,
-    name="tetra-nerf:latest",
-    kwargs={
-        "nerfstudio_name": "tetra-nerf",
-        "require_points3D": True,
-    },
-    metadata={
+TetraNeRFLatestSpec: MethodSpec = {
+    **TetraNeRFSpec,
+    "method": ".tetranerf:TetraNeRFLatest",
+    "metadata": {
+        **TetraNeRFSpec["metadata"],
         "name": "Tetra-NeRF (latest)",
         "description": """This variant of Tetra-NeRF uses biased sampling to speed-up training and rendering. It trains/renders almost twice as fast without sacrificing quality. WARNING: this variant is not the same as the one used in the Tetra-NeRF paper.""",
     },
-    dataset_overrides={
-        "blender": { "pipeline.datamanager.dataparser": "blender-data", }
-    }
-)
+    "id": "tetra-nerf:latest",
+}
+
+
+register(TetraNeRFSpec)
+register(TetraNeRFLatestSpec)

@@ -72,7 +72,7 @@ def main(method_name: str,
 
     output_context = tempfile.TemporaryDirectory()
     with output_context as output:
-        with registry.build_method(method_name, backend_name) as method_cls:
+        with registry.build_method(method_spec, backend=backend_name) as method_cls:
             mark_success("Method backend initialized")
 
             method_info = method_cls.get_method_info()

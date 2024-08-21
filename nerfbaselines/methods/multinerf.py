@@ -389,8 +389,6 @@ class NBDataset(MNDataset):
 
 
 class MultiNeRF(Method):
-    _method_name: str = "multinerf"
-
     def __init__(self, *,
                  checkpoint=None, 
                  train_dataset: Optional[Dataset] = None,
@@ -460,10 +458,8 @@ class MultiNeRF(Method):
         return config
 
     @classmethod
-    def get_method_info(cls) -> MethodInfo:
-        assert cls._method_name is not None, "Method was not properly registered"
+    def get_method_info(cls):
         return MethodInfo(
-            name=cls._method_name,
             required_features=frozenset(("color",)),
             supported_camera_models=frozenset(("pinhole", "opencv", "opencv_fisheye")),
             supported_outputs=("color", "depth", "accumulation",),

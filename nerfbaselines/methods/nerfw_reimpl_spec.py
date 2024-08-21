@@ -1,5 +1,6 @@
 import os
-from ..registry import MethodSpec, register
+from nerfbaselines.types import MethodSpec
+from nerfbaselines.registry import register
 
 
 NeRFWReimplSpec: MethodSpec = {
@@ -33,7 +34,11 @@ conda develop "$PWD"
         "name": "NeRF-W (reimplementation)",
         "description": "Unofficial reimplementation of NeRF-W. Does not reach the performance reported in the original paper, but is widely used for benchmarking.",
         "licenses": [{"name": "MIT", "url": "https://raw.githubusercontent.com/kwea123/nerf_pl/master/LICENSE"}],
+    },
+    "id": "nerfw-reimpl",
+    "implementation_status": {
+        "phototourism": "reproducing",
     }
 }
 
-register(NeRFWReimplSpec, name="nerfw-reimpl")
+register(NeRFWReimplSpec)

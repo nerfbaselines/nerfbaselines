@@ -6,33 +6,40 @@ import sys
 from unittest import mock
 
 
+
 METHOD_NAME = "gaussian-splatting"
 
 
 @pytest.fixture
 def mock_gaussian_splatting(mock_torch, patch_modules):
     torch = mock_torch
-    with patch_modules({
-            "arguments": mock.MagicMock(),
-            "gaussian_renderer": mock.MagicMock(),
-            "scene": mock.MagicMock(),
-            "scene.cameras": mock.MagicMock(),
-            "scene.dataset_readers": mock.MagicMock(),
-            "scene.gaussian_model": mock.MagicMock(),
-            "utils": mock.MagicMock(),
-            "utils.general_utils": mock.MagicMock(),
-            "utils.image_utils": mock.MagicMock(),
-            "utils.loss_utils": mock.MagicMock(),
-            "utils.sh_utils": mock.MagicMock(),
-            "utils.camera_utils": mock.MagicMock(),
-            "utils.graphics_utils": mock.MagicMock(),
-            "scipy": mock.MagicMock(),
-        },
-    ):
+    sys_modules = {
+        "arguments": mock.MagicMock(),
+        "gaussian_renderer": mock.MagicMock(),
+        "scene": mock.MagicMock(),
+        "scene.cameras": mock.MagicMock(),
+        "scene.dataset_readers": mock.MagicMock(),
+        "scene.gaussian_model": mock.MagicMock(),
+        "utils": mock.MagicMock(),
+        "utils.general_utils": mock.MagicMock(),
+        "utils.image_utils": mock.MagicMock(),
+        "utils.loss_utils": mock.MagicMock(),
+        "utils.sh_utils": mock.MagicMock(),
+        "utils.camera_utils": mock.MagicMock(),
+        "utils.graphics_utils": mock.MagicMock(),
+        "scipy": mock.MagicMock(),
+    }
+    # old_import = __import__
+    # def _patch_import(name, globals=None, locals=None, fromlist=(), level=0):
+    #     if level == 0 and name in sys_modules:
+    #         return sys_modules[name]
+    #     return old_import(name, globals, locals, fromlist, level)
+    # with mock.patch("builtins.__import__", side_effect=_patch_import):
+    with patch_modules(sys_modules):
         # from arguments import ModelParams, PipelineParams, OptimizationParams
-        cast(mock.MagicMock, sys.modules["utils"]).camera_utils = sys.modules["utils.camera_utils"]
-        cast(mock.MagicMock, sys.modules["utils.graphics_utils"]).fov2focal = lambda x, y: x / y
-        arguments = cast(mock.MagicMock, sys.modules["arguments"])
+        cast(mock.MagicMock, sys_modules["utils"]).camera_utils = sys_modules["utils.camera_utils"]
+        cast(mock.MagicMock, sys_modules["utils.graphics_utils"]).fov2focal = lambda x, y: x / y
+        arguments = cast(mock.MagicMock, sys_modules["arguments"])
 
         def setup_model_args(parser):
             parser.add_argument("--source_path")
@@ -72,7 +79,7 @@ def mock_gaussian_splatting(mock_torch, patch_modules):
         def raise_error():
             raise NotImplementedError()
 
-        cast(mock.MagicMock, sys.modules["scene"]).sceneLoadTypeCallbacks = sceneLoadTypeCallbacks = {
+        cast(mock.MagicMock, sys_modules["scene"]).sceneLoadTypeCallbacks = sceneLoadTypeCallbacks = {
             "Colmap": raise_error,
         }
 
@@ -98,7 +105,7 @@ def mock_gaussian_splatting(mock_torch, patch_modules):
             dct["colmap_id"] = 0
             dct["gt_alpha_mask"] = None
             dct["data_device"] = "cuda"
-            Camera = sys.modules["scene.cameras"].Camera
+            Camera = sys_modules["scene.cameras"].Camera
             return Camera(**dct)
 
         def Scene(opt, gaussians, load_iteration):
@@ -106,24 +113,24 @@ def mock_gaussian_splatting(mock_torch, patch_modules):
             scene = mock.MagicMock()
             scene.train_cameras = {1.0: scene_info.train_cameras}
         
-            loadCam = sys.modules["utils.camera_utils"].loadCam
+            loadCam = sys_modules["utils.camera_utils"].loadCam
             scene.getTrainCameras = lambda: [loadCam(None, None, x, None) for x in scene_info.train_cameras]
             return scene
 
-        cast(mock.MagicMock, sys.modules["scene"]).Scene = Scene
+        cast(mock.MagicMock, sys_modules["scene"]).Scene = Scene
 
         def GaussianModel(*args, **kwargs):
             out = mock.MagicMock()
             out.capture.return_value = None
             return out
 
-        cast(mock.MagicMock, sys.modules["scene"]).GaussianModel = GaussianModel
-        cast(mock.MagicMock, sys.modules["scene.cameras"]).Camera = Camera
-        cast(mock.MagicMock, sys.modules["utils.camera_utils"]).loadCam = loadCam
-        cast(mock.MagicMock, sys.modules["scene.dataset_readers"]).CameraInfo = namedtuple("CameraInfo", ["uid", "R", "T", "FovY", "FovX", "image", "image_path", "image_name", "width", "height"])
-        cast(mock.MagicMock, sys.modules["scene.dataset_readers"]).SceneInfo = namedtuple("SceneInfo", ["point_cloud", "train_cameras", "test_cameras", "nerf_normalization", "ply_path"])
-        cast(mock.MagicMock, sys.modules["utils.loss_utils"]).l1_loss = lambda a, b: torch.abs(a - b).sum()
-        cast(mock.MagicMock, sys.modules["utils.loss_utils"]).ssim = lambda a, b: torch.abs(a - b).sum()
+        cast(mock.MagicMock, sys_modules["scene"]).GaussianModel = GaussianModel
+        cast(mock.MagicMock, sys_modules["scene.cameras"]).Camera = Camera
+        cast(mock.MagicMock, sys_modules["utils.camera_utils"]).loadCam = loadCam
+        cast(mock.MagicMock, sys_modules["scene.dataset_readers"]).CameraInfo = namedtuple("CameraInfo", ["uid", "R", "T", "FovY", "FovX", "image", "image_path", "image_name", "width", "height"])
+        cast(mock.MagicMock, sys_modules["scene.dataset_readers"]).SceneInfo = namedtuple("SceneInfo", ["point_cloud", "train_cameras", "test_cameras", "nerf_normalization", "ply_path"])
+        cast(mock.MagicMock, sys_modules["utils.loss_utils"]).l1_loss = lambda a, b: torch.abs(a - b).sum()
+        cast(mock.MagicMock, sys_modules["utils.loss_utils"]).ssim = lambda a, b: torch.abs(a - b).sum()
 
         def render(viewpoint, gaussians, pipe, background):
             shape = viewpoint.image.shape
@@ -134,9 +141,9 @@ def mock_gaussian_splatting(mock_torch, patch_modules):
                 radii=torch.zeros((124, 2), dtype=torch.float32),
             )
 
-        cast(mock.MagicMock, sys.modules["gaussian_renderer"]).render = render
+        cast(mock.MagicMock, sys_modules["gaussian_renderer"]).render = render
         yield None
-        sys.modules.pop("nerfbaselines.methods.gaussian_splatting", None)
+        sys_modules.pop("nerfbaselines.methods.gaussian_splatting", None)
 
 
 @pytest.mark.method(METHOD_NAME)

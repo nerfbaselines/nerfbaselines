@@ -1,8 +1,10 @@
 import os
-from ..registry import register, MethodSpec
+from nerfbaselines.types import MethodSpec
+from nerfbaselines.registry import register
 
 
 GaussianOpacityFieldsSpec: MethodSpec = {
+    "id": "gaussian-opacity-fields",
     "method": ".gaussian_opacity_fields:GaussianOpacityFields",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
@@ -64,13 +66,23 @@ fi
         "link": "https://niujinshuchong.github.io/gaussian-opacity-fields/",
         "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/autonomousvision/gaussian-opacity-fields/main/LICENSE.md"}],
     },
-    "dataset_overrides": {
-        "blender": { "white_background": True },
-        "dtu": { "use_decoupled_appearance": True, "lambda_distortion": 100 },
-        "tanksandtemples": { "use_decoupled_appearance": True },
-        "phototourism": { "use_decoupled_appearance": True },
+    "presets": {
+        "blender": { "@apply": [{"dataset": "blender"}], "white_background": True },
+        "dtu": { "@apply": [{"dataset": "dtu"}], "use_decoupled_appearance": True, "lambda_distortion": 100 },
+        "decoupled-appearance": {
+            "@apply": [
+                {"dataset": "phototourism"},
+                {"dataset": "tanksandtemples"},
+            ],
+            "use_decoupled_appearance": True
+        }
     },
+    "implementation_status": {
+        "blender": "working",
+        "mipnerf360": "working",
+        "tanksandtemples": "working",
+    }
 }
 
 
-register(GaussianOpacityFieldsSpec, name="gaussian-opacity-fields")
+register(GaussianOpacityFieldsSpec)

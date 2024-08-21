@@ -1,7 +1,8 @@
 from ..registry import register
 
 
-register(name="blender", spec={
+register({
+    "id": "blender",
     "load_dataset_function": ".blender:load_blender_dataset",
     "priority": 150,
     "download_dataset_function": ".blender:download_blender_dataset",

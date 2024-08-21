@@ -1,8 +1,9 @@
 import os
-from ..registry import MethodSpec, register
+from nerfbaselines.types import MethodSpec, CondaBackendSpec
+from nerfbaselines.registry import register
 
 
-zipnerf_paper_results = {
+_zipnerf_paper_results = {
     # 360 scenes: bicycle flowers garden stump treehill room counter kitchen bonsai
     # 360 PSNRs: 25.80 22.40 28.20 27.55 23.89 32.65 29.38 32.50 34.46
     # 360 SSIMs: 0.769 0.642 0.860 0.800 0.681 0.925 0.902 0.928 0.949
@@ -31,10 +32,7 @@ zipnerf_paper_results = {
     "blender/ship": {"psnr": 31.38, "ssim": 0.929, "lpips_vgg": 0.091},
 }
 
-
-CamP_ZipNerfSpec: MethodSpec = {
-    "method": ".camp_zipnerf:CamP_ZipNeRF",
-    "conda": {
+_conda_spec: CondaBackendSpec = {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.11",
         "install_script": """# Clone the repo.
@@ -62,21 +60,14 @@ conda develop "$PWD/internal/pycolmap/pycolmap"
 # Confirm that all the unit tests pass.
 # ./scripts/run_all_unit_tests.sh
 """,
-    },
-    "metadata": {
-    },
-    "dataset_overrides": {
-        "blender": {"base_config": "zipnerf/blender"},
-    },
 }
 
-register(
-    CamP_ZipNerfSpec,
-    name="zipnerf",
-    kwargs={
-        "camp": False,
-    },
-    metadata={
+
+ZipNerfSpec: MethodSpec = {
+    "id": "zipnerf",
+    "method": ".camp_zipnerf:ZipNeRF",
+    "conda": _conda_spec,
+    "metadata": {
         "name": "Zip-NeRF",
         "paper_title": "Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields",
         "paper_authors": ["Jonathan T. Barron", "Ben Mildenhall", "Dor Verbin", "Pratul P. Srinivasan", "Peter Hedman"],
@@ -84,15 +75,28 @@ register(
         "link": "https://jonbarron.info/zipnerf/",
         "description": """Zip-NeRF is a radiance field method which addresses the aliasing problem in the case of hash-grid based methods (iNGP-based).
 Instead of sampling along the ray it samples along a spiral path - approximating integration along the frustum. """,
-        "paper_results": zipnerf_paper_results,
+        "paper_results": _zipnerf_paper_results,
         "licenses": [{"name": "Apache 2.0","url": "https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE"}],
     },
-)
+    "presets": {
+        "blender": {
+            "@apply": [{ "dataset": "blender", }],
+            "base_config": "zipnerf/blender",
+        },
+    },
+    "implementation_status": {
+        "blender": "reproducing",
+        "mipnerf360": "reproducing",
+        "nerfstudio": "working",
+        "llff": "not-working",
+    }
+}
 
-register(
-    CamP_ZipNerfSpec,
-    name="camp",
-    metadata={
+CamPSpec: MethodSpec = {
+    "id": "camp",
+    "method": ".camp_zipnerf:CamP",
+    "conda": _conda_spec,
+    "metadata": {
         "name": "CamP",
         "paper_title": "CamP: Camera Preconditioning for Neural Radiance Fields",
         "paper_authors": ["Keunhong Park", "Philipp Henzler", "Ben Mildenhall", "Jonathan T. Barron", "Ricardo Martin-Brualla"],
@@ -101,7 +105,7 @@ register(
         "description": """CamP is an extension of Zip-NeRF which adds pose refinement to the training process. """,
         "licenses": [{"name": "Apache 2.0","url": "https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE"}],
     },
-    kwargs={
-        "camp": True,
-    }
-)
+}
+
+register(ZipNerfSpec)
+register(CamPSpec)

@@ -458,7 +458,7 @@ def no_extras(request):
 
     class FailedTorch:
         def __getattribute__(self, __name: str):
-            raise ImportError("torch not available")
+            raise ImportError("torch not available", name="torch." + __name)
 
     old_torch = sys.modules.get("torch", None)
     try:

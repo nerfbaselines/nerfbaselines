@@ -1,7 +1,8 @@
 from ..registry import register
 
 
-register(name="nerfstudio", spec={
+register({
+    "id": "nerfstudio",
     "load_dataset_function": ".nerfstudio:load_nerfstudio_dataset",
     "priority": 160,
     "download_dataset_function": ".nerfstudio:download_nerfstudio_dataset",

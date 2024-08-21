@@ -1,5 +1,6 @@
 import os
-from ..registry import MethodSpec, register
+from nerfbaselines.types import MethodSpec
+from nerfbaselines.registry import register
 
 KPlanesSpec: MethodSpec = {
     "method": ".kplanes:KPlanes",
@@ -38,13 +39,23 @@ fi
         "link": "https://sarafridov.github.io/K-Planes/",
         "licenses": [{"name": "BSD 3", "url": "https://raw.githubusercontent.com/sarafridov/K-Planes/main/LICENSE"}],
     },
-    "dataset_overrides": {
-        "blender": { "config": "NeRF/nerf_hybrid.py", },
-        "phototourism/trevi-fountain": { "config": "Phototourism/trevi_hybrid.py", },
-        "phototourism/brandenburg-gate": { "config": "Phototourism/brandenburg_hybrid.py", },
-        "phototourism/sacre-coeur": { "config": "Phototourism/sacrecoeur_hybrid.py", },
-    }
+    "presets": {
+        "blender": { "@apply": [{"dataset": "blender"}], "config": "NeRF/nerf_hybrid.py", },
+        "phototourism/trevi-fountain": { 
+            "@apply": [{"dataset": "phototourism", "scene": "trevi-fountain"}],
+            "config": "Phototourism/trevi_hybrid.py", },
+        "phototourism/brandenburg-gate": { 
+            "@apply": [{"dataset": "phototourism", "scene": "brandenburg-gate"}],
+            "config": "Phototourism/brandenburg_hybrid.py", },
+        "phototourism/sacre-coeur": {
+            "@apply": [{"dataset": "phototourism", "scene": "sacre-coeur"}],
+            "config": "Phototourism/sacrecoeur_hybrid.py", },
+    },
+    "id": "kplanes",
+    "implementation_status": {
+        "blender": "reproducing",
+        "phototourism": "working-not-reproducing",
+    },
 }
 
-register(KPlanesSpec, name="kplanes", metadata={
-})
+register(KPlanesSpec)

@@ -1,9 +1,10 @@
 import os
-from ..registry import register, MethodSpec
+from nerfbaselines.types import MethodSpec
+from nerfbaselines.registry import register
 
 
 _MIPNERF360_NOTE = """Authors evaluated on larger images which were downscaled to the target size (avoiding JPEG compression artifacts) instead of using the official provided downscaled images. As mentioned in the 3DGS paper, this increases results slightly ~0.5 dB PSNR."""
-paper_results = {
+_paper_results = {
     # Mip-NeRF 360
     # 360 scenes: bicycle flowers garden stump treehill room counter kitchen bonsai
     # 360 PSNRs: 25.72 21.93 27.76 26.94 22.98 31.74 29.16 31.55 32.31
@@ -69,25 +70,15 @@ fi
         "paper_title": "Mip-Splatting: Alias-free 3D Gaussian Splatting",
         "paper_authors": ["Zehao Yu", "Anpei Chen", "Binbin Huang", "Torsten Sattler", "Andreas Geiger"],
         "paper_link": "https://arxiv.org/pdf/2311.16493.pdf",
+        "paper_results": _paper_results,
         "link": "https://niujinshuchong.github.io/mip-splatting/",
         "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/autonomousvision/mip-splatting/main/LICENSE.md"}],
     },
-    "dataset_overrides": {
-        "blender": { "white_background": True, },
-    },
-}
-
-
-register(MipSplattingSpec, 
-         name="mip-splatting", 
-         metadata={
-    "paper_results": paper_results,
-})
-register(
-    MipSplattingSpec,
-    name="mip-splatting:large", 
-    kwargs={
-        "config_overrides": {
+    "presets": {
+        "blender": { "@apply": [{"dataset": "blender"}], "white_background": True, },
+        "large": {
+            "@apply": [{"dataset": "phototourism"}],
+            "@description": "A version of the method designed for large scenes.",
             "iterations": 300_000,
             "densify_from_iter": 5_000,
             "densify_until_iter": 150_000,
@@ -99,8 +90,13 @@ register(
             "scaling_lr": 0.000_5,
         },
     },
-    metadata={
-        "name": "Mip-Splatting (large)",
-        "description": """A version of Mip-Splatting designed for larger scenes."""
-    },
-)
+    "id": "mip-splatting",
+    "implementation_status": {
+        "blender": "reproducing",
+        "mipnerf360": "reproducing",
+        "tanksandtemples": "working",
+        "seathru-nerf": "working",
+    }
+}
+
+register(MipSplattingSpec)

@@ -1,3 +1,4 @@
+from unittest import mock
 import argparse
 import sys
 import re
@@ -66,16 +67,19 @@ def find_registered_method_specs(path):
         if package.endswith("_spec.py") and not package.startswith("_"):
             package = package[:-3]
             fpath = os.path.join(path, package + ".py")
-            with open(fpath, "r") as file:
-                tree = ast.parse(file.read(), filename=package + ".py")
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "register":
-                    for arg in node.keywords:
-                        if arg.arg == "name" and isinstance(arg.value, ast.Constant):
-                            registry[arg.value.value] = fpath
-                            break
-                    else:
-                        raise RuntimeError(f"Argument 'name' not found in register call while processing {package}.py")
+
+            def register(spec, *args, **kwargs):
+                del args, kwargs
+                registry[spec["id"]] = fpath
+            with mock.patch("nerfbaselines.registry.register", register):
+                # Execute the file
+                with open(fpath, "r") as file:
+                    contents = file.read()
+                try:
+                    globals = {'__file__': fpath}
+                    exec(contents, globals, {})
+                except Exception as e:
+                    raise RuntimeError(f"Error while processing {package}.py") from e
     return registry
 
 

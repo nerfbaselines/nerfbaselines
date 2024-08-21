@@ -40,9 +40,7 @@ from torch import nn
 from nerfbaselines.types import Method, MethodInfo, OptimizeEmbeddingsOutput, RenderOutput, ModelInfo
 from nerfbaselines.types import Cameras, camera_model_to_int
 from nerfbaselines.datasets import Dataset
-from nerfbaselines.utils import cached_property, flatten_hparams, remap_error, convert_image_dtype
-from nerfbaselines.pose_utils import get_transform_and_scale
-from nerfbaselines.math_utils import rotate_spherical_harmonics, rotation_matrix_to_quaternion
+from nerfbaselines.utils import flatten_hparams, remap_error
 from nerfbaselines.io import wget
 
 from arguments import ModelParams, PipelineParams, OptimizationParams
@@ -51,7 +49,9 @@ from scene import GaussianModel
 import scene.dataset_readers
 from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov
 from scene.dataset_readers import storePly, fetchPly
-from scene.gaussian_model import inverse_sigmoid, build_rotation, PlyData, PlyElement  # noqa: E402
+## from nerfbaselines.pose_utils import get_transform_and_scale
+## from nerfbaselines.math_utils import rotate_spherical_harmonics, rotation_matrix_to_quaternion
+## from scene.gaussian_model import inverse_sigmoid, build_rotation, PlyData, PlyElement  # noqa: E402
 from scene.dataset_readers import CameraInfo as _old_CameraInfo
 from utils.general_utils import safe_state
 from utils.graphics_utils import fov2focal  # noqa: E402
@@ -237,8 +237,6 @@ def _config_overrides_to_args_list(args_list, config_overrides):
 
 
 class GaussianOpacityFields(Method):
-    _method_name: str = "gaussian-opacity-fields"
-
     @remap_error
     def __init__(self, *,
                  checkpoint: Optional[str] = None, 
@@ -253,9 +251,13 @@ class GaussianOpacityFields(Method):
 
         # Setup parameters
         self._args_list = ["--source_path", "<empty>", "--resolution", "1", "--eval"]
+        self._loaded_step = None
         if checkpoint is not None:
+            if not os.path.exists(checkpoint):
+                raise RuntimeError(f"Model directory {checkpoint} does not exist")
             with open(os.path.join(checkpoint, "args.txt"), "r", encoding="utf8") as f:
                 self._args_list = shlex.split(f.read())
+            self._loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(str(checkpoint)) if x.startswith("chkpnt-"))[-1]
 
         if self.checkpoint is None and config_overrides is not None:
             _config_overrides_to_args_list(self._args_list, config_overrides)
@@ -316,20 +318,9 @@ class GaussianOpacityFields(Method):
         if filter_3D is None:
             self.gaussians.compute_3D_filter(cameras=self.trainCameras)
 
-    @cached_property
-    def _loaded_step(self):
-        loaded_step = None
-        if self.checkpoint is not None:
-            if not os.path.exists(self.checkpoint):
-                raise RuntimeError(f"Model directory {self.checkpoint} does not exist")
-            loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(str(self.checkpoint)) if x.startswith("chkpnt-"))[-1]
-        return loaded_step
-
     @classmethod
     def get_method_info(cls):
-        assert cls._method_name is not None, "Method was not properly registered"
         return MethodInfo(
-            name=cls._method_name,
             required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset(("pinhole",)),
             supported_outputs=("color", "normal", "depth", "accumulation", "distortion_map"),

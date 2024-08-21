@@ -42,7 +42,8 @@ def render_command(checkpoint: str, data: str, output: str, split: str, verbose:
 
         method_name = nb_info["method"]
         backends.mount(checkpoint_path, checkpoint_path)
-        with registry.build_method(method_name, backend=backend_name) as method_cls:
+        method_spec = registry.get_method_spec(method_name)
+        with registry.build_method(method_spec, backend=backend_name) as method_cls:
             method: Method = method_cls(checkpoint=str(checkpoint_path))
             method_info = method.get_info()
             dataset = load_dataset(data, 
@@ -124,7 +125,8 @@ def render_trajectory_command(checkpoint: Union[str, Path],
 
         method_name = nb_info["method"]
         backends.mount(checkpoint_path, checkpoint_path)
-        with registry.build_method(method_name, backend=backend_name) as method_cls:
+        method_spec = registry.get_method_spec(method_name)
+        with registry.build_method(method_spec, backend=backend_name) as method_cls:
             method = method_cls(checkpoint=str(checkpoint_path))
 
             # Embed the appearance

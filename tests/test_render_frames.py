@@ -20,7 +20,8 @@ class FakeMethod(MagicMock):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs, spec=Method)
 
-    def get_info(self):
+    @staticmethod
+    def get_method_info():
         return dict(
             supported_camera_models=("pinhole",),
             supported_outputs=("color", 
@@ -28,6 +29,9 @@ class FakeMethod(MagicMock):
                                "accumulation",
                                dict(name="color-custom", type="color"))
         )
+
+    def get_info(self):
+        return self.get_method_info()
 
     def render(self, cameras, embeddings=None, options=None):
         del embeddings, options
@@ -82,6 +86,7 @@ def _test_render_trajectory_command(tmp_path, out, *args):
     command = [x.replace("{tmp_path}", str(tmp_path)).replace("{out}", out) for x in "nerfbaselines render-trajectory --checkpoint {tmp_path}/test-checkpoint --trajectory {tmp_path}/trajectory.json --output {tmp_path}/{out}".split()]
     # Patch sys.argv
     test_registry = {"test-method": {
+        "id": "test-method",
         "method": (__package__ or "") + "." + os.path.splitext(os.path.basename(__file__))[0] + ":" + FakeMethod.__name__,
     }}
     with mock.patch("sys.argv", command + list(args)), \

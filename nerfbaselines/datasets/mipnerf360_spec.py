@@ -1,7 +1,8 @@
 from ..registry import register
 
 
-register(name="mipnerf360", spec={
+register({
+    "id": "mipnerf360",
     "load_dataset_function": ".mipnerf360:load_mipnerf360_dataset",
     "priority": 180,
     "download_dataset_function": ".mipnerf360:download_mipnerf360_dataset",

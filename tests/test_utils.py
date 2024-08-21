@@ -1,4 +1,6 @@
+from unittest import mock
 import pytest
+import click.core
 from time import sleep, perf_counter
 from nerfbaselines.utils import Indices
 from nerfbaselines.utils import cancellable, CancellationToken, CancelledException
@@ -90,3 +92,35 @@ def test_cast_value():
     assert cast_value(Literal[3, "ok"], "3") == 3
     with pytest.raises(TypeError):
         assert cast_value(Literal[3, "ok"], "5")
+
+
+def test_tuple_click_type():
+    import click
+    from nerfbaselines.utils import TupleClickType
+
+    with mock.patch("sys.argv", ["test"]), \
+        pytest.raises(SystemExit) as excinfo:
+        @click.command()
+        @click.option("--val", type=TupleClickType(), default=None)
+        def cmd(val):
+            assert val is None
+        cmd()
+    assert excinfo.value.code == 0
+
+    with mock.patch("sys.argv", ["test"]), \
+        pytest.raises(SystemExit) as excinfo:
+        @click.command()
+        @click.option("--val", type=TupleClickType(), default=())
+        def cmd(val):
+            assert val == ()
+        cmd()
+    assert excinfo.value.code == 0
+
+    with mock.patch("sys.argv", ["test", "--val", "1,2"]), \
+        pytest.raises(SystemExit) as excinfo:
+        @click.command()
+        @click.option("--val", type=TupleClickType(), default=())
+        def cmd(val):
+            assert val == ("1","2")
+        cmd()
+    assert excinfo.value.code == 0

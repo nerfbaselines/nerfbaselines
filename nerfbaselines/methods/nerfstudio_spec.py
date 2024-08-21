@@ -1,8 +1,9 @@
 import os
-from ..registry import MethodSpec, register
+from nerfbaselines.types import MethodSpec
+from nerfbaselines.registry import register
 
 
-nerfacto_paper_results = {
+_nerfacto_paper_results = {
     # 360 scenes: bicycle garden stump room counter kitchen bonsai
     # 360 PSNRs (70k/5k): 24.08 / 22.36 26.47 / 24.05 24.78 / 18.94 30.89 / 29.36 27.20 / 25.92 30.29 / 28.17 32.16 / 28.98
     # 360 SSIMs (70k/5k): 0.599 / 0.474 0.774 / 0.617 0.662 / 0.364 0.896 / 0.866 0.843 / 0.776 0.890 / 0.838 0.933 / 0.880
@@ -19,10 +20,6 @@ nerfacto_paper_results = {
 
 NerfStudioSpec: MethodSpec = {
     "method": ".nerfstudio:NerfStudio",
-    "kwargs": {
-        "nerfstudio_name": None,
-        "require_points3D": False,
-    },
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.10",
@@ -54,6 +51,8 @@ fi
 """,
     },
     "metadata": {
+        "name": "NerfStudio",
+        "description": """NerfStudio (Nerfacto) is a method based on Instant-NGP which combines several improvements from different papers to achieve good quality on real-world scenes captured under normal conditions. It is fast to train (12 min) and render speed is ~1 FPS.""",
         "paper_title": "Nerfstudio: A Modular Framework for Neural Radiance Field Development",
         "paper_authors": [
             "Matthew Tancik",
@@ -71,24 +70,12 @@ fi
             "Angjoo Kanazawa",
         ],
         "paper_link": "https://arxiv.org/pdf/2302.04264.pdf",
-        "paper_results": nerfacto_paper_results,
+        "paper_results": _nerfacto_paper_results,
         "link": "https://docs.nerf.studio/",
     },
-}
-
-# Register supported methods
-register(
-    NerfStudioSpec,
-    name="nerfacto",
-    kwargs={
-        "nerfstudio_name": "nerfacto",
-    },
-    metadata={
-        "name": "NerfStudio",
-        "description": """NerfStudio (Nerfacto) is a method based on Instant-NGP which combines several improvements from different papers to achieve good quality on real-world scenes captured under normal conditions. It is fast to train (12 min) and render speed is ~1 FPS.""",
-    },
-    dataset_overrides={
+    "presets": {
         "blender": {
+            "@apply": [{"dataset": "blender"}],
             "pipeline.datamanager.dataparser": "blender-data",
             "pipeline.model.near_plane": 2.0,
             "pipeline.model.far_plane": 6.0,
@@ -101,92 +88,35 @@ register(
             "pipeline.model.camera_optimizer.mode": "off",
         },    
         "mipnerf360": { 
+            "@apply": [{"dataset": "mipnerf360"}],
             "pipeline.model.use_appearance_embedding": False,
             "pipeline.model.camera_optimizer.mode": "off",
             "max_num_iterations": 70000,
         },
         "tanksandtemples": {
+            "@apply": [{"dataset": "tanksandtemples"}],
             "pipeline.model.use_appearance_embedding": False,
             "pipeline.model.camera_optimizer.mode": "off",
             "max_num_iterations": 70000,
         },
+        "big": {
+            "@description": "Larger setup of Nerfacto model family. It has larger hashgrid and MLPs. It is slower to train and render, but it provides better quality.",
+            "method": "nerfacto-big",
+            "max_num_iterations": 100_000,
+        },
+        "huge": {
+            "@description": "Largest setup of Nerfacto model family. It has larger hashgrid and MLPs. It is slower to train and render, but it provides better quality.",
+            "method": "nerfacto-huge",
+            "max_num_iterations": 100_000,
+        },
+    },
+    "id": "nerfacto",
+    "implementation_status": {
+        "blender": "working",
+        "mipnerf360": "reproducing",
+        "tanksandtemples": "working",
     }
-)
-register(
-    NerfStudioSpec,
-    name="nerfacto:big",
-    kwargs={
-        "nerfstudio_name": "nerfacto-big",
-    },
-    metadata={
-        "name": "NerfStudio (Nerfacto-big)",
-        "description": """Larger setup of Nerfacto model family. It has larger hashgrid and MLPs. It is slower to train and render, but it provides better quality.""",
-    },
-    dataset_overrides={
-        "blender": {
-            "pipeline.datamanager.dataparser": "blender-data",
-            "pipeline.model.near_plane": 2.0,
-            "pipeline.model.far_plane": 6.0,
-            "pipeline.model.use_appearance_embedding": False,
-            "pipeline.model.background_color": "white",
-            "pipeline.model.proposal_initial_sampler": "uniform",
-            "pipeline.model.distortion_loss_mult": 0.0,
-            "pipeline.model.disable_scene_contraction": True,
-            "pipeline.model.average_init_density": 1.0,
-            "pipeline.model.camera_optimizer.mode": "off",
-        },    
-        "mipnerf360": {
-            "pipeline.model.use_appearance_embedding": False,
-            "pipeline.model.camera_optimizer.mode": "off",
-            # Original paper results used average_init_density=1.0
-            # "pipeline.model.average_init_density": 1.0,
-        },
-        "tanksandtemples": {
-            "pipeline.model.use_appearance_embedding": False,
-            "pipeline.model.camera_optimizer.mode": "off",
-            # Original paper results used average_init_density=1.0
-            # "pipeline.model.average_init_density": 1.0,
-        },
-        # Original paper results used average_init_density=1.0
-        # "nerfstudio": { "pipeline.model.average_init_density": 1.0 },
-    }
-)
-register(
-    NerfStudioSpec,
-    name="nerfacto:huge",
-    kwargs={
-        "nerfstudio_name": "nerfacto-huge",
-    },
-    metadata={
-        "name": "NerfStudio (Nerfacto-huge)",
-        "description": """Largest setup of Nerfacto model family. It has larger hashgrid and MLPs. It is slower to train and render, but it provides better quality.""",
-    },
-    dataset_overrides={
-        "blender": {
-            "pipeline.datamanager.dataparser": "blender-data",
-            "pipeline.model.near_plane": 2.0,
-            "pipeline.model.far_plane": 6.0,
-            "pipeline.model.use_appearance_embedding": False,
-            "pipeline.model.background_color": "white",
-            "pipeline.model.proposal_initial_sampler": "uniform",
-            "pipeline.model.distortion_loss_mult": 0.0,
-            "pipeline.model.disable_scene_contraction": True,
-            "pipeline.model.average_init_density": 1.0,
-            "pipeline.model.camera_optimizer.mode": "off",
-        },    
-        "mipnerf360": {
-            "pipeline.model.use_appearance_embedding": False,
-            "pipeline.model.camera_optimizer.mode": "off",
-            # Original paper results used average_init_density=1.0
-            # "pipeline.model.average_init_density": 1.0,
-        },
-        "tanksandtemples": {
-            "pipeline.model.use_appearance_embedding": False,
-            "pipeline.model.camera_optimizer.mode": "off",
-            # Original paper results used average_init_density=1.0
-            # "pipeline.model.average_init_density": 1.0,
-        },
-        # Original paper results used average_init_density=1.0
-        # "nerfstudio": { "pipeline.model.average_init_density": 1.0 },
-    }
-)
+}
+
+# Register nerfacto
+register(NerfStudioSpec)

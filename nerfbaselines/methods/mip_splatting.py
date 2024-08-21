@@ -39,7 +39,7 @@ import torch
 from nerfbaselines.types import Method, MethodInfo, OptimizeEmbeddingsOutput, RenderOutput, ModelInfo, RenderOptions
 from nerfbaselines.types import Cameras, camera_model_to_int
 from nerfbaselines.datasets import Dataset
-from nerfbaselines.utils import cached_property, flatten_hparams, remap_error
+from nerfbaselines.utils import flatten_hparams, remap_error
 from nerfbaselines.pose_utils import get_transform_and_scale
 from nerfbaselines.math_utils import rotate_spherical_harmonics, rotation_matrix_to_quaternion
 from nerfbaselines.io import wget
@@ -234,8 +234,6 @@ def _config_overrides_to_args_list(args_list, config_overrides):
 
 
 class MipSplatting(Method):
-    _method_name: str = "mip-splatting"
-
     @remap_error
     def __init__(self, *,
                  checkpoint: Optional[str] = None, 
@@ -250,9 +248,15 @@ class MipSplatting(Method):
 
         # Setup parameters
         self._args_list = ["--source_path", "<empty>", "--resolution", "1", "--eval"]
+        self._loaded_step = None
         if checkpoint is not None:
             with open(os.path.join(checkpoint, "args.txt"), "r", encoding="utf8") as f:
                 self._args_list = shlex.split(f.read())
+
+            if not os.path.exists(checkpoint):
+                raise RuntimeError(f"Model directory {checkpoint} does not exist")
+            self._loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(str(checkpoint)) if x.startswith("chkpnt-"))[-1]
+
         # Fix old checkpoints
         if "--resolution" not in self._args_list:
             self._args_list.extend(("--resolution", "1"))
@@ -323,20 +327,9 @@ class MipSplatting(Method):
                 raise RuntimeError("Old checkpoint format! Please run nerfbaselines fix-checkpoint first.")
             self.gaussians.compute_3D_filter(cameras=self.trainCameras)
 
-    @cached_property
-    def _loaded_step(self):
-        loaded_step = None
-        if self.checkpoint is not None:
-            if not os.path.exists(self.checkpoint):
-                raise RuntimeError(f"Model directory {self.checkpoint} does not exist")
-            loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(str(self.checkpoint)) if x.startswith("chkpnt-"))[-1]
-        return loaded_step
-
     @classmethod
     def get_method_info(cls):
-        assert cls._method_name is not None, "Method was not properly registered"
         return MethodInfo(
-            name=cls._method_name,
             required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset(("pinhole",)),
             supported_outputs=("color",),

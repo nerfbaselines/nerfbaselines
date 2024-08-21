@@ -1,5 +1,6 @@
 import os
-from ..registry import MethodSpec, register
+from nerfbaselines.types import MethodSpec
+# from nerfbaselines.registry import register
 
 
 TRIPSSpec: MethodSpec = {
@@ -86,6 +87,7 @@ pip install torch==1.13.1+cu117 torchvision==0.14.1+cu117 --extra-index-url http
         "paper_link": "https://arxiv.org/pdf/2401.06003",
         "link": "https://lfranke.github.io/trips/",
     },
+    "id": "trips",
 }
 
-register(TRIPSSpec, name="trips")
+# register(TRIPSSpec, name="trips")

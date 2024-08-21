@@ -23,7 +23,7 @@ import numpy as np
 from PIL import Image
 from nerfbaselines.types import Method, MethodInfo, ModelInfo, OptimizeEmbeddingsOutput, RenderOutput
 from nerfbaselines.types import Cameras, camera_model_to_int, Dataset
-from nerfbaselines.utils import cached_property, flatten_hparams, remap_error, convert_image_dtype
+from nerfbaselines.utils import flatten_hparams, remap_error, convert_image_dtype
 from argparse import ArgumentParser
 
 import torch
@@ -220,8 +220,6 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
 
 
 class GaussianSplattingWild(Method):
-    _method_name: str = "gaussian-splatting-wild"
-
     @remap_error
     def __init__(self, *,
                  checkpoint: Optional[str] = None,
@@ -238,6 +236,12 @@ class GaussianSplattingWild(Method):
         self._args_list = ["--source_path", "<empty>", "--resolution", "1", "--eval"]
         if self.checkpoint is None and config_overrides is not None:
             _config_overrides_to_args_list(self._args_list, config_overrides)
+
+        self._loaded_step = None
+        if self.checkpoint is not None:
+            if not os.path.exists(self.checkpoint):
+                raise RuntimeError(f"Model directory {self.checkpoint} does not exist")
+            self._loaded_step = sorted(int(x[x.find("_") + 1:]) for x in os.listdir(os.path.join(self.checkpoint, "ckpts_point_cloud")) if x.startswith("iteration_"))[-1]
 
         self._default_embedding = None
         if self.checkpoint is not None and os.path.exists(os.path.join(self.checkpoint, "default_embedding.npy")):
@@ -335,20 +339,9 @@ class GaussianSplattingWild(Method):
         if train_dataset is not None and self.args.use_lpips_loss:#vgg alex
             self.lpips_criteria = lpips.LPIPS(net='vgg').to("cuda:0")
 
-    @cached_property
-    def _loaded_step(self):
-        loaded_step = None
-        if self.checkpoint is not None:
-            if not os.path.exists(self.checkpoint):
-                raise RuntimeError(f"Model directory {self.checkpoint} does not exist")
-            loaded_step = sorted(int(x[x.find("_") + 1:]) for x in os.listdir(os.path.join(self.checkpoint, "ckpts_point_cloud")) if x.startswith("iteration_"))[-1]
-        return loaded_step
-
     @classmethod
     def get_method_info(cls):
-        assert cls._method_name is not None, "Method was not properly registered"
         return MethodInfo(
-            name=cls._method_name,
             required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset(("pinhole",)),
             supported_outputs=("color",),
