@@ -66,6 +66,7 @@ dev = [
     'pytest==7.4.4',
     'typeguard==4.2.1',
     'dm-pix',
+    'pytest-benchmark',
     # Viewer
     'viser<0.2.0',
     # Web
@@ -77,7 +78,7 @@ dev = [
 nerfbaselines = "nerfbaselines.__main__:main"
 
 [tool.pytest.ini_options]
-addopts = '--typeguard-packages nerfbaselines'
+addopts = '--typeguard-packages nerfbaselines --benchmark-name=short --benchmark-columns mean,median'
 
 [tool.setuptools]
 include-package-data = true

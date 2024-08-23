@@ -1,5 +1,4 @@
 import shutil
-import requests
 from pathlib import Path
 import json
 import logging
@@ -169,6 +168,7 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
 
 def _delete_old_docker_images(image_name: str):
     _image_name, tag = image_name.split(":")
+    del _image_name
     assert "-" in tag, f"Tag '{tag}' must contain a dash"
     prefix_name = image_name[:image_name.rfind("-")]
     for line in subprocess.check_output(f'docker images {prefix_name}-* --format json'.split()).splitlines():
@@ -331,6 +331,7 @@ def docker_run_image(spec: DockerBackendSpec,
             if use_gpu
             else ()
         ),
+        "--ipc=host",
         "--shm-size=1g",
         "--ulimit", "memlock=-1",
         "--ulimit", "stack=67108864",
@@ -363,14 +364,11 @@ def docker_run_image(spec: DockerBackendSpec,
 class DockerBackend(RemoteProcessRPCBackend):
     name = "docker"
 
-    def __init__(self, 
-                 spec: DockerBackendSpec, 
-                 address: str = "0.0.0.0", 
-                 port: Optional[int] = None):
+    def __init__(self, spec: DockerBackendSpec):
         self._spec = spec
         self._tmpdir = None
         self._applied_mounts = None
-        super().__init__(address=address, port=port)
+        super().__init__()
 
     def __enter__(self):
         super().__enter__()
@@ -427,6 +425,7 @@ class DockerBackend(RemoteProcessRPCBackend):
         # forwarded_ports.append((self._port, self._port))
         if args[0] == "python":
             args[0] = self._spec.get("python_path") or "python"
+
         return super()._launch_worker(*docker_run_image(
             self._spec, args, env, 
             mounts=self._applied_mounts + [(self._tmpdir.name, "/var/nb-tmp")], 

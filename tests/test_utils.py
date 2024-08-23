@@ -3,7 +3,7 @@ import pytest
 import click.core
 from time import sleep, perf_counter
 from nerfbaselines.utils import Indices
-from nerfbaselines.utils import cancellable, CancellationToken, CancelledException
+from nerfbaselines.utils import CancellationToken, CancelledException
 
 try:
     from typing import Literal, Optional
@@ -28,18 +28,22 @@ class TimeLimitCancellationToken(CancellationToken):
         self.start = perf_counter()
 
     @property
-    def cancelled(self):
-        return super().cancelled or perf_counter() - self.start > self.timeout
+    def _cancelled(self):
+        return perf_counter() - self.start > self.timeout
+
+    @_cancelled.setter
+    def _cancelled(self, value):
+        pass
 
 
-def test_cancellable():
+def test_cancel():
     was_called = False
 
-    @cancellable
     def fn():
         nonlocal was_called
         was_called = True
         for _ in range(100):
+            CancellationToken.cancel_if_requested()
             sleep(0.001)
         raise Exception("Should not be reached")
 
@@ -50,14 +54,14 @@ def test_cancellable():
     assert was_called, "Function was not called"
 
 
-def test_cancellable_generator():
+def test_cancel_generator():
     was_called = False
 
-    @cancellable
     def fn():
         nonlocal was_called
         was_called = True
         for i in range(100):
+            CancellationToken.cancel_if_requested()
             sleep(0.001)
             yield i
         raise Exception("Should not be reached")
