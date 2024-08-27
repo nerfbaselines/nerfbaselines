@@ -1,11 +1,9 @@
+import sys
 import os
 import contextlib
 import struct
-import threading
 import time
 import pickle
-import logging
-from queue import Queue
 from multiprocessing.shared_memory import SharedMemory
 # import tempfile
 
@@ -44,7 +42,7 @@ def _shm_recv(shared_memory):
             _shm_wait_for(shared_memory, [4])
             memoryview(buffer)[i:i+mess_len] = shared_memory.buf[_SHM_OFFSET:_SHM_OFFSET+mess_len]
             _shm_set_flag(shared_memory, 5)
-    return pickle.loads(buffers[0], **({'buffers': buffers[1:]} if len(buffers) > 1 else {}))
+    return pickle.loads(buffers[0], **({'buffers': buffers[1:]} if len(buffers) > 1 else {}))  # type: ignore
 
 
 def _shm_send(shared_memory, message, set_flag,
@@ -54,8 +52,11 @@ def _shm_send(shared_memory, message, set_flag,
     buffers = []
     def _add_buffer(buffer):
         buffers.append(buffer.raw())
-    buffers.insert(0, pickle.dumps(message, protocol=pickle_protocol,
-       **({ "buffer_callback": _add_buffer } if (pickle_use_buffers and pickle_protocol >= 5) else {})))
+    buffers.insert(0, 
+        pickle.dumps(message, protocol=pickle_protocol,
+                     **({ "buffer_callback": _add_buffer } 
+                        if (pickle_use_buffers and pickle_protocol >= 5) 
+                        else {})))  # type: ignore
     header = struct.pack("I", len(buffers))
     header += struct.pack("Q"*len(buffers), *(len(buff) for buff in buffers))
     shared_memory.buf[_SHM_OFFSET:_SHM_OFFSET+len(header)] = header
@@ -103,7 +104,7 @@ def _shm_recv_unify_buffers(shared_memory):
         buffer = memoryview(data)[offset:offset+buff_len]
         buffers.append(buffer)
         offset += buff_len
-    out = pickle.loads(buffers[-1], **({'buffers': buffers[:-1]} if len(buffers) > 1 else {}))
+    out = pickle.loads(buffers[-1], **({'buffers': buffers[:-1]} if len(buffers) > 1 else {}))  # type: ignore
     return out
 
 
@@ -117,8 +118,12 @@ def _shm_send_unify_buffers(shared_memory, message, set_flag,
     buffers = []
     def _add_buffer(buffer):
         buffers.append(buffer.raw())
-    buffers.append(pickle.dumps(message, protocol=pickle_protocol,
-       **({ "buffer_callback": _add_buffer } if (pickle_use_buffers and pickle_protocol >= 5) else {})))
+    buffers.append(
+        pickle.dumps(message, 
+                     protocol=pickle_protocol,
+                     **({ "buffer_callback": _add_buffer } 
+                        if (pickle_use_buffers and pickle_protocol >= 5) 
+                        else {})))  # type: ignore
     header = struct.pack("I", len(buffers))
     header += struct.pack("Q"*len(buffers), *(len(buff) for buff in buffers))
     shared_memory.buf[_SHM_OFFSET:_SHM_OFFSET+len(header)] = header
@@ -188,15 +193,15 @@ def _remove_shm_from_resource_tracker():
         return resource_tracker._resource_tracker.unregister(name, rtype)
     resource_tracker.unregister = fix_unregister
 
-    if "shared_memory" in resource_tracker._CLEANUP_FUNCS:
-        del resource_tracker._CLEANUP_FUNCS["shared_memory"]
+    if "shared_memory" in resource_tracker._CLEANUP_FUNCS:  # type: ignore
+        del resource_tracker._CLEANUP_FUNCS["shared_memory"]  # type: ignore
 
 
 class SharedMemoryProtocol:
     def __init__(self,
                  *,
                  shared_memory_name=None,
-                 shared_memory_size=os.environ.get("NB_SHARED_MEMORY_SIZE", _SHM_SIZE)):
+                 shared_memory_size=int(os.environ.get("NB_SHARED_MEMORY_SIZE", _SHM_SIZE))):
         self._shared_memory_name = shared_memory_name
         self._shared_memory = None
         self._is_host = None
@@ -241,7 +246,7 @@ class SharedMemoryProtocol:
         transport_options["pickle_use_buffers"] = (
             transport_options.get("pickle_use_buffers", False) and 
             transport_options["pickle_protocol"] >= 5)
-        _shm_wait_for(self._shared_memory, [8])
+        _shm_wait_for(self._shared_memory, [6])
         _shm_send(self._shared_memory, {
             "message": "ready_ack",
             "transport_options": transport_options,
@@ -255,6 +260,7 @@ class SharedMemoryProtocol:
 
     def get_worker_configuration(self):
         assert self._is_host is True, "Not started as host"
+        assert self._shared_memory is not None, "Not initialized"
         return {
             "shared_memory_name": self._shared_memory.name,
         }
@@ -276,7 +282,7 @@ class SharedMemoryProtocol:
                 "pickle_use_buffers": pickle.HIGHEST_PROTOCOL >= 5,
             }
         }, 3, **self._transport_options)
-        _shm_set_flag(self._shared_memory, 8)
+        _shm_set_flag(self._shared_memory, 6)
         _shm_wait_for(self._shared_memory, [1])
         setup_response = _shm_recv(self._shared_memory)
         if setup_response["message"] != "ready_ack":
@@ -339,83 +345,3 @@ class SharedMemoryProtocol:
                     _shm_set_flag(self._shared_memory, 7)
             self._shared_memory.close()
             self._shared_memory = None
-
-
-class SharedMemoryTransportClient:
-    def __init__(self):
-        self._protocol = SharedMemoryProtocol()
-
-    def get_run_server_function(self):
-        kwargs = self._protocol.get_worker_configuration()
-        return run_shm_server, kwargs
-
-    def send(self, message):
-        if self._protocol is None:
-            raise ConnectionError("There is no active connection.")
-        self._protocol.send(message)
-        return self._protocol.receive()
-
-    def send_interrupt(self, message):
-        if self._protocol is None:
-            raise ConnectionError("There is no active connection.")
-        self._protocol.send(message, interrupt=True)
-
-    def __enter__(self):
-        self._protocol.start_host()
-        return self
-
-    def wait_for_connection(self, *args, **kwargs):
-        del args, kwargs
-        self._protocol.wait_for_worker()
-
-    def close(self):
-        if self._protocol is not None:
-            self._protocol.close()
-            self._protocol = None
-        
-    def __exit__(self, exc_type, exc_value, traceback):
-        del exc_type, exc_value, traceback
-        self.close()
-
-
-def run_shm_server(*, 
-                   handle,
-                   handle_interrupt,
-                   **kwargs):
-    interrupt_result_queue = Queue()
-    def worker_interrupt(protocol, handle_interrupt, interrupt_result_queue):
-        try:
-            while True:
-                msg = protocol.receive(interrupt=True)
-                handle_interrupt(msg)
-        except BaseException as e:
-            interrupt_result_queue.put(e)
-            return
-
-    safe_terminate = False
-    try:
-        protocol = SharedMemoryProtocol(**kwargs)
-        protocol.connect_worker()
-        interrupt_thread = threading.Thread(
-            target=worker_interrupt, 
-            args=(protocol, handle_interrupt, interrupt_result_queue))
-        interrupt_thread.start()
-        logging.info(f"Connection accepted, protocol: {protocol.protocol_name}")
-        while interrupt_thread.is_alive():
-            msg = protocol.receive()
-            if msg.get("message") == "close":
-                safe_terminate = True
-                protocol.close()
-                break
-            try:
-                outmsg = handle(msg)
-            except BaseException as e:
-                outmsg = {"message": "error", "error": RuntimeError("Unhandled error: "+str(e))}
-            protocol.send(outmsg)
-        interrupt_thread.join()
-        if not safe_terminate:
-            raise interrupt_result_queue.get()
-    finally:
-        protocol.close()
-    logging.info("Backend worker finished")
-

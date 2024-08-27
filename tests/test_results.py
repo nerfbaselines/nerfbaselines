@@ -41,8 +41,6 @@ def test_get_benchmark_datasets():
 
 def assert_compile_dataset_results_correct(results, dataset):
     assert "methods" in results
-    assert "scenes" in results["methods"][0]
-    assert "name" in results["methods"][0]
     assert "id" in results
     assert results["id"] == dataset
 
@@ -56,21 +54,27 @@ def assert_compile_dataset_results_correct(results, dataset):
     assert len(results["methods"]) > 0
     assert len(results["scenes"]) > 0
     assert len(results["metrics"]) > 0
-    assert_nonempty_string(results["metrics"][0].get("id"))
-    assert_nonempty_string(results["metrics"][0].get("name"))
-    assert_nonempty_string(results["metrics"][0].get("description"))
-    assert_nonempty_string(results["metrics"][0].get("link"))
-    assert results["metrics"][0].get("ascending") in {True, False}
-    assert_nonempty_string(results["scenes"][0].get("id"))
-    assert_nonempty_string(results["scenes"][0].get("name"))
-    method = results["methods"][0]
-    assert_nonempty_string(method.get("id"))
-    assert_nonempty_string(method.get("name"))
-    assert_nonempty_string(method.get("description"))
-    assert isinstance(method.get("psnr"), float)
-    assert len(method["scenes"]) > 0
-    fscene = next(iter(method["scenes"].values()))
-    assert isinstance(fscene.get("psnr"), float)
+    for metric in results["metrics"]:
+        assert_nonempty_string(metric.get("id"))
+        assert_nonempty_string(metric.get("name"))
+        assert_nonempty_string(metric.get("description"))
+        assert_nonempty_string(metric.get("link"))
+        assert metric.get("ascending") in {True, False}
+
+    for scene in results["scenes"]:
+        assert_nonempty_string(scene.get("id"))
+        assert_nonempty_string(scene.get("name"))
+
+    for method in results["methods"]:
+        assert "scenes" in method
+        assert "name" in method
+        assert_nonempty_string(method.get("id"))
+        assert_nonempty_string(method.get("name"))
+        assert_nonempty_string(method.get("description"))
+        assert isinstance(method.get("psnr"), float)
+        assert len(method["scenes"]) > 0
+        fscene = next(iter(method["scenes"].values()))
+        assert isinstance(fscene.get("psnr"), float)
 
 
 @pytest.mark.parametrize("method", list(registry.keys()))
@@ -87,12 +91,10 @@ def test_get_method_info_from_spec(method):
     assert method_info["method_id"] == method
 
 
-@pytest.mark.parametrize("method", list(registry.keys()))
 @pytest.mark.parametrize("dataset", get_benchmark_datasets())
-def test_compile_dataset_results(tmp_path, dataset, method):
+def test_compile_dataset_results(tmp_path, dataset):
     from nerfbaselines.results import compile_dataset_results
-
-    mock_results(tmp_path, [dataset], [method])
+    mock_results(tmp_path, [dataset], list(registry.keys()))
 
     # Mock
     results = compile_dataset_results(tmp_path, dataset)

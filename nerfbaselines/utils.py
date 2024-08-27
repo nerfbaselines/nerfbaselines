@@ -168,7 +168,7 @@ class CancellationToken(metaclass=_CancellationTokenMeta):
         for cb in self._callbacks:
             cb()
 
-    def cancel_if_requested(self=None):
+    def cancel_if_requested(self: Optional['CancellationToken'] = None):
         """
         Check if the operation has been cancelled and raise a CancelledException if it has.
         Can also be used as a static method: `CancellationToken.cancel_if_requested()`

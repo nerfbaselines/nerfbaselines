@@ -24,14 +24,16 @@ from ._common import Backend
 import nerfbaselines
 
 
-def _remap_error(e: Exception):
+def _remap_error(e: BaseException):
     if e.__class__.__module__ == "builtins":
         return e
     elif e.__class__.__module__.startswith(_remap_error.__module__.split(".")[0]):
         return e
 
     # Remap exception
-    return RuntimeError(f"Exception {e.__class__.__name__}: {e}")
+    if isinstance(e, Exception):
+        return RuntimeError(f"Exception {e.__class__.__name__}: {e}")
+    return BaseException(f"BaseException {e.__class__.__name__}: {e}")
 
 
 def customize_wrapper_separated_fs(local_shared_path, backend_shared_path, mounts, ns):
@@ -272,8 +274,6 @@ class RPCWorker:
         msg_type = message["message"]
         if msg_type == "del":
             return self._process_del(**message)
-        elif msg_type == "getattr":
-            return self._process_getattr(**message)
         elif msg_type == "call":
             return self._process_call(**message)
         else:
@@ -304,8 +304,8 @@ def run_worker(*, protocol):
         interrupt_thread = threading.Thread(
             target=worker_interrupt, 
             args=(protocol, handle_interrupt, interrupt_result_queue))
-        interrupt_thread.start()
         logging.info(f"Connection accepted, protocol: {protocol.protocol_name}")
+        interrupt_thread.start()
         while interrupt_thread.is_alive():
             msg = protocol.receive()
             if msg.get("message") == "close":
@@ -463,6 +463,7 @@ class AutoTransportProtocol:
         self._protocol_classes = protocol_classes
         self._current_protocol = self._resolve_protocol_class(self._protocol_classes[0])(
             **(default_protocol_configuration or {}))
+        self._upgraded = False
 
     @staticmethod
     def _resolve_protocol_class(protocol_class):
@@ -472,13 +473,20 @@ class AutoTransportProtocol:
         return getattr(mod, cls)
 
     def get_worker_configuration(self):
+        assert self._current_protocol is not None, "Protocol is None"
         return {
             "protocol_classes": self._protocol_classes,
             "default_protocol_configuration": self._current_protocol.get_worker_configuration(),
         }
 
     def wait_for_worker(self, timeout=None):
+        assert self._current_protocol is not None, "Protocol is None"
         self._current_protocol.wait_for_worker(timeout=timeout)
+
+        if self._upgraded:
+            # Accept the new protocol
+            self.send({"message": "__upgrade_protocol_end__"})
+            return
 
         # After connecting, we try to upgrade the protocol
         # starting from the least safe (last one)
@@ -528,6 +536,7 @@ class AutoTransportProtocol:
             old_protocol.close()
 
     def connect_worker(self):
+        assert self._current_protocol is not None, "Protocol is None"
         self._current_protocol.connect_worker()
 
         # After connecting, we try to upgrade the protocol
@@ -564,19 +573,31 @@ class AutoTransportProtocol:
         if working_new_protocol is not None:
             old_protocol = self._current_protocol
             self._current_protocol = working_new_protocol
-            old_protocol.close()
+            # We need to process the old_protocol messages until it is closed
+            logging.debug("Waiting for the old protocol ({old_protocol.protocol_name}) to be closed")
+            while True:
+                msg = old_protocol.receive()
+                if msg.get("message") == "close":
+                    old_protocol.close()
+                    break
+                old_protocol.send({})
+            logging.debug("Finished protocol upgrade {old_protocol.protocol_name} -> {self._current_protocol.protocol_name}")
 
     def start_host(self):
+        assert self._current_protocol is not None, "Protocol is None"
         self._current_protocol.start_host()
 
     @property
     def protocol_name(self):
+        assert self._current_protocol is not None, "Protocol is None"
         return self._current_protocol.protocol_name
 
     def send(self, *args, **kwargs):
+        assert self._current_protocol is not None, "Protocol is None"
         return self._current_protocol.send(*args, **kwargs)
 
     def receive(self, *args, **kwargs):
+        assert self._current_protocol is not None, "Protocol is None"
         return self._current_protocol.receive(*args, **kwargs)
 
     def close(self):

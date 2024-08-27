@@ -30,8 +30,8 @@ def test_render(use_remote_method):
             yield {"color": np.full(tuple(), 23)}
             yield {"color": np.full(tuple(), 26)}
 
-        def train_iteration(self, step: int):
-            pass
+        def train_iteration(self, step: int) -> dict:
+            raise NotImplementedError()
 
         def save(self, path):
             pass
@@ -84,8 +84,8 @@ def use_remote_method():
                 def setup_train(self, train_dataset, **kwargs):
                     pass
 
-                def train_iteration(self, step: int):
-                    pass
+                def train_iteration(self, step: int) -> dict:
+                    raise NotImplementedError()
 
                 def save(self, path):
                     pass
@@ -169,8 +169,8 @@ def test_render_cancel(use_remote_method):
                 sleep(0.001)
                 yield {"color": np.full(tuple(), i)}
 
-        def train_iteration(self, step: int):
-            pass
+        def train_iteration(self, step: int) -> dict:
+            raise NotImplementedError()
 
         def save(self, path):
             pass

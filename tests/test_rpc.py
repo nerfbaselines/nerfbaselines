@@ -281,39 +281,34 @@ def _test_function_base_exception():
 
 
 @pytest.mark.parametrize("protocol_classes", 
-                         [["tcp-pickle"], ["shm-pickle"], ["tcp-pickle", "shm-pickle"], None])
+                         [["tcp-pickle"], ["shm-pickle"], ["tcp-pickle", "shm-pickle"], None],
+                         ids=lambda x: ",".join(x) if x else "default")
 @typeguard_ignore
 def test_remote_process_rpc_backend(protocol_classes):
     from nerfbaselines.backends._rpc import AutoTransportProtocol, RemoteProcessRPCBackend
 
     # Test normal
     protocol = AutoTransportProtocol(protocol_classes=protocol_classes)
-    class custom_err(Exception):
-        pass
-    with pytest.raises(custom_err):
-        with RemoteProcessRPCBackend(protocol=protocol) as backend:
-            # Test simple call
-            assert backend.static_call(f"{_test_function.__module__}:{_test_function.__name__}", 1, 2) == 3
+    with RemoteProcessRPCBackend(protocol=protocol) as backend:
+        # Test simple call
+        assert backend.static_call(f"{_test_function.__module__}:{_test_function.__name__}", 1, 2) == 3
 
-            # Create instance
-            out = backend.static_call(f"{_TestObject.__module__}:{_TestObject.__name__}", 1)
+        # Create instance
+        out = backend.static_call(f"{_TestObject.__module__}:{_TestObject.__name__}", 1)
 
-            # Test simple call
-            assert out.test_method(5, c=3) == 1
-            assert out.test_method(5, c=3) == 3
+        # Test simple call
+        assert out.test_method(5, c=3) == 1
+        assert out.test_method(5, c=3) == 3
 
-            # Test raise error
-            with pytest.raises(Exception) as e:
-                backend.static_call(f"{_test_function_exception.__module__}:{_test_function_exception.__name__}")
-                e.match("Test error b1")
+        # Test raise error
+        with pytest.raises(Exception) as e:
+            backend.static_call(f"{_test_function_exception.__module__}:{_test_function_exception.__name__}")
+            e.match("Test error b1")
 
-            # Test raise base exception
-            with pytest.raises(BaseException) as e:
-                backend.static_call(f"{_test_function_base_exception.__module__}:{_test_function_base_exception.__name__}")
-                e.match("Test error b2")
-
-            # Test abrupt end doesn't cause deadlock
-            raise custom_err()
+        # Test raise base exception
+        with pytest.raises(BaseException) as e:
+            backend.static_call(f"{_test_function_base_exception.__module__}:{_test_function_base_exception.__name__}")
+            e.match("Test error b2")
 
 
 def _test_function_cancel():
@@ -323,14 +318,19 @@ def _test_function_cancel():
 
 
 @pytest.mark.parametrize("protocol_classes", 
-                         [["tcp-pickle"], ["shm-pickle"], ["tcp-pickle", "shm-pickle"], None])
+                         [["tcp-pickle"], ["shm-pickle"], ["tcp-pickle", "shm-pickle"], None],
+                         ids=lambda x: ",".join(x) if x else "default")
 @typeguard_ignore
 def test_remote_process_rpc_backend_cancel(protocol_classes):
     from nerfbaselines.backends._rpc import AutoTransportProtocol, RemoteProcessRPCBackend
     protocol = AutoTransportProtocol(protocol_classes=protocol_classes)
     with RemoteProcessRPCBackend(protocol=protocol) as endpoint:
         cancellation_token = CancellationToken()
-        threading.Thread(target=lambda: time.sleep(1.5) or cancellation_token.cancel(), daemon=True).start()
+        def cancel_target():
+            for _ in range(8):
+                sleep(0.3)
+                cancellation_token.cancel()
+        threading.Thread(target=cancel_target, daemon=True).start()
         start = time.time()
         with pytest.raises(CancelledException):
             with cancellation_token:

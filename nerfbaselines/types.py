@@ -413,7 +413,7 @@ class Method(Protocol):
         raise NotImplementedError()
 
     @abstractmethod
-    def train_iteration(self, step: int) -> None:
+    def train_iteration(self, step: int) -> Dict[str, float]:
         """
         Train one iteration.
 

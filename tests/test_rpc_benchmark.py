@@ -14,7 +14,7 @@ def _limit_message_size(message, message_size=MESSAGE_SIZE):
         for i in range(0, len(message), message_size):
             lastm = message[i : i + message_size]
             yield lastm
-        if len(lastm) == message_size:
+        if len(lastm) == message_size:  # type: ignore
             yield b""
 
 
@@ -72,25 +72,6 @@ def deserialize3(message):
     for _ in range(num_buffers):
         buffers.append(_collect_message_parts(message))
     return pickle.loads(header[4:], buffers=buffers)
-
-
-@pytest.mark.benchmark(group="rpc-serialization")
-@pytest.mark.parametrize("serialize, deserialize", [
-    (serialize1, deserialize1), 
-    (serialize2, deserialize2), 
-    (serialize3, deserialize3)], ids=["pickle", "pickle5", "pickle5+buffers"])
-@pytest.mark.parametrize("image_dtype", [np.uint8, np.float32])
-def _test_serialize_deserialize(benchmark, serialize, deserialize, image_dtype):
-    message = {
-        "color": np.random.normal(size=(1920, 1080, 3)).astype(image_dtype),
-        "depth": np.random.normal(size=(1920, 1080, 1)).astype(np.float32),
-    }
-
-    def _measure():
-        serialized = serialize(message)
-        return deserialize(serialized)
-
-    benchmark(_measure)
 
 
 @pytest.mark.benchmark(group="rpc-transport")
@@ -153,8 +134,8 @@ def test_shared_memory_transport(benchmark, serialize, deserialize, image_dtype)
         # Benchmark serialize and deserialize when sent through a Listener, Client connection
         with Listener(address=("localhost", 8000), authkey=b'secret password') as listener:
             def handle_client(listener):
+                shm_local = multiprocessing.shared_memory.SharedMemory(name=shm.name)
                 try:
-                    shm_local = multiprocessing.shared_memory.SharedMemory(name=shm.name)
                     with listener.accept() as conn:
                         while conn.recv():
                             for i, m in enumerate(serialize(message)):
@@ -206,8 +187,8 @@ def test_shm_merge_messages(benchmark, serialize, deserialize, image_dtype):
         # Benchmark serialize and deserialize when sent through a Listener, Client connection
         with Listener(address=("localhost", 8000), authkey=b'secret password') as listener:
             def handle_client(listener):
+                shm_local = multiprocessing.shared_memory.SharedMemory(name=shm.name)
                 try:
-                    shm_local = multiprocessing.shared_memory.SharedMemory(name=shm.name)
                     with listener.accept() as conn:
                         while conn.recv():
                             for i, m in enumerate(serialize(message)):
@@ -230,65 +211,6 @@ def test_shm_merge_messages(benchmark, serialize, deserialize, image_dtype):
                             yield m
                     return deserialize(_iter_response())
                 benchmark(_measure)
-                client.send(False)
-    finally:
-        shm.close()
-        shm.unlink()
-
-
-@pytest.mark.benchmark(group="rpc-transport")
-@pytest.mark.parametrize("options", [
-    {"pickle_use_buffers": True, "use_shared_memory": True, "pickle_protocol": 5},
-    {"pickle_use_buffers": False, "use_shared_memory": True, "pickle_protocol": 5},
-    {"pickle_use_buffers": True, "use_shared_memory": False, "pickle_protocol": 5},
-    {"pickle_use_buffers": False, "use_shared_memory": False, "pickle_protocol": 5},
-    {"pickle_use_buffers": False, "use_shared_memory": False, "pickle_protocol": 4},
-    ], ids=[
-        "pickle5-buffers-shm",
-        "pickle5-shm",
-        "pickle5-buffers",
-        "pickle5",
-        "pickle4",
-    ]
-)
-@pytest.mark.parametrize("image_dtype", [np.uint8, np.float32])
-def _test_rpc_transport2(benchmark, options, image_dtype):
-    if options.get("use_shared_memory") and sys.version_info < (3, 8):
-        pytest.skip("requires python3.8 or higher")
-    import multiprocessing.shared_memory
-    message = {
-        "color": np.random.normal(size=(1920, 1080, 3)).astype(image_dtype),
-        "depth": np.random.normal(size=(1920, 1080, 1)).astype(np.float32),
-    }
-
-    shm = multiprocessing.shared_memory.SharedMemory(create=True, size=MESSAGE_SIZE)
-
-    from multiprocessing.connection import Listener, Client
-    import threading
-    from nerfbaselines.backends._rpc import _send, _recv
-
-    try:
-
-        # Benchmark serialize and deserialize when sent through a Listener, Client connection
-        with Listener(address=("localhost", 8000), authkey=b'secret password') as listener:
-            def handle_client(listener):
-                try:
-                    shm_local = multiprocessing.shared_memory.SharedMemory(name=shm.name)
-                    with listener.accept() as conn:
-                        while conn.recv():
-                            _send(conn, message, shm_local, **options)
-                finally:
-                    shm_local.close()
-            threading.Thread(target=handle_client, args=(listener,)).start()
-
-            with Client(address=("localhost", 8000), authkey=b'secret password') as client:
-                def _measure():
-                    client.send(True)
-                    received = _recv(client, shm)
-                    return received
-                received = benchmark(_measure)
-                assert np.allclose(received["color"], message["color"])
-                assert np.allclose(received["depth"], message["depth"])
                 client.send(False)
     finally:
         shm.close()
