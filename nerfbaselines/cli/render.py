@@ -83,7 +83,7 @@ def render_trajectory_command(checkpoint: Union[str, Path],
     for output_name in output_names:
         loutput = output.format(output=output_name)
         if os.path.exists(loutput):
-            logging.critical("Output path {loutput} already exists")
+            logging.critical(f"Output path {loutput} already exists")
             sys.exit(1)
 
     # Parse trajectory
