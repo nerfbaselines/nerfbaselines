@@ -1,6 +1,5 @@
-import time
+import pprint
 from contextlib import nullcontext
-import ast
 import collections.abc
 import threading
 import shutil
@@ -694,14 +693,10 @@ class RemoteProcessRPCBackend(Backend):
 
         self._protocol.start_host()
         protocol_kwargs = self._protocol.get_worker_configuration()
-        init_protocol_code = ast.unparse(
-            ast.Call(
-                func=ast.Name(id="P", ctx=ast.Load()), args=[],
-                keywords=[
-                    ast.keyword(arg=k, value=ast.Constant(v))
-                    for k, v in protocol_kwargs.items()
-                ]
-            ))
+        init_protocol_code = ", ".join(
+            f"{k}={pprint.pformat(v)}"
+            for k, v in protocol_kwargs.items()
+        )
         code = f"""
 import os
 # Hack for now to fix the cv2 failed import inside a thread.
@@ -714,7 +709,7 @@ from {nb}.utils import setup_logging
 setup_logging(verbose={is_verbose})
 from {run_worker.__module__} import {run_worker.__name__} as rw
 from {self._protocol.__class__.__module__} import {self._protocol.__class__.__name__} as P
-rw(protocol={init_protocol_code})
+rw(protocol=P({init_protocol_code}))
 """
         env = get_safe_environment()
         package_path = Path(nerfbaselines.__file__).absolute().parent.parent
