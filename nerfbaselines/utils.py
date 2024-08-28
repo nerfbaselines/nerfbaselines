@@ -142,18 +142,28 @@ class _CancellationTokenMeta(type):
     
 
 class CancellationToken(metaclass=_CancellationTokenMeta):
-    """
-    CancellationToken is a context manager that can be used to cancel a long running operation.
-    CancellationToken.current is a thread-local variable that can be used to access the current token.
+    """``CancellationToken`` is a context manager that can be used to cancel a long running operation. ``CancellationToken.current`` is a thread-local variable that can be used to access the current token.
 
     Example:
-    ```
-    token = CancellationToken()
-    with token:
-        # Do something
-        token.cancel_if_requested()
-        # Do something else
-    ```
+        ::
+
+            # Create the token
+            token = CancellationToken()
+            
+            # Now, you would  pass the token to another 
+            # thread to allow it to cancel the operation
+
+            # Make the token the current token for the thread
+            with token:
+                # Do something
+                token.cancel_if_requested()
+                # Do something else
+                token.cancel_if_requested()
+
+            # From the different thread, run.
+            # It will stop the main thread at the nearest `cancel_if_requested`
+            token.cancel()
+
     """
     def __init__(self):
         self._callbacks = []
@@ -162,7 +172,7 @@ class CancellationToken(metaclass=_CancellationTokenMeta):
 
     def cancel(self):
         """
-        Cancel the operation. This will raise a CancelledException in the current context.
+        Cancel the operation. This will raise a ``CancelledException`` in the current context.
         """
         self._cancelled = True
         for cb in self._callbacks:
@@ -170,8 +180,8 @@ class CancellationToken(metaclass=_CancellationTokenMeta):
 
     def cancel_if_requested(self: Optional['CancellationToken'] = None):
         """
-        Check if the operation has been cancelled and raise a CancelledException if it has.
-        Can also be used as a static method: `CancellationToken.cancel_if_requested()`
+        Check if the operation has been cancelled and raise a ``CancelledException`` if it has.
+        Can also be used as a static method: ``CancellationToken.cancel_if_requested()``
         """
         if self is None:
             # Static method

@@ -46,6 +46,12 @@ quickstart
 
 ```{toctree}
 :maxdepth: 1
+:caption: Advanced
+backends
+```
+
+```{toctree}
+:maxdepth: 1
 :caption: Reference
 
 Methods <methods>
