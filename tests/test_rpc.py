@@ -1,9 +1,6 @@
+import sys
 from functools import partial
-import contextlib
-from queue import Queue, Empty
-import inspect
 import threading
-import random
 import pytest
 import time
 from time import sleep
@@ -285,6 +282,9 @@ def _test_function_base_exception():
                          ids=lambda x: ",".join(x) if x else "default")
 @typeguard_ignore
 def test_remote_process_rpc_backend(protocol_classes):
+    if (protocol_classes is not None and protocol_classes[0] == "shm-pickle") and sys.version_info < (3, 8):
+        pytest.skip("Shared memory is only supported on Python 3.8+")
+
     from nerfbaselines.backends._rpc import AutoTransportProtocol, RemoteProcessRPCBackend
 
     # Test normal
@@ -322,6 +322,9 @@ def _test_function_cancel():
                          ids=lambda x: ",".join(x) if x else "default")
 @typeguard_ignore
 def test_remote_process_rpc_backend_cancel(protocol_classes):
+    if (protocol_classes is not None and protocol_classes[0] == "shm-pickle") and sys.version_info < (3, 8):
+        pytest.skip("Shared memory is only supported on Python 3.8+")
+
     from nerfbaselines.backends._rpc import AutoTransportProtocol, RemoteProcessRPCBackend
     protocol = AutoTransportProtocol(protocol_classes=protocol_classes)
     with RemoteProcessRPCBackend(protocol=protocol) as endpoint:
@@ -343,6 +346,9 @@ def test_remote_process_rpc_backend_cancel(protocol_classes):
                          ids=lambda x: ",".join(x) if x else "default")
 @typeguard_ignore
 def test_remote_process_rpc_backend_dead_process(protocol_classes):
+    if (protocol_classes is not None and protocol_classes[0] == "shm-pickle") and sys.version_info < (3, 8):
+        pytest.skip("Shared memory is only supported on Python 3.8+")
+
     from nerfbaselines.backends._rpc import AutoTransportProtocol, RemoteProcessRPCBackend
     protocol = AutoTransportProtocol(protocol_classes=protocol_classes)
     with RemoteProcessRPCBackend(protocol=protocol) as endpoint:

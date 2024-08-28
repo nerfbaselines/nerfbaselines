@@ -74,6 +74,7 @@ def deserialize3(message):
     return pickle.loads(header[4:], buffers=buffers)
 
 
+@pytest.mark.skipif(sys.version_info < (3, 8), reason="requires python3.8 or higher")
 @pytest.mark.benchmark(group="rpc-transport")
 @pytest.mark.parametrize("serialize, deserialize", [
     (serialize1, deserialize1), 
