@@ -40,15 +40,26 @@ def test_protocol_wait_for_worker_timeout(protocol_classes):
 
 @pytest.fixture()
 def with_echo_protocol():
+    exc = []
     def worker(cls, config):
-        protocol_worker = cls(**config)
-        protocol_worker.connect_worker()
+        try:
+            protocol_worker = cls(**config)
+            protocol_worker.connect_worker()
 
-        while True:
-            data = protocol_worker.receive()
-            if data.get("_end"):
-                break
-            protocol_worker.send(data)
+            while True:
+                data = protocol_worker.receive()
+                if data.get("_end"):
+                    break
+                if data.get("_action") == "end_after_receive":
+                    protocol_worker.close()
+                    break
+                if data.get("_action") == "end_after_send":
+                    protocol_worker.send({})
+                    protocol_worker.close()
+                    break
+                protocol_worker.send(data)
+        except BaseException as e:
+            exc.append(e)
 
     @contextlib.contextmanager
     def context(protocol_host):
@@ -64,8 +75,10 @@ def with_echo_protocol():
             yield protocol_host
 
         finally:
-            protocol_host.send({"_end": True})
+            protocol_host.close()
             worker_thread.join()
+
+    context.exceptions = exc  # type: ignore
     return context
 
 
@@ -93,3 +106,71 @@ def test_protocol_shm_pickle_large_message(with_echo_protocol):
         echo_protocol.send({"data": dummy_data})
         out = echo_protocol.receive()
         assert np.array_equal(dummy_data, out["data"])
+
+
+@timeout(1)
+def test_protocol_tcp_pickle_large_message(with_echo_protocol):
+    from nerfbaselines.backends.protocol_tcp_pickle import TCPPickleProtocol
+    import numpy as np
+
+    with with_echo_protocol(TCPPickleProtocol(max_message_size=100)) as echo_protocol:
+        dummy_data = np.random.rand(100, 100)
+        echo_protocol.send({"data": dummy_data})
+        out = echo_protocol.receive()
+        assert np.array_equal(dummy_data, out["data"])
+
+
+@pytest.mark.parametrize("protocol_classes", 
+                         [[k] for k in _transport_protocols_registry.keys()] + [
+                             ["tcp-pickle", "shm-pickle"]
+                        ], ids=lambda x: ",".join(x))
+@timeout(1)
+def test_protocol_close_connection_host(protocol_classes, with_echo_protocol):
+    from nerfbaselines.backends._rpc import AutoTransportProtocol
+    import numpy as np
+
+    # Note, if the echo protocol thread wasn't killed, 
+    # the context would not exit and the function would
+    # timeout.
+
+    with with_echo_protocol(AutoTransportProtocol(protocol_classes=protocol_classes)) as echo_protocol:
+        dummy_data = np.random.rand(100, 100)
+        echo_protocol.send({"data": dummy_data})
+        _ = echo_protocol.receive()
+
+        # Test after receive
+        echo_protocol.close()
+
+    with with_echo_protocol(AutoTransportProtocol(protocol_classes=protocol_classes)) as echo_protocol:
+        dummy_data = np.random.rand(100, 100)
+        echo_protocol.send({"data": dummy_data})
+
+        # Test before receive
+        echo_protocol.close()
+
+
+@pytest.mark.parametrize("protocol_classes", 
+                         [[k] for k in _transport_protocols_registry.keys()] + [
+                             ["tcp-pickle", "shm-pickle"]
+                        ], ids=lambda x: ",".join(x))
+@timeout(4)
+def test_protocol_close_connection_worker(protocol_classes, with_echo_protocol):
+    from nerfbaselines.backends._rpc import AutoTransportProtocol
+
+    with with_echo_protocol(AutoTransportProtocol(protocol_classes=protocol_classes)) as echo_protocol:
+        echo_protocol.send({"_action": "end_after_send"})
+        echo_protocol.receive()
+
+    with with_echo_protocol(AutoTransportProtocol(protocol_classes=protocol_classes)) as echo_protocol:
+        echo_protocol.send({"_action": "end_after_send"})
+        echo_protocol.receive()
+
+        # The connection should be broken at this point
+        with pytest.raises(ConnectionError):
+            echo_protocol.send({})
+            echo_protocol.receive()
+
+    with with_echo_protocol(AutoTransportProtocol(protocol_classes=protocol_classes)) as echo_protocol:
+        with pytest.raises(ConnectionError):
+            echo_protocol.send({"_action": "end_after_receive"})
+            echo_protocol.receive()

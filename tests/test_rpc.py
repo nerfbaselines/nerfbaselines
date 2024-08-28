@@ -336,3 +336,27 @@ def test_remote_process_rpc_backend_cancel(protocol_classes):
             with cancellation_token:
                 endpoint.static_call(_test_function_cancel.__module__+":"+_test_function_cancel.__name__)
     assert time.time() - start < 10.0
+
+
+@pytest.mark.parametrize("protocol_classes", 
+                         [["tcp-pickle"], ["shm-pickle"], ["tcp-pickle", "shm-pickle"], None],
+                         ids=lambda x: ",".join(x) if x else "default")
+@typeguard_ignore
+def test_remote_process_rpc_backend_dead_process(protocol_classes):
+    from nerfbaselines.backends._rpc import AutoTransportProtocol, RemoteProcessRPCBackend
+    protocol = AutoTransportProtocol(protocol_classes=protocol_classes)
+    with RemoteProcessRPCBackend(protocol=protocol) as endpoint:
+        start = time.time()
+        endpoint.static_call(_test_function.__module__+":"+_test_function.__name__, 1, 2)
+
+        # Now, we just kill the other process and wait for the RPC backend to detect
+        time.sleep(0.3)
+        print("Killing process")
+        assert endpoint._worker_process is not None
+        endpoint._worker_process.kill()
+
+        with pytest.raises(ConnectionError):
+            for _ in range(101):
+                endpoint.static_call(_test_function_cancel.__module__+":"+_test_function_cancel.__name__)
+                time.sleep(100)
+    assert time.time() - start < 10.0

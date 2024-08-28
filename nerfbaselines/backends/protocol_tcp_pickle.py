@@ -147,7 +147,15 @@ class TCPPickleProtocol:
     def _worker_get_messages_thread(queue, queue_interrupt, lock, conn: Connection):
         try:
             while not conn.closed:
-                conn.poll(None)
+                # print("Polling")
+                # conn.poll(None)
+                # print("Polled")
+                # conn.poll(None)
+                try:
+                    conn.poll(timeout=1.0)
+                except TimeoutError as to:
+                    print(to)
+                    continue
                 with lock:
                     msg = _tcp_pickle_recv(conn)
                 if msg.get("__interrupt__", False):
@@ -202,31 +210,37 @@ class TCPPickleProtocol:
         assert self._is_host or not interrupt, "Only host can send interrupt messages"
         assert self._conn is not None, "Not connected"
         with self._protect_singlerun(("send", interrupt)):
-            if interrupt:
-                message = {**message, "__interrupt__": True}
-            if self._is_host:
-                _tcp_pickle_send(self._conn, message, **self._transport_options)
-            else:
-                assert self._lock is not None
-                with self._lock:
+            try:
+                if interrupt:
+                    message = {**message, "__interrupt__": True}
+                if self._is_host:
                     _tcp_pickle_send(self._conn, message, **self._transport_options)
+                else:
+                    assert self._lock is not None
+                    with self._lock:
+                        _tcp_pickle_send(self._conn, message, **self._transport_options)
+            except (EOFError, BrokenPipeError, ConnectionError) as e:
+                raise ConnectionError("Connection error") from e
 
     def receive(self, interrupt=False):
         assert self._is_host is not None, "Not started as host or worker"
         assert not self._is_host or not interrupt, "Only worker can receive interrupt messages"
         assert self._conn is not None, "Not initialized"
         with self._protect_singlerun(("receive", interrupt,)):
-            if self._is_host:
-                message = _tcp_pickle_recv(self._conn)
-            else:
-                assert self._queue is not None, "Not initialized"
-                if interrupt:
-                    assert self._queue_interrupt is not None, "Not initialized"
-                    message = self._queue_interrupt.get()
+            try:
+                if self._is_host:
+                    message = _tcp_pickle_recv(self._conn)
                 else:
-                    message = self._queue.get()
-                if isinstance(message, Exception):
-                    raise message
+                    assert self._queue is not None, "Not initialized"
+                    if interrupt:
+                        assert self._queue_interrupt is not None, "Not initialized"
+                        message = self._queue_interrupt.get()
+                    else:
+                        message = self._queue.get()
+                    if isinstance(message, Exception):
+                        raise message
+            except (EOFError, BrokenPipeError, ConnectionError) as e:
+                raise ConnectionError("Connection error") from e
         return message
 
     def close(self):

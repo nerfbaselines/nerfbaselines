@@ -154,6 +154,7 @@ def _shm_send_unify_buffers(shared_memory, message, set_flag,
 
 
 def _shm_wait_for(shared_memory, lock_value, sleep=0.00001, timeout=None):
+    # print("waitf", lock_value, os.getpid())
     start_time = time.time()
     if shared_memory.buf is None:
         raise ConnectionClosed()
@@ -171,6 +172,7 @@ def _shm_wait_for(shared_memory, lock_value, sleep=0.00001, timeout=None):
 
 
 def _shm_set_flag(shared_memory, lock_value):
+    # print("  setf", lock_value, os.getpid())
     shared_memory.buf[:4] = struct.pack("i", lock_value)
 
 
@@ -321,27 +323,16 @@ class SharedMemoryProtocol:
         assert not self._is_host or not interrupt, "Only worker can receive interrupt messages"
         with self._protect_singlerun("receive", interrupt):
             channel = 3 if self._is_host else (2 if interrupt else 1)
-            _shm_wait_for(self._shared_memory, [channel, 7])
+            _shm_wait_for(self._shared_memory, [channel])
             return _shm_recv(self._shared_memory)
 
     def close(self):
         if self._is_host is None:
             return
         if self._shared_memory is not None:
+            for _ in range(100):
+                _shm_set_flag(self._shared_memory, 7)
             if self._is_host:
-                # Send the close message
-                if self._connected:
-                    try:
-                        self.send({"message": "close"})
-                        _shm_wait_for(self._shared_memory, [])
-                    except ConnectionClosed:
-                        pass
-
                 self._shared_memory.unlink()
-            else:
-                # Destroy the channel
-                if self._connected:
-                    _shm_wait_for(self._shared_memory, [0])
-                    _shm_set_flag(self._shared_memory, 7)
             self._shared_memory.close()
             self._shared_memory = None

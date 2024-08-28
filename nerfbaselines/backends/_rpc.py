@@ -1,3 +1,4 @@
+import time
 from contextlib import nullcontext
 import ast
 import collections.abc
@@ -308,7 +309,7 @@ def run_worker(*, protocol):
         interrupt_thread.start()
         while interrupt_thread.is_alive():
             msg = protocol.receive()
-            if msg.get("message") == "close":
+            if msg.get("message") == "_safe_close":
                 safe_terminate = True
                 protocol.close()
                 break
@@ -615,6 +616,7 @@ class RemoteProcessRPCBackend(Backend):
         self._worker_running = False
 
         self._worker_process: Optional[subprocess.Popen] = None
+        self._worker_monitor_thread = None
         self._inside_context = False
 
     def __enter__(self):
@@ -623,12 +625,23 @@ class RemoteProcessRPCBackend(Backend):
         return self
 
     def __exit__(self, *args):
+        # If there was no exception, we safely close the worker by sending a close message
+        try:
+            if self._protocol is not None and self._worker_running and not args:
+                self._protocol.send({"message": "_safe_close"})
+        except Exception:
+            pass
+
         super().__exit__(*args)
+
         self._inside_context = False
         self.close()
 
     def close(self):
         self._worker_running = False
+        if self._worker_monitor_thread is not None:
+            self._worker_monitor_thread.join()
+            self._worker_monitor_thread = None
         if self._protocol is not None:
             self._protocol.close()
             self._protocol = None
@@ -655,6 +668,18 @@ class RemoteProcessRPCBackend(Backend):
 
     def _customize_wrapper(self, ns):
         return ns
+
+    def _worker_monitor(self):
+        while self._worker_running and self._worker_process is not None:
+            status = self._worker_process.poll()
+            if status is not None and self._worker_running and self._worker_process is not None:
+                logging.error(f"Worker died with status code {self._worker_process.poll()}")
+
+                # Now, we attenpt to kill the worker by closing the protocol
+                if self._protocol is not None:
+                    self._protocol.close()
+            if status is not None:
+                break
 
     def _ensure_started(self):
         if self._worker_running:
@@ -696,13 +721,6 @@ rw(protocol={init_protocol_code})
         env["PYTHONPATH"] = f'{package_path}:{env.get("PYTHONPATH", "")}'.rstrip(":")
         args = ["python", "-c", code]
 
-        # TODO:
-        with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
-            f.write(code)
-            f.flush()
-            f.close()
-        args = ["python", "-m", "cProfile", "-o", "stats.pstats", f.name]
-
         self._worker_process = self._launch_worker(args, env)
         logging.info("Waiting for connection")
         while True:
@@ -714,6 +732,11 @@ rw(protocol={init_protocol_code})
             except TimeoutError:
                 continue
         self._worker_running = True
+
+        # Start monitor thread
+        self._worker_monitor_thread = threading.Thread(target=self._worker_monitor)
+        self._worker_monitor_thread.start()
+        
         logging.info("Backend worker started")
 
         if self._rpc_backend is None:
