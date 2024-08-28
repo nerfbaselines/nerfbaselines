@@ -89,7 +89,7 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 
 
 ### Blender
-Blender (nerf-synthetic) is a synthetic dataset used to benchmark NeRF methods. It consists of 8 scenes of an object placed on a white background. Cameras are placed on a semi-sphere around the object.
+Blender (nerf-synthetic) is a synthetic dataset used to benchmark NeRF methods. It consists of 8 scenes of an object placed on a white background. Cameras are placed on a semi-sphere around the object. Scenes are licensed under various CC licenses.
 Detailed results are available on the project page: [https://jkulhanek.com/nerfbaselines/blender](https://jkulhanek.com/nerfbaselines/blender)
 
 | Method                                                                                   |       PSNR |      SSIM | LPIPS (VGG) |        Time |   GPU mem. |

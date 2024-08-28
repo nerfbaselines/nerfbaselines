@@ -1,11 +1,13 @@
-import hashlib
-import shutil
 import os
-import tempfile
+import time
+from datetime import datetime
 import zipfile
+import requests
+import shutil
+import tempfile
 import logging
-import sys
 import json
+from tqdm import tqdm
 from pathlib import Path
 from typing import Union
 import numpy as np
@@ -13,11 +15,14 @@ from ..types import camera_model_to_int, new_cameras
 from ._common import DatasetNotFoundError, get_default_viewer_transform, new_dataset
 
 
+DATASET_NAME = "blender"
 BLENDER_SCENES = {"lego", "ship", "drums", "hotdog", "materials", "mic", "chair", "ficus"}
 BLENDER_SPLITS = {"train", "test"}
+_URL = "https://huggingface.co/datasets/jkulhanek/nerfbaselines-data/resolve/main/blender/{scene}.zip"
 
 
 def load_blender_dataset(path: Union[Path, str], split: str, **kwargs):
+    del kwargs
     assert isinstance(path, (Path, str)), "path must be a pathlib.Path or str"
     path = Path(path)
 
@@ -79,55 +84,56 @@ def load_blender_dataset(path: Union[Path, str], split: str, **kwargs):
     )
 
 
-def download_blender_dataset(path: str, output: Path):
-    if path == "blender":
-        extract_prefix = "nerf_synthetic/"
-    elif path.startswith("blender/") and len(path) > len("blender/"):
-        scene_name = path[len("blender/") :]
-        if scene_name not in BLENDER_SCENES:
-            raise DatasetNotFoundError(f"Scene {scene_name} not found in nerf_synthetic dataset. Supported scenes: {BLENDER_SCENES}.")
-        extract_prefix = f"nerf_synthetic/{scene_name}/"
-    else:
-        raise DatasetNotFoundError(f"Dataset path must be equal to 'blender' or must start with 'blender/'. It was {path}")
+def download_blender_dataset(path: str, output: Union[Path, str]) -> None:
+    output = Path(output)
+    if not path.startswith(f"{DATASET_NAME}/") and path != DATASET_NAME:
+        raise DatasetNotFoundError("Dataset path must be equal to 'blender' or must start with 'blender/'.")
 
-    # https://drive.google.com/uc?id=18JxhpWD-4ZmuFKLzKlAw-w5PpzZxXOcG
-    blender_file_id = "18JxhpWD-4ZmuFKLzKlAw-w5PpzZxXOcG"
-    file_sha256 = "f01fd1b4ab045b0d453917346f26f898657bb5bec4834b95fdad1f361826e45e"
-    try:
-        import gdown
-    except ImportError:
-        logging.fatal("Please install gdown: pip install gdown")
-        sys.exit(2)
+    if path == DATASET_NAME:
+        for scene in BLENDER_SCENES:
+            download_blender_dataset(f"{DATASET_NAME}/{scene}", output/scene)
+        return
 
-    url = f"https://drive.google.com/uc?id={blender_file_id}"
-    output_tmp = str(output) + ".tmp"
-    if os.path.exists(output_tmp):
-        shutil.rmtree(output_tmp)
-    os.makedirs(output_tmp)
-    has_member = False
-    with tempfile.TemporaryDirectory() as tmpdir:
-        gdown.download(url, output=tmpdir + "/blender_data.zip")
+    scene = path.split("/")[-1]
+    if scene not in BLENDER_SCENES:
+        raise RuntimeError(f"Unknown scene {scene}, supported scenes: {BLENDER_SCENES}")
+    url = _URL.format(scene=scene)
+    response = requests.get(url, stream=True)
+    response.raise_for_status()
+    total_size_in_bytes = int(response.headers.get("content-length", 0))
+    block_size = 1024  # 1 Kibibyte
+    progress_bar = tqdm(total=total_size_in_bytes, unit="iB", unit_scale=True, desc=f"Downloading {url.split('/')[-1]}", dynamic_ncols=True)
+    with tempfile.TemporaryFile("rb+") as file:
+        for data in response.iter_content(block_size):
+            progress_bar.update(len(data))
+            file.write(data)
+        file.flush()
+        file.seek(0)
+        progress_bar.close()
+        if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
+            logging.error(f"Failed to download dataset. {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes.")
 
-        # Verify hash
-        with open(tmpdir + "/blender_data.zip", "rb") as f:
-            hasher = hashlib.sha256()
-            for blk in iter(lambda: f.read(4096), b""):
-                hasher.update(blk)
-            if hasher.hexdigest() != file_sha256:
-                raise RuntimeError(f"Hash of {tmpdir + '/blender_data.zip'} does not match {file_sha256}")
+        with zipfile.ZipFile(file, mode="r") as z:
+            output_tmp = output.with_suffix(".tmp")
+            output_tmp.mkdir(exist_ok=True, parents=True)
 
-        # Extract files
-        logging.info("Blender dataset downloaded and verified")
-        logging.info(f"Extracting blender dataset: {tmpdir + '/blender_data.zip'}")
-        with zipfile.ZipFile(tmpdir + "/blender_data.zip", "r") as zip_ref:
-            for member in zip_ref.infolist():
-                if member.filename.startswith(extract_prefix) and len(member.filename) > len(extract_prefix):
-                    member.filename = member.filename[len(extract_prefix) :]
-                    zip_ref.extract(member, output_tmp)
-                    has_member = True
-    if not has_member:
-        raise RuntimeError(f"Path {path} not found in nerf_synthetic dataset.")
-    if os.path.exists(str(output)):
-        shutil.rmtree(str(output))
-    os.rename(str(output) + ".tmp", str(output))
-    logging.info(f"Downloaded {path} to {output}")
+            for info in z.infolist():
+                if not info.filename.startswith(scene + "/"):
+                    continue
+                relname = info.filename[len(scene) + 1 :]
+                target = output_tmp / relname
+                target.parent.mkdir(exist_ok=True, parents=True)
+                if info.is_dir():
+                    target.mkdir(exist_ok=True, parents=True)
+                else:
+                    info.filename = relname
+                    z.extract(info, output_tmp)
+
+                    # Fix mtime
+                    date_time = datetime(*info.date_time)
+                    mtime = time.mktime(date_time.timetuple())
+                    os.utime(target, (mtime, mtime))
+
+            shutil.rmtree(output, ignore_errors=True)
+            shutil.move(str(output_tmp), str(output))
+            logging.info(f"Downloaded {DATASET_NAME}/{scene} to {output}")
