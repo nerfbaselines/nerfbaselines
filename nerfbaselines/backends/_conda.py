@@ -148,9 +148,9 @@ fi
 class CondaBackend(RemoteProcessRPCBackend):
     name = "conda"
 
-    def __init__(self, spec: CondaBackendSpec, address: str = "localhost", port: Optional[int] = None):
+    def __init__(self, spec: CondaBackendSpec):
         self._spec = spec
-        super().__init__(address=address, port=port, python_path="python")
+        super().__init__(python_path="python")
         assert self._spec.get("environment_name") is not None, "CondaBackend requires environment_name to be specified"
 
     def _launch_worker(self, args, env):

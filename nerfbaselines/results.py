@@ -126,7 +126,8 @@ def _mock_build_method(spec: MethodSpec) -> Iterator[Type[Method]]:
         mock.patch('sys.modules', new=sys.modules.copy()):
         backend_impl = backends.get_backend(spec, "python")
         with backend_impl:
-            yield cast(Type[Method], backend_impl.wrap(registry._build_method)(spec))
+            build_method = registry._build_method
+            yield cast(Type[Method], backend_impl.static_call(f"{build_method.__module__}:{build_method.__name__}", spec))
 
 
 def get_method_info_from_spec(spec: MethodSpec) -> MethodInfo:

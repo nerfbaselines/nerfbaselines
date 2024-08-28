@@ -131,139 +131,73 @@ class CancelledException(Exception):
 
 
 class _CancellationTokenMeta(type):
-    _current_stack = {}
+    _local = threading.local()
 
     @property
     def current(cls) -> Optional["CancellationToken"]:
-        thread_id = threading.get_ident()
-        stack = _CancellationTokenMeta._current_stack.get(thread_id, None)
-        if not stack:
-            return None
-        return stack[-1]
+        return _CancellationTokenMeta._local.__dict__.get("current", None)
 
-    def _push_token(cls, token):
-        thread_id = threading.get_ident()
-        stack = _CancellationTokenMeta._current_stack.get(thread_id, None)
-        if stack is None:
-            _CancellationTokenMeta._current_stack[thread_id] = deque([token])
-        else:
-            stack.append(token)
+    def _set_token(cls, token):
+        _CancellationTokenMeta._local.current = token
     
-    def _pop_token(cls, token):
-        thread_id = threading.get_ident()
-        _CancellationTokenMeta._current_stack[thread_id].pop()
-
 
 class CancellationToken(metaclass=_CancellationTokenMeta):
-    def __init__(self, parent_token: Optional['CancellationToken'] = None):
-        self.parent = parent_token
+    """``CancellationToken`` is a context manager that can be used to cancel a long running operation. ``CancellationToken.current`` is a thread-local variable that can be used to access the current token.
+
+    Example:
+        ::
+
+            # Create the token
+            token = CancellationToken()
+            
+            # Now, you would  pass the token to another 
+            # thread to allow it to cancel the operation
+
+            # Make the token the current token for the thread
+            with token:
+                # Do something
+                token.cancel_if_requested()
+                # Do something else
+                token.cancel_if_requested()
+
+            # From the different thread, run.
+            # It will stop the main thread at the nearest `cancel_if_requested`
+            token.cancel()
+
+    """
+    def __init__(self):
         self._callbacks = []
         self._cancelled = False
-        self.del_hooks = []
-        if parent_token is not None:
-            parent_token.register_callback(self.cancel)
-
-    def __del__(self):
-        for hook in self.del_hooks:
-            hook(self)
-        self.del_hooks.clear()
+        self._old_token = None
 
     def cancel(self):
+        """
+        Cancel the operation. This will raise a ``CancelledException`` in the current context.
+        """
         self._cancelled = True
         for cb in self._callbacks:
             cb()
 
-    @property
-    def cancelled(self):
-        if self.parent is not None and self.parent.cancelled:
-            return True
-        return self._cancelled
-
-    def register_callback(self, callback):
-        if callback not in self._callbacks:
-            self._callbacks.append(callback)
-    
-    def unregister_callback(self, callback):
-        self._callbacks.remove(callback)
-
-    def _trace(self, frame, event, arg):
-        if event == "line":
-            if self.cancelled:
-                raise CancelledException
-        return self._trace
-
-    def _invoke_generator(self, fn, *args, **kwargs):
-        try:
-            sys.settrace(self._trace)
-            for r in fn(*args, **kwargs):
-                yield r
-        finally:
-            sys.settrace(None)
-
-    def invoke(self, fn, *args, **kwargs):
-        if inspect.isgeneratorfunction(fn):
-            return self._invoke_generator(fn, *args, **kwargs)
-
-        try:
-            sys.settrace(self._trace)
-            return fn(*args, **kwargs)
-        finally:
-            sys.settrace(None)
-
-    def raise_for_cancelled(self):
-        if self.cancelled:
+    def cancel_if_requested(self: Optional['CancellationToken'] = None):
+        """
+        Check if the operation has been cancelled and raise a ``CancelledException`` if it has.
+        Can also be used as a static method: ``CancellationToken.cancel_if_requested()``
+        """
+        if self is None:
+            # Static method
+            if CancellationToken.current is not None:
+                CancellationToken.current.cancel_if_requested()
+        elif self._cancelled:
             raise CancelledException
 
     def __enter__(self):
-        type(self)._push_token(self)
+        self._old_token = CancellationToken.current
+        CancellationToken._set_token(self)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        type(self)._pop_token(self)
-
-
-@overload
-def cancellable(fn: TCallable, *, mark_only: bool =..., cancellation_token: Optional[CancellationToken] = ...) -> TCallable:
-    ...
-
-@overload
-def cancellable(*, mark_only: bool =..., cancellation_token: Optional[CancellationToken] = ...) -> Callable[[TCallable], TCallable]:
-    ...
-
-# TODO: fix signature of wrapped function
-def cancellable(fn=None, *, mark_only: bool = False, cancellation_token: Optional[CancellationToken] = None):
-    def wrap(fn):
-        if mark_only:
-            fn.__cancellable__ = True
-            return fn
-
-        if getattr(fn, "__cancellable__", False) and cancellation_token is None:
-            return fn
-
-        if inspect.isgeneratorfunction(fn):
-            @wraps(fn)
-            def wrapped_generator(*args, **kwargs):
-                with (cancellation_token or contextlib.nullcontext()):
-                    token = CancellationToken.current
-                    if token is None or getattr(fn, "__cancellable__", False):
-                        yield from fn(*args, **kwargs)
-                    else:
-                        yield from token.invoke(fn, *args, **kwargs)
-            wrapped_generator.__cancellable__ = True  # type: ignore
-            return wrapped_generator
-        else:
-            @wraps(fn)
-            def wrapped_function(*args, **kwargs):
-                with (cancellation_token or contextlib.nullcontext()):
-                    token = CancellationToken.current
-                    if token is None or getattr(fn, "__cancellable__", False):
-                        return fn(*args, **kwargs)
-                    else:
-                        return token.invoke(fn, *args, **kwargs)
-            wrapped_function.__cancellable__ = True  # type: ignore
-            return wrapped_function
-
-    return wrap if fn is None else wrap(fn)
+        del exc_type, exc_value, traceback
+        CancellationToken._set_token(self._old_token)
 
 
 class Formatter(logging.Formatter):
@@ -551,7 +485,7 @@ def run_on_host():
         def wrapped(*args, **kwargs):
             from .backends import Backend
             if Backend.current is not None:
-                return Backend.current.wrap(fn)(*args, **kwargs)
+                return Backend.current.static_call(f"{fn.__module__}:{fn.__name__}", *args, **kwargs)
             return fn(*args, **kwargs)
         wrapped.__run_on_host_original__ = fn  # type: ignore
         return wrapped

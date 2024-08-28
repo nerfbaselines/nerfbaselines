@@ -333,6 +333,7 @@ class ModelInfo(TypedDict, total=False):
 
 class RenderOptions(TypedDict, total=False):
     outputs: Tuple[str, ...]
+    output_type_dtypes: Dict[str, str]
 
 
 @runtime_checkable
@@ -345,7 +346,7 @@ class Method(Protocol):
         pass
 
     @classmethod
-    def install(cls):
+    def install(cls) -> None:
         """
         Install the method.
         """
@@ -412,7 +413,7 @@ class Method(Protocol):
         raise NotImplementedError()
 
     @abstractmethod
-    def train_iteration(self, step: int):
+    def train_iteration(self, step: int) -> Dict[str, float]:
         """
         Train one iteration.
 
@@ -422,7 +423,7 @@ class Method(Protocol):
         raise NotImplementedError()
 
     @abstractmethod
-    def save(self, path: str):
+    def save(self, path: str) -> None:
         """
         Save model.
 

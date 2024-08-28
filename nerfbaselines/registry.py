@@ -396,7 +396,7 @@ def build_method(spec: MethodSpec, backend: Optional[BackendName] = None):
     logging.info(f"Using method: {method}, backend: {backend_impl.name}")
     with backend_impl:
         backend_impl.install()
-        yield cast(Type[Method], backend_impl.wrap(_build_method)(spec))
+        yield cast(Type[Method], backend_impl.static_call(f"{_build_method.__module__}:{_build_method.__name__}", spec))
 
 
 def get_supported_datasets() -> FrozenSet[str]:

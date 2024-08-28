@@ -190,15 +190,12 @@ def with_environ(env):
 class ApptainerBackend(RemoteProcessRPCBackend):
     name = "apptainer"
 
-    def __init__(self, 
-                 spec: ApptainerBackendSpec, 
-                 address: str = "0.0.0.0", 
-                 port: Optional[int] = None):
+    def __init__(self, spec: ApptainerBackendSpec):
         self._spec = spec
         self._tmpdir = None
         self._applied_mounts = None
         self._installed = False
-        super().__init__(address=address, port=port)
+        super().__init__()
 
     def __enter__(self):
         super().__enter__()

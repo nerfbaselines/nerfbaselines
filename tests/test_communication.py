@@ -1,3 +1,4 @@
+from functools import partial
 from unittest import mock
 import contextlib
 import pytest
@@ -29,8 +30,8 @@ def test_render(use_remote_method):
             yield {"color": np.full(tuple(), 23)}
             yield {"color": np.full(tuple(), 26)}
 
-        def train_iteration(self, step: int):
-            pass
+        def train_iteration(self, step: int) -> dict:
+            raise NotImplementedError()
 
         def save(self, path):
             pass
@@ -83,8 +84,8 @@ def use_remote_method():
                 def setup_train(self, train_dataset, **kwargs):
                     pass
 
-                def train_iteration(self, step: int):
-                    pass
+                def train_iteration(self, step: int) -> dict:
+                    raise NotImplementedError()
 
                 def save(self, path):
                     pass
@@ -102,8 +103,7 @@ def use_remote_method():
                 backend.instance_call = lambda *args, **kwargs: intercept(oci, *args, **kwargs)
                 ocs = backend.static_call
                 backend.static_call = lambda *args, **kwargs: intercept(ocs, *args, **kwargs)
-            remote_method = backend.wrap(method)
-            yield remote_method
+            yield partial(backend.static_call, f"{method.__module__}:{method.__name__}")
 
     return wrap
 
@@ -143,9 +143,7 @@ def test_compute_metrics(use_remote_method):
     assert called, "intercept was not called"
 
 
-def test_render_cancellable(use_remote_method):
-    from nerfbaselines.utils import cancellable
-
+def test_render_cancel(use_remote_method):
     class TestMethodRenderCancellable(Method):
         def __init__(self):
             pass
@@ -165,14 +163,14 @@ def test_render_cancellable(use_remote_method):
         def get_info(self) -> ModelInfo:
             return {**self.get_method_info(), "num_iterations": 13}
 
-        @cancellable
         def render(self, cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
             for i in range(400):
+                CancellationToken.cancel_if_requested()
                 sleep(0.001)
                 yield {"color": np.full(tuple(), i)}
 
-        def train_iteration(self, step: int):
-            pass
+        def train_iteration(self, step: int) -> dict:
+            raise NotImplementedError()
 
         def save(self, path):
             pass
@@ -203,7 +201,7 @@ def test_render_cancellable(use_remote_method):
 
         vals = []
         with pytest.raises(CancelledException), cancelation_token:
-            for vw in cancellable(remote_method.render)(all_cameras):
+            for vw in remote_method.render(all_cameras):
                 v = int(vw["color"])
                 vals.append(v)
                 if v > 3:

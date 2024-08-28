@@ -43,7 +43,7 @@ from ..datasets._colmap_utils import qvec2rotmat, rotmat2qvec
 from ..utils import CancelledException, assert_not_none
 from ..pose_utils import apply_transform, get_transform_and_scale, invert_transform, pad_poses
 from ..datasets import load_dataset
-from ..backends._rpc import EventCancellationToken
+from ..utils import CancellationToken
 from ..utils import image_to_srgb, visualize_depth, apply_colormap
 from ..io import load_trajectory, save_trajectory
 from ..evaluation import render_frames, trajectory_get_embeddings, trajectory_get_cameras
@@ -1178,7 +1178,7 @@ class ViewerRenderer:
 
         try:
             if allow_cancel:
-                scope = self._cancellation_token = EventCancellationToken()
+                scope = self._cancellation_token = CancellationToken()
             else:
                 scope = contextlib.nullcontext()
             with scope:
