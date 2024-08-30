@@ -558,7 +558,7 @@ class KPlanes(Method):
         )
 
     def _get_eval_data(self, cameras):
-        if isinstance(self.data["ts_dset"], ptdataset.PhotoTourismDataset):
+        if type(self.data["ts_dset"]).__name__ == "PhotoTourismDataset":
             from plenoxels.datasets import phototourism_dataset as ptdataset  # type: ignore
             poses, kinvs, res = transform_cameras(cameras)
             bounds = self.camera_bounds_index.query(cameras.poses)

@@ -34,7 +34,8 @@ jobs:
         run: |
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install 'jax[cpu]'
-          pip install -e ".[dev]"
+          pip install -e ".[extras,dev]"
+          pip install torchmetrics dm_pix
       - name: Run dev-extras tests
         run: |
           pyright
