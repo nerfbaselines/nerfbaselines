@@ -7,6 +7,11 @@ KPlanesSpec: MethodSpec = {
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.11",
+        "installed_dependencies": {
+            "pytorch": "2.3.0",
+            "cuda": "11.8.0",
+            "opencv": None,
+        },
         "install_script": """git clone https://github.com/sarafridov/K-Planes.git kplanes --recursive
 cd kplanes
 git checkout 7e3a82dbdda31eddbe2a160bc9ef89e734d9fc54
@@ -20,6 +25,7 @@ LIBRARY_PATH="$CONDA_PREFIX/lib/stubs" pip install ninja git+https://github.com/
 pip install tqdm pillow opencv-python pandas lpips==0.1.4 imageio torchmetrics scikit-image tensorboard matplotlib
 conda install -y conda-build;conda develop .
 pip install lpips==0.1.4 importlib_metadata typing_extensions
+if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
 
 function nb-post-install () {
 if [ "$NB_DOCKER_BUILD" = "1" ]; then

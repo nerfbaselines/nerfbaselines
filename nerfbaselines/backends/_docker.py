@@ -36,6 +36,7 @@ class DockerBackendSpec(TypedDict, total=False):
     conda_spec: CondaBackendSpec
     replace_user: bool
     build_script: str
+    installed_dependencies: Dict[str, Optional[str]]
     
 
 def docker_get_environment_hash(spec: Union[DockerBackendSpec, Dict]):
@@ -50,14 +51,12 @@ def docker_get_environment_hash(spec: Union[DockerBackendSpec, Dict]):
     maybe_update(spec.get("default_cuda_archs"))
     maybe_update(spec.get("build_script"))
     maybe_update(",".join(get_package_dependencies(ignore_viewer=True)))
-    maybe_update(_DEFAULT_TORCH_INSTALL_COMMAND)
     conda_spec = spec.get("conda_spec")
     if conda_spec:
         maybe_update(conda_get_environment_hash(conda_spec))
     return value.hexdigest()
 
 
-_DEFAULT_TORCH_INSTALL_COMMAND = "torch==2.2.0 torchvision==0.17.0 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu118"
 BASE_IMAGE = f"{DOCKER_REPOSITORY}:base-{docker_get_environment_hash(cast(DockerBackendSpec, { 'default_cuda_archs': DEFAULT_CUDA_ARCHS }))[:DOCKER_TAG_HASH_LENGTH]}"
 
 
@@ -72,6 +71,8 @@ def get_docker_spec(spec: 'MethodSpec') -> Optional[DockerBackendSpec]:
             "environment_name": conda_spec["environment_name"],
             "conda_spec": conda_spec
         }
+        if "installed_dependencies" in conda_spec:
+            docker_spec["installed_dependencies"] = conda_spec["installed_dependencies"]
         return docker_spec
     return None
 
@@ -145,12 +146,11 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
     else:
         # If not inside conda env, we install the dependencies
         python_path = spec.get("python_path") or "python"
-        script += f"RUN if ! {python_path} -c 'import torch'; then {python_path} -m pip install --no-cache-dir " + _DEFAULT_TORCH_INSTALL_COMMAND + "; fi && \\\n"
         package_dependencies = get_package_dependencies()
+        script += "RUN "
         if package_dependencies:
-            script += "    " + shlex_join([python_path, "-m", "pip", "--no-cache-dir", "install"] + package_dependencies)+ " && \\\n"
-        script += f"    if ! {python_path} -c 'import cv2'; then {python_path} -m pip install --no-cache-dir opencv-python-headless; fi\n"
-        script += f'RUN if ! nerfbaselines >/dev/null 2>&1; then echo -e \'#!/usr/bin/env {python_path}\\nfrom nerfbaselines.__main__ import main\\nif __name__ == "__main__":\\n  main()\\n\'>"/usr/bin/nerfbaselines" && chmod +x "/usr/bin/nerfbaselines" || echo "Failed to create nerfbaselines in the bin folder"; fi\n'
+            script += shlex_join([python_path, "-m", "pip", "--no-cache-dir", "install"] + package_dependencies)+ " && \\\n    "
+        script += f'if ! nerfbaselines >/dev/null 2>&1; then echo -e \'#!/usr/bin/env {python_path}\\nfrom nerfbaselines.__main__ import main\\nif __name__ == "__main__":\\n  main()\\n\'>"/usr/bin/nerfbaselines" && chmod +x "/usr/bin/nerfbaselines" || echo "Failed to create nerfbaselines in the bin folder"; fi\n'
 
     script += "ENV NERFBASELINES_BACKEND=python\n"
     def is_method_allowed(method_spec: "MethodSpec"):

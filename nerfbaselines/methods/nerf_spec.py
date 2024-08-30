@@ -22,6 +22,12 @@ NeRFSpec: MethodSpec = {
     "method": ".nerf:NeRF",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
+        "installed_dependencies": {
+            "pytorch": "2.3.0",
+            "cuda": "11.8",
+            "tensorflow": "1.15.5",
+            "opencv": "4.9.0.80",
+        },
         "python_version": "3.8",
         "install_script": r"""# Clone the repo.
 git clone https://github.com/bmild/nerf
@@ -34,7 +40,7 @@ sed '239a\
 
 # Install requirements.
 conda install -y imagemagick conda-build
-pip install torch==2.3.0 torchvision==0.18.0 --index-url https://download.pytorch.org/whl/cu118
+pip install torch==2.3.0 torchvision==0.18.0 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu118
 # nvidia-pyindex modifies paths to install older TF with newer CUDA support
 # However, we do not want to corrupt user's environment, so we set the options manually
 # pip install -I nvidia-pyindex==1.0.9

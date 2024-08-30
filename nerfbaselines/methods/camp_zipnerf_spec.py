@@ -35,6 +35,12 @@ _zipnerf_paper_results = {
 _conda_spec: CondaBackendSpec = {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.11",
+        "installed_dependencies": {
+            "pytorch": "2.2.0",
+            "cuda": "11.8",
+            "jax": "0.4.23",
+            "opencv": None,
+        },
         "install_script": """# Clone the repo.
 git clone https://github.com/jonbarron/camp_zipnerf.git
 cd camp_zipnerf
@@ -56,6 +62,11 @@ git clone https://github.com/rmbrualla/pycolmap.git ./internal/pycolmap
 conda develop "$PWD"
 conda develop "$PWD/internal/pycolmap"
 conda develop "$PWD/internal/pycolmap/pycolmap"
+
+# Install other NB dependencies to allow metrics computation
+# without needing another container
+pip install torch==2.2.0 torchvision==0.17.0 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu118
+if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
 
 # Confirm that all the unit tests pass.
 # ./scripts/run_all_unit_tests.sh

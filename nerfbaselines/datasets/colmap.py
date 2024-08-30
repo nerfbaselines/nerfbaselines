@@ -195,7 +195,10 @@ def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.nda
     image_width: int = camera.width
     image_height: int = camera.height
     intrinsics = np.array([fl_x, fl_y, cx, cy], dtype=np.float32)
-    distortion_params = np.array([out.get(k, 0.0) for k in ("k1", "k2", "p1", "p2", "k3", "k4")], dtype=np.float32)
+    attributes = ["k1", "k2", "p1", "p2", "k3", "k4"]
+    if "k5" in out or "k6" in out:
+        attributes.extend(("k5", "k6"))
+    distortion_params = np.array([out.get(k, 0.0) for k in attributes], dtype=np.float32)
     return intrinsics, camera_model_to_int(camera_model), distortion_params, (image_width, image_height)
 
 
@@ -339,11 +342,9 @@ def load_colmap_dataset(path: Union[Path, str],
             images_points3D_indices = []
             ptmap = {point3D_id: i for i, point3D_id in enumerate(points3D.keys())}
             for ids in images_points3D_ids:
-                indices3D = np.zeros(len(ids), dtype=np.int32)
-                for i, point3D_id in enumerate(ids):
-                    if point3D_id == -1:
-                        continue
-                    indices3D[i] = ptmap[point3D_id]
+                indices3D = np.array([
+                    ptmap[point3D_id] for point3D_id in ids if point3D_id != -1
+                ], dtype=np.int32)
                 images_points3D_indices.append(indices3D)
 
     # camera_ids=torch.tensor(camera_ids, dtype=torch.int32),

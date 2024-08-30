@@ -8,6 +8,11 @@ TRIPSSpec: MethodSpec = {
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9.7",
+        "installed_dependencies": {
+            "pytorch": "1.13.1",
+            "cuda": "11.7",
+            "opencv": None,
+        },
         "install_script": r"""# Install trips
 # Dependencies and environment setup
 conda install -y cuda -c nvidia/label/cuda-11.8.0
@@ -75,6 +80,7 @@ echo "export LD_LIBRARY_PATH=\\"$CONDA_PREFIX/lib:\\$LD_LIBRARY_PATH\\"" >> "$CO
 
 # Install PyTorch such that it can be used by NB
 pip install torch==1.13.1+cu117 torchvision==0.14.1+cu117 --extra-index-url https://download.pytorch.org/whl/cu117
+pip install opencv-python-headless
 """,
     },
     "metadata": {

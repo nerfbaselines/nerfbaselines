@@ -22,36 +22,6 @@ from functools import partial
 from nerfbaselines.utils import NoGPUError
 
 
-# Patch resource.setrlimit
-import resource
-_backup = resource.setrlimit
-
-def _noop(out=None, *args, **kwargs):
-    del args, kwargs
-    return out
-
-try:
-    resource.setrlimit = _noop
-    import plenoxels.configs as cfg_package  # type: ignore
-    from plenoxels.main import init_trainer  # type: ignore
-    from plenoxels.runners import base_trainer  # type: ignore
-    from plenoxels.runners import video_trainer  # type: ignore
-    from plenoxels.runners import phototourism_trainer  # type: ignore
-    from plenoxels.runners import static_trainer  # type: ignore
-    from plenoxels.utils.parse_args import parse_optfloat  # type: ignore
-    from plenoxels.datasets import phototourism_dataset as ptdataset  # type: ignore
-    import plenoxels.datasets.synthetic_nerf_dataset as sndataset  # type: ignore
-    from plenoxels.datasets.intrinsics import Intrinsics  # type: ignore
-except EnvironmentError as e:
-    # tcnn import error
-    if "unknown compute capability. ensure pytorch with cuda support is installed." in str(e).lower():
-        raise NoGPUError from e
-    raise
-finally:
-    resource.setrlimit = _backup
-del _backup
-
-
 from nerfbaselines.types import Dataset, RenderOutput, OptimizeEmbeddingsOutput
 from nerfbaselines.types import Method, MethodInfo, ModelInfo, Cameras, camera_model_to_int
 from nerfbaselines.utils import flatten_hparams, convert_image_dtype
@@ -59,16 +29,45 @@ from nerfbaselines.io import get_torch_checkpoint_sha
 import tempfile
 
 
-# Patch SummaryWriter
-class NoopWritter:
-    def __init__(self, *args, **kwargs):
-        del args, kwargs
-        pass
-    def __getattr__(self, name):
-        del name
-        return _noop
+def _noop(out=None, *args, **kwargs):
+    del args, kwargs
+    return out
 
-base_trainer.SummaryWriter = NoopWritter
+
+_kplanes_patched = False
+
+
+def _patch_kplanes():
+    global _kplanes_patched
+    if _kplanes_patched:
+        return
+    _kplanes_patched = True
+    # Patch resource.setrlimit
+    import resource
+    _backup = resource.setrlimit
+
+    try:
+        resource.setrlimit = _noop
+        from plenoxels.runners import base_trainer  # type: ignore
+    except EnvironmentError as e:
+        # tcnn import error
+        if "unknown compute capability. ensure pytorch with cuda support is installed." in str(e).lower():
+            raise NoGPUError from e
+        raise
+    finally:
+        resource.setrlimit = _backup
+    del _backup
+
+    # Patch SummaryWriter
+    class NoopWritter:
+        def __init__(self, *args, **kwargs):
+            del args, kwargs
+            pass
+        def __getattr__(self, name):
+            del name
+            return _noop
+
+    base_trainer.SummaryWriter = NoopWritter
 
 
 class LambdaModule(torch.nn.Module):
@@ -82,6 +81,7 @@ class LambdaModule(torch.nn.Module):
 
 @contextmanager
 def _patch_kplanes_phototourism_dataset(dataset, camera_bounds_index):
+    from plenoxels.datasets import phototourism_dataset as ptdataset  # type: ignore
     # Patch kplanes dataset
     with tempfile.TemporaryDirectory(suffix=dataset["metadata"].get("scene") if dataset is not None else None) as tmpdir:
         ptinit_backup = ptdataset.PhotoTourismDataset.__init__
@@ -153,6 +153,8 @@ def _patch_kplanes_phototourism_dataset(dataset, camera_bounds_index):
 
 @contextmanager
 def _patch_kplanes_static_datasets(dataset, camera_bounds_index):
+    import plenoxels.datasets.synthetic_nerf_dataset as sndataset  # type: ignore
+    from plenoxels.datasets.intrinsics import Intrinsics  # type: ignore
     del camera_bounds_index
     # Patch kplanes dataset
     # TODO:!!!
@@ -205,6 +207,10 @@ def _patch_kplanes_static_datasets(dataset, camera_bounds_index):
 
 
 def load_data(model_type: str, data_downsample, data_dirs, validate_only: bool, render_only: bool, dataset, camera_bounds_index, **kwargs):
+    from plenoxels.utils.parse_args import parse_optfloat  # type: ignore
+    from plenoxels.runners import video_trainer  # type: ignore
+    from plenoxels.runners import phototourism_trainer  # type: ignore
+    from plenoxels.runners import static_trainer  # type: ignore
     data_downsample = parse_optfloat(data_downsample, default_val=1.0)
 
     if model_type == "video":
@@ -360,6 +366,7 @@ class KPlanes(Method):
                  checkpoint: Optional[str] = None,
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
+        _patch_kplanes()
         self.checkpoint = str(checkpoint) if checkpoint is not None else None
         self.camera_bounds_index = None
         self.background = None
@@ -372,6 +379,7 @@ class KPlanes(Method):
             pass
 
         # Setup config
+        import plenoxels.configs as cfg_package  # type: ignore
         config_root = os.path.join(os.path.dirname(os.path.abspath(cfg_package.__file__)), "final")
         self._loaded_step = None
         if self.checkpoint is None:  #  or not os.path.exists(os.path.join(self.checkpoint, "config.py")):
@@ -408,6 +416,7 @@ class KPlanes(Method):
         self._setup(train_dataset)
 
     def _setup(self, train_dataset: Dataset):
+        from plenoxels.main import init_trainer  # type: ignore
         # Set random seed
         np.random.seed(self.config.get("seed", 0))
         torch.manual_seed(self.config.get("seed", 0))
@@ -550,6 +559,7 @@ class KPlanes(Method):
 
     def _get_eval_data(self, cameras):
         if isinstance(self.data["ts_dset"], ptdataset.PhotoTourismDataset):
+            from plenoxels.datasets import phototourism_dataset as ptdataset  # type: ignore
             poses, kinvs, res = transform_cameras(cameras)
             bounds = self.camera_bounds_index.query(cameras.poses)
             poses, kinvs, bounds = ptdataset.scale_cam_metadata(poses, kinvs, bounds, scale=0.05)
@@ -572,6 +582,7 @@ class KPlanes(Method):
                     "bg_color": torch.ones((1, 3), dtype=torch.float32),
                 }
         elif type(self.data["ts_dset"]).__name__ == "SyntheticNerfDataset":
+            import plenoxels.datasets.synthetic_nerf_dataset as sndataset  # type: ignore
             for i, pose in enumerate(cameras.poses):
                 frame_w, frame_h = cameras.image_sizes[i]
                 # Convert from OpenCV to OpenGL coordinate system

@@ -15,6 +15,11 @@ GaussianSplattingWildSpec: MethodSpec = {
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9",
+        "installed_dependencies": {
+            "pytorch": "2.0.1",
+            "cuda": "11.7",
+            "opencv": None,
+        },
         "install_script": """git clone https://github.com/EastbeanZhang/Gaussian-Wild.git --recursive
 cd Gaussian-Wild
 git checkout 79d9e6855298a2632b530644e52d1829c6356b08
@@ -23,7 +28,7 @@ git checkout 79d9e6855298a2632b530644e52d1829c6356b08
 # from "intr = cam_intrinsics[extr.id]" to "intr = cam_intrinsics[extr.camera_id]"
 sed -i '80s/.*/        intr = cam_intrinsics[extr.camera_id]/' scene/dataset_readers.py
 
-conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 pytorch-cuda=11.7 -c pytorch -c nvidia
+conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 -c pytorch -c nvidia
 conda install -y cudatoolkit-dev=11.7 gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
 pip install -U pip 'setuptools<70.0.0' 'wheel==0.43.0'
 pip install pandas==2.2.2 \
@@ -37,6 +42,7 @@ pip install pandas==2.2.2 \
 conda install -c conda-forge -y nodejs==20.9.0
 conda develop .
 pip install lpips==0.1.4 importlib_metadata typing_extensions
+if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
 
 function nb-post-install () {
 if [ "$NB_DOCKER_BUILD" = "1" ]; then

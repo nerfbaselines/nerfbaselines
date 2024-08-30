@@ -2,7 +2,7 @@ import os
 import subprocess
 from pathlib import Path
 import shlex
-from typing import Optional
+from typing import Optional, Dict
 import hashlib
 
 import nerfbaselines
@@ -12,13 +12,11 @@ from ..utils import get_package_dependencies, shlex_join
 from ._rpc import RemoteProcessRPCBackend, get_safe_environment
 
 
-_DEFAULT_TORCH_INSTALL_COMMAND = "torch==2.2.0 torchvision==0.17.0 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu118"
-
-
 class CondaBackendSpec(TypedDict, total=False):
     environment_name: Required[str]
     python_version: Optional[str]
     install_script: Optional[str]
+    installed_dependencies: Dict[str, Optional[str]]
 
 
 def conda_get_environment_hash(spec: CondaBackendSpec):
@@ -120,8 +118,6 @@ pip install --upgrade pip setuptools
 mkdir -p {shlex.quote(os.path.join(env_path, "src"))}
 cd {shlex.quote(os.path.join(env_path, "src"))}
 {spec.get('install_script') or ''}
-if ! python -c 'import torch'; then pip install {_DEFAULT_TORCH_INSTALL_COMMAND}; fi
-if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
 {install_dependencies_script}
 if [ -e {shlex.quote(str(package_path))} ]; then
     conda develop {shlex.quote(str(package_path))}

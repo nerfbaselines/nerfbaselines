@@ -6,7 +6,7 @@ import contextlib
 from pathlib import Path
 import subprocess
 import os
-from typing import Optional, List, Tuple, TYPE_CHECKING, cast
+from typing import Dict, Optional, List, Tuple, TYPE_CHECKING, cast
 import shlex
 import nerfbaselines
 from ..types import NB_PREFIX, TypedDict, Required
@@ -25,6 +25,7 @@ class ApptainerBackendSpec(TypedDict, total=False):
     python_path: str
     default_cuda_archs: str
     conda_spec: Optional[CondaBackendSpec]
+    installed_dependencies: Dict[str, Optional[str]]
 
 
 def apptainer_get_safe_environment():
@@ -44,7 +45,8 @@ def get_apptainer_spec(spec: 'MethodSpec') -> Optional[ApptainerBackendSpec]:
     if docker_spec is not None:
         # Try to build apptainer spec from docker spec
         apptainer_spec = cast(ApptainerBackendSpec, {
-            k: v for k, v in docker_spec.items() if k in ["environment_name", "home_path", "python_path", "default_cuda_archs"]
+            k: v for k, v in docker_spec.items() if k in 
+            ["environment_name", "home_path", "python_path", "default_cuda_archs", "installed_dependencies"]
         })
         docker_image_name = get_docker_image_name(docker_spec)
         # If docker_image_name is the BASE_IMAGE, it be used, force conda build
@@ -57,11 +59,14 @@ def get_apptainer_spec(spec: 'MethodSpec') -> Optional[ApptainerBackendSpec]:
     if conda_spec is not None:
         environment_name = conda_spec.get("environment_name")
         assert environment_name is not None, "Environment name is not specified"
-        return {
+        out: ApptainerBackendSpec = {
             "image": None,
             "environment_name": environment_name,
             "conda_spec": conda_spec,
         }
+        if "installed_dependencies" in conda_spec:
+            out["installed_dependencies"] = conda_spec["installed_dependencies"]
+        return out
     return None
 
 

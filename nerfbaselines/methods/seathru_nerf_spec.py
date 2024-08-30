@@ -15,6 +15,12 @@ SeaThruNeRFSpec: MethodSpec = {
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.11",
+        "installed_dependencies": {
+            "pytorch": "2.2.0",
+            "cuda": "11.8",
+            "jax": "0.4.23",
+            "opencv": "4.9.0.80",
+        },
         "install_script": """# Clone the repo.
 git clone https://github.com/deborahLevy130/seathru_NeRF seathru-nerf
 cd seathru-nerf
@@ -54,6 +60,9 @@ rm -rf ./internal/pycolmap
 git clone https://github.com/rmbrualla/pycolmap.git ./internal/pycolmap
 conda develop "$PWD/internal/pycolmap"
 conda develop "$PWD/internal/pycolmap/pycolmap"
+
+# Install default torch to compute metrics on cuda inside the container
+pip install torch==2.2.0 torchvision==0.17.0 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu118
 
 # Confirm that all the unit tests pass.
 # ./scripts/run_all_unit_tests.sh

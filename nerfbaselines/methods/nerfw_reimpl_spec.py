@@ -8,6 +8,11 @@ NeRFWReimplSpec: MethodSpec = {
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9",
+        "installed_dependencies": {
+            "pytorch": "1.13.1",
+            "cuda": "11.7",
+            "opencv-python": "4.9.0.80",
+        },
         "install_script": r"""# Clone the repo.
 git clone https://github.com/kwea123/nerf_pl
 cd nerf_pl

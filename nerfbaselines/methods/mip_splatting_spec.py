@@ -27,6 +27,11 @@ MipSplattingSpec: MethodSpec = {
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.8",
+        "installed_dependencies": {
+            "pytorch": "2.0.1",
+            "cuda": "11.7",
+            "opencv": None,
+        },
         "install_script": """# Install mip-splatting
 git clone https://github.com/autonomousvision/mip-splatting.git
 cd mip-splatting
@@ -37,7 +42,7 @@ sed -i '/import open3d as o3d/d' train.py
 conda install -y conda-build
 conda develop .
 
-conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 pytorch-cuda=11.7 -c pytorch -c nvidia
+conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 -c pytorch -c nvidia
 conda install -y cudatoolkit-dev=11.7 gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
 conda install -c conda-forge -y nodejs==20.9.0
 
@@ -47,6 +52,7 @@ pip install lpips==0.1.4
 
 pip install submodules/diff-gaussian-rasterization
 pip install submodules/simple-knn/
+if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
 
 function nb-post-install () {
 if [ "$NB_DOCKER_BUILD" = "1" ]; then

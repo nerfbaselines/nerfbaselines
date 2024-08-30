@@ -18,8 +18,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -e '.'
-        pip install twine pytest build pyright 'typeguard<4.3.0' pytest-benchmark
+        pip install -e '.[dev]'
     - name: Run tests
       run: |
         python -m pytest
@@ -56,8 +55,7 @@ jobs:
       - name: Install nerfbaselines
         run: |
           pip install --upgrade pip
-          pip install -e .
-          pip install pytest pyright 'typeguard<4.3.0' pytest-benchmark
+          pip install -e '.[dev]'
       - name: Build image
         run: |
           nerfbaselines build-docker-image --push --skip-if-exists-remotely --tag-latest
@@ -81,8 +79,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -e '.'
-        pip install twine pytest build pyright 'typeguard<4.3.0' pytest-benchmark
+        pip install -e '.[dev]'
     - name: Run tests
       run: |
         python -m pytest

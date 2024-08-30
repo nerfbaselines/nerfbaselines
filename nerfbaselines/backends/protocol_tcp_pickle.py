@@ -25,7 +25,7 @@ def _tcp_pickle_recv(connection: Connection):
     num_buffers, flags, max_block_size = struct.unpack("IIQ", header[:16])
     del flags
     buff_lens = struct.unpack("Q"*num_buffers, header[16:16+8*num_buffers])
-    buffers: List[bytes] = []
+    buffers: List[bytearray] = []
     for buff_len in buff_lens:
         # Allocate buffer
         buffer = bytearray(buff_len)

@@ -1,5 +1,5 @@
 # Installation
-Start by installing the `nerfbaselines` pip package on your system. We recommend using a virtual environment (venv or Anaconda) to avoid conflicts with other packages.
+Start by installing the `nerfbaselines` pip package on your system. We recommend using a virtual environment (venv or Conda) to avoid conflicts with other packages.
 ```bash
 pip install nerfbaselines
 ```
@@ -18,10 +18,10 @@ Next, we will describe the installation process for each backend.
 If you have an NVIDIA GPU and want to use it (with any backend), you need to install the latest NVIDIA drivers. The installation instruction can vary depending on your operating system.
 Please follow the instructions on the [NVIDIA website](https://www.nvidia.com/Download/index.aspx) or your operating system distribution to install the latest drivers for your GPU.
 
-## Anaconda
+## Conda
 The `conda` backend is the default **(and recommended)** backend which is easy to install, but does not allow the same level of isolation and each method has to be built from source
-which can be slow. Any Anaconda distribution can be use. If you haven't installed Anaconda yet, we recommend using the [conda-forge](https://conda-forge.org/) distribution.
-Navigate to the [conda-forge download page](https://conda-forge.org/download/) and download the installer for your operating system. On Linux, you can use the following commands:
+which can be slow. Any Conda distribution can be used. If you haven't installed Conda yet, we recommend using the [miniforge](https://github.com/conda-forge/miniforge) distribution.
+Navigate to the [miniforge install page](https://github.com/conda-forge/miniforge?tab=readme-ov-file#install) and follow the instructions for your operating system. On Linux, you can use the following commands:
 ```bash
 curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
 bash Miniforge3-$(uname)-$(uname -m).sh

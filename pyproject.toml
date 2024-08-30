@@ -60,18 +60,18 @@ web = [
     'myst_parser>=4.0.0',
 ]
 dev = [
-    'torch',
-    'torchmetrics',
-    'jax',
-    'pytest==7.4.4',
-    'typeguard==4.2.1',
-    'dm-pix',
+    'pytest',
+    'typeguard<=4.2.1',
     'pytest-benchmark',
+    'pyright<=1.1.377',
     # Viewer
     'viser<0.2.0',
     # Web
     'jinja2==3.1.4',
-    'livereload==2.7.0'
+    'livereload==2.7.0',
+    # Release
+    'twine',
+    'build',
 ]
 
 [project.scripts]

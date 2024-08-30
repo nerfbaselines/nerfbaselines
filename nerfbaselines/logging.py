@@ -190,14 +190,14 @@ class WandbLoggerEvent(BaseLoggerEvent):
         xlabel, ylabel = axes_labels or ["x", "y"]
         if len(data) == 1:
             table = wandb.Table(data=[[x, y] for x, y in data[0]], columns=[xlabel, ylabel])
-            self._commit[tag] = wandb.plot.line(
+            self._commit[tag] = wandb.plot.line(  # type: ignore
                 table,
                 x=xlabel,
                 y=ylabel,
                 title=title
             )
         else:
-            self._commit[tag] = wandb.plot.line_series(
+            self._commit[tag] = wandb.plot.line_series(  # type: ignore
                 [x[:, 0] for x in data],
                 [x[:, 1] for x in data],
                 keys=labels,

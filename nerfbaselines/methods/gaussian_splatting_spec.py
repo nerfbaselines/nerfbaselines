@@ -45,11 +45,16 @@ GaussianSplattingSpec: MethodSpec = {
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9",
+        "installed_dependencies": {
+            "pytorch": "2.0.1",
+            "cuda": "11.7",
+            "opencv": None,
+        },
         "install_script": """git clone https://github.com/graphdeco-inria/gaussian-splatting --recursive
 cd gaussian-splatting
 git checkout 2eee0e26d2d5fd00ec462df47752223952f6bf4e
 
-conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 pytorch-cuda=11.7 -c pytorch -c nvidia
+conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 -c pytorch -c nvidia
 conda install -y cudatoolkit-dev=11.7 gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
 pip install -U pip 'setuptools<70.0.0'
 pip install plyfile==0.8.1 tqdm submodules/diff-gaussian-rasterization submodules/simple-knn
@@ -57,6 +62,7 @@ pip install plyfile==0.8.1 tqdm submodules/diff-gaussian-rasterization submodule
 conda install -c conda-forge -y nodejs==20.9.0
 conda develop .
 pip install lpips==0.1.4 importlib_metadata typing_extensions
+if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
 
 function nb-post-install () {
 if [ "$NB_DOCKER_BUILD" = "1" ]; then
