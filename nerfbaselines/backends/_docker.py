@@ -36,7 +36,6 @@ class DockerBackendSpec(TypedDict, total=False):
     conda_spec: CondaBackendSpec
     replace_user: bool
     build_script: str
-    installed_dependencies: Dict[str, Optional[str]]
     
 
 def docker_get_environment_hash(spec: Union[DockerBackendSpec, Dict]):
@@ -71,8 +70,6 @@ def get_docker_spec(spec: 'MethodSpec') -> Optional[DockerBackendSpec]:
             "environment_name": conda_spec["environment_name"],
             "conda_spec": conda_spec
         }
-        if "installed_dependencies" in conda_spec:
-            docker_spec["installed_dependencies"] = conda_spec["installed_dependencies"]
         return docker_spec
     return None
 

@@ -15,12 +15,6 @@ SeaThruNeRFSpec: MethodSpec = {
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.11",
-        "installed_dependencies": {
-            "pytorch": "2.2.0",
-            "cuda": "11.8",
-            "jax": "0.4.23",
-            "opencv": "4.9.0.80",
-        },
         "install_script": """# Clone the repo.
 git clone https://github.com/deborahLevy130/seathru_NeRF seathru-nerf
 cd seathru-nerf

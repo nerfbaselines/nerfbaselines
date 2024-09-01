@@ -2,7 +2,7 @@ import os
 import subprocess
 from pathlib import Path
 import shlex
-from typing import Optional, Dict
+from typing import Optional
 import hashlib
 
 import nerfbaselines
@@ -16,7 +16,6 @@ class CondaBackendSpec(TypedDict, total=False):
     environment_name: Required[str]
     python_version: Optional[str]
     install_script: Optional[str]
-    installed_dependencies: Dict[str, Optional[str]]
 
 
 def conda_get_environment_hash(spec: CondaBackendSpec):

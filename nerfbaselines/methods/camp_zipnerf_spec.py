@@ -35,12 +35,6 @@ _zipnerf_paper_results = {
 _conda_spec: CondaBackendSpec = {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.11",
-        "installed_dependencies": {
-            "pytorch": "2.2.0",
-            "cuda": "11.8",
-            "jax": "0.4.23",
-            "opencv": None,
-        },
         "install_script": """# Clone the repo.
 git clone https://github.com/jonbarron/camp_zipnerf.git
 cd camp_zipnerf

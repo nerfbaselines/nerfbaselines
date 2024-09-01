@@ -27,11 +27,6 @@ MipSplattingSpec: MethodSpec = {
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.8",
-        "installed_dependencies": {
-            "pytorch": "2.0.1",
-            "cuda": "11.7",
-            "opencv": None,
-        },
         "install_script": """# Install mip-splatting
 git clone https://github.com/autonomousvision/mip-splatting.git
 cd mip-splatting

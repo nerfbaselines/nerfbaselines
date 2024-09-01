@@ -12,12 +12,6 @@ register({
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9",
-        "installed_dependencies": {
-            "pytorch": "2.2.0",
-            "cuda": "11.8",
-            "opencv": None,
-            "jax": None,
-        },
         "install_script": """# Clone the repo.
 git clone https://github.com/cvg/nerf-on-the-go.git
 cd nerf-on-the-go

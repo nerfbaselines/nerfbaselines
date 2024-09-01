@@ -39,12 +39,6 @@ TetraNeRFSpec: MethodSpec = {
         "image": "kulhanek/tetra-nerf:latest",
         "python_path": "python3",
         "home_path": "/home/user",
-        "installed_dependencies": {
-            "pytorch": None,
-            "cuda": None,
-            "jax": None,
-            "opencv": None,
-        },
         "build_script": "",  # Force build
     },
     "metadata": {

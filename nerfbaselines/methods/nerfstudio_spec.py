@@ -23,11 +23,6 @@ NerfStudioSpec: MethodSpec = {
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.10",
-        "installed_dependencies": {
-            "pytorch": "2.3.0",
-            "cuda": "11.8.0",
-            "opencv": None,
-        },
         "install_script": r"""
 conda install -y --override-channels -c nvidia/label/cuda-11.8.0 cuda-toolkit
 conda install -y pytorch==2.3.0 torchvision==0.18.0 pytorch-cuda=11.8 'numpy<2.0.0' -c pytorch -c nvidia

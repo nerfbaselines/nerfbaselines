@@ -7,11 +7,6 @@ KPlanesSpec: MethodSpec = {
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.11",
-        "installed_dependencies": {
-            "pytorch": "2.3.0",
-            "cuda": "11.8.0",
-            "opencv": None,
-        },
         "install_script": """git clone https://github.com/sarafridov/K-Planes.git kplanes --recursive
 cd kplanes
 git checkout 7e3a82dbdda31eddbe2a160bc9ef89e734d9fc54

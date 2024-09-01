@@ -25,7 +25,6 @@ class ApptainerBackendSpec(TypedDict, total=False):
     python_path: str
     default_cuda_archs: str
     conda_spec: Optional[CondaBackendSpec]
-    installed_dependencies: Dict[str, Optional[str]]
 
 
 def apptainer_get_safe_environment():
@@ -46,7 +45,7 @@ def get_apptainer_spec(spec: 'MethodSpec') -> Optional[ApptainerBackendSpec]:
         # Try to build apptainer spec from docker spec
         apptainer_spec = cast(ApptainerBackendSpec, {
             k: v for k, v in docker_spec.items() if k in 
-            ["environment_name", "home_path", "python_path", "default_cuda_archs", "installed_dependencies"]
+            ["environment_name", "home_path", "python_path", "default_cuda_archs"]
         })
         docker_image_name = get_docker_image_name(docker_spec)
         # If docker_image_name is the BASE_IMAGE, it be used, force conda build
@@ -64,8 +63,6 @@ def get_apptainer_spec(spec: 'MethodSpec') -> Optional[ApptainerBackendSpec]:
             "environment_name": environment_name,
             "conda_spec": conda_spec,
         }
-        if "installed_dependencies" in conda_spec:
-            out["installed_dependencies"] = conda_spec["installed_dependencies"]
         return out
     return None
 

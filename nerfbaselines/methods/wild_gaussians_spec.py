@@ -10,11 +10,6 @@ WildGaussiansMethodSpec: MethodSpec = {
     "conda": {
         "environment_name": "wild-gaussians",
         "python_version": "3.11",
-        "installed_dependencies": {
-            "pytorch": "2.0.1",
-            "cuda": "11.8.0",
-            "opencv": None,
-        },
         "install_script": r"""
 git clone https://github.com/jkulhanek/wild-gaussians.git
 cd wild-gaussians

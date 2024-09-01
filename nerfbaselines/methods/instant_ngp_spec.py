@@ -23,11 +23,6 @@ InstantNGPSpec: MethodSpec = {
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9",
-        "installed_dependencies": {
-            "pytorch": "2.0.1",
-            "cuda": "11.7.1",
-            "opencv": None,
-        },
         "install_script": r"""# Install ingp
 # Dependencies and environment setup
 conda install -y cuda-toolkit -c "nvidia/label/cuda-11.7.1"
@@ -90,11 +85,6 @@ function nb-post-install () {
         "image": "kulhanek/ingp:latest",
         "python_path": "python3",
         "home_path": "/root",
-        "installed_dependencies": {
-            "pytorch": "2.0.1",
-            "cuda": "11.7.1",
-            "opencv": None,
-        },
         "build_script": """
 # Install default torch to compute metrics on cuda inside the container
 pip install opencv-python-headless torch==2.0.1 torchvision==0.15.2 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu117

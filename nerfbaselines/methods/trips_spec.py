@@ -8,11 +8,6 @@ TRIPSSpec: MethodSpec = {
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9.7",
-        "installed_dependencies": {
-            "pytorch": "1.13.1",
-            "cuda": "11.7",
-            "opencv": None,
-        },
         "install_script": r"""# Install trips
 # Dependencies and environment setup
 conda install -y cuda -c nvidia/label/cuda-11.8.0
