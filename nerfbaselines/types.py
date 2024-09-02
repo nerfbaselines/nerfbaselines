@@ -294,10 +294,11 @@ class Dataset(_IncompleteDataset):
     images: Union[np.ndarray, List[np.ndarray]]  # [N][H, W, 3]
 
 
-class RenderOutput(TypedDict, total=False):
-    color: Required[np.ndarray]  # [h w 3]
-    depth: np.ndarray  # [h w]
-    accumulation: np.ndarray  # [h w]
+RenderOutput = Dict[str, np.ndarray]
+# NOTE: Type intersection is not supported for now
+# color: Required[np.ndarray]  # [h w 3]
+# depth: np.ndarray  # [h w]
+# accumulation: np.ndarray  # [h w]
 
 
 class OptimizeEmbeddingsOutput(TypedDict):
@@ -328,7 +329,7 @@ class ModelInfo(TypedDict, total=False):
     required_features: FrozenSet[DatasetFeature]
     supported_camera_models: FrozenSet
     hparams: Dict[str, Any]
-    supported_outputs: Tuple[str, ...]
+    supported_outputs: Tuple[Union[str, RenderOutputType], ...]
 
 
 class RenderOptions(TypedDict, total=False):
@@ -438,7 +439,7 @@ class EvaluationProtocol(Protocol):
     def get_name(self) -> str:
         ...
         
-    def render(self, method: Method, dataset: Dataset) -> Iterable[RenderOutput]:
+    def render(self, method: Method, dataset: Dataset, *, options: Optional[RenderOptions] = None) -> Iterable[RenderOutput]:
         ...
 
     def evaluate(self, predictions: Iterable[RenderOutput], dataset: Dataset) -> Iterable[Dict[str, Union[float, int]]]:

@@ -327,6 +327,8 @@ def is_broadcastable(shape1, shape2):
 
 
 def convert_image_dtype(image: np.ndarray, dtype) -> np.ndarray:
+    if isinstance(dtype, str):
+        dtype = np.dtype(dtype)
     if image.dtype == dtype:
         return image
     if image.dtype != np.uint8 and dtype != np.uint8:

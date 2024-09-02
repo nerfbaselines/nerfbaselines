@@ -37,7 +37,7 @@ from scipy import interpolate
 from ..types import Method, Dataset, FrozenSet, DatasetFeature, Literal, TypeVar, CameraModel, get_args
 from ..types import new_cameras
 from ..types import TrajectoryFrameAppearance, TrajectoryFrame, TrajectoryKeyframe, Trajectory, TrajectoryInterpolationSource
-from ..types import KochanekBartelsInterpolationSource
+from ..types import KochanekBartelsInterpolationSource, RenderOptions
 from ..datasets import dataset_load_features, dataset_index_select
 from ..datasets._colmap_utils import qvec2rotmat, rotmat2qvec
 from ..utils import CancelledException, assert_not_none
@@ -1107,12 +1107,12 @@ class ViewerRenderer:
         self._cancellation_token = None
         self._output_type_options = ()
         self._task_queue = []
-        self._output_types: Dict[Tuple[Any, str], Dict] = {}
         if self.method is not None:
             method_info = self.method.get_info()
             self._output_types = {
                 (self.method, x if isinstance(x, str) else x["name"]): {"name": x, "type": x} if isinstance(x, str) else x for x in method_info.get("supported_outputs", ("color",))}
-            
+        else:
+            self._output_types = {}
     def update(self):
         if not self._task_queue:
             return
@@ -1183,7 +1183,8 @@ class ViewerRenderer:
                 scope = contextlib.nullcontext()
             with scope:
                 outputs = None
-                for outputs in self.method.render(camera, embeddings=[embedding] if embedding is not None else None):
+                options: RenderOptions = { "output_type_dtypes": { "color": "uint8" }, }
+                for outputs in self.method.render(camera, embeddings=[embedding] if embedding is not None else None, options=options):
                     pass
                 assert outputs is not None, "Method did not return any outputs"
             self._cancellation_token = None
@@ -1195,6 +1196,7 @@ class ViewerRenderer:
 
         def render_single(name):
             assert outputs is not None, "Method did not return any outputs"
+            assert self.method is not None, "No method to render"
             name = name or "color"
             rtype_spec = self._output_types.get((self.method, name))
             if rtype_spec is None:

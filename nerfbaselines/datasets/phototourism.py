@@ -219,18 +219,18 @@ class NerfWEvaluationProtocol(EvaluationProtocol):
     def get_name(self):
         return "nerfw"
 
-    def render(self, method: Method, dataset: Dataset) -> Iterable[RenderOutput]:
+    def render(self, method: Method, dataset: Dataset, *, options=None) -> Iterable[RenderOutput]:
         optimization_dataset = horizontal_half_dataset(dataset, left=True)
         optim_iterator = method.optimize_embeddings(optimization_dataset)
         if optim_iterator is None:
             # Method does not support optimization
-            for pred in method.render(dataset["cameras"]):
+            for pred in method.render(dataset["cameras"], options=options):
                 yield pred
             return
 
         for i, optim_result in enumerate(optim_iterator):
             # Render with the optimzied result
-            for pred in method.render(dataset["cameras"][i:i+1], embeddings=[optim_result["embedding"]]):
+            for pred in method.render(dataset["cameras"][i:i+1], embeddings=[optim_result["embedding"]], options=options):
                 yield pred
 
     def evaluate(self, predictions: Iterable[RenderOutput], dataset: Dataset) -> Iterable[Dict[str, Union[float, int]]]:

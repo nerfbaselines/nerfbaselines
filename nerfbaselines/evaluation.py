@@ -33,6 +33,7 @@ from .types import (
     Cameras,
     Method,
     Trajectory,
+    RenderOptions,
     camera_model_to_int,
     new_cameras,
 )
@@ -194,11 +195,11 @@ class DefaultEvaluationProtocol(EvaluationProtocol):
     def __init__(self):
         pass
 
-    def render(self, method: Method, dataset: Dataset) -> Iterable[RenderOutput]:
+    def render(self, method: Method, dataset: Dataset, *, options=None) -> Iterable[RenderOutput]:
         info = method.get_info()
         supported_camera_models = info.get("supported_camera_models", frozenset(("pinhole",)))
         render = with_supported_camera_models(supported_camera_models)(method.render)
-        yield from render(dataset["cameras"])
+        yield from render(dataset["cameras"], options=options)
 
     def get_name(self):
         return self._name
@@ -325,7 +326,8 @@ def render_frames(
             raise ValueError(f"Output type {output_name} not supported by method. Supported types: {list(output_types_map.keys())}")
 
     def _predict_all(allow_transparency=True):
-        predictions = render(cameras, embeddings=embeddings)
+        options: RenderOptions = {"output_type_dtypes": {"color": "uint8"}}
+        predictions = render(cameras, embeddings=embeddings, options=options)
         for i, pred in enumerate(tqdm(predictions, desc=description, total=len(cameras), dynamic_ncols=True)):
             out = {}
             for output_name in output_names:

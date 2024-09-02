@@ -1,5 +1,7 @@
 from unittest import mock
-from nerfbaselines.types import Method
+from nerfbaselines.types import Method, MethodInfo, ModelInfo
+import numpy as np
+
 
 class _TestMethod(Method):
     _test = 1
@@ -8,17 +10,33 @@ class _TestMethod(Method):
         self.test = self._test
 
     def optimize_embeddings(self, *args, **kwargs):
+        del args, kwargs
         raise NotImplementedError()
 
     @classmethod
     def get_method_info(cls):
-        raise NotImplementedError()
+        info: MethodInfo = {
+            "method_id": "test",
+            "supported_outputs": ("color", "depth", {"name": "anoutput", "type": "color"})
+        }
+        return info
 
     def get_info(self):
-        raise NotImplementedError()
+        info: ModelInfo = {
+            **self.get_method_info(),
+            "num_iterations": 1
+        }
+        return info
 
-    def render(self, *args, **kwargs):
-        raise NotImplementedError()
+    def render(self, cameras, **kwargs):
+        del kwargs
+        for _ in cameras:
+            yield {
+                "color": np.zeros((23, 30, 3), dtype=np.float32),
+                "depth": np.zeros((23, 30), dtype=np.float32),
+                "anoutput": np.zeros((23, 30), dtype=np.float32),
+                "anoutput2": np.zeros((23, 30), dtype=np.float32),
+            }
 
     def train_iteration(self, *args, **kwargs):
         raise NotImplementedError()
@@ -188,3 +206,42 @@ def test_get_config_overrides_from_presets():
         "key3": "value3",
         "key4": "value4",
     }
+
+
+def test_method_autocast_render():
+    from nerfbaselines import registry
+    from nerfbaselines.types import new_cameras
+    with registry.build_method({ "id": "test", "method": _TestMethod.__module__ + ":_TestMethod" }, backend="python") as method_cls:
+        method = method_cls()
+        num_called = 0
+        cameras = new_cameras(
+            poses=np.zeros((2, 4, 4)), 
+            intrinsics=np.zeros((2, 4)), 
+            image_sizes=np.zeros((2, 2), dtype=np.int32),
+            camera_types=np.zeros(2, dtype=np.int32),
+            distortion_parameters=np.zeros((2, 6)),
+        )
+        for out in method.render(cameras):
+            assert out["color"].dtype == np.float32
+            assert out["depth"].dtype == np.float32
+            assert out["anoutput"].dtype == np.float32
+            assert out["anoutput2"].dtype == np.float32
+            assert out["color"].shape == (23, 30, 3)
+            assert out["depth"].shape == (23, 30)
+            assert out["anoutput"].shape == (23, 30)
+            assert out["anoutput2"].shape == (23, 30)
+            num_called += 1
+        assert num_called == 2
+
+        num_called = 0
+        for out in method.render(cameras, options={"output_type_dtypes": {"color": "uint8"}}):
+            assert out["color"].dtype == np.uint8
+            assert out["depth"].dtype == np.float32
+            assert out["anoutput"].dtype == np.uint8
+            assert out["anoutput2"].dtype == np.float32
+            assert out["color"].shape == (23, 30, 3)
+            assert out["depth"].shape == (23, 30)
+            assert out["anoutput"].shape == (23, 30)
+            assert out["anoutput2"].shape == (23, 30)
+            num_called += 1
+        assert num_called == 2
