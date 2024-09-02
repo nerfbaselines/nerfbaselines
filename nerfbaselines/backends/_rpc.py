@@ -625,18 +625,18 @@ class RemoteProcessRPCBackend(Backend):
 
     def __exit__(self, *args):
         # If there was no exception, we safely close the worker by sending a close message
-        try:
-            if self._protocol is not None and self._worker_running and not args:
-                self._protocol.send({"message": "_safe_close"})
-        except Exception:
-            pass
-
+        self._inside_context = False
+        self.close(_force=bool(args))
         super().__exit__(*args)
 
-        self._inside_context = False
-        self.close()
+    def close(self, _force=False):
+        if not _force:
+            try:
+                if self._protocol is not None and self._worker_running:
+                    self._protocol.send({"message": "_safe_close"})
+            except Exception:
+                pass
 
-    def close(self):
         self._worker_running = False
         if self._worker_monitor_thread is not None:
             self._worker_monitor_thread.join()

@@ -9,6 +9,7 @@ import os
 import tempfile
 from nerfbaselines.types import Method, Dataset, Cameras, RenderOptions, camera_model_from_int
 from nerfbaselines.datasets import _colmap_utils as colmap_utils
+from nerfbaselines.utils import NoGPUError
 
 
 logger = logging.getLogger(__name__)
@@ -214,10 +215,14 @@ class ColmapMVS(Method):
             self._model_path = self._tmpdir.name
 
         # Setup renderer
-        os.environ["PYOPENGL_PLATFORM"] = "egl"
-        import pyrender
-        from pyrender import Renderer as PyRenderer
-        from pyrender.platforms import egl
+        try:
+            os.environ["PYOPENGL_PLATFORM"] = "egl"
+            import pyrender
+            from pyrender import Renderer as PyRenderer
+            from pyrender.platforms import egl
+        except ImportError as e:
+            if "Unable to load EGL library" in str(e):
+                raise NoGPUError() from e
 
         camera = pyrender.IntrinsicsCamera(fx=200., fy=200.0, cx=100.0, cy=100.0, znear=0.001, zfar=10_000.0)
         self._scene = pyrender.Scene(
@@ -342,7 +347,6 @@ class ColmapMVS(Method):
             logging.info("Mesh saved to " + mesh_path)
 
             # Load the mesh here
-            breakpoint()
             self._load_mesh()
             logging.info("Mesh loaded")
             return {}
