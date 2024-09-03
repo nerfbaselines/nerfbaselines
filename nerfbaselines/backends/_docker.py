@@ -6,25 +6,30 @@ import hashlib
 import tempfile
 import subprocess
 import os
-from typing import Optional, List, Tuple, Dict, Union, TYPE_CHECKING, cast
+from typing import Optional, List, Tuple, Dict, Union, cast
 import shlex
 
 import nerfbaselines
 
-from ._conda import CondaBackendSpec, conda_get_environment_hash, conda_get_install_script
-from ..types import NB_PREFIX, TypedDict, Required
-from ..utils import get_package_dependencies, shlex_join
-from ._rpc import RemoteProcessRPCBackend, get_safe_environment, customize_wrapper_separated_fs
+from .. import NB_PREFIX, __version__, MethodSpec
 from .._constants import DOCKER_REPOSITORY
-from ._common import get_mounts
-from .. import __version__
-if TYPE_CHECKING:
-    from ..registry import MethodSpec
+
+from ._conda import CondaBackendSpec, conda_get_environment_hash, conda_get_install_script
+from ._rpc import RemoteProcessRPCBackend, get_safe_environment, customize_wrapper_separated_fs
+from ._common import get_package_dependencies, get_mounts
+try:
+    from typing import TypedDict, Required
+except ImportError:
+    from typing_extensions import TypedDict, Required
 
 
 EXPORT_ENVS = ["TCNN_CUDA_ARCHITECTURES", "TORCH_CUDA_ARCH_LIST", "CUDAARCHS", "GITHUB_ACTIONS", "NB_PORT", "NB_PATH", "NB_AUTHKEY", "NB_ARGS", "CI"]
 DEFAULT_CUDA_ARCHS = "7.0 7.5 8.0 8.6+PTX"
 DOCKER_TAG_HASH_LENGTH = 10
+
+
+def shlex_join(split_command):
+    return ' '.join(shlex.quote(arg) for arg in split_command)
 
 
 class DockerBackendSpec(TypedDict, total=False):
@@ -75,8 +80,6 @@ def get_docker_spec(spec: 'MethodSpec') -> Optional[DockerBackendSpec]:
 
 
 def docker_get_dockerfile(spec: DockerBackendSpec):
-    from .. import registry
-
     image = spec.get("image")
     if image is None:
         script = Path(__file__).absolute().parent.joinpath("Dockerfile").read_text()
@@ -150,11 +153,12 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
         script += f'if ! nerfbaselines >/dev/null 2>&1; then echo -e \'#!/usr/bin/env {python_path}\\nfrom nerfbaselines.__main__ import main\\nif __name__ == "__main__":\\n  main()\\n\'>"/usr/bin/nerfbaselines" && chmod +x "/usr/bin/nerfbaselines" || echo "Failed to create nerfbaselines in the bin folder"; fi\n'
 
     script += "ENV NERFBASELINES_BACKEND=python\n"
-    def is_method_allowed(method_spec: "MethodSpec"):
+    def is_method_allowed(method: str):
+        method_spec = nerfbaselines.get_method_spec(method)
         docker_spec = get_docker_spec(method_spec)
         return docker_spec is not None and docker_spec.get("environment_name") == spec.get("environment_name")
 
-    allowed_methods = ",".join((k for k, v in registry.methods_registry.items() if is_method_allowed(v)))
+    allowed_methods = ",".join((k for k in nerfbaselines.get_supported_methods() if is_method_allowed(k)))
     script += f"ENV NERFBASELINES_ALLOWED_METHODS={allowed_methods}\n"
     script += f'ENV PYTHONPATH="{package_path}:$PYTHONPATH"\n'
     # Add nerfbaselines to the path
@@ -266,12 +270,10 @@ def get_docker_image_name(spec: DockerBackendSpec):
     return f"{DOCKER_REPOSITORY}:{environment_name}-{environment_hash}"
 
 def get_docker_environments_to_build():
-    from .. import registry
-
-    methods = registry.get_supported_methods("docker")
+    methods = nerfbaselines.get_supported_methods("docker")
     methods_to_install = {}
     for mname in methods:
-        m = registry.get_method_spec(mname)
+        m = nerfbaselines.get_method_spec(mname)
         spec = m.get("docker", m.get("conda"))
         if not spec:
             continue

@@ -7,9 +7,10 @@ import tarfile
 from tqdm import tqdm
 import tempfile
 import numpy as np
-from ..types import UnloadedDataset
-from ._common import DatasetNotFoundError, get_scene_scale, get_default_viewer_transform, dataset_index_select
-from .colmap import load_colmap_dataset
+from ._common import get_scene_scale, get_default_viewer_transform
+from nerfbaselines import UnloadedDataset, DatasetNotFoundError
+from nerfbaselines.datasets import dataset_index_select
+from nerfbaselines.datasets.colmap import load_colmap_dataset
 
 
 T = TypeVar("T")

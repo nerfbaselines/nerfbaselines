@@ -1,4 +1,4 @@
-from ..registry import register
+from nerfbaselines import register
 
 
 register({
@@ -7,7 +7,7 @@ register({
     "priority": 170,
     "download_dataset_function": ".phototourism:download_phototourism_dataset",
     "evaluation_protocol": {
-        "evaluation_protocol": ".phototourism:NerfWEvaluationProtocol",
+        "evaluation_protocol_class": ".phototourism:NerfWEvaluationProtocol",
         "id": "nerfw",
     },
     "metadata": {

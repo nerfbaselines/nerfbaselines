@@ -9,6 +9,8 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+import dataclasses
+import functools
 import json
 import hashlib
 import pickle
@@ -21,31 +23,76 @@ import os
 import tempfile
 import numpy as np
 from PIL import Image
-from nerfbaselines.types import Method, MethodInfo, ModelInfo, OptimizeEmbeddingsOutput, RenderOutput
-from nerfbaselines.types import Cameras, camera_model_to_int, Dataset
-from nerfbaselines.utils import flatten_hparams, remap_error, convert_image_dtype
+from nerfbaselines import (
+    Method, MethodInfo, ModelInfo, 
+    OptimizeEmbeddingsOutput, RenderOutput,
+    Cameras, camera_model_to_int, Dataset,
+    convert_image_dtype,
+    NoGPUError,
+)
 from argparse import ArgumentParser
 
 import torch
 from random import randint
 
-from utils.general_utils import PILtoTorch
-from arguments import ModelParams, PipelineParams, OptimizationParams, args_init # noqa: E402
-from gaussian_renderer import render # noqa: E402
-from scene import GaussianModel # noqa: E402
-import scene.dataset_readers
-from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # noqa: E402
-from scene.dataset_readers import CameraInfo as _old_CameraInfo
-from scene.dataset_readers import storePly, fetchPly  # noqa: E402
-from utils.general_utils import safe_state  # noqa: E402
-from utils.graphics_utils import fov2focal  # noqa: E402
-from utils.loss_utils import l1_loss, ssim  # noqa: E402
-from utils.sh_utils import SH2RGB  # noqa: E402
-from scene import Scene, sceneLoadTypeCallbacks  # noqa: E402
-from utils import camera_utils  # noqa: E402
+from utils.general_utils import PILtoTorch  # type: ignore
+from arguments import ModelParams, PipelineParams, OptimizationParams, args_init # type: ignore
+from gaussian_renderer import render # type: ignore
+from scene import GaussianModel # type: ignore
+import scene.dataset_readers  # type: ignore
+from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # type: ignore
+from scene.dataset_readers import CameraInfo as _old_CameraInfo  # type: ignore
+from scene.dataset_readers import storePly, fetchPly  # type: ignore
+from utils.general_utils import safe_state  # type: ignore
+from utils.graphics_utils import fov2focal  # type: ignore
+from utils.loss_utils import l1_loss, ssim  # type: ignore
+from utils.sh_utils import SH2RGB  # type: ignore
+from scene import Scene, sceneLoadTypeCallbacks  # type: ignore
+from utils import camera_utils  # type: ignore
 from utils.image_utils import psnr  # type: ignore
 import lpips  # type: ignore
 
+
+def remap_error(fn):
+    def is_gpu_error(e: Exception) -> bool:
+        if isinstance(e, NoGPUError):
+            return True
+        if isinstance(e, RuntimeError):
+            return "Found no NVIDIA driver on your system." in str(e)
+        if isinstance(e, EnvironmentError):
+            return "unknown compute capability. ensure pytorch with cuda support is installed." in str(e).lower()
+        if isinstance(e, ImportError):
+            return "libcuda.so.1: cannot open shared object file" in str(e)
+        return False
+
+    if getattr(fn, "__error_remap__", False):
+        return fn
+
+    @functools.wraps(fn)
+    def wrapped(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            if is_gpu_error(e):
+                raise NoGPUError from e
+            raise e
+
+    wrapped.__error_remap__ = True  # type: ignore
+    return wrapped
+
+
+def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
+    flat = {}
+    if dataclasses.is_dataclass(hparams):
+        hparams = {f.name: getattr(hparams, f.name) for f in dataclasses.fields(hparams)}
+    for k, v in hparams.items():
+        if _prefix:
+            k = f"{_prefix}{separator}{k}"
+        if isinstance(v, dict) or dataclasses.is_dataclass(v):
+            flat.update(flatten_hparams(v, _prefix=k, separator=separator).items())
+        else:
+            flat[k] = v
+    return flat
 
 
 def getProjectionMatrixFromOpenCV(w, h, fx, fy, cx, cy, znear, zfar):

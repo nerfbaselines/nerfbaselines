@@ -1,6 +1,5 @@
 import os
-from nerfbaselines.types import MethodSpec
-from nerfbaselines.registry import register
+from nerfbaselines import register, MethodSpec
 
 
 # NOTE: In the GS paper, they report two sets of numbers for Mip-NeRF 360, one 
@@ -41,7 +40,7 @@ _paper_results = {
 
 GaussianSplattingSpec: MethodSpec = {
     "id": "gaussian-splatting",
-    "method": ".gaussian_splatting:GaussianSplatting",
+    "method_class": ".gaussian_splatting:GaussianSplatting",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9",

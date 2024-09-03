@@ -1,9 +1,17 @@
 import sys
-from typing import Tuple, Dict, cast, Any, TYPE_CHECKING, Optional, Union
+from typing import Tuple, Dict, cast, Any, TYPE_CHECKING, Optional
 import numpy as np
 from .utils import padded_stack, is_broadcastable, convert_image_dtype
-from .types import Protocol, runtime_checkable, CameraModel, camera_model_to_int
-from .types import Cameras, GenericCameras, TTensor, _get_xnp
+from . import CameraModel, camera_model_to_int, Cameras, GenericCameras
+from ._types import Cameras, GenericCameras, TTensor, _get_xnp
+try:
+    from typing import Protocol
+except ImportError:
+    from typing_extensions import Protocol
+try:
+    from typing import runtime_checkable
+except ImportError:
+    from typing_extensions import runtime_checkable
 
 
 def _xnp_astype(tensor: TTensor, dtype, xnp: Any) -> TTensor:

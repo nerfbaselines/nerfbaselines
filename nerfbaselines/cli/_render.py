@@ -7,12 +7,11 @@ import json
 
 import click
 from nerfbaselines.datasets import load_dataset
-from nerfbaselines.types import Method
+from nerfbaselines import Method, get_method_spec, build_method_class
 from nerfbaselines import backends
-from nerfbaselines import registry
-from nerfbaselines.evaluation import render_all_images, render_frames, trajectory_get_embeddings, trajectory_get_cameras, path_is_video
-from nerfbaselines.utils import setup_logging, handle_cli_error
+from nerfbaselines.evaluation import render_all_images, render_frames, trajectory_get_embeddings, trajectory_get_cameras
 from nerfbaselines.io import open_any_directory, deserialize_nb_info, load_trajectory, open_any
+from ._common import handle_cli_error, click_backend_option, setup_logging
 
 
 @click.command("render")
@@ -21,7 +20,7 @@ from nerfbaselines.io import open_any_directory, deserialize_nb_info, load_traje
 @click.option("--output", type=str, default="predictions", help="output directory or tar.gz file")
 @click.option("--split", type=str, default="test")
 @click.option("--verbose", "-v", is_flag=True)
-@click.option("--backend", "backend_name", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
+@click_backend_option()
 @handle_cli_error
 def render_command(checkpoint: str, data: str, output: str, split: str, verbose: bool, backend_name):
     checkpoint = str(checkpoint)
@@ -42,8 +41,8 @@ def render_command(checkpoint: str, data: str, output: str, split: str, verbose:
 
         method_name = nb_info["method"]
         backends.mount(checkpoint_path, checkpoint_path)
-        method_spec = registry.get_method_spec(method_name)
-        with registry.build_method(method_spec, backend=backend_name) as method_cls:
+        method_spec = get_method_spec(method_name)
+        with build_method_class(method_spec, backend=backend_name) as method_cls:
             method: Method = method_cls(checkpoint=str(checkpoint_path))
             method_info = method.get_info()
             dataset = load_dataset(data, 
@@ -65,7 +64,7 @@ def render_command(checkpoint: str, data: str, output: str, split: str, verbose:
 @click.option("--resolution", type=str, default=None, help="Override the resolution of the output")
 @click.option("--output-names", type=str, default="color", help="Comma separated list of output types (e.g. color,depth,accumulation)")
 @click.option("--verbose", "-v", is_flag=True)
-@click.option("--backend", "backend_name", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
+@click_backend_option()
 @handle_cli_error
 def render_trajectory_command(checkpoint: Union[str, Path], 
                               trajectory: str, 
@@ -125,8 +124,8 @@ def render_trajectory_command(checkpoint: Union[str, Path],
 
         method_name = nb_info["method"]
         backends.mount(checkpoint_path, checkpoint_path)
-        method_spec = registry.get_method_spec(method_name)
-        with registry.build_method(method_spec, backend=backend_name) as method_cls:
+        method_spec = get_method_spec(method_name)
+        with build_method_class(method_spec, backend=backend_name) as method_cls:
             method = method_cls(checkpoint=str(checkpoint_path))
 
             # Embed the appearance

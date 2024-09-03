@@ -8,27 +8,30 @@ import base64
 import numpy as np
 import functools
 import gc
-from nerfbaselines.types import Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput
-from nerfbaselines.types import Cameras, camera_model_to_int
+from nerfbaselines import (
+    Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput,
+    Cameras, camera_model_to_int,
+)
 
 try:
     # We need to import torch before jax to load correct CUDA libraries
-    import torch
+    import torch  # type: ignore
+    del torch
 except ImportError:
     torch = None
-import gin
-import jax
-from jax import random
-import jax.numpy as jnp
-import flax
-from flax.training import checkpoints
-from internal.datasets import Dataset as MNDataset
-from internal import camera_utils
-from internal import configs
-from internal import models
-from internal import train_utils  # pylint: disable=unused-import
-from internal import utils
-from internal import raw_utils
+import gin  # type: ignore
+import jax  # type: ignore
+from jax import random  # type: ignore
+import jax.numpy as jnp  # type: ignore
+import flax  # type: ignore
+from flax.training import checkpoints  # type: ignore
+from internal.datasets import Dataset as MNDataset  # type: ignore
+from internal import camera_utils  # type: ignore
+from internal import configs  # type: ignore
+from internal import models  # type: ignore
+from internal import train_utils  # type: ignore
+from internal import utils  # type: ignore
+from internal import raw_utils  # type: ignore
 
 
 def numpy_to_base64(array: np.ndarray) -> str:
@@ -435,7 +438,7 @@ class MultiNeRF(Method):
     def _load_config(self, config_overrides=None):
         if self.checkpoint is None:
             # Find the config files root
-            import train
+            import train  # type: ignore
 
             configs_path = str(Path(train.__file__).absolute().parent / "configs")
             config_overrides = (config_overrides or {}).copy()
@@ -478,6 +481,7 @@ class MultiNeRF(Method):
         rng = random.PRNGKey(20200823)
         np.random.seed(20201473 + jax.process_index())
         rng, key = random.split(rng)
+        del key
 
         dummy_rays = utils.dummy_rays(include_exposure_idx=self.config.rawnerf_mode, include_exposure_values=True)
         self.model, variables = models.construct_model(rng, dummy_rays, self.config)
@@ -641,7 +645,7 @@ class MultiNeRF(Method):
             dataparser_transform=self._dataparser_transform,
         )
 
-        for i, test_case in enumerate(test_dataset):
+        for test_case in test_dataset:
             rendering = models.render_image(functools.partial(self.render_eval_pfn, eval_variables, self.train_frac), test_case.rays, self.rngs[0], self.config, verbose=False)
 
             # TODO: handle rawnerf color space
@@ -681,6 +685,7 @@ class MultiNeRF(Method):
             dataset: Dataset.
             embeddings: Optional initial embeddings.
         """
+        del dataset, embeddings
         raise NotImplementedError()
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
@@ -690,5 +695,6 @@ class MultiNeRF(Method):
         Args:
             index: Index of the image.
         """
+        del index
         return None
 

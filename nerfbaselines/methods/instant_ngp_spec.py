@@ -1,6 +1,5 @@
 import os
-from nerfbaselines.types import MethodSpec
-from nerfbaselines.registry import register
+from nerfbaselines import register, MethodSpec
 
 
 _BLENDER_NOTE = """Instant-NGP trained and evaluated on black background instead of white."""
@@ -19,7 +18,7 @@ paper_results = {
 
 
 InstantNGPSpec: MethodSpec = {
-    "method": ".instant_ngp:InstantNGP",
+    "method_class": ".instant_ngp:InstantNGP",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9",

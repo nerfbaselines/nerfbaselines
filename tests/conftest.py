@@ -64,6 +64,7 @@ def make_dataset(path: Path, num_images=10):
 
 
 def make_blender_dataset(path: Path, num_images=10):
+    del num_images
     path = Path(path) / "lego"
     path.mkdir(parents=True)
     w, h = 64, 64
@@ -114,14 +115,14 @@ def patch_prefix(tmp_path):
 def run_test_train(tmp_path, dataset_path, method_name, backend="python", config_overrides=None):
     from nerfbaselines.training import Trainer
     from nerfbaselines import metrics
+    from nerfbaselines import NoGPUError
     metrics._LPIPS_CACHE.clear()
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
-    from nerfbaselines.training import train_command
+    from nerfbaselines.cli._train import train_command
     from nerfbaselines.io import get_checkpoint_sha
-    from nerfbaselines.cli.render import render_command
-    from nerfbaselines.utils import Indices, remap_error
-    from nerfbaselines.utils import is_gpu_error
+    from nerfbaselines.cli._render import render_command
+    from nerfbaselines.utils import Indices
     from nerfbaselines.io import deserialize_nb_info
 
     # train_command.callback(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters)
@@ -141,7 +142,7 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python", config
         with mock.patch.object(Trainer, '__init__', __init__):
             train_cmd(method_name, None, str(dataset_path), str(tmp_path / "output"), False, backend, Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), logger="none", config_overrides=config_overrides)
     except Exception as e:
-        if is_gpu_error(e):
+        if isinstance(e, NoGPUError):
             pytest.skip("no GPU available")
         raise
 
@@ -427,6 +428,7 @@ def mock_torch(patch_modules):
             self.modules = list(args)
 
         def add_module(self, name, module):
+            del name
             self.modules.append(module)
 
         def forward(self, x):  # type: ignore

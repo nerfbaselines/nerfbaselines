@@ -5,7 +5,7 @@ from docutils import nodes
 from docutils.parsers.rst import directives
 from sphinx.util.docutils import SphinxDirective
 if TYPE_CHECKING:
-    from nerfbaselines.types import MethodSpec
+    from nerfbaselines import MethodSpec
 
 
 class NerfBaselinesDirective(SphinxDirective):
@@ -115,7 +115,7 @@ class NerfBaselinesDirective(SphinxDirective):
                                   nodes.field_body('', nodes.Text(name))))
 
         try:
-            supported_backends = backends._get_implemented_backends(spec)
+            supported_backends = backends.get_implemented_backends(spec)
             fields.append(nodes.field('', 
                                       nodes.field_name('', nodes.Text("Backends")), 
                                       nodes.field_body('', nodes.Text(", ".join(supported_backends)))))

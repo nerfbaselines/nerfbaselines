@@ -2,14 +2,13 @@ import typing
 from collections import OrderedDict
 import logging
 from pathlib import Path
-from typing import Tuple, Optional, Dict, List, Union
+from typing import Tuple, Optional, Dict, List, Union, FrozenSet
 import numpy as np
-from ..types import DatasetFeature, FrozenSet
-from ..types import CameraModel, camera_model_to_int, new_cameras
+from nerfbaselines import DatasetFeature, CameraModel, camera_model_to_int, new_cameras, DatasetNotFoundError, new_dataset
 from ..utils import Indices
 from ._colmap_utils import read_cameras_binary, read_images_binary, read_points3D_binary, qvec2rotmat
 from ._colmap_utils import read_cameras_text, read_images_text, read_points3D_text, Image, Camera, Point3D
-from ._common import DatasetNotFoundError, padded_stack, get_default_viewer_transform, dataset_index_select, new_dataset
+from ._common import padded_stack, get_default_viewer_transform, dataset_index_select
 
 
 def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.ndarray, Tuple[int, int]]:

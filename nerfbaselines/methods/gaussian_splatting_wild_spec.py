@@ -1,6 +1,5 @@
 import os
-from nerfbaselines.types import MethodSpec
-from nerfbaselines.registry import register
+from nerfbaselines import register, MethodSpec
 
 
 _PHOTOTOURISM_DISCREPANCY_NOTE = """The original paper reports metrics for test images where the appearance embedding is estimated from the full test image, not just the left half as in the official evaluation protocol. The reported numbers are computed using the official evaluation protocol and are, therefore, lower than the numbers reported in the paper."""
@@ -11,7 +10,7 @@ _paper_results = {
 }
 
 GaussianSplattingWildSpec: MethodSpec = {
-    "method": ".gaussian_splatting_wild:GaussianSplattingWild",
+    "method_class": ".gaussian_splatting_wild:GaussianSplattingWild",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9",

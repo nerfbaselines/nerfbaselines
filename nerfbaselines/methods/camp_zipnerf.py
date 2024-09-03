@@ -12,8 +12,8 @@ from pathlib import Path
 import numpy as np
 import functools
 import gc
-from nerfbaselines.types import Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput
-from nerfbaselines.types import Cameras, camera_model_to_int, RenderOptions, RenderOutput
+from nerfbaselines import Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput
+from nerfbaselines import Cameras, camera_model_to_int, RenderOptions, RenderOutput
 try:
     # We need to import torch before jax to load correct CUDA libraries
     import torch

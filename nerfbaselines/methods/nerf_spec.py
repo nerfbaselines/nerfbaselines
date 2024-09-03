@@ -1,6 +1,5 @@
 import os
-from nerfbaselines.types import MethodSpec
-from nerfbaselines.registry import register
+from nerfbaselines import register, MethodSpec
 
 
 _paper_results = {
@@ -19,7 +18,7 @@ _paper_results = {
 }
 
 NeRFSpec: MethodSpec = {
-    "method": ".nerf:NeRF",
+    "method_class": ".nerf:NeRF",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.8",
@@ -49,6 +48,7 @@ conda develop "$PWD"
         "description": "Original NeRF method representing radiance field using a large MLP.",
         "paper_title": "NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis",
         "paper_authors": ["Ben Mildenhall", "Pratul P. Srinivasan", "Matthew Tancik", "Jonathan T. Barron", "Ravi Ramamoorthi", "Ren Ng"],
+        "paper_results": _paper_results,
         "paper_link": "https://arxiv.org/pdf/2003.08934.pdf",
         "link": "https://www.matthewtancik.com/nerf",
         "licenses": [{"name": "MIT", "url": "https://github.com/bmild/nerf/blob/master/LICENSE"}],

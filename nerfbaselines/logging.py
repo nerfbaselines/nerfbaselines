@@ -11,8 +11,7 @@ from pathlib import Path
 import typing
 from typing import Optional, Union, List, Dict, Sequence, Any, cast
 from typing import TYPE_CHECKING
-from .utils import convert_image_dtype
-from .types import Logger, LoggerEvent
+from . import Logger, LoggerEvent, convert_image_dtype
 
 if TYPE_CHECKING:
     import wandb.sdk.wandb_run
@@ -689,10 +688,17 @@ def _tensorboard_hparams(hparam_dict=None, metrics_list=None, hparam_domain_disc
 
 
 class TensorboardLogger(BaseLogger):
-    def __init__(self, output: Union[str, Path], hparam_plugin_metrics: Optional[Sequence[str]] = None):
+    def __init__(self, 
+                 output: Union[str, Path], 
+                 hparam_plugin_metrics: Optional[Sequence[str]] = None,
+                 subdirectory: Optional[str] = "tensorboard"):
         from tensorboard.summary.writer.event_file_writer import EventFileWriter
+        output = str(output)
+        if subdirectory is not None:
+            output = os.path.join(output, subdirectory)
 
-        self._writer = EventFileWriter(str(output))
+        self._output = output
+        self._writer = EventFileWriter(output)
         self._hparam_plugin_metrics = hparam_plugin_metrics or []
 
     @contextlib.contextmanager

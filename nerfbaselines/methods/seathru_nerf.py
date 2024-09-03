@@ -9,8 +9,10 @@ import base64
 import functools
 import gc
 import numpy as np
-from nerfbaselines.types import Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput
-from nerfbaselines.types import Cameras, camera_model_to_int
+from nerfbaselines import (
+    Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput,
+    Cameras, camera_model_to_int
+)
 
 try:
     # We need to import torch before jax to load correct CUDA libraries

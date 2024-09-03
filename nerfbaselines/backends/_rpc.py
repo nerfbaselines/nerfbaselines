@@ -19,9 +19,9 @@ from typing import Optional, List, Any, Callable, cast
 import inspect
 import logging
 from queue import Queue
+import nerfbaselines
 from ..utils import CancellationToken, CancelledException
 from ._common import Backend
-import nerfbaselines
 
 
 def _remap_error(e: BaseException):
@@ -705,7 +705,7 @@ try:
     import cv2
 except Exception:
     pass
-from {nb}.utils import setup_logging
+from {nb}.cli._common import setup_logging
 setup_logging(verbose={is_verbose})
 from {run_worker.__module__} import {run_worker.__name__} as rw
 from {self._protocol.__class__.__module__} import {self._protocol.__class__.__name__} as P

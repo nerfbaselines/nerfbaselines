@@ -1,6 +1,5 @@
 import os
-from nerfbaselines.types import MethodSpec
-from nerfbaselines.registry import register
+from nerfbaselines import register, MethodSpec
 
 
 _nerfacto_paper_results = {
@@ -19,7 +18,7 @@ _nerfacto_paper_results = {
 
 
 NerfStudioSpec: MethodSpec = {
-    "method": ".nerfstudio:NerfStudio",
+    "method_class": ".nerfstudio:NerfStudio",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.10",

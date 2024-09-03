@@ -1,3 +1,5 @@
+import base64
+import io
 import json
 import functools
 from itertools import chain
@@ -6,10 +8,10 @@ import warnings
 import os
 from pathlib import Path
 from typing import Optional, Sequence, Iterable, Union, Dict, cast
-from nerfbaselines.types import Dataset, Method, MethodInfo, ModelInfo, Cameras, camera_model_to_int, OptimizeEmbeddingsOutput, RenderOutput
-from nerfbaselines.utils import convert_image_dtype
-from nerfbaselines.pose_utils import apply_transform
-from nerfbaselines.io import numpy_from_base64
+from nerfbaselines import (
+    Dataset, Method, MethodInfo, ModelInfo, Cameras, camera_model_to_int, OptimizeEmbeddingsOutput, RenderOutput,
+    convert_image_dtype,
+)
 
 from flax.training import checkpoints  # type: ignore
 import flax  # type: ignore
@@ -22,11 +24,39 @@ import cv2  # type: ignore
 from PIL import Image
 from tqdm import tqdm
 from internal import configs  # type: ignore
-from internal import utils  # type: ignore
 from internal import models  # type: ignore
 from internal import train_utils  # type: ignore
 from internal import camera_utils  # type: ignore
 from internal.datasets import Dataset as GoBaseDataset  # type: ignore
+
+
+def apply_transform(transform, poses):
+    # Get transform and scale
+    assert len(transform.shape) == 2, "Transform should be a 4x4 or a 3x4 matrix."
+    scale = np.linalg.norm(transform[:3, :3], axis=0)
+    assert np.allclose(scale, scale[0], rtol=1e-3, atol=0)
+    scale = float(np.mean(scale).item())
+    transform = transform.copy()
+    transform[:3, :] /= scale
+
+    # Pad poses
+    bottom = np.broadcast_to([0, 0, 0, 1.0], poses[..., :1, :4].shape)
+    poses = np.concatenate([poses[..., :3, :4], bottom], axis=-2)
+
+    # Apply transform
+    poses = transform @ poses
+
+    # Unpad poses
+    poses = poses[..., :3, :4]
+
+    # Scale translation
+    poses[..., :3, 3] *= scale
+    return poses
+
+
+def numpy_from_base64(data: str) -> np.ndarray:
+    with io.BytesIO(base64.b64decode(data)) as f:
+        return np.load(f)
 
 
 def get_features(images, rate=1):
@@ -447,7 +477,7 @@ class NeRFOnthego(Method):
             dataparser_transform=self._dataparser_transform,
         )
 
-        for i, test_case in enumerate(test_dataset):
+        for test_case in test_dataset:
             rendering = models.render_image(functools.partial(self.render_eval_pfn, eval_variables, self.train_frac), test_case.rays, None, self.config, verbose=False)
 
             accumulation = rendering["acc"]

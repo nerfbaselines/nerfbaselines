@@ -1,4 +1,4 @@
-from ..registry import register
+from nerfbaselines import register
 
 
 register({

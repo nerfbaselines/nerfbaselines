@@ -1,3 +1,5 @@
+import io
+import base64
 import warnings
 import math
 import dataclasses
@@ -8,28 +10,40 @@ import os
 import shlex
 import torch
 from pathlib import Path
-from typing import Any, Dict, Iterable, Sequence
+from typing import Any, Dict, Iterable, Sequence, Optional
 
 try:
-    from typing import Optional
+    from typing import get_args
 except ImportError:
-    from typing_extensions import Optional
+    from typing_extensions import get_args
 
-from nerfbaselines.types import Dataset, OptimizeEmbeddingsOutput, RenderOutput, MethodInfo, ModelInfo
-from nerfbaselines.io import numpy_from_base64, numpy_to_base64
-from nerfbaselines.types import Cameras, CameraModel, get_args
-from nerfbaselines import Method
+from nerfbaselines import (
+    Dataset, OptimizeEmbeddingsOutput, 
+    RenderOutput, MethodInfo, ModelInfo,
+    Cameras, CameraModel, Method
+)
 from nerfbaselines import cameras as _cameras
 
-import configargparse
-import opt
-from opt import config_parser
-from renderer import OctreeRender_trilinear_fast
-from utils import N_to_reso, cal_n_samples, TVLoss
-from train import SimpleSampler
-from models import tensoRF as models
-from dataLoader.ray_utils import ndc_rays_blender
-from dataLoader.llff import average_poses
+import configargparse  # type: ignore
+import opt  # type: ignore
+from opt import config_parser  # type: ignore
+from renderer import OctreeRender_trilinear_fast  # type: ignore
+from utils import N_to_reso, cal_n_samples, TVLoss  # type: ignore
+from train import SimpleSampler  # type: ignore
+from models import tensoRF as models  # type: ignore
+from dataLoader.ray_utils import ndc_rays_blender  # type: ignore
+from dataLoader.llff import average_poses  # type: ignore
+
+
+def numpy_to_base64(array: np.ndarray) -> str:
+    with io.BytesIO() as f:
+        np.save(f, array)
+        return base64.b64encode(f.getvalue()).decode("ascii")
+
+
+def numpy_from_base64(data: str) -> np.ndarray:
+    with io.BytesIO(base64.b64decode(data)) as f:
+        return np.load(f)
 
 
 def get_rays_and_indices(camera: Cameras):

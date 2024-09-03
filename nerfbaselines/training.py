@@ -1,4 +1,5 @@
-import pprint
+import importlib
+import subprocess
 import shutil
 import struct
 import sys
@@ -9,26 +10,285 @@ import os
 import math
 import logging
 from pathlib import Path
-from typing import Optional, Union, List, Any, Dict, Tuple, cast
+from typing import Optional, Union, List, Any, Dict, Tuple, cast, FrozenSet, Callable, Sequence, Set
 from tqdm import tqdm
 import numpy as np
-import click
-from .io import open_any_directory, deserialize_nb_info, serialize_nb_info
-from .io import save_output_artifact
-from .datasets import load_dataset, Dataset, dataset_index_select
-from .utils import Indices, setup_logging, image_to_srgb, visualize_depth, handle_cli_error
-from .utils import remap_error, get_resources_utilization_info, assert_not_none
-from .utils import IndicesClickType, SetParamOptionType, TupleClickType
-from .utils import make_image_grid, MetricsAccumulator
-from .types import Method, Literal, FrozenSet, EvaluationProtocol
+from PIL import Image
+import nerfbaselines
+from . import (
+    Method, 
+    MethodSpec,
+    EvaluationProtocol, 
+    __version__, 
+    convert_image_dtype,
+    Dataset,
+)
+from .backends import run_on_host
+from .io import (
+    deserialize_nb_info, 
+    serialize_nb_info, 
+    save_output_artifact,
+    new_nb_info,
+)
+from ._registry import loggers_registry
+from ._registry import build_evaluation_protocol
+from .utils import Indices, image_to_srgb, visualize_depth
+from .datasets import dataset_index_select
 from .evaluation import render_all_images, evaluate
 from .logging import ConcatLogger, Logger, log_metrics
-from .registry import loggers_registry
-from .io import new_nb_info
-from .registry import build_evaluation_protocol
-from . import backends
-from . import __version__
-from . import registry
+try:
+    from typing import Literal, TypedDict
+except ImportError:
+    from typing_extensions import Literal, TypedDict
+
+
+MetricAccumulationMode = Literal["average", "last", "sum"]
+
+
+class ResourcesUtilizationInfo(TypedDict, total=False):
+    memory: int
+    gpu_memory: int
+    gpu_name: str
+
+
+@run_on_host()
+def get_resources_utilization_info(pid: Optional[int] = None) -> ResourcesUtilizationInfo:
+    import platform
+
+    if pid is None:
+        pid = os.getpid()
+
+    info: ResourcesUtilizationInfo = {}
+
+    # Get all cpu memory and running processes
+    all_processes = set((pid,))
+    current_platform = platform.system()
+
+    if current_platform == "Windows":  # Windows
+        def get_memory_usage_windows(pid: int) -> int:
+            try:
+                process = subprocess.Popen(
+                    ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                    stdout=subprocess.PIPE,
+                    text=True
+                )
+                out, _ = process.communicate()
+                mem_usage_str = out.strip().split(',')[4].strip('"').replace(' K', '').replace(',', '')
+                return int(mem_usage_str) * 1024  # Convert KB to bytes
+            except Exception:
+                return 0
+        try:
+            mem = get_memory_usage_windows(pid)
+            all_processes = set((pid,))
+            out = subprocess.check_output(
+                ["wmic", "process", "where", f"(ParentProcessId={pid})", "get", "ProcessId"],
+                text=True
+            )
+            children_pids = [int(line.strip()) for line in out.strip().split() if line.strip().isdigit()]
+            for child_pid in children_pids:
+                mem += get_memory_usage_windows(child_pid)
+                all_processes.add(child_pid)
+            info["memory"] = (mem + 1024 - 1) // 1024
+        except Exception:
+            logging.error(f"Failed to get resource usage information on {current_platform}", exc_info=True)
+            return info
+    else:  # Linux or macOS
+        try:
+            mem = 0
+            out = subprocess.check_output("ps -ax -o pid= -o ppid= -o rss=".split(), text=True).splitlines()
+            mem_used: Dict[int, int] = {}
+            children = {}
+            for line in out:
+                cpid, ppid, used_memory = map(int, line.split())
+                mem_used[cpid] = used_memory
+                children.setdefault(ppid, set()).add(cpid)
+            all_processes = set()
+            stack = [pid]
+            while stack:
+                cpid = stack.pop()
+                all_processes.add(cpid)
+                mem += mem_used[cpid]
+                stack.extend(children.get(cpid, []))
+            info["memory"] = (mem + 1024 - 1) // 1024
+        except Exception:
+            logging.error(f"Failed to get resource usage information on {current_platform}", exc_info=True)
+            return info
+
+    try:
+        gpu_memory = 0
+        gpus = {}
+        uuids = set()
+        nvidia_smi_command = "nvidia-smi --query-compute-apps=pid,used_memory,gpu_uuid,gpu_name --format=csv,noheader,nounits"
+        if current_platform == "Windows":
+            out = subprocess.check_output("nvidia-smi --query-compute-apps=pid,used_memory,gpu_uuid,gpu_name --format=csv,noheader,nounits", shell=True, text=True).splitlines()
+        else:
+            out = subprocess.check_output(nvidia_smi_command.split(), text=True).splitlines()
+        for line in out:
+            cpid, used_memory, uuid, gpu_name = tuple(x.strip() for x in line.split(",", 3))
+            try:
+                cpid = int(cpid)
+                used_memory = int(used_memory)
+            except ValueError:
+                # Unused GPUs could sometimes return [N/A]
+                continue
+            if cpid in all_processes:
+                gpu_memory += used_memory
+                if uuid not in uuids:
+                    uuids.add(uuid)
+                    gpus[gpu_name] = gpus.get(gpu_name, 0) + 1
+        info["gpu_name"] = ",".join(f"{k}:{v}" if v > 1 else k for k, v in gpus.items())
+        info["gpu_memory"] = gpu_memory
+    except Exception:
+        logging.error(f"Failed to get GPU utilization on {current_platform}", exc_info=True)
+        return info
+
+    return info
+
+
+def get_config_overrides_from_presets(spec: MethodSpec, presets: Union[Set[str], Sequence[str]]) -> Dict[str, Any]:
+    """
+    Apply presets to a method spec and return the config overrides.
+
+    Args:
+        spec: Method spec
+        presets: List of presets to apply
+
+    Returns:
+        A dictionary of config overrides
+    """
+    _config_overrides = {}
+    _presets = set(presets)
+    for preset_name, preset in spec.get("presets", {}).items():
+        if preset_name not in _presets:
+            continue
+        _config_overrides.update({
+            k: v for k, v in preset.items()
+            if not k.startswith("@")
+        })
+    return _config_overrides
+
+
+def get_presets_to_apply(spec: MethodSpec, dataset_metadata: Dict[str, Any], presets: Union[Set[str], Sequence[str], None] = None) -> Set[str]:
+    """
+    Given a method spec, dataset metadata, and the optional list of presets from the user,
+    this function returns the list of presets that should be applied.
+
+    Args:
+        spec: Method spec
+        dataset_metadata: Dataset metadata
+        presets: List of presets to apply or a special "@auto" preset that will automatically apply presets based on the dataset metadata
+
+    Returns:
+        List of presets to apply
+    """
+    # Validate presets for MethodSpec
+    auto_presets = presets is None
+    _presets = set(presets or ())
+    _condition_data = dataset_metadata.copy()
+    _condition_data["dataset"] = _condition_data.pop("name", "")
+
+    for preset in presets or []:
+        if preset == "@auto":
+            if auto_presets:
+                raise ValueError("Cannot specify @auto preset multiple times")
+            auto_presets = True
+            _presets.remove("@auto")
+            continue
+        if preset not in spec.get("presets", {}):
+            raise ValueError(f"Preset {preset} not found in method spec {spec['id']}. Available presets: {','.join(spec.get('presets', {}).keys())}")
+    if auto_presets:
+        for preset_name, preset in spec.get("presets", {}).items():
+            apply = preset.get("@apply", [])
+            if not apply:
+                continue
+            for condition in apply:
+                if all(_condition_data.get(k, "") == v for k, v in condition.items()):
+                    _presets.add(preset_name)
+    return _presets
+
+
+def make_image_grid(*images: np.ndarray, ncol=None, padding=2, max_width=1920, background: Union[None, Tuple[float, float, float], np.ndarray] = None):
+    if ncol is None:
+        ncol = len(images)
+    dtype = images[0].dtype
+    if background is None:
+        background = np.full((3,), 255 if dtype == np.uint8 else 1, dtype=dtype)
+    elif isinstance(background, tuple):
+        background = np.array(background, dtype=dtype)
+    elif isinstance(background, np.ndarray):
+        background = convert_image_dtype(background, dtype=dtype)
+    else:
+        raise ValueError(f"Invalid background type {type(background)}")
+    nrow = int(math.ceil(len(images) / ncol))
+    scale_factor = 1
+    height, width = tuple(map(int, np.max([x.shape[:2] for x in images], axis=0).tolist()))
+    if max_width is not None:
+        scale_factor = min(1, (max_width - padding * (ncol - 1)) / (ncol * width))
+        height = int(height * scale_factor)
+        width = int(width * scale_factor)
+
+    def interpolate(image) -> np.ndarray:
+        img = Image.fromarray(image)
+        img_width, img_height = img.size
+        aspect = img_width / img_height
+        img_width = int(min(width, aspect * height))
+        img_height = int(img_width / aspect)
+        img = img.resize((img_width, img_height))
+        return np.array(img)
+
+    images = tuple(map(interpolate, images))
+    grid: np.ndarray = np.ndarray(
+        (height * nrow + padding * (nrow - 1), width * ncol + padding * (ncol - 1), images[0].shape[-1]),
+        dtype=dtype,
+    )
+    grid[..., :] = background
+    for i, image in enumerate(images):
+        x = i % ncol
+        y = i // ncol
+        h, w = image.shape[:2]
+        offx = x * (width + padding) + (width - w) // 2
+        offy = y * (height + padding) + (height - h) // 2
+        grid[offy : offy + h, 
+             offx : offx + w] = image
+    return grid
+
+
+class MetricsAccumulator:
+    def __init__(
+        self,
+        options: Optional[Dict[str, MetricAccumulationMode]] = None,
+    ):
+        self.options = options or {}
+        self._state = None
+
+    def update(self, metrics: Dict[str, Union[int, float]]) -> None:
+        if self._state is None:
+            self._state = {}
+        state = self._state
+        n_iters_since_update = state["n_iters_since_update"] = state.get("n_iters_since_update", {})
+        for k, v in metrics.items():
+            accumulation_mode = self.options.get(k, "average")
+            n_iters_since_update[k] = n = n_iters_since_update.get(k, 0) + 1
+            if k not in state:
+                state[k] = 0
+            if accumulation_mode == "last":
+                state[k] = v
+            elif accumulation_mode == "average":
+                state[k] = state[k] * ((n - 1) / n) + v / n
+            elif accumulation_mode == "sum":
+                state[k] += v
+            else:
+                raise ValueError(f"Unknown accumulation mode {accumulation_mode}")
+
+    def pop(self) -> Dict[str, Union[int, float]]:
+        if self._state is None:
+            return {}
+        state = self._state
+        self._state = None
+        state.pop("n_iters_since_update", None)
+        return state
+
+
 
 
 def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, step, evaluation_protocol: EvaluationProtocol):
@@ -143,6 +403,8 @@ def eval_all(method: Method, logger: Optional[Logger], dataset: Dataset, *, outp
     num_vis_images = 16
     vis_images: List[Tuple[np.ndarray, np.ndarray]] = []
     vis_depth: List[np.ndarray] = []
+    image_sizes = dataset["cameras"].image_sizes
+    assert image_sizes is not None
     for (i, gt), pred, (w, h) in zip(
         enumerate(dataset["images"]),
         render_all_images(
@@ -153,7 +415,7 @@ def eval_all(method: Method, logger: Optional[Logger], dataset: Dataset, *, outp
             nb_info=nb_info,
             evaluation_protocol=evaluation_protocol,
         ),
-        assert_not_none(dataset["cameras"].image_sizes),
+        image_sizes,
     ):
         if len(vis_images) < num_vis_images:
             color = pred["color"]
@@ -198,11 +460,48 @@ def eval_all(method: Method, logger: Optional[Logger], dataset: Dataset, *, outp
     return metrics
 
 
-Visualization = Literal["none", "wandb", "tensorboard"]
+def build_logger(loggers: FrozenSet[str]) -> Callable[[str], Logger]:
+    """
+    Validates the list of loggers and builds a logger object. It returns a lazy function
+    that initializes the logger when called.
+
+    Args:
+        loggers: Set of loggers to use
+
+    Returns:
+        A function that initializes the logger when called. It takes the output directory as it's argument
+    """
+
+    # Validate loggers
+    for logger in loggers:
+        if logger not in loggers_registry:
+            raise ValueError(f"Unknown logger {logger}")
+
+    def build(output: str) -> Logger:
+        _loggers = []
+        for logger in loggers:
+            spec = nerfbaselines.get_logger_spec(logger)
+            package, class_name = spec["logger_class"].split(":", 1)
+            logger_cls: Any = importlib.import_module(package)
+            for part in class_name.split("."):
+                logger_cls = getattr(logger_cls, part)
+            _loggers.append(logger_cls(output))
+        logging.info("Initialized loggers: " + ",".join(loggers))
+        return ConcatLogger(_loggers)
+    return build
+
+
+def _is_tensorboard_enabled(logger: Logger, output: str) -> bool:
+    from nerfbaselines.logging import TensorboardLogger, ConcatLogger
+    if isinstance(logger, TensorboardLogger):
+        if os.path.abspath(logger._output) == os.path.abspath(output):
+            return True
+    elif isinstance(logger, ConcatLogger):
+        return any(_is_tensorboard_enabled(sub_logger, output) for sub_logger in logger.loggers)
+    return False
 
 
 class Trainer:
-    @remap_error
     def __init__(
         self,
         *,
@@ -213,7 +512,7 @@ class Trainer:
         save_iters: Indices = Indices.every_iters(10_000, zero=True),
         eval_few_iters: Indices = Indices.every_iters(2_000),
         eval_all_iters: Indices = Indices([-1]),
-        loggers: FrozenSet[str] = frozenset(),
+        logger: Union[Callable[[str], Logger], Logger, None] = None,
         generate_output_artifact: Optional[bool] = None,
         config_overrides: Optional[Dict[str, Any]] = None,
         applied_presets: Optional[FrozenSet[str]] = None,
@@ -234,9 +533,11 @@ class Trainer:
         self.save_iters = save_iters
         self.eval_few_iters = eval_few_iters
         self.eval_all_iters = eval_all_iters
-        self.loggers = loggers
         self.generate_output_artifact = generate_output_artifact
         self.config_overrides = config_overrides
+        if logger is not None and not callable(logger):
+            logger = lambda _: logger
+        self._logger_fn = logger
 
         self._applied_presets = applied_presets
         self._logger: Optional[Logger] = None
@@ -323,9 +624,6 @@ class Trainer:
             #     messages.append(f"num_iterations ({self.num_iterations}) must be in save_iters: {self.save_iters}")
             if self.num_iterations not in self.eval_all_iters:
                 messages.append(f"num_iterations ({self.num_iterations}) must be in eval_all_iters: {self.eval_all_iters}")
-            if "tensorboard" not in self.loggers:
-                messages.append("Tensorboard logger must be enabled. Please add `--vis tensorboard` to the command line arguments.")
-
             if self.generate_output_artifact is None and messages:
                 logging.warning("Disabling output artifact generation due to the following problems:")
                 for message in messages:
@@ -336,8 +634,6 @@ class Trainer:
                 for message in messages:
                     logging.error(message)
                 sys.exit(1)
-            else:
-                self.generate_output_artifact = True
 
     def _get_nb_info(self):
         assert self._dataset_metadata is not None, "dataset_metadata must be set"
@@ -379,14 +675,18 @@ class Trainer:
 
     def get_logger(self) -> Logger:
         if self._logger is None:
-            loggers = []
-            for logger in self.loggers:
-                if logger in loggers_registry:
-                    loggers.append(loggers_registry[logger](self.output))
+            self._logger = self._logger_fn(self.output)
+
+            # After the loggers are initialized, we perform one last check for the output artifacts
+            if self.generate_output_artifact is None or self.generate_output_artifact:
+                if not _is_tensorboard_enabled(self._logger, os.path.join(self.output, "tensorboard")):
+                    logging.error("Add tensorboard logger in order to produce output artifact. Please add `--vis tensorboard` to the command line arguments. Or disable output artifact generation with `--no-output-artifact`")
+                    if self.generate_output_artifact is None:
+                        self.generate_output_artifact = False
+                    else:
+                        sys.exit(1)
                 else:
-                    raise ValueError(f"Unknown logger {logger}")
-            self._logger = ConcatLogger(loggers)
-            logging.info("Initialized loggers: " + ",".join(self.loggers))
+                    self.generate_output_artifact = True
         return self._logger
 
     def _update_resource_utilization_info(self):
@@ -409,7 +709,6 @@ class Trainer:
                     util[k] = max(util[k], v)
             self._resources_utilization_info = util
 
-    @remap_error
     def train(self):
         assert self.num_iterations is not None, "num_iterations must be set"
         assert self._average_image_size is not None, "dataset not set"
@@ -504,156 +803,3 @@ class Trainer:
         idx = rand_number % len(self.test_dataset["image_paths"])
         dataset_slice = dataset_index_select(self.test_dataset, slice(idx, idx + 1))
         eval_few(self.method, logger, dataset_slice, split="test", step=self.step, evaluation_protocol=self._evaluation_protocol)
-
-
-@click.command("train")
-@click.option("--method", "method_name", type=click.Choice(sorted(registry.get_supported_methods())), required=True, help="Method to use")
-@click.option("--checkpoint", type=click.Path(path_type=str), default=None)
-@click.option("--data", type=str, required=True)
-@click.option("--output", type=str, default=".")
-@click.option("--logger", type=click.Choice(["none", "wandb", "tensorboard", "wandb,tensorboard"]), default="tensorboard", help="Logger to use. Defaults to tensorboard.")
-@click.option("--verbose", "-v", is_flag=True)
-@click.option("--save-iters", type=IndicesClickType(), default=Indices([-1]), help="When to save the model")
-@click.option("--eval-few-iters", type=IndicesClickType(), default=Indices.every_iters(2_000), help="When to evaluate on few images")
-@click.option("--eval-all-iters", type=IndicesClickType(), default=Indices([-1]), help="When to evaluate all images")
-@click.option("--backend", "backend_name", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
-@click.option("--disable-output-artifact", "generate_output_artifact", help="Disable producing output artifact containing final model and predictions.", default=None, flag_value=False, is_flag=True)
-@click.option("--force-output-artifact", "generate_output_artifact", help="Force producing output artifact containing final model and predictions.", default=None, flag_value=True, is_flag=True)
-@click.option("--set", "config_overrides", help="Override a parameter in the method.", type=SetParamOptionType(), multiple=True, default=None)
-@click.option("--presets", type=TupleClickType(), default=None, help=(
-    "Apply a comma-separated list of preset to the method. If no `--presets` is supplied, or if a special `@auto` preset is present,"
-    " the method's default presets are applied (based on the dataset metadata)."))
-@handle_cli_error
-def train_command(
-    method_name,
-    checkpoint,
-    data,
-    output,
-    verbose,
-    backend_name,
-    save_iters,
-    eval_few_iters,
-    eval_all_iters,
-    generate_output_artifact=None,
-    logger="none",
-    config_overrides=None,
-    presets=None,
-):
-    if config_overrides is None:
-        config_overrides = {}
-    _loggers = set()
-    for _vis in logger.split(","):
-        if _vis == "none":
-            pass
-        elif _vis in loggers_registry:
-            _loggers.add(_vis)
-        else:
-            raise RuntimeError(f"Unknown logging tool {_vis}")
-    loggers = frozenset(_loggers)
-    del logger
-    del _loggers
-
-    logging.basicConfig(level=logging.INFO)
-    setup_logging(verbose)
-
-    if config_overrides is not None and isinstance(config_overrides, (list, tuple)):
-        config_overrides = dict(config_overrides)
-
-    if method_name is None and checkpoint is None:
-        logging.error("Either --method or --checkpoint must be specified")
-        sys.exit(1)
-
-    def _train(checkpoint_path=None):
-        nonlocal config_overrides
-        # Make paths absolute
-        _data = data
-        if "://" not in _data:
-            _data = os.path.abspath(_data)
-            backends.mount(_data, _data)
-        if checkpoint_path is not None:
-            backends.mount(checkpoint_path, checkpoint_path)
-        with open_any_directory(output, "w") as output_path, \
-                    backends.mount(output_path, output_path):
-
-            # change working directory to output
-            os.chdir(str(output_path))
-
-            method_spec = registry.get_method_spec(method_name)
-            with registry.build_method(method_spec, backend_name) as method_cls:
-                # Load train dataset
-                logging.info("Loading train dataset")
-                method_info = method_cls.get_method_info()
-                required_features = method_info.get("required_features", frozenset())
-                supported_camera_models = method_info.get("supported_camera_models", frozenset(("pinhole",)))
-                train_dataset = load_dataset(_data, 
-                                             split="train", 
-                                             features=required_features, 
-                                             supported_camera_models=supported_camera_models, 
-                                             load_features=True)
-                assert train_dataset["cameras"].image_sizes is not None, "image sizes must be specified"
-
-                # Load eval dataset
-                logging.info("Loading eval dataset")
-                test_dataset = load_dataset(_data, 
-                                            split="test", 
-                                            features=required_features, 
-                                            supported_camera_models=supported_camera_models, 
-                                            load_features=True)
-                test_dataset["metadata"]["expected_scene_scale"] = train_dataset["metadata"].get("expected_scene_scale")
-
-                # Apply config overrides for the train dataset
-                _presets = registry.get_presets_to_apply(method_spec, train_dataset["metadata"], presets)
-                dataset_overrides = registry.get_config_overrides_from_presets(
-                    method_spec,
-                    _presets,
-                )
-                if train_dataset["metadata"].get("name") is None:
-                    logging.warning("Dataset name not specified, dataset-specific config overrides may not be applied")
-                if dataset_overrides is not None:
-                    dataset_overrides = dataset_overrides.copy()
-                    dataset_overrides.update(config_overrides or {})
-                    config_overrides = dataset_overrides
-                del dataset_overrides
-
-                # Log the current set of config overrides
-                logging.info(f"Active presets: {', '.join(_presets)}")
-                logging.info(f"Using config overrides: {pprint.pformat(config_overrides)}")
-
-                # Build the method
-                method = method_cls(
-                    checkpoint=os.path.abspath(checkpoint_path) if checkpoint_path else None,
-                    train_dataset=train_dataset,
-                    config_overrides=config_overrides,
-                )
-
-                trainer = Trainer(
-                    train_dataset=train_dataset,
-                    test_dataset=test_dataset,
-                    method=method,
-                    output=output_path,
-                    save_iters=save_iters,
-                    eval_all_iters=eval_all_iters,
-                    eval_few_iters=eval_few_iters,
-                    loggers=frozenset(loggers),
-                    generate_output_artifact=generate_output_artifact,
-                    config_overrides=config_overrides,
-                    applied_presets=frozenset(_presets),
-                )
-                trainer.train()
-
-    if checkpoint is not None:
-        with open_any_directory(checkpoint) as checkpoint_path:
-            with open(os.path.join(checkpoint_path, "nb-info.json"), "r", encoding="utf8") as f:
-                info = json.load(f)
-            info = deserialize_nb_info(info)
-            if method_name is not None and method_name != info["method"]:
-                logging.error(f"Argument --method={method_name} is in conflict with the checkpoint's method {info['method']}.")
-                sys.exit(1)
-            method_name = info["method"]
-            _train(checkpoint_path)
-    else:
-        _train(None)
-
-
-if __name__ == "__main__":
-    train_command()  # pylint: disable=no-value-for-parameter

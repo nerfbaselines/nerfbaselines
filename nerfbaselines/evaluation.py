@@ -14,19 +14,16 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-from .datasets import new_dataset
+
 from .utils import (
     read_image, 
     apply_colormap,
-    convert_image_dtype, 
-    run_on_host,
     image_to_srgb,
     save_image,
     visualize_depth,
-    assert_not_none,
 )
-from .types import (
-    Literal, 
+from .backends import run_on_host
+from . import (
     Dataset,
     RenderOutput, 
     EvaluationProtocol, 
@@ -36,8 +33,10 @@ from .types import (
     RenderOptions,
     camera_model_to_int,
     new_cameras,
+    new_dataset,
+    convert_image_dtype, 
 )
-from .registry import build_evaluation_protocol
+from ._registry import build_evaluation_protocol
 from .io import (
     open_any_directory, 
     deserialize_nb_info, 
@@ -49,6 +48,10 @@ from .io import (
 from . import metrics
 from . import cameras as _cameras
 try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
+try:
     from typeguard import suppress_type_checks
 except ImportError:
     from contextlib import nullcontext as suppress_type_checks
@@ -56,6 +59,11 @@ except ImportError:
 
 OutputType = Literal["color", "depth"]
 T = TypeVar("T")
+
+
+def _assert_not_none(value: Optional[T]) -> T:
+    assert value is not None
+    return value
 
 
 @typing.overload
@@ -495,7 +503,7 @@ def trajectory_get_embeddings(method: Method, trajectory: Trajectory) -> Optiona
         if appearance.get("embedding") is not None:
             appearance_embeddings[i] = appearance.get("embedding")
         elif appearance.get("embedding_train_index") is not None:
-            appearance_embeddings[i] = method.get_train_embedding(assert_not_none(appearance.get("embedding_train_index")))
+            appearance_embeddings[i] = method.get_train_embedding(_assert_not_none(appearance.get("embedding_train_index")))
     if all(x is None for x in appearance_embeddings):
         return None
     if not all(x is not None for x in appearance_embeddings):
@@ -512,4 +520,32 @@ def trajectory_get_embeddings(method: Method, trajectory: Trajectory) -> Optiona
         embedding = (frame.get("appearance_weights") @ appearance_embeddings_np).astype(appearance_embeddings_np.dtype)
         out.append(embedding)
     return out
+
+
+@contextmanager
+def run_inside_eval_container(backend_name: Optional[str] = None):
+    """
+    Ensures PyTorch is available to compute extra metrics (lpips)
+    """
+    from .backends import get_backend
+    try:
+        import torch as _
+        yield None
+        return
+    except ImportError:
+        pass
+
+    logging.warning("PyTorch is not available in the current environment, we will create a new environment to compute extra metrics (lpips)")
+    if backend_name is None:
+        backend_name = os.environ.get("NERFBASELINES_BACKEND", None)
+    backend = get_backend({
+        "id": "metrics",
+        "method": "base",
+        "conda": {
+            "environment_name": "_metrics", 
+            "install_script": ""
+        }}, backend=backend_name)
+    with backend:
+        backend.install()
+        yield None
 

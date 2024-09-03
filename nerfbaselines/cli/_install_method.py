@@ -3,14 +3,18 @@ import pprint
 import logging
 import os
 import click
-from nerfbaselines import registry
+from nerfbaselines import (
+    get_supported_methods,
+    get_method_spec,
+)
 from nerfbaselines import backends
-from nerfbaselines.utils import handle_cli_error, setup_logging
 from nerfbaselines.io import open_any
+from ._common import handle_cli_error, click_backend_option, setup_logging
 
 
 def get_register_calls(file):
     # First, we collect all register() calls
+    from nerfbaselines import _registry as registry
     register_calls = []
     with registry.collect_register_calls(register_calls):
         # Import the module from the file
@@ -38,16 +42,16 @@ register({pprint.pformat(spec)}, name="{name}")
 
 
 @click.command("install-method")
-@click.option("--method", type=click.Choice(list(registry.get_supported_methods())), required=False, default=None)
+@click.option("--method", type=click.Choice(list(get_supported_methods())), required=False, default=None)
 @click.option("--spec", type=str, required=False)
 @click.option("--force", is_flag=True, help="Overwrite existing specs")
-@click.option("--backend", "backend_name", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @click.option("--verbose", "-v", is_flag=True)
+@click_backend_option()
 @handle_cli_error
 def main(method, spec, backend_name, force=False, verbose=False):
     setup_logging(verbose)
     if method is not None:
-        method_spec = registry.get_method_spec(method)
+        method_spec = get_method_spec(method)
         backend_impl = backends.get_backend(method_spec, backend_name)
         logging.info(f"Using method: {method}, backend: {backend_impl.name}")
         backend_impl.install()
@@ -56,6 +60,7 @@ def main(method, spec, backend_name, force=False, verbose=False):
             register_calls = get_register_calls(f)
 
         # Test if some of the specs are already registered
+        from nerfbaselines import _registry as registry
         for register_call in register_calls:
             if register_call["type"] == "method" and register_call["name"] in registry.methods_registry:
                 if not force:

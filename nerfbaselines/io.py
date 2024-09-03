@@ -8,7 +8,7 @@ import numpy as np
 import time
 import tarfile
 import os
-from typing import Union, Iterator, IO, Any, Dict, List, Iterable, Optional
+from typing import Union, Iterator, IO, Any, Dict, List, Iterable, Optional, TypeVar
 import zipfile
 import contextlib
 from pathlib import Path
@@ -18,24 +18,32 @@ import logging
 import shutil
 from tqdm import tqdm
 import requests
-from .types import (
+from . import (
     Trajectory, 
     Method,
     Dataset,
     RenderOutput,
-    Literal,
 )
 from .utils import (
-    assert_not_none, 
     save_image,
     save_depth,
     visualize_depth,
     image_to_srgb,
 )
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
 from . import __version__
 
 
 OpenMode = Literal["r", "w"]
+T = TypeVar("T")
+
+
+def _assert_not_none(value: Optional[T]) -> T:
+    assert value is not None
+    return value
 
 
 def wget(url: str, output: Union[str, Path]):
@@ -76,7 +84,7 @@ def open_any(
                 rest = "/".join(components[zip_parts[-1] + 1 :])
                 with tarfile.open(fileobj=f, mode=mode + ":gz") as tar:
                     if mode == "r":
-                        with assert_not_none(tar.extractfile(rest)) as f:
+                        with _assert_not_none(tar.extractfile(rest)) as f:
                             yield f
                     elif mode == "w":
                         _, extension = os.path.split(rest)
@@ -548,7 +556,7 @@ def save_predictions(output: str, predictions: Iterable[RenderOutput], dataset: 
     allow_transparency = True
 
     def _predict_all(open_fn) -> Iterable[RenderOutput]:
-        for i, (pred, (w, h)) in enumerate(zip(predictions, assert_not_none(dataset["cameras"].image_sizes))):
+        for i, (pred, (w, h)) in enumerate(zip(predictions, _assert_not_none(dataset["cameras"].image_sizes))):
             gt_image = image_to_srgb(dataset["images"][i][:h, :w], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
             pred_image = image_to_srgb(pred["color"], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
             assert gt_image.shape[:-1] == pred_image.shape[:-1], f"gt size {gt_image.shape[:-1]} != pred size {pred_image.shape[:-1]}"

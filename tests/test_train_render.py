@@ -43,6 +43,7 @@ class _TestMethod(Method):
     _render_call_step = []
 
     def __init__(self, *args, train_dataset=None, **kwargs):
+        del args, kwargs
         if train_dataset is not None:
             self._setup_train_dataset.append(train_dataset)
 
@@ -78,6 +79,7 @@ class _TestMethod(Method):
         }
 
     def optimize_embeddings(self, *args, **kwargs):
+        del args, kwargs
         raise NotImplementedError()
 
     def render(self, cameras: Cameras, *, embeddings=None, **kwargs) -> Iterable[RenderOutput]:
@@ -99,6 +101,7 @@ class _TestMethod(Method):
         self._save_paths.append(path)
 
     def get_train_embedding(self, *args, **kwargs):
+        del args, kwargs
         raise NotImplementedError()
 
 
@@ -124,6 +127,7 @@ def wandb_init_run():
 
 @pytest.mark.parametrize("vis", ["none", "wandb", "tensorboard", "wandb,tensorboard"])
 def test_train_command(mock_extras, tmp_path, wandb_init_run, vis):
+    del mock_extras, wandb_init_run
     # if sys.version_info[:2] == (3, 7) and vis == "tensorboard":
     #     # TODO: Investigate why this test fails in Python 3.7
     #     pytest.skip("for some reason this test fails in Python 3.7 when run together with the other tests, but passes when run alone.")
@@ -131,8 +135,9 @@ def test_train_command(mock_extras, tmp_path, wandb_init_run, vis):
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
     _patch_wandb_for_py37()
-    from nerfbaselines.training import train_command
-    from nerfbaselines.registry import methods_registry as registry, MethodSpec
+    from nerfbaselines.cli._train import train_command
+    from nerfbaselines import MethodSpec
+    from nerfbaselines._registry import methods_registry as registry
     import wandb
 
     _ns_prefix_backup = os.environ.get("NS_PREFIX", None)
@@ -140,7 +145,7 @@ def test_train_command(mock_extras, tmp_path, wandb_init_run, vis):
         os.environ["NS_PREFIX"] = str(tmp_path / "prefix")
         spec: MethodSpec = {
             "id": "_test",
-            "method": _TestMethod.__module__ + ":_TestMethod",
+            "method_class": _TestMethod.__module__ + ":_TestMethod",
             "conda": {
                 "environment_name": "_test",
                 "python_version": "3.10",
@@ -220,15 +225,16 @@ def test_train_command_extras(tmp_path):
     metrics._LPIPS_CACHE.clear()
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
-    from nerfbaselines.training import train_command
-    from nerfbaselines.registry import methods_registry as registry, MethodSpec
+    from nerfbaselines.cli._train import train_command
+    from nerfbaselines import MethodSpec
+    from nerfbaselines._registry import methods_registry as registry
 
     assert train_command.callback is not None
 
     try:
         spec: MethodSpec = {
             "id": "_test",
-            "method": _TestMethod.__module__ + ":_TestMethod",
+            "method_class": _TestMethod.__module__ + ":_TestMethod",
             "conda": {
                 "environment_name": "_test",
                 "python_version": "3.10",
@@ -288,11 +294,13 @@ def test_train_command_extras(tmp_path):
 
 
 def test_train_command_undistort(tmp_path, wandb_init_run, mock_extras):
+    del mock_extras, wandb_init_run
     metrics._LPIPS_CACHE.clear()
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
-    from nerfbaselines.training import train_command
-    from nerfbaselines.registry import methods_registry as registry, MethodSpec
+    from nerfbaselines.cli._train import train_command
+    from nerfbaselines import MethodSpec
+    from nerfbaselines._registry import methods_registry as registry
 
     assert train_command.callback is not None
     render_was_called = False
@@ -323,7 +331,7 @@ def test_train_command_undistort(tmp_path, wandb_init_run, mock_extras):
         os.environ["NS_PREFIX"] = str(tmp_path / "prefix")
         spec: MethodSpec = {
             "id": "_test",
-            "method": _TestMethod.__module__ + ":test_train_command_undistort._TestMethod",
+            "method_class": _TestMethod.__module__ + ":test_train_command_undistort._TestMethod",
             "conda": {
                 "environment_name": "_test",
                 "python_version": "3.10",
@@ -351,41 +359,16 @@ def test_render_command(tmp_path, output_type):
     metrics._LPIPS_CACHE.clear()
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
-    from nerfbaselines.training import train_command
-    from nerfbaselines.registry import methods_registry as registry, MethodSpec
-
-    assert train_command.callback is not None
-    render_was_called = False
-    setup_data_was_called = False
-
-    class _Method(_TestMethod):
-        def get_info(self) -> ModelInfo:
-            info: ModelInfo = {**super().get_info()}
-            info["supported_camera_models"] = frozenset(("pinhole",))
-            return info
-
-        def __init__(self, *args, train_dataset, **kwargs):
-            nonlocal setup_data_was_called
-            setup_data_was_called = True
-            assert all(train_dataset["cameras"].camera_types == 0)
-            super().__init__(*args, train_dataset=train_dataset, **kwargs)
-
-        def render(self, cameras, *args, **kwargs):
-            nonlocal render_was_called
-            render_was_called = True
-            assert all(cameras.camera_types == 0)
-            return super().render(cameras, *args, **kwargs)
-
-    
-    from nerfbaselines.training import train_command
-    from nerfbaselines.cli.render import render_command
-    from nerfbaselines.registry import methods_registry as registry, MethodSpec
+    from nerfbaselines.cli._train import train_command
+    from nerfbaselines.cli._render import render_command
+    from nerfbaselines import MethodSpec
+    from nerfbaselines._registry import methods_registry as registry
 
     _ns_prefix_backup = os.environ.get("NS_PREFIX", None)
     try:
         os.environ["NS_PREFIX"] = str(tmp_path / "prefix")
         spec: MethodSpec = {
-            "method": _TestMethod.__module__ + ":_TestMethod",
+            "method_class": _TestMethod.__module__ + ":_TestMethod",
             "conda": {
                 "environment_name": "_test",
                 "python_version": "3.10",

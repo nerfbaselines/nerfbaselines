@@ -1,10 +1,9 @@
 import os
-from nerfbaselines.types import MethodSpec
-from nerfbaselines.registry import register
+from nerfbaselines import register, MethodSpec
 
 
 NeRFWReimplSpec: MethodSpec = {
-    "method": ".nerfw_reimpl:NeRFWReimpl",
+    "method_class": ".nerfw_reimpl:NeRFWReimpl",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9",

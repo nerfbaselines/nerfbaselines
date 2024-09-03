@@ -1,8 +1,10 @@
+import dataclasses
 import tempfile
 import sys
 from collections import defaultdict
 import contextlib
 import os
+import functools
 from queue import Queue
 from threading import Thread
 import pickle
@@ -15,30 +17,81 @@ import logging
 from argparse import ArgumentParser
 from functools import partial
 from typing import Optional, Iterable, Sequence
-from nerfbaselines.utils import remap_error, flatten_hparams, convert_image_dtype
-from nerfbaselines.types import Method, Dataset, Cameras, RenderOutput, OptimizeEmbeddingsOutput, ModelInfo, MethodInfo, CameraModel, get_args
-from nerfbaselines.pose_utils import invert_transform, pad_poses
+from nerfbaselines import (
+    Method, Dataset, Cameras, RenderOutput,
+    OptimizeEmbeddingsOutput, 
+    ModelInfo, MethodInfo, CameraModel,
+    convert_image_dtype,
+    NoGPUError,
+)
+from nerfbaselines.utils import invert_transform, pad_poses
 from nerfbaselines import cameras as _cameras
-
-import pytorch_lightning as pl
-from pytorch_lightning import Trainer
-import numpy as np
-import torch
-
-
-from pytorch_lightning import loggers as _loggers
 try:
-    from pytorch_lightning.loggers import TestTubeLogger as _
+    from typing import get_args
+except ImportError:
+    from typing_extensions import get_args
+
+import pytorch_lightning as pl  # type: ignore
+from pytorch_lightning import Trainer  # type: ignore
+import numpy as np  # type: ignore
+import torch  # type: ignore
+
+
+from pytorch_lightning import loggers as _loggers  # type: ignore
+try:
+    from pytorch_lightning.loggers import TestTubeLogger as _  # type: ignore
     del _
 except ImportError:
-    _loggers.TestTubeLogger = _loggers.TensorBoardLogger
-from datasets import phototourism as pl_phototourism_dataset
-from models.rendering import render_rays
-import train
+    _loggers.TestTubeLogger = _loggers.TensorBoardLogger  # type: ignore
+from datasets import phototourism as pl_phototourism_dataset  # type: ignore
+from models.rendering import render_rays  # type: ignore
+import train  # type: ignore
 
 
 logger = logging.getLogger("nerfw-reimpl")
 warnings.filterwarnings("ignore", ".*does not have many workers.*")
+
+
+def remap_error(fn):
+    def is_gpu_error(e: Exception) -> bool:
+        if isinstance(e, NoGPUError):
+            return True
+        if isinstance(e, RuntimeError):
+            return "Found no NVIDIA driver on your system." in str(e)
+        if isinstance(e, EnvironmentError):
+            return "unknown compute capability. ensure pytorch with cuda support is installed." in str(e).lower()
+        if isinstance(e, ImportError):
+            return "libcuda.so.1: cannot open shared object file" in str(e)
+        return False
+
+    if getattr(fn, "__error_remap__", False):
+        return fn
+
+    @functools.wraps(fn)
+    def wrapped(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            if is_gpu_error(e):
+                raise NoGPUError from e
+            raise e
+
+    wrapped.__error_remap__ = True  # type: ignore
+    return wrapped
+
+
+def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
+    flat = {}
+    if dataclasses.is_dataclass(hparams):
+        hparams = {f.name: getattr(hparams, f.name) for f in dataclasses.fields(hparams)}
+    for k, v in hparams.items():
+        if _prefix:
+            k = f"{_prefix}{separator}{k}"
+        if isinstance(v, dict) or dataclasses.is_dataclass(v):
+            flat.update(flatten_hparams(v, _prefix=k, separator=separator).items())
+        else:
+            flat[k] = v
+    return flat
 
 
 class CallbackIterator:
@@ -90,7 +143,7 @@ def patch_nerfw_rempl():
     # From the README:
     #   There is a difference between the paper: I didn't add the appearance embedding in the coarse model while it should. 
     #   Please change this line to self.encode_appearance = encode_appearance to align with the paper.
-    from models.nerf import NeRF
+    from models.nerf import NeRF  # type: ignore
     if getattr(type(NeRF), "__name__", None) == "MagicMock":
         # Skip in tests
         return
@@ -101,10 +154,10 @@ def patch_nerfw_rempl():
     NeRF.__init__ = new_init
 
     # All memory is in cache, using more workers is just a waste
-    from train import NeRFSystem
+    from train import NeRFSystem  # type: ignore
     old_train_dataloader = NeRFSystem.train_dataloader
     def _train_dataloader(self):
-        from train import DataLoader
+        from train import DataLoader  # type: ignore
         old_Dataloader = DataLoader.__init__
         try:
             def _init(*args, **kwargs):
@@ -280,6 +333,7 @@ def _override_train_iteration(model, old, cb, *args, **kwargs):
     cb(None)
     metrics = {}
     def log(name, value, *args, **kwargs):
+        del args, kwargs
         metrics[name] = value
     model.log, old_log = log, model.log
     try:
@@ -747,8 +801,6 @@ class NeRFWReimpl(Method):
 
 if __name__ == "__main__":
     # Run DDP loop
-    from nerfbaselines.utils import setup_logging
-    setup_logging(False)  # setup_logging("disabled")
     logger = logging.getLogger("slave")
     logger.setLevel(logging.INFO)
     logger.info("Launching slave process")

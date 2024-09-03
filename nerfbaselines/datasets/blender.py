@@ -11,8 +11,8 @@ from tqdm import tqdm
 from pathlib import Path
 from typing import Union
 import numpy as np
-from ..types import camera_model_to_int, new_cameras
-from ._common import DatasetNotFoundError, get_default_viewer_transform, new_dataset
+from .. import camera_model_to_int, new_cameras, new_dataset, DatasetNotFoundError
+from nerfbaselines.datasets import get_default_viewer_transform
 
 
 DATASET_NAME = "blender"

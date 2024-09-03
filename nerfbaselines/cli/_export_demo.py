@@ -1,19 +1,20 @@
 import click
 from pathlib import Path
-import os
 import json
-from nerfbaselines.backends import ALL_BACKENDS
-from nerfbaselines.utils import setup_logging
-from nerfbaselines.io import open_any_directory, deserialize_nb_info
-from nerfbaselines import registry
 from nerfbaselines import backends
+from nerfbaselines import (
+    get_method_spec, build_method_class,
+)
+from nerfbaselines.io import open_any_directory, deserialize_nb_info
+from ._common import click_backend_option
+from ._common import setup_logging
 
 
 @click.command("export-demo")
 @click.option("--checkpoint", type=click.Path(file_okay=True, dir_okay=True, path_type=str), required=True)
 @click.option("--output", "-o", type=click.Path(file_okay=True, dir_okay=False, path_type=str), required=True)
 @click.option("--verbose", "-v", is_flag=True)
-@click.option("--backend", "backend_name", type=click.Choice(ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
+@click_backend_option()
 def main(checkpoint: str, output: str, backend_name, verbose=False):
     checkpoint = str(checkpoint)
     output = str(output)
@@ -30,8 +31,8 @@ def main(checkpoint: str, output: str, backend_name, verbose=False):
 
         method_name = nb_info["method"]
         backends.mount(checkpoint_path, checkpoint_path)
-        method_spec = registry.get_method_spec(method_name)
-        with registry.build_method(method_spec, backend=backend_name) as method_cls:
+        method_spec = get_method_spec(method_name)
+        with build_method_class(method_spec, backend=backend_name) as method_cls:
             method = method_cls(checkpoint=str(checkpoint_path))
             dataset_info = nb_info["dataset_metadata"]
             method_export_demo = getattr(method, "export_demo", None)

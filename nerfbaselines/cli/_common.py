@@ -1,16 +1,26 @@
+import logging
+import sys
+from functools import wraps
+import click
 import gzip
 import io
 import hashlib
 import os
 import itertools
 
-from typing import Any, cast
+from typing import Any, cast, Union, Dict
 import itertools
 import numpy as np
 import pprint
 import json
 from PIL import Image
-from nerfbaselines.utils import run_on_host
+from nerfbaselines import BackendName
+from nerfbaselines.backends import run_on_host
+from nerfbaselines.utils import Indices
+try:
+    from typing import get_args, Literal
+except ImportError:
+    from typing_extensions import get_args, Literal
 
 
 @run_on_host()
@@ -345,3 +355,104 @@ class ChangesTracker:
     def print_changes(self, indent=2):
         print(self.format_changes(indent))
 
+
+class IndicesClickType(click.ParamType):
+    name = "indices"
+
+    def convert(self, value, param, ctx):
+        del param, ctx
+        if value is None:
+            return None
+        if isinstance(value, Indices):
+            return value
+        if ":" in value:
+            parts = [int(x) if x else None for x in value.split(":")]
+            assert len(parts) <= 3, "too many parts in slice"
+            return Indices(slice(*parts))
+        return Indices([int(x) for x in value.split(",")])
+
+
+class TupleClickType(click.ParamType):
+    name = "comma-separated-tuple"
+
+    def convert(self, value, param, ctx):
+        del param, ctx
+        if value is None:
+            return None
+        if isinstance(value, tuple):
+            return value
+        return tuple(value.split(","))
+
+
+class SetParamOptionType(click.ParamType):
+    name = "key-value"
+
+    def convert(self, value, param, ctx):
+        if value is None:
+            return None
+        if isinstance(value, tuple):
+            return value
+        if "=" not in value:
+            self.fail(f"expected key=value pair, got {value}", param, ctx)
+        k, v = value.split("=", 1)
+        return k, v
+
+
+def handle_cli_error(fn):
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            write_to_logger = getattr(e, "write_to_logger", None)
+            if write_to_logger is not None:
+                write_to_logger()
+                sys.exit(1)
+            else:
+                raise e
+
+    return wrapped
+
+
+def click_backend_option():
+    return click.option("--backend", "backend_name", type=click.Choice(list(get_args(BackendName))), envvar="NB_BACKEND")
+
+
+def setup_logging(verbose: Union[bool, Literal['disabled']]):
+    class Formatter(logging.Formatter):
+        def format(self, record: logging.LogRecord):
+            levelname = record.levelname[0]
+            message = record.getMessage()
+            if levelname == "D":
+                return f"\033[0;36mdebug:\033[0m {message}"
+            elif levelname == "I":
+                return f"\033[1;36minfo:\033[0m {message}"
+            elif levelname == "W":
+                return f"\033[0;1;33mwarning: {message}\033[0m"
+            elif levelname == "E":
+                return f"\033[0;1;31merror: {message}\033[0m"
+            else:
+                return message
+
+    kwargs: Dict[str, Any] = {}
+    if sys.version_info >= (3, 8):
+        kwargs["force"] = True
+    if verbose == "disabled":
+        logging.basicConfig(level=logging.FATAL, **kwargs)
+        logging.getLogger('PIL').setLevel(logging.FATAL)
+        try:
+            import tqdm as _tqdm
+            old_init = _tqdm.tqdm.__init__
+            _tqdm.tqdm.__init__ = lambda *args, disable=None, **kwargs: old_init(*args, disable=True, **kwargs)
+        except ImportError:
+            pass
+    elif verbose:
+        logging.basicConfig(level=logging.DEBUG, **kwargs)
+        logging.getLogger('PIL').setLevel(logging.WARNING)
+    else:
+        import warnings
+        logging.basicConfig(level=logging.INFO, **kwargs)
+        warnings.formatwarning = lambda message, *args, **kwargs: message
+    for handler in logging.root.handlers:
+        handler.setFormatter(Formatter())
+    logging.captureWarnings(True)

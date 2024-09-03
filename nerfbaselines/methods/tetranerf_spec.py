@@ -1,6 +1,5 @@
 import os
-from nerfbaselines.types import MethodSpec
-from nerfbaselines.registry import register
+from nerfbaselines import register, MethodSpec
 
 
 _paper_results = {
@@ -33,7 +32,7 @@ _paper_results = {
 
 
 TetraNeRFSpec: MethodSpec = {
-    "method": ".tetranerf:TetraNeRF",
+    "method_class": ".tetranerf:TetraNeRF",
     "docker": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "image": "kulhanek/tetra-nerf:latest",
@@ -64,7 +63,7 @@ TetraNeRFSpec: MethodSpec = {
 
 TetraNeRFLatestSpec: MethodSpec = {
     **TetraNeRFSpec,
-    "method": ".tetranerf:TetraNeRFLatest",
+    "method_class": ".tetranerf:TetraNeRFLatest",
     "metadata": {
         **TetraNeRFSpec["metadata"],
         "name": "Tetra-NeRF (latest)",

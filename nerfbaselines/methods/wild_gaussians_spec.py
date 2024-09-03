@@ -1,12 +1,12 @@
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from nerfbaselines.types import MethodSpec
+    from nerfbaselines import MethodSpec
 else:
     MethodSpec = dict
 
 
 WildGaussiansMethodSpec: MethodSpec = {
-    "method": "wildgaussians.method:WildGaussians",
+    "method_class": "wildgaussians.method:WildGaussians",
     "conda": {
         "environment_name": "wild-gaussians",
         "python_version": "3.11",
@@ -81,7 +81,7 @@ fi
 }
 
 try:
-    from nerfbaselines.registry import register
+    from nerfbaselines import register
     register(WildGaussiansMethodSpec)
 except ImportError:
     pass

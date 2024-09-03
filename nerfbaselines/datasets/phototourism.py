@@ -3,16 +3,16 @@ import logging
 from pathlib import Path
 import shutil
 import tempfile
-from typing import Union, cast, Dict
+from typing import Union, cast, Dict, Iterable
 import tarfile
 
 import numpy as np
 import requests
 from tqdm import tqdm
 
-from ..types import Dataset, EvaluationProtocol, Method, RenderOutput, Iterable
+from nerfbaselines import Dataset, EvaluationProtocol, Method, RenderOutput, DatasetNotFoundError
 from ..utils import image_to_srgb
-from ._common import DatasetNotFoundError, single, get_scene_scale, get_default_viewer_transform, dataset_index_select
+from ._common import single, get_scene_scale, get_default_viewer_transform, dataset_index_select
 from .colmap import load_colmap_dataset
 
 DATASET_NAME = "phototourism"

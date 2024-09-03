@@ -5,15 +5,19 @@ import math
 import shutil
 import json
 import zipfile
-from typing import Optional, List, Tuple, Dict, Union
+from typing import Optional, List, Tuple, Dict, Union, FrozenSet
 
 import numpy as np
 from PIL import Image
 
+from nerfbaselines import DatasetNotFoundError, new_dataset, CameraModel, camera_model_to_int, DatasetFeature, new_cameras
 from ._colmap_utils import read_points3D_binary, read_points3D_text, read_images_binary, read_images_text
-from ._common import DatasetNotFoundError, get_scene_scale, get_default_viewer_transform, new_dataset, dataset_index_select
-from ..types import CameraModel, camera_model_to_int, FrozenSet, DatasetFeature, get_args, new_cameras
+from ._common import get_scene_scale, get_default_viewer_transform, dataset_index_select
 from ..io import wget
+try:
+    from typing import get_args
+except ImportError:
+    from typing_extensions import get_args
 
 
 MAX_AUTO_RESOLUTION = 1600

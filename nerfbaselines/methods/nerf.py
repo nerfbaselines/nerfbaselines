@@ -5,32 +5,37 @@ import warnings
 import shlex
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, Sequence
+from typing import Any, Dict, Iterable, Sequence, Optional
+from argparse import ArgumentParser
+import tempfile
 import logging
+import numpy as np
+
+from nerfbaselines import (
+    Dataset, OptimizeEmbeddingsOutput, RenderOutput, MethodInfo, ModelInfo,
+    Cameras, CameraModel, Method,
+    convert_image_dtype,
+)
+try:
+    from typing import get_args
+except ImportError:
+    from typing_extensions import get_args
+
 try:
     import torch as _
 except ImportError:
     pass
 import os
-import configargparse
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 
-import tensorflow as tf
-import numpy as np
-import imageio
-import run_nerf
-from run_nerf_helpers import img2mse, mse2psnr, to8b
-from run_nerf import render, get_rays_np, config_parser, create_nerf
-from load_llff import load_llff_data, spherify_poses, poses_avg
-from load_deepvoxels import load_dv_data
-from load_blender import load_blender_data
-import tempfile
-from argparse import ArgumentParser
+import configargparse  # type: ignore
+import tensorflow as tf  # type: ignore
+import run_nerf  # type: ignore
+from run_nerf_helpers import img2mse, mse2psnr  # type: ignore
+from run_nerf import render, config_parser, create_nerf  # type: ignore
+from load_llff import spherify_poses, poses_avg  # type: ignore
 
-from nerfbaselines.types import Dataset, OptimizeEmbeddingsOutput, RenderOutput, MethodInfo, ModelInfo
-from nerfbaselines.types import Cameras, CameraModel, get_args, Method, Optional
-from nerfbaselines.utils import convert_image_dtype
-from nerfbaselines.pose_utils import pad_poses, apply_transform, unpad_poses, invert_transform
+from nerfbaselines.utils import pad_poses, apply_transform
 from nerfbaselines import cameras as _cameras
 
 # Setup TF GPUs
@@ -417,6 +422,7 @@ class NeRF(Method):
             rgb, disp, acc, extras = render(
                 None, None, None, chunk=self.args.chunk, rays=batch_rays,
                 verbose=step < 10, retraw=True, **self.render_kwargs_train)
+            del disp, acc
 
             # Compute MSE loss between predicted and true RGB.
             img_loss = img2mse(rgb, target_s)
@@ -453,6 +459,7 @@ class NeRF(Method):
             rays_o, rays_d = batch_rays[:, 0], batch_rays[:, 1]
             rgb, disp, acc, extras = render(
                 None, None, None, chunk=self.args.chunk, rays=(rays_o, rays_d), **self.render_kwargs_test)
+            del disp
             rgb = np.clip(rgb.numpy(), 0.0, 1.0)
             yield {
                 "color": rgb.reshape(H, W, 3),
@@ -472,6 +479,7 @@ class NeRF(Method):
             dataset: Dataset.
             embeddings: Optional initial embeddings.
         """
+        del dataset, embeddings
         raise NotImplementedError()
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
@@ -481,5 +489,6 @@ class NeRF(Method):
         Args:
             index: Index of the image.
         """
+        del index
         return None
 

@@ -10,27 +10,27 @@ import click
 from PIL import Image
 import tempfile
 from tqdm import trange
-from nerfbaselines import backends
-from nerfbaselines import registry
+import nerfbaselines
+from nerfbaselines import (
+    build_method_class,
+)
 from nerfbaselines.datasets import load_dataset, dataset_index_select
-from nerfbaselines.utils import SetParamOptionType, handle_cli_error, setup_logging, Indices
-from nerfbaselines.utils import run_inside_eval_container
 from nerfbaselines.logging import TensorboardLogger
 from nerfbaselines.io import open_any_directory
-from nerfbaselines.training import Trainer, eval_few, eval_all
-from nerfbaselines.registry import build_evaluation_protocol
-from nerfbaselines.evaluation import evaluate
-from ._common import ChangesTracker
+from nerfbaselines.training import Trainer, Indices, eval_few, eval_all
+# from nerfbaselines.registry import build_evaluation_protocol
+from nerfbaselines.evaluation import evaluate, run_inside_eval_container
+from ._common import ChangesTracker, handle_cli_error, SetParamOptionType, click_backend_option, setup_logging
 
 
 @click.command("test-method")
-@click.option("--method", "method_name", type=click.Choice(sorted(registry.get_supported_methods())), required=True, help="Method to use")
+@click.option("--method", "method_name", type=click.Choice(sorted(nerfbaselines.get_supported_methods())), required=True, help="Method to use")
 @click.option("--data", "dataset", type=str, required=True)
 @click.option("--verbose", "-v", is_flag=True)
-@click.option("--backend", "backend_name", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @click.option("--set", "config_overrides", help="Override a parameter in the method.", type=SetParamOptionType(), multiple=True, default=None)
 @click.option("--fast", is_flag=True, help="Run only the fast tests")
 @click.option("--steps", type=int, default=2013, help="Number of steps to run")
+@click_backend_option()
 @handle_cli_error
 def main(method_name: str, 
          dataset: str, *, 
@@ -65,14 +65,14 @@ def main(method_name: str,
         skips.append(message)
 
     # Get method spec
-    method_spec = registry.get_method_spec(method_name)
+    method_spec = nerfbaselines.get_method_spec(method_name)
 
     # Load train dataset
     logging.info("loading train dataset")
 
     output_context = tempfile.TemporaryDirectory()
     with output_context as output:
-        with registry.build_method(method_spec, backend=backend_name) as method_cls:
+        with build_method_class(method_spec, backend=backend_name) as method_cls:
             mark_success("Method backend initialized")
 
             method_info = method_cls.get_method_info()

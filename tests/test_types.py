@@ -1,6 +1,7 @@
 # pyright: reportArgumentType=false
 import numpy as np
-from nerfbaselines.types import GenericCamerasImpl, Cameras
+from nerfbaselines import Cameras
+from nerfbaselines._types import GenericCamerasImpl
 
 
 def test_generic_cameras_impl_implements_cameras_protocol():

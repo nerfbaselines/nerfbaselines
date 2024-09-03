@@ -5,9 +5,8 @@ import pytest
 from typing import Iterable
 import numpy as np
 from time import sleep
-from nerfbaselines import Method, MethodInfo, RenderOutput, ModelInfo
+from nerfbaselines import Method, MethodInfo, RenderOutput, ModelInfo, new_cameras
 from nerfbaselines.utils import CancellationToken, CancelledException
-from nerfbaselines.types import new_cameras
 
 
 def test_render(use_remote_method):
@@ -109,7 +108,7 @@ def use_remote_method():
 
 
 def test_get_resource_utilization(use_remote_method):
-    from nerfbaselines.utils import get_resources_utilization_info
+    from nerfbaselines.training import get_resources_utilization_info
 
     called = False
     def intercept(callback, fn, *args, **kwargs):

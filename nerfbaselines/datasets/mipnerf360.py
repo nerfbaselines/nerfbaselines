@@ -9,7 +9,8 @@ import numpy as np
 import zipfile
 from tqdm import tqdm
 import tempfile
-from ._common import DatasetNotFoundError, single, get_scene_scale, get_default_viewer_transform, dataset_index_select
+from nerfbaselines import DatasetNotFoundError
+from ._common import single, get_scene_scale, get_default_viewer_transform, dataset_index_select
 from .colmap import load_colmap_dataset
 
 

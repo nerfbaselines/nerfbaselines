@@ -1,3 +1,6 @@
+import io
+import base64
+import functools
 import hashlib
 import gzip
 import msgpack
@@ -10,16 +13,90 @@ import contextlib
 import json
 import os
 from pathlib import Path
-from typing import Optional, Iterable, Sequence
+from typing import Optional, Iterable, Sequence, Union
+try:
+    from typing import get_origin, get_args
+except ImportError:
+    from typing_extensions import get_origin, get_args
 
 import tempfile
 import numpy as np
 from PIL import Image, ImageOps
-from nerfbaselines.types import Dataset, Method, MethodInfo, ModelInfo, OptimizeEmbeddingsOutput, RenderOutput
-from nerfbaselines.types import Cameras, camera_model_to_int
-from nerfbaselines.utils import cast_value, flatten_hparams, remap_error
-from nerfbaselines.pose_utils import pad_poses, unpad_poses
-from nerfbaselines.io import numpy_from_base64, numpy_to_base64
+from nerfbaselines import (
+    Dataset, Method, MethodInfo, ModelInfo, OptimizeEmbeddingsOutput, RenderOutput,
+    Cameras, camera_model_to_int, NoGPUError
+)
+from nerfbaselines.utils import pad_poses, unpad_poses
+
+
+def numpy_to_base64(array: np.ndarray) -> str:
+    with io.BytesIO() as f:
+        np.save(f, array)
+        return base64.b64encode(f.getvalue()).decode("ascii")
+
+
+def numpy_from_base64(data: str) -> np.ndarray:
+    with io.BytesIO(base64.b64decode(data)) as f:
+        return np.load(f)
+
+
+def cast_value(tp, value):
+    origin = get_origin(tp)
+    if origin is Union:
+        for t in get_args(tp):
+            try:
+                return cast_value(t, value)
+            except ValueError:
+                pass
+            except TypeError:
+                pass
+        raise TypeError(f"Value {value} is not in {tp}")
+    if tp is type(None):
+        if str(value).lower() == "none":
+            return None
+        else:
+            raise TypeError(f"Value {value} is not None")
+    if tp is bool:
+        if str(value).lower() in {"true", "1", "yes"}:
+            return True
+        elif str(value).lower() in {"false", "0", "no"}:
+            return False
+        else:
+            raise TypeError(f"Value {value} is not a bool")
+    if tp in {int, float, bool, str}:
+        return tp(value)
+    if isinstance(value, tp):
+        return value
+    raise TypeError(f"Cannot cast value {value} to type {tp}")
+
+
+def remap_error(fn):
+    if getattr(fn, "__error_remap__", False):
+        return fn
+
+    @functools.wraps(fn)
+    def wrapped(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            if isinstance(e, RuntimeError) and "Found no NVIDIA driver on your system." in str(e):
+                raise NoGPUError from e
+            raise e
+
+    wrapped.__error_remap__ = True  # type: ignore
+    return wrapped
+
+
+def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
+    flat = {}
+    for k, v in hparams.items():
+        if _prefix:
+            k = f"{_prefix}{separator}{k}"
+        if isinstance(v, dict):
+            flat.update(flatten_hparams(v, _prefix=k, separator=separator).items())
+        else:
+            flat[k] = v
+    return flat
 
 
 def rotmat(a, b):
@@ -597,6 +674,7 @@ class InstantNGP(Method):
             dataset: Dataset.
             embeddings: Optional initial embeddings.
         """
+        del dataset, embeddings
         raise NotImplementedError()
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
@@ -606,4 +684,5 @@ class InstantNGP(Method):
         Args:
             index: Index of the image.
         """
+        del index
         return None

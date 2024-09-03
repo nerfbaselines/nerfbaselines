@@ -6,10 +6,17 @@ from typing import Optional
 import hashlib
 
 import nerfbaselines
-from nerfbaselines import registry
-from ..types import NB_PREFIX, TypedDict, Required
-from ..utils import get_package_dependencies, shlex_join
+from nerfbaselines import get_supported_methods, get_method_spec, NB_PREFIX
+from ._common import get_package_dependencies
 from ._rpc import RemoteProcessRPCBackend, get_safe_environment
+try:
+    from typing import TypedDict, Required
+except ImportError:
+    from typing_extensions import TypedDict, Required
+
+
+def shlex_join(split_command):
+    return ' '.join(shlex.quote(arg) for arg in split_command)
 
 
 class CondaBackendSpec(TypedDict, total=False):
@@ -55,11 +62,12 @@ def conda_get_install_script(spec: CondaBackendSpec, package_path: Optional[str]
     script = "set -eo pipefail\n"
 
     def is_method_allowed(method):
-        conda_spec = method.get("conda")
+        spec = get_method_spec(method)
+        conda_spec = spec.get("conda")
         if conda_spec is not None:
             return conda_spec.get("environment_name") == spec.get("environment_name")
         return False
-    allowed_methods = ",".join((k for k, v in registry.methods_registry.items() if is_method_allowed(v)))
+    allowed_methods = ",".join((k for k in get_supported_methods() if is_method_allowed(k)))
 
     if not custom_environment_path:
         script += f"""

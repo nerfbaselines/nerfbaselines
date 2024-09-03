@@ -1,9 +1,8 @@
 import logging
 import os
 import json
-from ..types import UnloadedDataset
+from nerfbaselines import UnloadedDataset, DatasetNotFoundError
 from .colmap import load_colmap_dataset
-from ._common import DatasetNotFoundError
 
 
 def extract_train_test_split(original_path):

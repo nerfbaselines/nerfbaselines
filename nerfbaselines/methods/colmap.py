@@ -7,9 +7,8 @@ from typing import Optional
 from collections import defaultdict
 import os
 import tempfile
-from nerfbaselines.types import Method, Dataset, Cameras, RenderOptions, camera_model_from_int
+from nerfbaselines import Method, Dataset, Cameras, RenderOptions, camera_model_from_int, NoGPUError
 from nerfbaselines.datasets import _colmap_utils as colmap_utils
-from nerfbaselines.utils import NoGPUError
 
 
 logger = logging.getLogger(__name__)

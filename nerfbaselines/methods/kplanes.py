@@ -3,9 +3,12 @@ NOTE: there is slight difference from K-Planes official implementation.
 (Photo Tourism): In the official implementation, the closest camera bounds are used for rendering test images.
                  Here, we make it more stable by using the top 5 closest cameras.
 """
+import hashlib
+import struct
 import shutil
 import glob
 import tqdm
+import dataclasses
 import requests
 import pprint
 import warnings
@@ -19,14 +22,51 @@ import numpy as np
 import torch
 import torch.utils.data
 from functools import partial
-from nerfbaselines.utils import NoGPUError
-
-
-from nerfbaselines.types import Dataset, RenderOutput, OptimizeEmbeddingsOutput
-from nerfbaselines.types import Method, MethodInfo, ModelInfo, Cameras, camera_model_to_int
-from nerfbaselines.utils import flatten_hparams, convert_image_dtype
-from nerfbaselines.io import get_torch_checkpoint_sha
+from nerfbaselines import (
+    Dataset, RenderOutput, OptimizeEmbeddingsOutput,
+    Method, MethodInfo, ModelInfo, Cameras, camera_model_to_int,
+    convert_image_dtype, NoGPUError
+)
 import tempfile
+
+
+def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
+    flat = {}
+    if dataclasses.is_dataclass(hparams):
+        hparams = {f.name: getattr(hparams, f.name) for f in dataclasses.fields(hparams)}
+    for k, v in hparams.items():
+        if _prefix:
+            k = f"{_prefix}{separator}{k}"
+        if isinstance(v, dict) or dataclasses.is_dataclass(v):
+            flat.update(flatten_hparams(v, _prefix=k, separator=separator).items())
+        else:
+            flat[k] = v
+    return flat
+
+
+def get_torch_checkpoint_sha(checkpoint_data):
+    sha = hashlib.sha256()
+    def update(d):
+        if type(d).__name__ == "Tensor":
+            sha.update(d.cpu().numpy().tobytes())
+        elif isinstance(d, dict):
+            items = sorted(d.items(), key=lambda x: x[0])
+            for k, v in items:
+                update(k)
+                update(v)
+        elif isinstance(d, (list, tuple)):
+            for v in d:
+                update(v)
+        elif isinstance(d, (int, float)):
+            sha.update(struct.pack("f", d))
+        elif isinstance(d, str):
+            sha.update(d.encode("utf8"))
+        elif d is None:
+            sha.update("(None)".encode("utf8"))
+        else:
+            raise ValueError(f"Unsupported type {type(d)}")
+    update(checkpoint_data)
+    return sha.hexdigest()
 
 
 def _noop(out=None, *args, **kwargs):

@@ -5,9 +5,9 @@ import os
 import numpy as np
 from typing import Optional
 from contextlib import contextmanager
-from nerfbaselines.types import NB_PREFIX
-from ._common import DatasetNotFoundError, dataset_index_select
-from .colmap import load_colmap_dataset
+from nerfbaselines import NB_PREFIX, DatasetNotFoundError
+from nerfbaselines.datasets import dataset_index_select
+from nerfbaselines.datasets.colmap import load_colmap_dataset
 
 
 DATASET_NAME = "seathru-nerf"

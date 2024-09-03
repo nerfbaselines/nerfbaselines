@@ -95,7 +95,7 @@ def get_method_dependency_tree(root_path, method_name, backend=None):
         file_path=registered_files[method_name]))
 
     # Now we get path to the actual impl
-    from nerfbaselines.registry import get_method_spec
+    from nerfbaselines import get_method_spec
     method_spec = get_method_spec(method_name)
     _method_module_name = method_spec["method"].split(":")[0]
     method_module_name = _method_module_name.lstrip(".")

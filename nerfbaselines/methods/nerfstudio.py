@@ -1,4 +1,8 @@
 # pylint: disable=protected-access
+import struct
+import io
+import hashlib
+import base64
 import glob
 import warnings
 import pprint
@@ -6,20 +10,23 @@ import json
 import enum
 import os
 import dataclasses
-from functools import partial
+from functools import partial, wraps
 import logging
 from dataclasses import fields
 from pathlib import Path
 import copy
 import tempfile
-from typing import Iterable, Optional, TypeVar, Sequence
+from typing import Iterable, Optional, TypeVar, Sequence, Union
+from typing_extensions import Literal, get_origin, get_args
 import numpy as np
-from nerfbaselines.types import Method, OptimizeEmbeddingsOutput, MethodInfo, ModelInfo
-from nerfbaselines.types import Dataset, RenderOutput
-from nerfbaselines.types import Cameras, camera_model_from_int
-from nerfbaselines.utils import convert_image_dtype
-from nerfbaselines.utils import cast_value, remap_error
-from nerfbaselines.io import get_torch_checkpoint_sha, numpy_from_base64, numpy_to_base64
+from nerfbaselines import (
+    Method, OptimizeEmbeddingsOutput, MethodInfo, ModelInfo,
+    Dataset, RenderOutput,
+    Cameras, camera_model_from_int,
+    convert_image_dtype,
+    NoGPUError,
+)
+from nerfbaselines.io import get_torch_checkpoint_sha
 
 import yaml
 import torch  # type: ignore
@@ -35,6 +42,112 @@ from nerfstudio.utils.colors import COLORS_DICT  # type: ignore
 
 
 T = TypeVar("T")
+
+
+def numpy_to_base64(array: np.ndarray) -> str:
+    with io.BytesIO() as f:
+        np.save(f, array)
+        return base64.b64encode(f.getvalue()).decode("ascii")
+
+
+def numpy_from_base64(data: str) -> np.ndarray:
+    with io.BytesIO(base64.b64decode(data)) as f:
+        return np.load(f)
+
+
+def cast_value(tp, value):
+    origin = get_origin(tp)
+    if origin is Literal:
+        for val in get_args(tp):
+            try:
+                value_casted = cast_value(type(val), value)
+                if val == value_casted:
+                    return value_casted
+            except ValueError:
+                pass
+            except TypeError:
+                pass
+        raise TypeError(f"Value {value} is not in {get_args(tp)}")
+            
+    if origin is Union:
+        for t in get_args(tp):
+            try:
+                return cast_value(t, value)
+            except ValueError:
+                pass
+            except TypeError:
+                pass
+        raise TypeError(f"Value {value} is not in {tp}")
+    if tp is type(None):
+        if str(value).lower() == "none":
+            return None
+        else:
+            raise TypeError(f"Value {value} is not None")
+    if tp is bool:
+        if str(value).lower() in {"true", "1", "yes"}:
+            return True
+        elif str(value).lower() in {"false", "0", "no"}:
+            return False
+        else:
+            raise TypeError(f"Value {value} is not a bool")
+    if tp in {int, float, bool, str}:
+        return tp(value)
+    if isinstance(value, tp):
+        return value
+    raise TypeError(f"Cannot cast value {value} to type {tp}")
+
+
+def remap_error(fn):
+    def is_gpu_error(e: Exception) -> bool:
+        if isinstance(e, NoGPUError):
+            return True
+        if isinstance(e, RuntimeError):
+            return "Found no NVIDIA driver on your system." in str(e)
+        if isinstance(e, EnvironmentError):
+            return "unknown compute capability. ensure pytorch with cuda support is installed." in str(e).lower()
+        if isinstance(e, ImportError):
+            return "libcuda.so.1: cannot open shared object file" in str(e)
+        return False
+
+    if getattr(fn, "__error_remap__", False):
+        return fn
+
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            if is_gpu_error(e):
+                raise NoGPUError from e
+            raise e
+
+    wrapped.__error_remap__ = True  # type: ignore
+    return wrapped
+
+
+def get_torch_checkpoint_sha(checkpoint_data):
+    sha = hashlib.sha256()
+    def update(d):
+        if type(d).__name__ == "Tensor":
+            sha.update(d.cpu().numpy().tobytes())
+        elif isinstance(d, dict):
+            items = sorted(d.items(), key=lambda x: x[0])
+            for k, v in items:
+                update(k)
+                update(v)
+        elif isinstance(d, (list, tuple)):
+            for v in d:
+                update(v)
+        elif isinstance(d, (int, float)):
+            sha.update(struct.pack("f", d))
+        elif isinstance(d, str):
+            sha.update(d.encode("utf8"))
+        elif d is None:
+            sha.update("(None)".encode("utf8"))
+        else:
+            raise ValueError(f"Unsupported type {type(d)}")
+    update(checkpoint_data)
+    return sha.hexdigest()
 
 
 def _map_distortion_parameters(distortion_parameters):
@@ -140,6 +253,7 @@ def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
 
 class _CustomDataParser(DataParser):
     def __init__(self, dataset, dataparser_transform, dataparser_scale, config,  *args, **kwargs):
+        del args, kwargs
         self.dataset = dataset
         self.dataparser_transform = dataparser_transform
         self.dataparser_scale = dataparser_scale
@@ -158,6 +272,7 @@ class _CustomDataParser(DataParser):
         return SceneBox(aabb=torch.tensor([[-aabb_scale, -aabb_scale, -aabb_scale], [aabb_scale, aabb_scale, aabb_scale]], dtype=torch.float32))
 
     def _generate_dataparser_outputs(self, split: str = "train", **kwargs) -> DataparserOutputs:
+        del split, kwargs
         if self.dataset is None:
             assert self.dataparser_transform is not None, "dataparser_transform must be provided if dataset is None"
             assert self.dataparser_scale is not None, "dataparser_scale must be provided if dataset is None"
@@ -556,6 +671,7 @@ class NerfStudio(Method):
         return config
 
     def _setup(self, train_dataset: Dataset, config_overrides):
+        del config_overrides
         train_dataset = None if train_dataset is None else train_dataset.copy()
         dataparser_transforms = dataparser_scale = None
         if self.checkpoint is not None or train_dataset is None:
@@ -709,6 +825,7 @@ class NerfStudio(Method):
             dataset: Dataset.
             embeddings: Optional initial embeddings.
         """
+        del dataset, embeddings
         raise NotImplementedError()
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
@@ -718,5 +835,6 @@ class NerfStudio(Method):
         Args:
             index: Index of the image.
         """
+        del index
         return None
 

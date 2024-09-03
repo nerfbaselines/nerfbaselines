@@ -12,7 +12,7 @@ import contextlib
 from pathlib import Path
 from collections import deque
 from time import perf_counter
-from typing import Optional, Tuple, Any, Dict, cast, List, Callable, Union
+from typing import Optional, Tuple, Any, Dict, cast, List, Callable, Union, FrozenSet
 
 import numpy as np
 import viser
@@ -31,27 +31,36 @@ import splines
 import splines.quaternion
 import viser
 import viser.transforms as tf
-from ..pose_utils import apply_transform, get_transform_and_scale, invert_transform
 from scipy import interpolate
+try:
+    from typing import get_args, Literal, TypeVar
+except ImportError:
+    from typing_extensions import get_args, Literal, TypeVar
 
-from ..types import Method, Dataset, FrozenSet, DatasetFeature, Literal, TypeVar, CameraModel, get_args
-from ..types import new_cameras
-from ..types import TrajectoryFrameAppearance, TrajectoryFrame, TrajectoryKeyframe, Trajectory, TrajectoryInterpolationSource
-from ..types import KochanekBartelsInterpolationSource, RenderOptions
-from ..datasets import dataset_load_features, dataset_index_select
-from ..datasets._colmap_utils import qvec2rotmat, rotmat2qvec
-from ..utils import CancelledException, assert_not_none
-from ..pose_utils import apply_transform, get_transform_and_scale, invert_transform, pad_poses
-from ..datasets import load_dataset
-from ..utils import CancellationToken
-from ..utils import image_to_srgb, visualize_depth, apply_colormap
-from ..io import load_trajectory, save_trajectory
-from ..evaluation import render_frames, trajectory_get_embeddings, trajectory_get_cameras
+from nerfbaselines import (
+    Method, Dataset, DatasetFeature, CameraModel,
+    new_cameras,
+    TrajectoryFrameAppearance, TrajectoryFrame, TrajectoryKeyframe, Trajectory,
+    KochanekBartelsInterpolationSource, RenderOptions,
+)
+from nerfbaselines.datasets import dataset_load_features, load_dataset
+from nerfbaselines.datasets._colmap_utils import qvec2rotmat, rotmat2qvec
+from nerfbaselines.utils import apply_transform, get_transform_and_scale, invert_transform
+from nerfbaselines.utils import CancelledException, CancellationToken
+from nerfbaselines.utils import apply_transform, get_transform_and_scale, invert_transform, pad_poses
+from nerfbaselines.utils import image_to_srgb, visualize_depth, apply_colormap
+from nerfbaselines.io import load_trajectory, save_trajectory
+from nerfbaselines.evaluation import render_frames, trajectory_get_embeddings, trajectory_get_cameras
 
 
 ControlType = Literal["object-centric", "default"]
 VISER_SCALE_RATIO = 10.0
 T = TypeVar("T")
+
+
+def assert_not_none(value: Optional[T]) -> T:
+    assert value is not None
+    return value
 
 
 def _handle_gui_error(server):
@@ -784,6 +793,7 @@ def _interpolate_ellipse(camera_path_keyframes, num_frames: int, render_fov: flo
 
     # Singular Value Decomposition (SVD)
     U, S, Vt = np.linalg.svd(centered_points)
+    del U, S
     normal_vector = Vt[-1]  # The normal vector to the plane is the last row of Vt
 
     # Project the points onto the plane

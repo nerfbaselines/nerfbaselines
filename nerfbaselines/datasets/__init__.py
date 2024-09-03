@@ -1,23 +1,40 @@
+import importlib
 import json
 import os
-from typing import Union, Optional, overload
+from typing import Union, Optional, overload, FrozenSet, Any
 import logging
 from pathlib import Path
-from ..types import Dataset, DatasetFeature, CameraModel, FrozenSet, NB_PREFIX
+from nerfbaselines import (
+    Dataset, DatasetFeature, CameraModel, 
+    NB_PREFIX, UnloadedDataset, DatasetNotFoundError,
+    get_supported_datasets, get_dataset_spec,
+)
 from ._common import dataset_load_features as dataset_load_features
 from ._common import dataset_index_select as dataset_index_select
-from ._common import new_dataset as new_dataset
-from ._common import DatasetNotFoundError, MultiDatasetError
+from ._common import MultiDatasetError
 from ._common import experimental_parse_dataset_path
-from ..types import UnloadedDataset, Literal
+from ._common import get_default_viewer_transform as get_default_viewer_transform
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
+
+
+def _import_type(name: str) -> Any:
+    package, name = name.split(":")
+    obj: Any = importlib.import_module(package)
+    for p in name.split("."):
+        obj = getattr(obj, p)
+    return obj
 
 
 def download_dataset(path: str, output: Union[str, Path]):
-    from ..registry import get_dataset_downloaders
-
     output = Path(output)
     errors = {}
-    for name, download_fn in get_dataset_downloaders().items():
+    for name in get_supported_datasets(automatic_download=True):
+        dataset_spec = get_dataset_spec(name)
+        assert dataset_spec.get("download_function") is not None, f"Dataset {name} does not have a download function"
+        download_fn = _import_type(dataset_spec["download_function"])
         try:
             download_fn(path, str(output))
             logging.info(f"Downloaded {name} dataset with path {path}")
@@ -60,8 +77,6 @@ def load_dataset(
         load_features: bool = True,
         **kwargs,
         ) -> Union[Dataset, UnloadedDataset]:
-    from ..registry import get_dataset_loaders, get_dataset_spec
-
     path = str(path)
     path, _kwargs = experimental_parse_dataset_path(path)
     _kwargs.update(kwargs)
@@ -80,7 +95,7 @@ def load_dataset(
             download_dataset(dataset, path)
         path = str(path)
 
-    loaders = list(get_dataset_loaders())
+    loaders = list(get_supported_datasets())
     loaders_override = False
     loader = None
     if "://" in path:
@@ -89,7 +104,7 @@ def load_dataset(
         if loader not in dict(loaders):
             raise ValueError(f"Unknown dataset loader {loader}")
         loaders_override = True
-        loaders = [(loader, dict(loaders)[loader])]
+        loaders = [loader]
 
     # Try loading info if exists
     meta = {}
@@ -105,7 +120,7 @@ def load_dataset(
         if loader is None:
             loader = loader_
             if loader is not None and not loaders_override:
-                loaders = [(loader, dict(loaders)[loader])]
+                loaders = [loader]
         if loader_ is None or loader == loader_:
             for k, v in meta.pop("loader_kwargs", {}).items():
                 if k not in kwargs:
@@ -115,7 +130,9 @@ def load_dataset(
 
     errors = {}
     dataset_instance = None
-    for name, load_fn in loaders:
+    for name in loaders:
+        spec = get_dataset_spec(name)
+        load_fn = _import_type(spec["load_dataset_function"])
         try:
             dataset_instance = load_fn(path, split=split, **kwargs)
             logging.info(f"Loaded {name} dataset from path {path} using loader {name}")

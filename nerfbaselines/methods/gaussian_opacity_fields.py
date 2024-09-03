@@ -9,14 +9,14 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+import dataclasses
 import warnings
 import itertools
-import subprocess
 import random
-from pathlib import Path
 import shlex
 import logging
 import copy
+import functools
 from typing import Optional, Iterable, Sequence
 import os
 import tempfile
@@ -24,24 +24,21 @@ import numpy as np
 from PIL import Image
 from random import randint
 from argparse import ArgumentParser
-
-try:
-    from shlex import join as shlex_join
-except ImportError:
-
-    def shlex_join(split_command):
-        """Return a shelshlex.ped string from *split_command*."""
-        return " ".join(shlex.quote(arg) for arg in split_command)
-
+from shlex import join as shlex_join
 
 import torch
-from torch import nn
 
-from nerfbaselines.types import Method, MethodInfo, OptimizeEmbeddingsOutput, RenderOutput, ModelInfo
-from nerfbaselines.types import Cameras, camera_model_to_int
-from nerfbaselines.datasets import Dataset
-from nerfbaselines.utils import flatten_hparams, remap_error
-from nerfbaselines.io import wget
+from nerfbaselines import (
+    Method, 
+    MethodInfo, 
+    OptimizeEmbeddingsOutput, 
+    RenderOutput, 
+    ModelInfo,
+    Cameras, 
+    camera_model_to_int,
+    Dataset,
+    NoGPUError,
+)
 
 from arguments import ModelParams, PipelineParams, OptimizationParams
 from gaussian_renderer import render
@@ -49,8 +46,8 @@ from scene import GaussianModel
 import scene.dataset_readers
 from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov
 from scene.dataset_readers import storePly, fetchPly
-## from nerfbaselines.pose_utils import get_transform_and_scale
-## from nerfbaselines.math_utils import rotate_spherical_harmonics, rotation_matrix_to_quaternion
+## from nerfbaselines.utils import get_transform_and_scale
+## from nerfbaselines.utils import rotate_spherical_harmonics, rotation_matrix_to_quaternion
 ## from scene.gaussian_model import inverse_sigmoid, build_rotation, PlyData, PlyElement  # noqa: E402
 from scene.dataset_readers import CameraInfo as _old_CameraInfo
 from utils.general_utils import safe_state
@@ -62,6 +59,48 @@ from train import create_offset_gt, get_edge_aware_distortion_map, L1_loss_appea
 from utils import camera_utils
 from utils.general_utils import PILtoTorch
 from utils.depth_utils import depths_to_points, depth_to_normal
+
+
+def remap_error(fn):
+    def is_gpu_error(e: Exception) -> bool:
+        if isinstance(e, NoGPUError):
+            return True
+        if isinstance(e, RuntimeError):
+            return "Found no NVIDIA driver on your system." in str(e)
+        if isinstance(e, EnvironmentError):
+            return "unknown compute capability. ensure pytorch with cuda support is installed." in str(e).lower()
+        if isinstance(e, ImportError):
+            return "libcuda.so.1: cannot open shared object file" in str(e)
+        return False
+
+    if getattr(fn, "__error_remap__", False):
+        return fn
+
+    @functools.wraps(fn)
+    def wrapped(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            if is_gpu_error(e):
+                raise NoGPUError from e
+            raise e
+
+    wrapped.__error_remap__ = True  # type: ignore
+    return wrapped
+
+
+def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
+    flat = {}
+    if dataclasses.is_dataclass(hparams):
+        hparams = {f.name: getattr(hparams, f.name) for f in dataclasses.fields(hparams)}
+    for k, v in hparams.items():
+        if _prefix:
+            k = f"{_prefix}{separator}{k}"
+        if isinstance(v, dict) or dataclasses.is_dataclass(v):
+            flat.update(flatten_hparams(v, _prefix=k, separator=separator).items())
+        else:
+            flat[k] = v
+    return flat
 
 
 def getProjectionMatrixFromOpenCV(w, h, fx, fy, cx, cy, znear, zfar):

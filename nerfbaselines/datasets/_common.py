@@ -1,5 +1,3 @@
-import json
-import functools
 import warnings
 import gc
 import logging
@@ -10,11 +8,13 @@ import PIL.Image
 import PIL.ExifTags
 from tqdm import tqdm
 from typing import Optional, TypeVar, Tuple, Union, List, Sequence, Dict, cast, overload, Any
-from ..cameras import camera_model_to_int
-from ..types import Dataset, Literal, Cameras, UnloadedDataset
+from nerfbaselines import Dataset, Cameras, UnloadedDataset, camera_model_to_int, DatasetNotFoundError
 from .. import cameras
-from ..utils import padded_stack
-from ..pose_utils import rotation_matrix, pad_poses, unpad_poses, apply_transform
+from ..utils import padded_stack, rotation_matrix, pad_poses, unpad_poses, apply_transform
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
 
 
 TDataset = TypeVar("TDataset", bound=Union[Dataset, UnloadedDataset])
@@ -328,10 +328,6 @@ def dataset_load_features(
     return cast(Dataset, dataset)
 
 
-class DatasetNotFoundError(Exception):
-    pass
-
-
 class MultiDatasetError(DatasetNotFoundError):
     def __init__(self, errors, message):
         self.errors = errors
@@ -392,68 +388,4 @@ def dataset_index_select(dataset: TDataset, i: Union[slice, int, list, np.ndarra
         "metadata"}})
     return cast(TDataset, _dataset)
 
-
-@overload
-def new_dataset(*,
-                cameras: Cameras,
-                image_paths: Sequence[str],
-                image_paths_root: Optional[str] = ...,
-                images: Union[np.ndarray, List[np.ndarray]],
-                sampling_mask_paths: Optional[Sequence[str]] = ...,
-                sampling_mask_paths_root: Optional[str] = None,
-                sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = ...,  # [N][H, W]
-                points3D_xyz: Optional[np.ndarray] = ...,  # [M, 3]
-                points3D_rgb: Optional[np.ndarray] = ...,  # [M, 3]
-                images_points3D_indices: Optional[Sequence[np.ndarray]] = None,  # [N][<M]
-                metadata: Dict) -> Dataset:
-    ...
-
-
-@overload
-def new_dataset(*,
-                cameras: Cameras,
-                image_paths: Sequence[str],
-                image_paths_root: Optional[str] = ...,
-                images: Literal[None] = None,
-                sampling_mask_paths: Optional[Sequence[str]] = ...,
-                sampling_mask_paths_root: Optional[str] = None,
-                sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = ...,  # [N][H, W]
-                points3D_xyz: Optional[np.ndarray] = ...,  # [M, 3]
-                points3D_rgb: Optional[np.ndarray] = ...,  # [M, 3]
-                images_points3D_indices: Optional[Sequence[np.ndarray]] = None,  # [N][<M]
-                metadata: Dict) -> UnloadedDataset:
-    ...
-
-
-def new_dataset(*,
-                cameras: Cameras,
-                image_paths: Sequence[str],
-                image_paths_root: Optional[str] = None,
-                images: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W, 3]
-                sampling_mask_paths: Optional[Sequence[str]] = None,
-                sampling_mask_paths_root: Optional[str] = None,
-                sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W]
-                points3D_xyz: Optional[np.ndarray] = None,  # [M, 3]
-                points3D_rgb: Optional[np.ndarray] = None,  # [M, 3]
-                images_points3D_indices: Optional[Sequence[np.ndarray]] = None,  # [N][<M]
-                metadata: Dict) -> Union[UnloadedDataset, Dataset]:
-    if image_paths_root is None:
-        image_paths_root = os.path.commonpath(image_paths)
-    if sampling_mask_paths_root is None and sampling_mask_paths is not None:
-        sampling_mask_paths_root = os.path.commonpath(sampling_mask_paths)
-    if image_paths_root is None:
-        image_paths_root = os.path.commonpath(image_paths)
-    return UnloadedDataset(
-        cameras=cameras,
-        image_paths=list(image_paths),
-        sampling_mask_paths=list(sampling_mask_paths) if sampling_mask_paths is not None else None,
-        sampling_mask_paths_root=sampling_mask_paths_root,
-        image_paths_root=image_paths_root,
-        images=images,
-        sampling_masks=sampling_masks,
-        points3D_xyz=points3D_xyz,
-        points3D_rgb=points3D_rgb,
-        images_points3D_indices=list(images_points3D_indices) if images_points3D_indices is not None else None,
-        metadata=metadata
-    )
 

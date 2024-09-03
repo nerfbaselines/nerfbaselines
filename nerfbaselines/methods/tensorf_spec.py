@@ -1,6 +1,5 @@
 import os
-from nerfbaselines.types import MethodSpec
-from nerfbaselines.registry import register
+from nerfbaselines import register, MethodSpec
 
 
 official_results = {
@@ -26,7 +25,7 @@ official_results = {
 
 
 TensoRFSpec: MethodSpec = {
-    "method": ".tensorf:TensoRF",
+    "method_class": ".tensorf:TensoRF",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.11",

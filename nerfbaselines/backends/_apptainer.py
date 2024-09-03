@@ -6,16 +6,19 @@ import contextlib
 from pathlib import Path
 import subprocess
 import os
-from typing import Dict, Optional, List, Tuple, TYPE_CHECKING, cast
+from typing import Optional, List, Tuple, TYPE_CHECKING, cast
 import shlex
 import nerfbaselines
-from ..types import NB_PREFIX, TypedDict, Required
+from nerfbaselines import NB_PREFIX, MethodSpec
 from ._docker import BASE_IMAGE, get_docker_image_name, get_docker_spec
 from ._conda import conda_get_install_script, conda_get_environment_hash, CondaBackendSpec
 from ._rpc import RemoteProcessRPCBackend, get_safe_environment, customize_wrapper_separated_fs
 from ._common import get_mounts
-if TYPE_CHECKING:
-    from ..registry import MethodSpec
+try:
+    from typing import Required, TypedDict
+except ImportError:
+    from typing_extensions import Required, TypedDict
+
 
 
 class ApptainerBackendSpec(TypedDict, total=False):

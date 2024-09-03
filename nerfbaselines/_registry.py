@@ -8,10 +8,13 @@ import inspect
 import os
 import importlib
 import contextlib
-from typing import Optional, Type, Any, Tuple, Dict, List, cast, Union, Sequence, TYPE_CHECKING, Callable, TypeVar, Set
-from .types import Method, TypedDict, Required, FrozenSet, NotRequired, LoadDatasetFunction, DownloadDatasetFunction, EvaluationProtocol
-from .types import DatasetSpecMetadata, Logger, Literal, DatasetFeature, CameraModel, RenderOutputType, MethodSpec, DatasetSpec, EvaluationProtocolSpec, BackendName
-
+from typing import Optional, Type, Any, Tuple, Dict, List, cast, Union, Sequence, Callable, TypeVar, Set, FrozenSet
+from . import Method, EvaluationProtocol
+from . import Logger, MethodSpec, DatasetSpec, EvaluationProtocolSpec, BackendName, LoggerSpec
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
 if sys.version_info < (3, 10):
     from importlib_metadata import entry_points
 else:
@@ -19,7 +22,7 @@ else:
 
 T = TypeVar("T")
 METHOD_SPECS_PATH = os.path.join(os.path.expanduser("~/.config/nerfbaselines/methods"))
-SpecType = Literal["method", "dataset", "evaluation_protocol"]
+SpecType = Literal["method", "dataset", "evaluation_protocol", "logger"]
 
 
 def _assert_not_none(value: Optional[T]) -> T:
@@ -30,9 +33,11 @@ def _assert_not_none(value: Optional[T]) -> T:
 methods_registry: Dict[str, 'MethodSpec'] = {}
 datasets_registry: Dict[str, 'DatasetSpec'] = {}
 evaluation_protocols_registry: Dict[str, 'EvaluationProtocolSpec'] = {}
-loggers_registry: Dict[str, Callable[..., Logger]] = {}
-loggers_registry["wandb"] = lambda *args, **kwargs: _import_type("nerfbaselines.logging:WandbLogger")(*args, **kwargs)
-loggers_registry["tensorboard"] = lambda path, **kwargs: _import_type("nerfbaselines.logging:TensorboardLogger")(os.path.join(path, "tensorboard"), **kwargs)
+loggers_registry: Dict[str, 'LoggerSpec'] = {}
+loggers_registry["wandb"] = {
+    "id": "wandb", "logger_class": "nerfbaselines.logging:WandbLogger" }
+loggers_registry["tensorboard"] = { 
+    "id": "tensorboard", "logger_class": "nerfbaselines.logging:TensorboardLogger" }
 evaluation_protocols_registry["default"] = {
     "id": "default", 
     "evaluation_protocol": "nerfbaselines.evaluation:DefaultEvaluationProtocol"}
@@ -133,7 +138,7 @@ def _discover_specs() -> List[Tuple["MethodSpec", str]]:
             spec = discovered_entry_points[name].load()
             for spec in temptypes:
                 name = spec["id"]
-                if "method" in spec:
+                if "method_class" in spec:
                     # For method spec, we set the default backend to python, we also drop other backends
                     spec = spec.copy()
                     spec["backends_order"] = ["python"] + [b for b in spec.get("backends_order", []) if b != "python"]
@@ -217,18 +222,26 @@ def _make_entrypoint_absolute(entrypoint: str) -> str:
     return ":".join((module, name))
 
 
-def get_spec_type(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"]) -> SpecType:
-    if "method" in spec:
+def get_spec_type(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec", "LoggerSpec"]) -> SpecType:
+    if "method_class" in spec:
         return "method"
     elif "load_dataset_function" in spec and "priority" in spec:
         return "dataset"
-    elif "evaluation_protocol" in spec:
+    elif "evaluation_protocol_class" in spec:
         return "evaluation_protocol"
+    elif "logger_class" in spec:
+        return "logger"
     else:
         raise ValueError(f"Could not determine type of object {spec}")
 
 
-def register(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"]) -> None:
+def register(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec", "LoggerSpec"]) -> None:
+    """
+    Register a method, dataset, logger, or evaluation protocol spec.
+
+    Args:
+        spec: Spec to register (MethodSpec, DatasetSpec, EvaluationProtocolSpec, LoggerSpec)
+    """
     spec = spec.copy()
     spec_type = get_spec_type(spec)
     if "id" not in spec:
@@ -238,11 +251,20 @@ def register(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"])
         spec = cast("MethodSpec", spec)
         if _collected_register_calls is None:
             assert name not in methods_registry, f"Method {name} already registered"
-        spec["method"] = _make_entrypoint_absolute(spec["method"])
+        spec["method_class"] = _make_entrypoint_absolute(spec["method_class"])
         if _collected_register_calls is not None:
             _collected_register_calls.append(spec)
         else:
             methods_registry[name] = spec
+    elif spec_type == "logger":
+        spec = cast("LoggerSpec", spec)
+        if _collected_register_calls is None:
+            assert name not in loggers_registry, f"Logger {name} already registered"
+        spec["logger_class"] = _make_entrypoint_absolute(spec["logger_class"])
+        if _collected_register_calls is not None:
+            _collected_register_calls.append(spec)
+        else:
+            loggers_registry[name] = spec
     elif spec_type == "dataset":
         spec = cast("DatasetSpec", spec)
         if _collected_register_calls is None:
@@ -264,7 +286,7 @@ def register(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"])
         spec = cast("EvaluationProtocolSpec", spec)
         if _collected_register_calls is None:
             assert name not in evaluation_protocols_registry, f"Evaluation protocol {name} already registered"
-        spec["evaluation_protocol"] = _make_entrypoint_absolute(spec["evaluation_protocol"])
+        spec["evaluation_protocol_class"] = _make_entrypoint_absolute(spec["evaluation_protocol_class"])
         if _collected_register_calls is not None:
             _collected_register_calls.append(spec)
         else:
@@ -273,13 +295,33 @@ def register(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"])
         raise ValueError(f"Could not determine type of object {spec}")
 
 
-def register_logger(id: str, logger: Callable[..., Logger]) -> None:
-    loggers_registry[id] = logger
+def get_supported_methods(backend_name: Optional[BackendName] = None) -> FrozenSet[str]:
+    """
+    Get all supported methods. Optionally, filter the methods that support a specific backend.
+
+    Args:
+        backend_name: Backend name
+
+    Returns:
+        Set of method IDs
+    """
+    from . import backends
+    _auto_register()
+    if backend_name is None:
+        return frozenset(methods_registry.keys())
+    else:
+        return frozenset(name for name, spec in methods_registry.items() if backend_name in backends.get_implemented_backends(spec))
 
 
 def get_method_spec(id: str) -> MethodSpec:
     """
-    Get a method by name
+    Get a method by method ID.
+
+    Args:
+        id: Method ID
+
+    Returns:
+        Method spec
     """
     _auto_register()
     if id not in methods_registry:
@@ -287,75 +329,66 @@ def get_method_spec(id: str) -> MethodSpec:
     return methods_registry[id]
 
 
-def get_config_overrides_from_presets(spec: MethodSpec, presets: Union[Set[str], Sequence[str]]) -> Dict[str, Any]:
+def get_supported_datasets(automatic_download: bool = False) -> List[str]:
     """
-    Apply presets to a method spec and return the config overrides.
+    Get all supported datasets. Optionally, filter the datasets that support automatic download.
+    The list of supported datasets is sorted by priority.
 
     Args:
-        spec: Method spec
-        presets: List of presets to apply
+        automatic_download: If True, only return datasets that support automatic download
 
     Returns:
-        A dictionary of config overrides
+        List of dataset IDs (sorted by priority)
     """
-    _config_overrides = {}
-    _presets = set(presets)
-    for preset_name, preset in spec.get("presets", {}).items():
-        if preset_name not in _presets:
-            continue
-        _config_overrides.update({
-            k: v for k, v in preset.items()
-            if not k.startswith("@")
-        })
-    return _config_overrides
-
-
-def get_presets_to_apply(spec: MethodSpec, dataset_metadata: Dict[str, Any], presets: Union[Set[str], Sequence[str], None] = None) -> Set[str]:
-    """
-    Given a method spec, dataset metadata, and the optional list of presets from the user,
-    this function returns the list of presets that should be applied.
-
-    Args:
-        spec: Method spec
-        dataset_metadata: Dataset metadata
-        presets: List of presets to apply or a special "@auto" preset that will automatically apply presets based on the dataset metadata
-
-    Returns:
-        List of presets to apply
-    """
-    # Validate presets for MethodSpec
-    auto_presets = presets is None
-    _presets = set(presets or ())
-    _condition_data = dataset_metadata.copy()
-    _condition_data["dataset"] = _condition_data.pop("name", "")
-
-    for preset in presets or []:
-        if preset == "@auto":
-            if auto_presets:
-                raise ValueError("Cannot specify @auto preset multiple times")
-            auto_presets = True
-            _presets.remove("@auto")
-            continue
-        if preset not in spec.get("presets", {}):
-            raise ValueError(f"Preset {preset} not found in method spec {spec['id']}. Available presets: {','.join(spec.get('presets', {}).keys())}")
-    if auto_presets:
-        for preset_name, preset in spec.get("presets", {}).items():
-            apply = preset.get("@apply", [])
-            if not apply:
-                continue
-            for condition in apply:
-                if all(_condition_data.get(k, "") == v for k, v in condition.items()):
-                    _presets.add(preset_name)
-    return _presets
-
-
-def get_supported_methods(backend_name: Optional[BackendName] = None) -> FrozenSet[str]:
-    from . import backends
     _auto_register()
-    if backend_name is None:
-        return frozenset(methods_registry.keys())
-    else:
-        return frozenset(name for name, spec in methods_registry.items() if backend_name in backends._get_implemented_backends(spec))
+    datasets = list(datasets_registry.keys())
+    if automatic_download:
+        datasets = [k for k in datasets if datasets_registry[k].get("download_dataset_function") is not None]
+    datasets.sort(key=lambda x: datasets_registry[x]["priority"])
+    return datasets
+
+
+def get_dataset_spec(id: str) -> DatasetSpec:
+    """
+    Get a dataset specification by registered dataset ID.
+
+    Args:
+        id: Dataset ID
+
+    Returns:
+        Dataset specification
+    """
+    _auto_register()
+    if id not in datasets_registry:
+        raise RuntimeError(f"Could not find dataset {id} in registry. Supported datasets: {','.join(datasets_registry.keys())}")
+    return datasets_registry[id]
+
+
+def get_supported_loggers() -> FrozenSet[str]:
+    """
+    Get all supported loggers.
+
+    Returns:
+        Set of logger IDs
+    """
+    _auto_register()
+    return frozenset(loggers_registry.keys())
+
+
+def get_logger_spec(id: str) -> LoggerSpec:
+    """
+    Get a logger specification by registered logger ID.
+
+    Args:
+        id: Logger ID
+
+    Returns:
+        Logger specification
+    """
+    _auto_register()
+    if id not in loggers_registry:
+        raise RuntimeError(f"Could not find logger {id} in registry. Supported loggers: {','.join(loggers_registry.keys())}")
+    return loggers_registry[id]
 
 
 def _import_type(name: str) -> Any:
@@ -364,101 +397,6 @@ def _import_type(name: str) -> Any:
     for p in name.split("."):
         obj = getattr(obj, p)
     return obj
-
-
-def _wrap_method_class(method_class: Type[Method], spec: MethodSpec):
-    def wrap_get_info(get_info, spec):
-        @functools.wraps(get_info)
-        def __get_info(*args, **kwargs):
-            info = get_info(*args, **kwargs)
-            info["method_id"] = spec["id"]
-            return info
-
-        __get_info.__name__ = get_info.__name__  # type: ignore
-        return __get_info
-
-    # Add autocast to render output to make remote backends faster
-    def wrap_render(render, spec):
-        from nerfbaselines.utils import convert_image_dtype
-        del spec
-        output_types = None
-
-        @functools.wraps(render)
-        def __render(self, *args, options=None, **kwargs):
-            nonlocal output_types
-            if output_types is None:
-                output_types = {
-                    (v if isinstance(v, str) else v["name"]): (v if isinstance(v, str) else v.get("type", v["name"]))
-                    for v in self.get_info().get("supported_outputs", {})}
-            for out in render(self, *args, **kwargs):
-                if not isinstance(out, dict):
-                    yield out
-                    continue
-                for k, v in out.items():
-                    output_type = output_types.get(k, k)
-                    if options is not None and options.get("output_type_dtypes") is not None:
-                        dtype = options["output_type_dtypes"].get(output_type, None)
-                        if dtype is not None:
-                            v = convert_image_dtype(v, dtype)
-                            out[k] = v
-                yield out
-        try:
-            __render.__name__ = render.__name__  # type: ignore
-        except AttributeError:
-            pass
-        return __render
-
-    # Update get_info and get_method_info with method_id
-    ns = {}
-    ns["get_info"] = wrap_get_info(method_class.get_info, spec)
-    ns["get_method_info"] = staticmethod(wrap_get_info(method_class.get_method_info, spec))
-    ns["render"] = wrap_render(method_class.render, spec)
-    newcls = types.new_class(method_class.__name__, bases=(method_class,), exec_body=lambda _ns: _ns.update(ns))
-    newcls.__module__ = method_class.__module__
-    return newcls
-
-
-def _build_method(spec: "MethodSpec") -> Type[Method]:
-    cls = cast(Type[Method], _import_type(spec["method"]))
-    newcls = _wrap_method_class(cls, spec)
-    return newcls
-
-
-@contextlib.contextmanager
-def build_method(spec: MethodSpec, backend: Optional[BackendName] = None):
-    from . import backends
-    backend_impl = backends.get_backend(spec, backend)
-    method = spec["id"]
-    logging.info(f"Using method: {method}, backend: {backend_impl.name}")
-    with backend_impl:
-        backend_impl.install()
-        yield cast(Type[Method], backend_impl.static_call(f"{_build_method.__module__}:{_build_method.__name__}", spec))
-
-
-def get_supported_datasets() -> FrozenSet[str]:
-    _auto_register()
-    return frozenset(datasets_registry.keys())
-
-
-def get_dataset_loaders() -> Sequence[Tuple[str, LoadDatasetFunction]]:
-    _auto_register()
-    datasets = list(datasets_registry.items())
-    datasets.sort(key=lambda x: -x[1]["priority"])
-    return [(name, _import_type(spec["load_dataset_function"])) for name, spec in datasets]
-
-
-def get_dataset_spec(id: str) -> DatasetSpec:
-    _auto_register()
-    if id not in datasets_registry:
-        raise RuntimeError(f"Could not find dataset {id} in registry. Supported datasets: {','.join(datasets_registry.keys())}")
-    return datasets_registry[id]
-
-
-def get_dataset_downloaders() -> Dict[str, DownloadDatasetFunction]:
-    _auto_register()
-    datasets = [(k,v) for k,v in datasets_registry.items() if v.get("download_dataset_function") is not None]
-    datasets.sort(key=lambda x: -x[1]["priority"])
-    return {name: _import_type(_assert_not_none(spec.get("download_dataset_function"))) for name, spec in datasets}
 
 
 def build_evaluation_protocol(id: str) -> 'EvaluationProtocol':

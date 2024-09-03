@@ -8,8 +8,7 @@ import sys
 from typing import Union
 from pathlib import Path
 import numpy as np
-from ..types import camera_model_to_int, new_cameras
-from ._common import DatasetNotFoundError, new_dataset
+from nerfbaselines import camera_model_to_int, new_cameras, DatasetNotFoundError, new_dataset
 
 
 gdrive_id = "16VnMcF1KJYxN9QId6TClMsZRahHNMW5g"

@@ -20,46 +20,81 @@ import copy
 from typing import Optional, Iterable, Sequence
 import os
 import tempfile
+import functools
+import dataclasses
 import numpy as np
 from PIL import Image
 from random import randint
 from argparse import ArgumentParser
-
-try:
-    from shlex import join as shlex_join
-except ImportError:
-
-    def shlex_join(split_command):
-        """Return a shelshlex.ped string from *split_command*."""
-        return " ".join(shlex.quote(arg) for arg in split_command)
-
+from shlex import join as shlex_join
 
 import torch
 
-from nerfbaselines.types import Method, MethodInfo, OptimizeEmbeddingsOutput, RenderOutput, ModelInfo, RenderOptions
-from nerfbaselines.types import Cameras, camera_model_to_int
-from nerfbaselines.datasets import Dataset
-from nerfbaselines.utils import flatten_hparams, remap_error
-from nerfbaselines.pose_utils import get_transform_and_scale
-from nerfbaselines.math_utils import rotate_spherical_harmonics, rotation_matrix_to_quaternion
-from nerfbaselines.io import wget
+from nerfbaselines import (
+    Method, MethodInfo, OptimizeEmbeddingsOutput, RenderOutput, ModelInfo,
+    Dataset, NoGPUError,
+    Cameras, camera_model_to_int,
+)
 
-from arguments import ModelParams, PipelineParams, OptimizationParams
-from gaussian_renderer import render
-from scene import GaussianModel
-import scene.dataset_readers
-from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov
-from scene.dataset_readers import storePly, fetchPly
-from scene.gaussian_model import inverse_sigmoid, build_rotation, PlyData, PlyElement  # noqa: E402
-from scene.dataset_readers import CameraInfo as _old_CameraInfo
-from utils.general_utils import safe_state
-from utils.graphics_utils import fov2focal  # noqa: E402
-from utils.loss_utils import l1_loss, ssim
-from utils.sh_utils import SH2RGB
-from scene import Scene, sceneLoadTypeCallbacks
-from train import create_offset_gt
-from utils import camera_utils
-from utils.general_utils import PILtoTorch
+from arguments import ModelParams, PipelineParams, OptimizationParams  # type: ignore
+from gaussian_renderer import render  # type: ignore
+from scene import GaussianModel  # type: ignore
+import scene.dataset_readers  # type: ignore
+from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # type: ignore
+from scene.dataset_readers import storePly, fetchPly  # type: ignore
+from scene.gaussian_model import inverse_sigmoid, build_rotation, PlyData, PlyElement  # type: ignore
+from scene.dataset_readers import CameraInfo as _old_CameraInfo  # type: ignore
+from utils.general_utils import safe_state  # type: ignore
+from utils.graphics_utils import fov2focal  # type: ignore
+from utils.loss_utils import l1_loss, ssim  # type: ignore
+from utils.sh_utils import SH2RGB  # type: ignore
+from scene import Scene, sceneLoadTypeCallbacks  # type: ignore
+from train import create_offset_gt  # type: ignore
+from utils import camera_utils  # type: ignore
+from utils.general_utils import PILtoTorch  # type: ignore
+
+
+def remap_error(fn):
+    def is_gpu_error(e: Exception) -> bool:
+        if isinstance(e, NoGPUError):
+            return True
+        if isinstance(e, RuntimeError):
+            return "Found no NVIDIA driver on your system." in str(e)
+        if isinstance(e, EnvironmentError):
+            return "unknown compute capability. ensure pytorch with cuda support is installed." in str(e).lower()
+        if isinstance(e, ImportError):
+            return "libcuda.so.1: cannot open shared object file" in str(e)
+        return False
+
+    if getattr(fn, "__error_remap__", False):
+        return fn
+
+    @functools.wraps(fn)
+    def wrapped(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            if is_gpu_error(e):
+                raise NoGPUError from e
+            raise e
+
+    wrapped.__error_remap__ = True  # type: ignore
+    return wrapped
+
+
+def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
+    flat = {}
+    if dataclasses.is_dataclass(hparams):
+        hparams = {f.name: getattr(hparams, f.name) for f in dataclasses.fields(hparams)}
+    for k, v in hparams.items():
+        if _prefix:
+            k = f"{_prefix}{separator}{k}"
+        if isinstance(v, dict) or dataclasses.is_dataclass(v):
+            flat.update(flatten_hparams(v, _prefix=k, separator=separator).items())
+        else:
+            flat[k] = v
+    return flat
+
 
 def getProjectionMatrixFromOpenCV(w, h, fx, fy, cx, cy, znear, zfar):
     z_sign = 1.0
@@ -150,8 +185,8 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
 
     cam_infos = []
     for idx, extr in enumerate(dataset["cameras"].poses):
+        del extr
         intrinsics = dataset["cameras"].intrinsics[idx]
-        width, height = dataset["cameras"].image_sizes[idx]
         pose = dataset["cameras"].poses[idx]
         image_path = dataset["image_paths"][idx] if dataset["image_paths"] is not None else f"{idx:06d}.png"
         image_name = (
@@ -357,6 +392,7 @@ class MipSplatting(Method):
             try:
                 info = self.get_info()
                 def colmap_loader(*args, **kwargs):
+                    del args, kwargs
                     return _convert_dataset_to_gaussian_splatting(dataset, td, white_background=self.dataset.white_background, scale_coords=self.dataset.scale_coords)
                 sceneLoadTypeCallbacks["Colmap"] = colmap_loader
                 scene = Scene(opt, self.gaussians, load_iteration=info["loaded_step"] if dataset is None else None)
@@ -483,6 +519,10 @@ class MipSplatting(Method):
             f.write(shlex_join(self._args_list))
 
     def export_demo(self, path: str, *, viewer_transform, viewer_initial_pose):
+        from nerfbaselines.utils import get_transform_and_scale
+        from nerfbaselines.utils import rotate_spherical_harmonics, rotation_matrix_to_quaternion
+        from nerfbaselines.io import wget
+
         model: GaussianModel = self.gaussians
         transform, scale = get_transform_and_scale(viewer_transform)
         R, t = transform[..., :3, :3], transform[..., :3, 3]
@@ -560,6 +600,7 @@ node /tmp/gaussian-splats-3d/util/create-ksplat.js {shlex.quote(ply_file)} {shle
             dataset: Dataset.
             embeddings: Optional initial embeddings.
         """
+        del dataset, embeddings
         return None
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
@@ -569,4 +610,5 @@ node /tmp/gaussian-splats-3d/util/create-ksplat.js {shlex.quote(ply_file)} {shle
         Args:
             index: Index of the image.
         """
+        del index
         return None
