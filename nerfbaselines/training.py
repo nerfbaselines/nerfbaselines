@@ -31,10 +31,11 @@ from .io import (
     new_nb_info,
 )
 from ._registry import loggers_registry
-from ._registry import build_evaluation_protocol
 from .utils import Indices, image_to_srgb, visualize_depth
 from .datasets import dataset_index_select
-from .evaluation import render_all_images, evaluate
+from .evaluation import (
+    render_all_images, evaluate, build_evaluation_protocol,
+)
 from .logging import ConcatLogger, Logger, log_metrics
 try:
     from typing import Literal, TypedDict
@@ -536,7 +537,7 @@ class Trainer:
         self.generate_output_artifact = generate_output_artifact
         self.config_overrides = config_overrides
         if logger is not None and not callable(logger):
-            logger = lambda _: logger
+            logger = cast(Callable[[str], Logger], lambda _: logger)
         self._logger_fn = logger
 
         self._applied_presets = applied_presets
@@ -675,7 +676,10 @@ class Trainer:
 
     def get_logger(self) -> Logger:
         if self._logger is None:
-            self._logger = self._logger_fn(self.output)
+            if self._logger_fn is None:
+                self._logger = ConcatLogger([])
+            else:
+                self._logger = self._logger_fn(self.output)
 
             # After the loggers are initialized, we perform one last check for the output artifacts
             if self.generate_output_artifact is None or self.generate_output_artifact:

@@ -17,9 +17,10 @@ from nerfbaselines import (
 from nerfbaselines.datasets import load_dataset, dataset_index_select
 from nerfbaselines.logging import TensorboardLogger
 from nerfbaselines.io import open_any_directory
-from nerfbaselines.training import Trainer, Indices, eval_few, eval_all
-# from nerfbaselines.registry import build_evaluation_protocol
-from nerfbaselines.evaluation import evaluate, run_inside_eval_container
+from nerfbaselines.training import Trainer, Indices, eval_few, eval_all, build_logger
+from nerfbaselines.evaluation import (
+    evaluate, run_inside_eval_container, build_evaluation_protocol
+)
 from ._common import ChangesTracker, handle_cli_error, SetParamOptionType, click_backend_option, setup_logging
 
 
@@ -258,7 +259,7 @@ def main(method_name: str,
                 save_iters=Indices([]),
                 eval_all_iters=Indices([-1]),
                 eval_few_iters=Indices([2]),
-                loggers=frozenset(("tensorboard",)),
+                logger=build_logger(frozenset(("tensorboard",))),
                 generate_output_artifact=True,
                 config_overrides=config_overrides,
             )

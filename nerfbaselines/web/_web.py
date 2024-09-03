@@ -355,7 +355,7 @@ def build(output: str,
     input_path = os.path.dirname(os.path.abspath(__file__))
     with _prepare_data(data, datasets, include_docs=include_docs) as (raw_data, configuration):
         configuration["base_path"] = base_path
-        build(input_path, output, raw_data, configuration)
+        _build(input_path, output, raw_data, configuration)
 
 
 def start_dev_server(data: Optional[str] = None,
@@ -365,19 +365,20 @@ def start_dev_server(data: Optional[str] = None,
     with _prepare_data(data, datasets, include_docs=include_docs) as (raw_data, configuration), \
             tempfile.TemporaryDirectory() as output:
         input_path = os.path.dirname(os.path.abspath(__file__))
+        del data
 
         # Build first version
         os.rmdir(output)
         _build(input_path, output, raw_data, configuration)
-        data = get_data(raw_data)
+        _data = get_data(raw_data)
 
         def _on_dataloading_change():
-            nonlocal data
+            nonlocal _data
             _reload_data_loading()
             new_data = get_data(raw_data)
-            if json.dumps(data) != json.dumps(new_data):
-                data = new_data
-                _generate_pages(data, input_path, output, configuration)
+            if json.dumps(_data) != json.dumps(new_data):
+                _data = new_data
+                _generate_pages(_data, input_path, output, configuration)
                 logging.info("Data reloaded")
 
         # Create server and watch for changes
@@ -398,15 +399,16 @@ def start_dev_server(data: Optional[str] = None,
                 return await super().get(path, *args, **kwargs)
         server.SFH = HtmlRewriteSFHserver
         logging.getLogger("tornado").setLevel(logging.WARNING)
-        server.watch(os.path.join(input_path, "templates/**/*.html"), lambda: _generate_pages(data, input_path, output, configuration))
+        server.watch(os.path.join(input_path, "templates/**/*.html"), lambda: _generate_pages(_data, input_path, output, configuration))
         server.watch(os.path.join(input_path, "public/**/*"), partial(_copy_static_files, input_path, output))
         server.watch(__file__, _on_dataloading_change)
 
         build_docs = lambda: _build_docs(
             configuration=configuration,
             output=os.path.join(output, "docs"))
-        if configuration.get("docs_source_repo") is not None:
-            docs_path = os.path.join(configuration["docs_source_repo"], "docs")
+        docs_source_repo = configuration.get("docs_source_repo")
+        if docs_source_repo is not None:
+            docs_path = os.path.join(docs_source_repo, "docs")
             def ignore_files(name):
                 if name == os.path.join(docs_path, "cli.md"):
                     return True
@@ -415,7 +417,7 @@ def start_dev_server(data: Optional[str] = None,
                 if name.startswith(os.path.join(docs_path, "_build")):
                     return True
                 return False
-            server.watch(os.path.join(configuration["docs_source_repo"], "docs", "**/*"), 
+            server.watch(os.path.join(docs_source_repo, "docs", "**/*"), 
                          build_docs,
                          ignore=ignore_files)
         server._setup_logging = lambda: None

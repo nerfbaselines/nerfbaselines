@@ -51,9 +51,11 @@ from ._registry import (
     get_method_spec as get_method_spec,
     get_dataset_spec as get_dataset_spec,
     get_logger_spec as get_logger_spec,
+    get_evaluation_protocol_spec as get_evaluation_protocol_spec,
     get_supported_methods as get_supported_methods,
     get_supported_datasets as get_supported_datasets,
     get_supported_loggers as get_supported_loggers,
+    get_supported_evaluation_protocols as get_supported_evaluation_protocols,
 )
 from ._method_utils import (
     build_method_class as build_method_class,

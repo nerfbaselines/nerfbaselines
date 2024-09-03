@@ -11,19 +11,20 @@ import tempfile
 import os
 import click
 from nerfbaselines import (
-    get_method_spec
+    get_method_spec,
+    build_method_class,
 )
 from nerfbaselines.datasets import load_dataset
 from nerfbaselines.io import (
     open_any_directory, deserialize_nb_info, serialize_nb_info, get_checkpoint_sha,
     save_output_artifact,
 )
-from nerfbaselines.evaluation import evaluate, run_inside_eval_container
-from nerfbaselines import build_evaluation_protocol
-from nerfbaselines import registry
+from nerfbaselines.evaluation import (
+    evaluate, run_inside_eval_container, build_evaluation_protocol
+)
 from ._common import ChangesTracker, handle_cli_error, click_backend_option
 from ._common import setup_logging
-from .fix_checkpoint import fix_checkpoint
+from ._fix_checkpoint import fix_checkpoint
 
 
 def build_changes_tracker():
@@ -251,10 +252,10 @@ def main(input: str,
                     nb_info = json.load(f)
                     nb_info = deserialize_nb_info(nb_info)
                 method_spec = get_method_spec(nb_info["method"])
-                with registry.build_method(method_spec, backend=backend_name) as method_cls:
+                with build_method_class(method_spec, backend=backend_name) as method_cls:
                     method = method_cls(checkpoint=_checkpoint)
                     from nerfbaselines.evaluation import render_all_images
-                    _eval_protocol = registry.build_evaluation_protocol(evaluation_protocol)
+                    _eval_protocol = build_evaluation_protocol(evaluation_protocol)
                     _ = list(render_all_images(method, test_dataset, output=os.path.join(outpath, "predictions"), description="rendering all images", nb_info=nb_info, evaluation_protocol=_eval_protocol))
                     del _
                 changes_tracker.add_dir_changes(("predictions",), os.path.join(inpath, "predictions"), os.path.join(outpath, "predictions"))

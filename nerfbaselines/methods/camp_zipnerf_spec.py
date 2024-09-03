@@ -1,4 +1,5 @@
 from nerfbaselines import register, MethodSpec
+from nerfbaselines.backends import CondaBackendSpec
 import os
 
 
@@ -31,7 +32,7 @@ _zipnerf_paper_results = {
     "blender/ship": {"psnr": 31.38, "ssim": 0.929, "lpips_vgg": 0.091},
 }
 
-_conda_spec = {
+_conda_spec: CondaBackendSpec = {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.11",
         "install_script": """# Clone the repo.

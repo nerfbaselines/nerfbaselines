@@ -33,8 +33,9 @@ def download_dataset(path: str, output: Union[str, Path]):
     errors = {}
     for name in get_supported_datasets(automatic_download=True):
         dataset_spec = get_dataset_spec(name)
-        assert dataset_spec.get("download_function") is not None, f"Dataset {name} does not have a download function"
-        download_fn = _import_type(dataset_spec["download_function"])
+        download_dataset_function = dataset_spec.get("download_dataset_function")
+        assert download_dataset_function is not None, f"Dataset {name} does not have a download function"
+        download_fn = _import_type(download_dataset_function)
         try:
             download_fn(path, str(output))
             logging.info(f"Downloaded {name} dataset with path {path}")
@@ -101,7 +102,7 @@ def load_dataset(
     if "://" in path:
         # We assume the 
         loader, path = path.split("://", 1)
-        if loader not in dict(loaders):
+        if loader not in loaders:
             raise ValueError(f"Unknown dataset loader {loader}")
         loaders_override = True
         loaders = [loader]

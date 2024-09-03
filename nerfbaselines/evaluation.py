@@ -1,3 +1,4 @@
+import importlib
 from contextlib import contextmanager
 import zipfile
 import tarfile
@@ -7,7 +8,7 @@ from functools import wraps
 import logging
 import os
 import typing
-from typing import Dict, Union, Iterable, TypeVar, Optional, cast, List, Tuple, BinaryIO
+from typing import Dict, Union, Iterable, TypeVar, Optional, cast, List, Tuple, BinaryIO, Any
 import numpy as np
 import json
 from pathlib import Path
@@ -15,6 +16,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 
+import nerfbaselines
 from .utils import (
     read_image, 
     apply_colormap,
@@ -36,7 +38,6 @@ from . import (
     new_dataset,
     convert_image_dtype, 
 )
-from ._registry import build_evaluation_protocol
 from .io import (
     open_any_directory, 
     deserialize_nb_info, 
@@ -64,6 +65,22 @@ T = TypeVar("T")
 def _assert_not_none(value: Optional[T]) -> T:
     assert value is not None
     return value
+
+
+def _import_type(name: str) -> Any:
+    package, name = name.split(":")
+    obj: Any = importlib.import_module(package)
+    for p in name.split("."):
+        obj = getattr(obj, p)
+    return obj
+
+
+def build_evaluation_protocol(id: str) -> 'EvaluationProtocol':
+    spec = nerfbaselines.get_evaluation_protocol_spec(id)
+    if spec is None:
+        raise RuntimeError(f"Could not find evaluation protocol {id} in registry. Supported protocols: {','.join(nerfbaselines.get_supported_evaluation_protocols())}")
+    return cast('EvaluationProtocol', _import_type(spec["evaluation_protocol_class"])())
+
 
 
 @typing.overload
@@ -540,7 +557,7 @@ def run_inside_eval_container(backend_name: Optional[str] = None):
         backend_name = os.environ.get("NERFBASELINES_BACKEND", None)
     backend = get_backend({
         "id": "metrics",
-        "method": "base",
+        "method_class": "base",
         "conda": {
             "environment_name": "_metrics", 
             "install_script": ""

@@ -1,4 +1,3 @@
-import functools
 import contextlib
 import importlib.util
 import types
@@ -9,8 +8,7 @@ import os
 import importlib
 import contextlib
 from typing import Optional, Type, Any, Tuple, Dict, List, cast, Union, Sequence, Callable, TypeVar, Set, FrozenSet
-from . import Method, EvaluationProtocol
-from . import Logger, MethodSpec, DatasetSpec, EvaluationProtocolSpec, BackendName, LoggerSpec
+from . import MethodSpec, DatasetSpec, EvaluationProtocolSpec, BackendName, LoggerSpec
 try:
     from typing import Literal
 except ImportError:
@@ -40,15 +38,15 @@ loggers_registry["tensorboard"] = {
     "id": "tensorboard", "logger_class": "nerfbaselines.logging:TensorboardLogger" }
 evaluation_protocols_registry["default"] = {
     "id": "default", 
-    "evaluation_protocol": "nerfbaselines.evaluation:DefaultEvaluationProtocol"}
+    "evaluation_protocol_class": "nerfbaselines.evaluation:DefaultEvaluationProtocol"}
 evaluation_protocols_registry["nerf"] = {
     "id": "nerf", 
-    "evaluation_protocol": "nerfbaselines.evaluation:NerfEvaluationProtocol"}
+    "evaluation_protocol_class": "nerfbaselines.evaluation:NerfEvaluationProtocol"}
 _collected_register_calls = None
 
 
 @contextlib.contextmanager
-def collect_register_calls(output: List[Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec"]]):
+def collect_register_calls(output: List[Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec", "LoggerSpec"]]):
     """
     Context manager to disable and collect all calls to nerfbaselines.registry.register
 
@@ -391,18 +389,28 @@ def get_logger_spec(id: str) -> LoggerSpec:
     return loggers_registry[id]
 
 
-def _import_type(name: str) -> Any:
-    package, name = name.split(":")
-    obj: Any = importlib.import_module(package)
-    for p in name.split("."):
-        obj = getattr(obj, p)
-    return obj
+def get_supported_evaluation_protocols() -> FrozenSet[str]:
+    """
+    Get all supported evaluation protocols.
 
-
-def build_evaluation_protocol(id: str) -> 'EvaluationProtocol':
+    Returns:
+        Set of evaluation protocol IDs
+    """
     _auto_register()
-    spec = evaluation_protocols_registry.get(id)
-    if spec is None:
-        raise RuntimeError(f"Could not find evaluation protocol {id} in registry. Supported protocols: {','.join(evaluation_protocols_registry.keys())}")
-    return cast('EvaluationProtocol', _import_type(spec["evaluation_protocol"])())
+    return frozenset(evaluation_protocols_registry.keys())
 
+
+def get_evaluation_protocol_spec(id: str) -> EvaluationProtocolSpec:
+    """
+    Get an evaluation protocol specification by registered evaluation protocol ID.
+
+    Args:
+        id: Evaluation protocol ID
+
+    Returns:
+        Evaluation protocol specification
+    """
+    _auto_register()
+    if id not in evaluation_protocols_registry:
+        raise RuntimeError(f"Could not find evaluation protocol {id} in registry. Supported evaluation protocols: {','.join(evaluation_protocols_registry.keys())}")
+    return evaluation_protocols_registry[id]

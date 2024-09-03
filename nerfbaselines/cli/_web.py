@@ -16,7 +16,6 @@ web_click_group = click.Group("web")
 def _(data_path, datasets, include_docs=None):
     if include_docs == "none":
         include_docs = None
-    from nerfbaselines.utils import setup_logging
     setup_logging(False)
     datasets = datasets.split(",") if datasets else None
     if include_docs == "none":
