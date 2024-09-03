@@ -7,7 +7,7 @@ import inspect
 import os
 import importlib
 import contextlib
-from typing import Optional, Type, Any, Tuple, Dict, List, cast, Union, Sequence, Callable, TypeVar, Set, FrozenSet
+from typing import Optional, Any, Tuple, Dict, List, cast, Union, TypeVar, FrozenSet
 from . import MethodSpec, DatasetSpec, EvaluationProtocolSpec, BackendName, LoggerSpec
 try:
     from typing import Literal
@@ -167,19 +167,19 @@ def _auto_register(force=False):
     global _registration_fastpath
     if _auto_register_completed and not force:
         return
-    from . import methods, datasets
+    nb_path = os.path.dirname(os.path.abspath(__file__))
 
     assert __package__ is not None, "Package must be set"
     # Method registration
     _registration_fastpath = __package__ + ".methods"
-    for package in os.listdir(os.path.dirname(methods.__file__)):
+    for package in os.listdir(os.path.join(nb_path, "methods")):
         if package.endswith("_spec.py") and not package.startswith("_"):
             package = package[:-3]
             importlib.import_module(f".methods.{package}", __package__)
 
     # Dataset registration
     _registration_fastpath = __package__ + ".datasets"
-    for package in os.listdir(os.path.dirname(datasets.__file__)):
+    for package in os.listdir(os.path.join(nb_path, "datasets")):
         if package.endswith("_spec.py") and not package.startswith("_"):
             package = package[:-3]
             importlib.import_module(f".datasets.{package}", __package__)
@@ -303,12 +303,12 @@ def get_supported_methods(backend_name: Optional[BackendName] = None) -> FrozenS
     Returns:
         Set of method IDs
     """
-    from . import backends
+    from .backends import get_implemented_backends
     _auto_register()
     if backend_name is None:
         return frozenset(methods_registry.keys())
     else:
-        return frozenset(name for name, spec in methods_registry.items() if backend_name in backends.get_implemented_backends(spec))
+        return frozenset(name for name, spec in methods_registry.items() if backend_name in get_implemented_backends(spec))
 
 
 def get_method_spec(id: str) -> MethodSpec:

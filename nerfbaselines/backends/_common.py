@@ -7,7 +7,7 @@ import importlib
 from pathlib import Path
 import subprocess
 from typing import Optional
-from typing import  Union, Set, Callable, TYPE_CHECKING, List, cast
+from typing import  Union, Set, Callable, List, cast
 from typing import Sequence
 from nerfbaselines import BackendName, MethodSpec
 

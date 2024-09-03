@@ -9,8 +9,7 @@ import os
 from typing import Optional, List, Tuple, Dict, Union, cast
 import shlex
 
-import nerfbaselines
-
+from .. import get_supported_methods, get_method_spec
 from .. import NB_PREFIX, __version__, MethodSpec
 from .._constants import DOCKER_REPOSITORY
 
@@ -154,11 +153,11 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
 
     script += "ENV NERFBASELINES_BACKEND=python\n"
     def is_method_allowed(method: str):
-        method_spec = nerfbaselines.get_method_spec(method)
+        method_spec = get_method_spec(method)
         docker_spec = get_docker_spec(method_spec)
         return docker_spec is not None and docker_spec.get("environment_name") == spec.get("environment_name")
 
-    allowed_methods = ",".join((k for k in nerfbaselines.get_supported_methods() if is_method_allowed(k)))
+    allowed_methods = ",".join((k for k in get_supported_methods() if is_method_allowed(k)))
     script += f"ENV NERFBASELINES_ALLOWED_METHODS={allowed_methods}\n"
     script += f'ENV PYTHONPATH="{package_path}:$PYTHONPATH"\n'
     # Add nerfbaselines to the path
@@ -211,7 +210,7 @@ def _build_docker_image(name, dockerfile, skip_if_exists_remotely: bool = False,
         logging.info(f"Image {name} does not exist remotely, building it locally")
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        package_path = str(Path(nerfbaselines.__file__).absolute().parent.parent)
+        package_path = str(Path(__file__).absolute().parent.parent.parent)
         shutil.copytree(os.path.join(package_path, "nerfbaselines"), os.path.join(tmpdir, "nerfbaselines"))
         with open(os.path.join(tmpdir, "Dockerfile"), "w") as f:
             f.write(dockerfile)
@@ -270,10 +269,10 @@ def get_docker_image_name(spec: DockerBackendSpec):
     return f"{DOCKER_REPOSITORY}:{environment_name}-{environment_hash}"
 
 def get_docker_environments_to_build():
-    methods = nerfbaselines.get_supported_methods("docker")
+    methods = get_supported_methods("docker")
     methods_to_install = {}
     for mname in methods:
-        m = nerfbaselines.get_method_spec(mname)
+        m = get_method_spec(mname)
         spec = m.get("docker", m.get("conda"))
         if not spec:
             continue
@@ -305,7 +304,7 @@ def docker_run_image(spec: DockerBackendSpec,
     os.makedirs(torch_home, exist_ok=True)
     replace_user = spec.get("replace_user")
     replace_user = replace_user if replace_user is not None else True
-    package_path = str(Path(nerfbaselines.__file__).absolute().parent.parent)
+    package_path = str(Path(__file__).absolute().parent.parent.parent)
     args = [
         "docker",
         "run",

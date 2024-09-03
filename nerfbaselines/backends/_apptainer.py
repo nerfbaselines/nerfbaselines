@@ -6,9 +6,8 @@ import contextlib
 from pathlib import Path
 import subprocess
 import os
-from typing import Optional, List, Tuple, TYPE_CHECKING, cast
+from typing import Optional, List, Tuple, cast
 import shlex
-import nerfbaselines
 from nerfbaselines import NB_PREFIX, MethodSpec
 from ._docker import BASE_IMAGE, get_docker_image_name, get_docker_spec
 from ._conda import conda_get_install_script, conda_get_environment_hash, CondaBackendSpec
@@ -128,7 +127,7 @@ def apptainer_run(spec: ApptainerBackendSpec, args, env,
     os.makedirs(torch_home, exist_ok=True)
     image = spec.get("image") or f"docker://{BASE_IMAGE}"
     export_envs = ["TCNN_CUDA_ARCHITECTURES", "TORCH_CUDA_ARCH_LIST", "CUDAARCHS", "GITHUB_ACTIONS", "NB_AUTHKEY", "CI"]
-    package_path = str(Path(nerfbaselines.__file__).absolute().parent.parent)
+    package_path = str(Path(__file__).absolute().parent.parent.parent)
 
     return [
         "apptainer",

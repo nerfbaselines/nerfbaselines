@@ -5,7 +5,6 @@ import shlex
 from typing import Optional
 import hashlib
 
-import nerfbaselines
 from nerfbaselines import get_supported_methods, get_method_spec, NB_PREFIX
 from ._common import get_package_dependencies
 from ._rpc import RemoteProcessRPCBackend, get_safe_environment
@@ -58,7 +57,7 @@ def conda_get_install_script(spec: CondaBackendSpec, package_path: Optional[str]
     if dependencies:
         install_dependencies_script = "pip install " + " ".join(f"'{x}'" for x in dependencies)
     if package_path is None:
-        package_path = str(Path(nerfbaselines.__file__).absolute().parent.parent)
+        package_path = str(Path(__file__).absolute().parent.parent.parent)
     script = "set -eo pipefail\n"
 
     def is_method_allowed(method):
@@ -161,7 +160,7 @@ class CondaBackend(RemoteProcessRPCBackend):
         environment_name = self._spec.get("environment_name")
         assert environment_name is not None, "CondaBackend requires environment_name to be specified"
         env_path = os.path.join(environments_path, environment_name, conda_get_environment_hash(self._spec), environment_name)
-        PACKAGE_PATH = Path(nerfbaselines.__file__).absolute().parent.parent
+        PACKAGE_PATH = Path(__file__).absolute().parent.parent.parent
         env["PYTHONPATH"] = f'{PACKAGE_PATH}'
         args = [os.path.join(env_path, ".activate.sh")] + list(args)
         return super()._launch_worker(args, env)
@@ -175,6 +174,6 @@ class CondaBackend(RemoteProcessRPCBackend):
         assert environment_name is not None, "CondaBackend requires environment_name to be specified"
         env_path = os.path.join(environments_path, environment_name, conda_get_environment_hash(self._spec), environment_name)
         env = get_safe_environment()
-        env["PYTHONPATH"] = str(Path(nerfbaselines.__file__).absolute().parent.parent)
+        env["PYTHONPATH"] = str(Path(__file__).absolute().parent.parent.parent)
         args = [os.path.join(env_path, ".activate.sh")] + ["bash"]
         os.execvpe(args[0], args, env)
