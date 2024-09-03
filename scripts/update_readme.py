@@ -8,14 +8,14 @@ try:
 except ImportError:
     sys.path.append(str(Path(__file__).parent.parent))
     import nerfbaselines  # noqa
-from nerfbaselines.cli.generate_dataset_results import main as generate_dataset_results_command
+from nerfbaselines.cli._generate_dataset_results import main as generate_dataset_results_command
 from nerfbaselines.results import get_dataset_info
 from nerfbaselines._constants import WEBPAGE_URL
 import tempfile
 
 
 def update_licenses(readme: str):
-    from nerfbaselines.registry import get_supported_methods, get_method_spec
+    from nerfbaselines import get_supported_methods, get_method_spec
     lines = readme.rstrip(os.linesep).splitlines()
 
     def simplify(s: str):
@@ -46,7 +46,8 @@ def update_licenses(readme: str):
 
 
 def update_reproducing_results_table(readme: str):
-    from nerfbaselines.registry import get_supported_methods, get_method_spec, datasets_registry
+    from nerfbaselines import get_supported_methods, get_method_spec
+    from nerfbaselines import get_supported_datasets, get_dataset_spec
     lines = readme.rstrip(os.linesep).splitlines()
 
     def simplify(s: str):
@@ -69,8 +70,8 @@ def update_reproducing_results_table(readme: str):
     max_label_length = 1 + max(len(x) for x in labels.values())
     max_method_length = max(len("Method"), max(len(get_method_spec(method).get("metadata", {}).get("name", "")) for method in get_supported_methods()))
     out = ""
-    datasets = sorted([x for x in datasets_registry if datasets_registry[x].get("metadata", {}).get("name")], key=lambda x: datasets_registry[x].get("metadata", {}).get("name"))
-    dataset_names = [datasets_registry[x].get("metadata", {}).get("name") for x in datasets]
+    datasets = sorted([x for x in get_supported_datasets() if get_dataset_spec(x).get("metadata", {}).get("name")], key=lambda x: get_dataset_spec(x).get("metadata", {}).get("name"))
+    dataset_names = [get_dataset_spec(x).get("metadata", {}).get("name") for x in datasets]
     out += f"| {'Method'.ljust(max_method_length)} "
     for i, dataset in enumerate(datasets):
         max_column_length = max(max_label_length, len(dataset_names[i]))
