@@ -27,6 +27,20 @@ jobs:
           exit 1
         fi
 
+  web-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Build web
+        run: |
+          pip install -e '.[web]'
+          nerfbaselines web build --output web-build --base-path "${{ steps.setup-pages.outputs.base_path }}" --docs all
+
   common-tests:
     runs-on: ubuntu-latest
     name: run-tests-common

@@ -149,7 +149,7 @@ opts.header = "API Reference"
 from sphinx.ext.apidoc import (
     walk,
     ReSTRenderer, write_file, is_packagedir, is_initpy, is_skipped_package, has_child_module, module_join, is_skipped_module,
-    create_package_file, create_module_file
+    create_module_file
 )
 def recurse_tree(
     rootpath: str,
@@ -161,6 +161,7 @@ def recurse_tree(
     written_files = []
     cutoff_depth = 2
     for root, subs, files in walk(rootpath, excludes, opts):
+        del subs
         # Document modules
         depth = root[len(rootpath) :].count(os.path.sep)
         subpackage = root[len(rootpath) :].lstrip(os.path.sep).replace(os.path.sep, '.')
@@ -209,6 +210,7 @@ def recurse_tree(
         text = ReSTRenderer([user_template_dir]).render('package.rst.jinja', context)
         written_files.append(write_file(pkgname, text, opts))
     return written_files
+os.makedirs(out_path, exist_ok=True)
 written_files = recurse_tree(rootpath, excludes, opts, apidoc_template_dir)
 all_modules = [os.path.relpath(x, out_path)[:-len(opts.suffix)-1] for x in written_files]
 all_modules.sort()
