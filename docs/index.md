@@ -57,7 +57,7 @@ backends
 Methods <methods>
 Datasets <datasets>
 CLI <cli>
-API <api/nerfbaselines>
+API <api/modules>
 ```
 
 ```{tip}

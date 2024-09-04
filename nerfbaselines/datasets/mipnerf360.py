@@ -138,3 +138,6 @@ def download_mipnerf360_dataset(path: str, output: Union[Path, str]):
                         raise RuntimeError(f"Capture '{capture_name}' not found in {url}.")
                     shutil.move(str(output_tmp), str(output))
                     logging.info(f"Downloaded mipnerf360/{capture_name} to {output}")
+
+
+__all__ = ["load_mipnerf360_dataset", "download_mipnerf360_dataset"]

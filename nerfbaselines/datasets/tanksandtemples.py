@@ -137,3 +137,6 @@ def download_tanksandtemples_dataset(path: str, output: Union[Path, str]) -> Non
             shutil.rmtree(output, ignore_errors=True)
             shutil.move(str(output_tmp), str(output))
             logging.info(f"Downloaded {DATASET_NAME}/{scene} to {output}")
+
+
+__all__ = ["load_tanksandtemples_dataset", "download_tanksandtemples_dataset"]

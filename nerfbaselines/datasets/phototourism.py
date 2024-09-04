@@ -252,3 +252,4 @@ class NerfWEvaluationProtocol(EvaluationProtocol):
                 acc[k] = (acc.get(k, 0) * i + v) / (i + 1)
         return acc
 
+__all__ = ["load_phototourism_dataset", "download_phototourism_dataset", "NerfWEvaluationProtocol"]

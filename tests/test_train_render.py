@@ -5,7 +5,8 @@ from typing import Iterable, cast
 from pathlib import Path
 import os
 import numpy as np
-from nerfbaselines import Method, MethodInfo, Cameras, RenderOutput, Indices, ModelInfo
+from nerfbaselines import Method, MethodInfo, Cameras, RenderOutput, ModelInfo
+from nerfbaselines.utils import Indices
 from nerfbaselines.datasets import _colmap_utils as colmap_utils
 from nerfbaselines import metrics
 from unittest import mock

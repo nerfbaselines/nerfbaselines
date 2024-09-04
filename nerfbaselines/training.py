@@ -20,7 +20,6 @@ from . import (
     MethodSpec,
     EvaluationProtocol, 
     __version__, 
-    convert_image_dtype,
     Dataset,
 )
 from .backends import run_on_host
@@ -31,7 +30,12 @@ from .io import (
     new_nb_info,
 )
 from ._registry import loggers_registry
-from .utils import Indices, image_to_srgb, visualize_depth
+from .utils import (
+    Indices, 
+    image_to_srgb, 
+    visualize_depth,
+    convert_image_dtype,
+)
 from .datasets import dataset_index_select
 from .evaluation import (
     render_all_images, evaluate, build_evaluation_protocol,

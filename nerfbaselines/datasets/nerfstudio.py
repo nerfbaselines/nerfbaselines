@@ -591,3 +591,6 @@ def download_nerfstudio_dataset(path: str, output: Union[Path, str]):
     capture_url = f"https://huggingface.co/datasets/jkulhanek/nerfbaselines-data/resolve/main/nerfstudio/{capture_name}.zip?download=true"
     download_capture_name(output, capture_url)
     logging.info(f"Downloaded {path} to {output}")
+
+
+__all__ = ["load_nerfstudio_dataset", "download_nerfstudio_dataset"]

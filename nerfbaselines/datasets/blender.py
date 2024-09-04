@@ -137,3 +137,6 @@ def download_blender_dataset(path: str, output: Union[Path, str]) -> None:
             shutil.rmtree(output, ignore_errors=True)
             shutil.move(str(output_tmp), str(output))
             logging.info(f"Downloaded {DATASET_NAME}/{scene} to {output}")
+
+
+__all__ = ["load_blender_dataset", "download_blender_dataset"]

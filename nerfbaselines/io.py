@@ -25,8 +25,7 @@ from . import (
     RenderOutput,
 )
 from .utils import (
-    save_image,
-    save_depth,
+    convert_image_dtype,
     visualize_depth,
     image_to_srgb,
 )
@@ -760,3 +759,50 @@ def get_torch_checkpoint_sha(checkpoint_data):
             raise ValueError(f"Unsupported type {type(d)}")
     update(checkpoint_data)
     return sha.hexdigest()
+
+
+def save_image(file: Union[BinaryIO, str, Path], tensor: np.ndarray):
+    if isinstance(file, (str, Path)):
+        with open(file, "wb") as f:
+            return save_image(f, tensor)
+    path = Path(file.name)
+    if str(path).endswith(".bin"):
+        if tensor.shape[2] < 4:
+            tensor = np.dstack((tensor, np.ones([tensor.shape[0], tensor.shape[1], 4 - tensor.shape[2]])))
+        file.write(struct.pack("ii", tensor.shape[0], tensor.shape[1]))
+        file.write(tensor.astype(np.float16).tobytes())
+    else:
+        from PIL import Image
+
+        tensor = convert_image_dtype(tensor, np.uint8)
+        image = Image.fromarray(tensor)
+        image.save(file, format="png")
+
+
+def read_image(file: Union[BinaryIO, str, Path]) -> np.ndarray:
+    if isinstance(file, (str, Path)):
+        with open(file, "rb") as f:
+            return read_image(f)
+    path = Path(file.name)
+    if str(path).endswith(".bin"):
+        h, w = struct.unpack("ii", file.read(8))
+        itemsize = 2
+        img = np.frombuffer(file.read(h * w * 4 * itemsize), dtype=np.float16, count=h * w * 4, offset=8).reshape([h, w, 4])
+        assert img.itemsize == itemsize
+        return img.astype(np.float32)
+    else:
+        from PIL import Image
+
+        return np.array(Image.open(file))
+
+
+def save_depth(file: Union[BinaryIO, str, Path], tensor: np.ndarray):
+    if isinstance(file, (str, Path)):
+        with open(file, "wb") as f:
+            return save_depth(f, tensor)
+    path = Path(file.name)
+    assert str(path).endswith(".bin")
+    file.write(struct.pack("ii", tensor.shape[0], tensor.shape[1]))
+    file.write(tensor.astype(np.float16).tobytes())
+
+

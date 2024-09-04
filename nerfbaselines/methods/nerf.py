@@ -14,8 +14,8 @@ import numpy as np
 from nerfbaselines import (
     Dataset, OptimizeEmbeddingsOutput, RenderOutput, MethodInfo, ModelInfo,
     Cameras, CameraModel, Method,
-    convert_image_dtype,
 )
+from nerfbaselines.utils import convert_image_dtype
 try:
     from typing import get_args
 except ImportError:

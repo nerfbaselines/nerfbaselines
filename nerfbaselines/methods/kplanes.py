@@ -25,8 +25,9 @@ from functools import partial
 from nerfbaselines import (
     Dataset, RenderOutput, OptimizeEmbeddingsOutput,
     Method, MethodInfo, ModelInfo, Cameras, camera_model_to_int,
-    convert_image_dtype, NoGPUError
+    NoGPUError
 )
+from nerfbaselines.utils import convert_image_dtype
 import tempfile
 
 

@@ -18,11 +18,10 @@ from tqdm import tqdm
 
 import nerfbaselines
 from .utils import (
-    read_image, 
     apply_colormap,
     image_to_srgb,
-    save_image,
     visualize_depth,
+    convert_image_dtype, 
 )
 from .backends import run_on_host
 from . import (
@@ -36,7 +35,6 @@ from . import (
     camera_model_to_int,
     new_cameras,
     new_dataset,
-    convert_image_dtype, 
 )
 from .io import (
     open_any_directory, 
@@ -45,6 +43,8 @@ from .io import (
     get_method_sha,
     save_evaluation_results,
     save_predictions,
+    save_image,
+    read_image, 
 )
 from . import metrics
 from . import cameras as _cameras

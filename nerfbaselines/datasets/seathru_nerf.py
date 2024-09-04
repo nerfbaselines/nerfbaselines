@@ -105,3 +105,5 @@ def download_seathru_nerf_dataset(path: str, output: str):
                 zip_ref.extract(zip_info, output)
     logging.info(f"Extracted {path} to {output}")
 
+
+__all__ = ["load_seathru_nerf_dataset", "download_seathru_nerf_dataset"]

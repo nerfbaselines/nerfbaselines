@@ -11,7 +11,8 @@ from pathlib import Path
 import typing
 from typing import Optional, Union, List, Dict, Sequence, Any, cast
 from typing import TYPE_CHECKING
-from . import Logger, LoggerEvent, convert_image_dtype
+from . import Logger, LoggerEvent
+from .utils import convert_image_dtype
 
 if TYPE_CHECKING:
     import wandb.sdk.wandb_run

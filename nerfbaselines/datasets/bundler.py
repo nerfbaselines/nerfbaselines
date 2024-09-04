@@ -237,6 +237,9 @@ def load_bundler_dataset(path: str,
     return dataset
 
 
+__all__ = ["load_bundler_dataset"]
+
+
 if __name__ == "__main__":
     import sys
     dataset = load_bundler_dataset(sys.argv[1], split="train")

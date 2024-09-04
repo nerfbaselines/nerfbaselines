@@ -3,18 +3,9 @@ import numpy as np
 from operator import mul
 from functools import reduce
 import threading
-import time
 import sys
-import struct
-from pathlib import Path
-from typing import Any, Optional, Dict, TYPE_CHECKING, Union, List, TypeVar, Iterable, Callable
-from typing import BinaryIO, Tuple, cast
-import logging
+from typing import Any, Optional, Dict, TYPE_CHECKING, Union, List, TypeVar, Callable, Tuple, cast
 import numpy as np
-try:
-    from typing import Literal
-except ImportError:
-    from typing_extensions import Literal
 if TYPE_CHECKING:
     import torch
     import jax.numpy as jnp
@@ -41,26 +32,10 @@ def _xnp_astype(tensor: TTensor, dtype, xnp: Any) -> TTensor:
     return tensor.astype(dtype)  # type: ignore
 
 
-def build_measure_iter_time():
-    total_time = 0
-
-    def measure_iter_time(iterable: Iterable) -> Iterable:
-        nonlocal total_time
-        
-        total_time = 0
-        start = time.perf_counter()
-        for x in iterable:
-            total_time += time.perf_counter() - start
-            yield x
-            start = time.perf_counter()
-
-    def get_total_time():
-        return total_time
-
-    return measure_iter_time, get_total_time
-
-
 class CancelledException(Exception):
+    """
+    Exception raised when an operation is cancelled using the ``CancellationToken``.
+    """
     pass
 
 
@@ -135,6 +110,10 @@ class CancellationToken(metaclass=_CancellationTokenMeta):
 
 
 class Indices:
+    """
+    A class that represents a set of indices or slices. This is useful for specifying subsets of data
+    training iterations or evaluation steps.
+    """
     def __init__(self, steps):
         self._steps = steps
         self.total: Optional[int] = None
@@ -160,7 +139,18 @@ class Indices:
 
     @classmethod
     def every_iters(cls, iters: int, zero: bool = False):
-        start = iters if zero else 0
+        """
+        Create an ``Indices`` object that represents every ``iters`` iterations.
+        For zero=False, this is equivalent to ``Indices(range(iters, total, iters))``.
+
+        Args:
+            iters: The number of iterations.
+            zero: Whether to include 0 in the indices.
+
+        Returns:
+            The created ``Indices``
+        """
+        start = 0 if zero else iters
         return cls(slice(start, None, iters))
 
     def __repr__(self):
@@ -178,12 +168,16 @@ class Indices:
         return repr(self)
 
 
-def batched(array, batch_size):
-    for i in range(0, len(array), batch_size):
-        yield array[i : i + batch_size]
-
-
 def padded_stack(tensors: Union[np.ndarray, Tuple[np.ndarray, ...], List[np.ndarray]]) -> np.ndarray:
+    """
+    Stack a list of tensors, padding them to the maximum shape.
+
+    Args:
+        tensors: A list of tensors to stack.
+
+    Returns:
+        The stacked tensor.
+    """
     if not isinstance(tensors, (tuple, list)):
         return tensors
     max_shape = tuple(max(s) for s in zip(*[x.shape for x in tensors]))
@@ -194,16 +188,17 @@ def padded_stack(tensors: Union[np.ndarray, Tuple[np.ndarray, ...], List[np.ndar
     return np.stack(out_tensors, 0)
 
 
-def is_broadcastable(shape1, shape2):
-    for a, b in zip(shape1[::-1], shape2[::-1]):
-        if a == 1 or b == 1 or a == b:
-            pass
-        else:
-            return False
-    return True
-
-
 def convert_image_dtype(image: np.ndarray, dtype) -> np.ndarray:
+    """
+    Convert an image to a given dtype.
+
+    Args:
+        image: The input image.
+        dtype: The output dtype.
+    
+    Returns:
+        The converted image.
+    """
     if isinstance(dtype, str):
         dtype = np.dtype(dtype)
     if image.dtype == dtype:
@@ -217,17 +212,39 @@ def convert_image_dtype(image: np.ndarray, dtype) -> np.ndarray:
     raise ValueError(f"cannot convert image from {image.dtype} to {dtype}")
 
 
-def srgb_to_linear(img):
+def _srgb_to_linear(img):
     limit = 0.04045
     return np.where(img > limit, np.power((img + 0.055) / 1.055, 2.4), img / 12.92)
 
+del _srgb_to_linear
 
-def linear_to_srgb(img):
+
+def _linear_to_srgb(img):
     limit = 0.0031308
     return np.where(img > limit, 1.055 * (img ** (1.0 / 2.4)) - 0.055, 12.92 * img)
 
 
 def image_to_srgb(tensor, dtype, color_space: Optional[str] = None, allow_alpha: bool = False, background_color: Optional[np.ndarray] = None):
+    """
+    Convert an image to sRGB color space (if it is not in sRGB color space already). 
+    If the image has an alpha channel, it will be blended with a specified background color,
+    or black if no background color is specified. The image will be converted to the specified dtype.
+    In case the linear->sRGB conversion happens, the following formula is used:
+    
+            sRGB = 1.055 * linear^1/2.4 - 0.055, if linear > 0.0031308
+            sRGB = 12.92 * linear, if linear <= 0.0031308
+
+
+    Args:
+        tensor: The input image tensor.
+        dtype: The output dtype.
+        color_space: The input color space. If None, it is assumed to be sRGB.
+        allow_alpha: Whether to allow an alpha channel. If False, the alpha channel will be removed by blending with a black background.
+        background_color: The background color to blend with if the image has an alpha channel. If None, it will be black.
+        
+    Returns:
+        The converted image tensor.
+    """
     # Remove alpha channel in uint8
     if color_space is None:
         color_space = "srgb"
@@ -243,57 +260,12 @@ def image_to_srgb(tensor, dtype, color_space: Optional[str] = None, allow_alpha:
 
     if color_space == "linear":
         tensor = convert_image_dtype(tensor, np.float32)
-        tensor = linear_to_srgb(tensor)
+        tensor = _linear_to_srgb(tensor)
 
     # Round to 8-bit for fair comparisons
     tensor = convert_image_dtype(tensor, np.uint8)
     tensor = convert_image_dtype(tensor, dtype)
     return tensor
-
-
-def save_image(file: Union[BinaryIO, str, Path], tensor: np.ndarray):
-    if isinstance(file, (str, Path)):
-        with open(file, "wb") as f:
-            return save_image(f, tensor)
-    path = Path(file.name)
-    if str(path).endswith(".bin"):
-        if tensor.shape[2] < 4:
-            tensor = np.dstack((tensor, np.ones([tensor.shape[0], tensor.shape[1], 4 - tensor.shape[2]])))
-        file.write(struct.pack("ii", tensor.shape[0], tensor.shape[1]))
-        file.write(tensor.astype(np.float16).tobytes())
-    else:
-        from PIL import Image
-
-        tensor = convert_image_dtype(tensor, np.uint8)
-        image = Image.fromarray(tensor)
-        image.save(file, format="png")
-
-
-def read_image(file: Union[BinaryIO, str, Path]) -> np.ndarray:
-    if isinstance(file, (str, Path)):
-        with open(file, "rb") as f:
-            return read_image(f)
-    path = Path(file.name)
-    if str(path).endswith(".bin"):
-        h, w = struct.unpack("ii", file.read(8))
-        itemsize = 2
-        img = np.frombuffer(file.read(h * w * 4 * itemsize), dtype=np.float16, count=h * w * 4, offset=8).reshape([h, w, 4])
-        assert img.itemsize == itemsize
-        return img.astype(np.float32)
-    else:
-        from PIL import Image
-
-        return np.array(Image.open(file))
-
-
-def save_depth(file: Union[BinaryIO, str, Path], tensor: np.ndarray):
-    if isinstance(file, (str, Path)):
-        with open(file, "wb") as f:
-            return save_depth(f, tensor)
-    path = Path(file.name)
-    assert str(path).endswith(".bin")
-    file.write(struct.pack("ii", tensor.shape[0], tensor.shape[1]))
-    file.write(tensor.astype(np.float16).tobytes())
 
 
 def _zipnerf_power_transformation(x, lam: float):
@@ -302,6 +274,17 @@ def _zipnerf_power_transformation(x, lam: float):
 
 
 def apply_colormap(array: TTensor, *, pallete: str = "viridis", invert: bool = False) -> TTensor:
+    """
+    Apply a colormap to an array.
+
+    Args:
+        array: The input array.
+        pallete: The matplotlib colormap to use.
+        invert: Whether to invert the colormap.
+
+    Returns:
+        The array with the colormap applied.
+    """
     xnp = _get_xnp(array)
     # TODO: remove matplotlib dependency
     import matplotlib
@@ -365,60 +348,6 @@ def pad_poses(p):
 def unpad_poses(p):
   """Remove the homogeneous bottom row from [..., 4, 4] pose matrices."""
   return p[..., :3, :4]
-
-
-def rotation_matrix(a, b):
-    """Compute the rotation matrix that rotates vector a to vector b.
-
-    Args:
-        a: The vector to rotate.
-        b: The vector to rotate to.
-    Returns:
-        The rotation matrix.
-    """
-    a = a / np.linalg.norm(a)
-    b = b / np.linalg.norm(b)
-    v = np.cross(a, b)
-    c = np.dot(a, b)
-    # If vectors are exactly opposite, we add a little noise to one of them
-    if c < -1 + 1e-8:
-        eps = (np.random.rand(3) - 0.5) * 0.01
-        return rotation_matrix(a + eps, b)
-    s = np.linalg.norm(v)
-    skew_sym_mat = np.array(
-        [
-            [0, -v[2], v[1]],
-            [v[2], 0, -v[0]],
-            [-v[1], v[0], 0],
-        ],
-        dtype=a.dtype,
-    )
-    return np.eye(3, dtype=a.dtype) + skew_sym_mat + skew_sym_mat @ skew_sym_mat * ((1 - c) / (s**2 + 1e-8))
-
-
-def viewmatrix(
-    lookdir,
-    up,
-    position,
-    lock_up = False,
-):
-    """Construct lookat view matrix."""
-    def normalize(x):
-        """Normalization helper function."""
-        return x / np.linalg.norm(x)
-
-    def orthogonal_dir(a, b): 
-        return normalize(np.cross(a, b))
-
-    vecs = [None, normalize(up), normalize(lookdir)]
-    # x-axis is always the normalized cross product of `lookdir` and `up`.
-    vecs[0] = orthogonal_dir(vecs[1], vecs[2])
-    # Default is to lock `lookdir` vector, if lock_up is True lock `up` instead.
-    ax = 2 if lock_up else 1
-    # Set the not-locked axis to be orthogonal to the other two.
-    vecs[ax] = orthogonal_dir(vecs[(ax + 1) % 3], vecs[(ax + 2) % 3])
-    m = np.stack(vecs + [position], axis=1)
-    return m
 
 
 def get_transform_and_scale(transform):
@@ -485,7 +414,16 @@ def invert_transform(transform, has_scale=False):
 
 
 def quaternion_multiply(q1, q2):
-    """Multiply two sets of quaternions."""
+    """
+    Multiply two sets of quaternions.
+
+    Args:
+        q1: A quaternion.
+        q2: A quaternion.
+
+    Returns:
+        The multiplied quaternions.
+    """
     a = q1[..., 0]*q2[...,0] - q1[...,1]*q2[...,1] - q1[...,2]*q2[...,2] - q1[...,3]*q2[...,3]
     b = q1[..., 0]*q2[...,1] + q1[...,1]*q2[...,0] + q1[...,2]*q2[...,3] - q1[...,3]*q2[...,2]
     c = q1[..., 0]*q2[...,2] - q1[...,1]*q2[...,3] + q1[...,2]*q2[...,0] + q1[...,3]*q2[...,1]
@@ -494,10 +432,27 @@ def quaternion_multiply(q1, q2):
 
 
 def quaternion_conjugate(q):
-    """Return quaternion-conjugate of quaternion q̄"""
+    """
+    Return quaternion-conjugate of quaternion q̄
+
+    Args:
+        q: A quaternion.
+    
+    Returns:
+        The quaternion conjugate.
+    """
     return np.stack([+q[...,0], -q[...,1], -q[..., 2], -q[...,3]], -1)
 
 def quaternion_to_rotation_matrix(r):
+    """
+    Convert input quaternion to a rotation matrix.
+
+    Args:
+        r: A quaternion.
+
+    Returns:
+        The rotation matrix.
+    """
     norm = np.sqrt((r**2).sum(-1))
 
     q = r / norm[..., None]
@@ -593,6 +548,7 @@ def rotation_matrix_to_quaternion(R):
     if not shape:
         q = np.empty((4,), dtype=rot.dtype)
         eigvals, eigvecs = linalg.eigh(K3.T, subset_by_index=(3, 3))
+        del eigvals
         q[0] = eigvecs[-1].item()
         q[1:] = -eigvecs[:-1].flatten()
         return q
@@ -601,14 +557,22 @@ def rotation_matrix_to_quaternion(R):
         for flat_index in range(reduce(mul, shape)):
             multi_index = np.unravel_index(flat_index, shape)
             eigvals, eigvecs = linalg.eigh(K3[multi_index], subset_by_index=(3, 3))
+            del eigvals
             q[multi_index+(0,)] = eigvecs[-1]
             q[multi_index+(slice(1,None),)] = -eigvecs[:-1].flatten()
         return q
 
 
-def wigner_D_matrix(R, ell_max: int):
+def _wigner_D_matrix(R, ell_max: int):
     """
     Build a Wigner matrix from a rotation matrix.
+
+    Args:
+        R: A 3x3 rotation matrix.
+        ell_max: The maximum ell value.
+    
+    Returns:
+        The Wigner D matrix.
     """
     """
 This code was taken from https://github.com/moble/spherica
@@ -1021,9 +985,9 @@ SOFTWARE.
     Hsize = WignerHsize(mp_max, ell_max)
     function_values = np.zeros(quaternions.shape[:-1] + (Dsize,), dtype=complex)
 
-    n = np.array([n for n in range(ell_max+2) for m in range(-n, n+1)])
+    n = np.array([n for n in range(ell_max+2) for _ in range(-n, n+1)])
     m = np.array([m for n in range(ell_max+2) for m in range(-n, n+1)])
-    absn = np.array([n for n in range(ell_max+2) for m in range(n+1)])
+    absn = np.array([n for n in range(ell_max+2) for _ in range(n+1)])
     absm = np.array([m for n in range(ell_max+2) for m in range(n+1)])
     _a = np.sqrt((absn+1+absm) * (absn+1-absm) / ((2*absn+1)*(2*absn+3)))
     _b = np.sqrt((n-m-1) * (n-m) / ((2*n-1)*(2*n+1)))
@@ -1066,7 +1030,7 @@ SOFTWARE.
     return function_values.reshape(R.shape[:-2] + (Dsize,))
 
 
-def winger_D_multiply_spherical_harmonics(D, y):
+def _winger_D_multiply_spherical_harmonics(D, y):
     """
     Multiply a Wigner D matrix by a spherical harmonic coefficients.
     """
@@ -1087,6 +1051,13 @@ def winger_D_multiply_spherical_harmonics(D, y):
 def rotate_spherical_harmonics(R, y):
     """
     Rotate spherical harmonics coefficients by a rotation matrix R.
+
+    Args:
+        R: A 3x3 rotation matrix.
+        y: The spherical harmonics coefficients.
+
+    Returns:
+        The rotated spherical harmonics coefficients.
     """
-    D = wigner_D_matrix(R, int(math.sqrt(y.shape[-1]))-1)
-    return winger_D_multiply_spherical_harmonics(D, y)
+    D = _wigner_D_matrix(R, int(math.sqrt(y.shape[-1]))-1)
+    return _winger_D_multiply_spherical_harmonics(D, y)

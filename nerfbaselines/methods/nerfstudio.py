@@ -23,9 +23,9 @@ from nerfbaselines import (
     Method, OptimizeEmbeddingsOutput, MethodInfo, ModelInfo,
     Dataset, RenderOutput,
     Cameras, camera_model_from_int,
-    convert_image_dtype,
     NoGPUError,
 )
+from nerfbaselines.utils import convert_image_dtype
 from nerfbaselines.io import get_torch_checkpoint_sha
 
 import yaml

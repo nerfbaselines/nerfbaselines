@@ -60,10 +60,6 @@ from ._registry import (
 from ._method_utils import (
     build_method_class as build_method_class,
 )
-from .utils import (
-    Indices as Indices,
-    convert_image_dtype as convert_image_dtype,
-)
 
 try:
     from ._version import __version__  # noqa

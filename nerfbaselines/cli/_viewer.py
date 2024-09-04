@@ -22,7 +22,7 @@ def viewer_command(checkpoint: str, data, verbose, backend, port=6006):
 
     def run_viewer(method: Optional[Method] = None, nb_info=None):
         try:
-            from nerfbaselines.viewer.viser import run_viser_viewer
+            from nerfbaselines.viewer import run_viser_viewer
 
             run_viser_viewer(method, port=port, data=data, nb_info=nb_info)
         finally:

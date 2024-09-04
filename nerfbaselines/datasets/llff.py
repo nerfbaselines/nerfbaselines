@@ -135,3 +135,6 @@ def download_llff_dataset(path: str, output: Union[Path, str]):
         shutil.rmtree(str(output))
     os.rename(str(output) + ".tmp", str(output))
     logging.info(f"Downloaded {path} to {output}")
+
+
+__all__ = ["load_llff_dataset", "download_llff_dataset"]

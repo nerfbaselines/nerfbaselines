@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Optional, Sequence, Iterable, Union, Dict, cast
 from nerfbaselines import (
     Dataset, Method, MethodInfo, ModelInfo, Cameras, camera_model_to_int, OptimizeEmbeddingsOutput, RenderOutput,
-    convert_image_dtype,
 )
+from nerfbaselines.utils import convert_image_dtype
 
 from flax.training import checkpoints  # type: ignore
 import flax  # type: ignore

@@ -7,10 +7,10 @@ import numpy as np
 import PIL.Image
 import PIL.ExifTags
 from tqdm import tqdm
-from typing import Optional, TypeVar, Tuple, Union, List, Sequence, Dict, cast, overload, Any
+from typing import Optional, TypeVar, Tuple, Union, List, Dict, cast, Any
 from nerfbaselines import Dataset, Cameras, UnloadedDataset, camera_model_to_int, DatasetNotFoundError
 from .. import cameras
-from ..utils import padded_stack, rotation_matrix, pad_poses, unpad_poses, apply_transform
+from ..utils import padded_stack, pad_poses, unpad_poses, apply_transform
 try:
     from typing import Literal
 except ImportError:
@@ -76,6 +76,35 @@ def focus_point_fn(poses, xnp = np):
     return focus_pt
 
 
+def make_rotation_matrix(a, b):
+    """Compute the rotation matrix that rotates vector a to vector b.
+
+    Args:
+        a: The vector to rotate.
+        b: The vector to rotate to.
+    Returns:
+        The rotation matrix.
+    """
+    a = a / np.linalg.norm(a)
+    b = b / np.linalg.norm(b)
+    v = np.cross(a, b)
+    c = np.dot(a, b)
+    # If vectors are exactly opposite, we add a little noise to one of them
+    if c < -1 + 1e-8:
+        eps = (np.random.rand(3) - 0.5) * 0.01
+        return make_rotation_matrix(a + eps, b)
+    s = np.linalg.norm(v)
+    skew_sym_mat = np.array(
+        [
+            [0, -v[2], v[1]],
+            [v[2], 0, -v[0]],
+            [-v[1], v[0], 0],
+        ],
+        dtype=a.dtype,
+    )
+    return np.eye(3, dtype=a.dtype) + skew_sym_mat + skew_sym_mat @ skew_sym_mat * ((1 - c) / (s**2 + 1e-8))
+
+
 def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np.ndarray, np.ndarray]:
     if dataset_type == "object-centric":
         transform = get_transform_poses_pca(poses)
@@ -99,7 +128,7 @@ def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np
         up = np.mean(poses[:, :3, 1], 0)
         up = -up / np.linalg.norm(up)
 
-        rotation = rotation_matrix(up, np.array([0, 0, 1], dtype=up.dtype))
+        rotation = make_rotation_matrix(up, np.array([0, 0, 1], dtype=up.dtype))
         transform = np.concatenate([rotation, rotation @ -translation[..., None]], -1)
         transform = np.concatenate([transform, np.array([[0, 0, 0, 1]], dtype=transform.dtype)], 0)
 
@@ -313,7 +342,7 @@ def dataset_load_features(
                 for p in dataset["sampling_mask_paths"]]
             dataset["sampling_mask_paths_root"] = "/resized-sampling-masks"
 
-    dataset["images"] = images  # padded_stack(images)
+    dataset["images"] = images
 
     # Replace image sizes and metadata
     image_sizes = np.array(image_sizes, dtype=np.int32)

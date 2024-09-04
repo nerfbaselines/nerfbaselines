@@ -109,3 +109,5 @@ def load_nerfonthego_dataset(path: str, split: str, **kwargs) -> UnloadedDataset
     metadata["scene"] = os.path.split(path)[-1].replace("_", "-")
     return dataset
 
+
+__all__ = ["load_nerfonthego_dataset"]

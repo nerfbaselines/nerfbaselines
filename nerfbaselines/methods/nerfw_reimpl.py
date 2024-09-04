@@ -21,10 +21,9 @@ from nerfbaselines import (
     Method, Dataset, Cameras, RenderOutput,
     OptimizeEmbeddingsOutput, 
     ModelInfo, MethodInfo, CameraModel,
-    convert_image_dtype,
     NoGPUError,
 )
-from nerfbaselines.utils import invert_transform, pad_poses
+from nerfbaselines.utils import invert_transform, pad_poses, convert_image_dtype
 from nerfbaselines import cameras as _cameras
 try:
     from typing import get_args

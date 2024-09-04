@@ -27,9 +27,9 @@ from nerfbaselines import (
     Method, MethodInfo, ModelInfo, 
     OptimizeEmbeddingsOutput, RenderOutput,
     Cameras, camera_model_to_int, Dataset,
-    convert_image_dtype,
     NoGPUError,
 )
+from nerfbaselines.utils import convert_image_dtype
 from argparse import ArgumentParser
 
 import torch
