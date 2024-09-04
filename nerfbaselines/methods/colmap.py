@@ -7,7 +7,7 @@ from typing import Optional
 from collections import defaultdict
 import os
 import tempfile
-from nerfbaselines import Method, Dataset, Cameras, RenderOptions, camera_model_from_int, NoGPUError
+from nerfbaselines import Method, Dataset, Cameras, RenderOptions, camera_model_from_int
 from nerfbaselines.datasets import _colmap_utils as colmap_utils
 
 
@@ -221,7 +221,7 @@ class ColmapMVS(Method):
             from pyrender.platforms import egl
         except ImportError as e:
             if "Unable to load EGL library" in str(e):
-                raise NoGPUError() from e
+                raise RuntimeError("No suitable GPU found for rendering") from e
 
         camera = pyrender.IntrinsicsCamera(fx=200., fy=200.0, cx=100.0, cy=100.0, znear=0.001, zfar=10_000.0)
         self._scene = pyrender.Scene(

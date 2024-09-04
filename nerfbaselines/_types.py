@@ -702,8 +702,3 @@ class DatasetSpec(TypedDict, total=False):
 
 class DatasetNotFoundError(Exception):
     pass
-
-
-class NoGPUError(RuntimeError):
-    def __init__(self, message="GPUs not available"):
-        super().__init__(message)

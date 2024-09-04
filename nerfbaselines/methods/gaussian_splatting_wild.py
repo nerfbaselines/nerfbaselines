@@ -10,7 +10,6 @@
 #
 
 import dataclasses
-import functools
 import json
 import hashlib
 import pickle
@@ -27,7 +26,6 @@ from nerfbaselines import (
     Method, MethodInfo, ModelInfo, 
     OptimizeEmbeddingsOutput, RenderOutput,
     Cameras, camera_model_to_int, Dataset,
-    NoGPUError,
 )
 from nerfbaselines.utils import convert_image_dtype
 from argparse import ArgumentParser
@@ -51,34 +49,6 @@ from scene import Scene, sceneLoadTypeCallbacks  # type: ignore
 from utils import camera_utils  # type: ignore
 from utils.image_utils import psnr  # type: ignore
 import lpips  # type: ignore
-
-
-def remap_error(fn):
-    def is_gpu_error(e: Exception) -> bool:
-        if isinstance(e, NoGPUError):
-            return True
-        if isinstance(e, RuntimeError):
-            return "Found no NVIDIA driver on your system." in str(e)
-        if isinstance(e, EnvironmentError):
-            return "unknown compute capability. ensure pytorch with cuda support is installed." in str(e).lower()
-        if isinstance(e, ImportError):
-            return "libcuda.so.1: cannot open shared object file" in str(e)
-        return False
-
-    if getattr(fn, "__error_remap__", False):
-        return fn
-
-    @functools.wraps(fn)
-    def wrapped(*args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except Exception as e:
-            if is_gpu_error(e):
-                raise NoGPUError from e
-            raise e
-
-    wrapped.__error_remap__ = True  # type: ignore
-    return wrapped
 
 
 def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
@@ -267,7 +237,6 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
 
 
 class GaussianSplattingWild(Method):
-    @remap_error
     def __init__(self, *,
                  checkpoint: Optional[str] = None,
                  train_dataset: Optional[Dataset] = None,

@@ -106,6 +106,7 @@ jobs:
       - id: data-step
         name: Get required methods
         run: |
+          # TODO: remove nerfw-reimpl from blacklist as soon as it supports no-point3D setup
           pip install --upgrade pip
           pip install -e .
           python -c '
@@ -113,7 +114,7 @@ jobs:
           sys.path.append("scripts")
           from has_method_changed import method_has_changes
           from nerfbaselines import get_supported_methods
-          blacklist=("trips","nerfonthego")
+          blacklist=("trips","nerfonthego","nerfw-reimpl")
           import json; 
           github_event = "${{ github.event_name }}"
           for backend in ["docker", "conda", "apptainer"]:

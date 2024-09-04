@@ -112,10 +112,24 @@ def patch_prefix(tmp_path):
             os.environ.pop("NS_PREFIX", None)
 
 
+def is_gpu_error(e: Exception) -> bool:
+    if isinstance(e, RuntimeError) and "Found no NVIDIA driver on your system." in str(e):
+        return True
+    if isinstance(e, EnvironmentError) and "unknown compute capability. ensure pytorch with cuda support is installed." in str(e).lower():
+        return True
+    if isinstance(e, ImportError) and "libcuda.so.1: cannot open shared object file" in str(e):
+        return True
+    if isinstance(e, RuntimeError) and "No suitable GPU found for rendering" in str(e):
+        return True
+    return False
+
+
+pytest.fixture(is_gpu_error)
+
+
 def run_test_train(tmp_path, dataset_path, method_name, backend="python", config_overrides=None):
     from nerfbaselines.training import Trainer
     from nerfbaselines import metrics
-    from nerfbaselines import NoGPUError
     metrics._LPIPS_CACHE.clear()
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
@@ -142,7 +156,7 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python", config
         with mock.patch.object(Trainer, '__init__', __init__):
             train_cmd(method_name, None, str(dataset_path), str(tmp_path / "output"), False, backend, Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), logger="none", config_overrides=config_overrides)
     except Exception as e:
-        if isinstance(e, NoGPUError):
+        if is_gpu_error(e):
             pytest.skip("no GPU available")
         raise
 

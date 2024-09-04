@@ -1,6 +1,5 @@
 import io
 import base64
-import functools
 import hashlib
 import gzip
 import msgpack
@@ -24,7 +23,7 @@ import numpy as np
 from PIL import Image, ImageOps
 from nerfbaselines import (
     Dataset, Method, MethodInfo, ModelInfo, OptimizeEmbeddingsOutput, RenderOutput,
-    Cameras, camera_model_to_int, NoGPUError
+    Cameras, camera_model_to_int
 )
 from nerfbaselines.utils import pad_poses, unpad_poses
 
@@ -68,23 +67,6 @@ def cast_value(tp, value):
     if isinstance(value, tp):
         return value
     raise TypeError(f"Cannot cast value {value} to type {tp}")
-
-
-def remap_error(fn):
-    if getattr(fn, "__error_remap__", False):
-        return fn
-
-    @functools.wraps(fn)
-    def wrapped(*args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except Exception as e:
-            if isinstance(e, RuntimeError) and "Found no NVIDIA driver on your system." in str(e):
-                raise NoGPUError from e
-            raise e
-
-    wrapped.__error_remap__ = True  # type: ignore
-    return wrapped
 
 
 def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
@@ -276,7 +258,6 @@ def _config_overrides_fix_types(config_overrides):
 
 
 class InstantNGP(Method):
-    @remap_error
     def __init__(self, *,
                  checkpoint: Optional[str] = None, 
                  train_dataset: Optional[Dataset] = None,

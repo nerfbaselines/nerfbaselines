@@ -10,7 +10,7 @@ import json
 import enum
 import os
 import dataclasses
-from functools import partial, wraps
+from functools import partial
 import logging
 from dataclasses import fields
 from pathlib import Path
@@ -23,7 +23,6 @@ from nerfbaselines import (
     Method, OptimizeEmbeddingsOutput, MethodInfo, ModelInfo,
     Dataset, RenderOutput,
     Cameras, camera_model_from_int,
-    NoGPUError,
 )
 from nerfbaselines.utils import convert_image_dtype
 from nerfbaselines.io import get_torch_checkpoint_sha
@@ -95,34 +94,6 @@ def cast_value(tp, value):
     if isinstance(value, tp):
         return value
     raise TypeError(f"Cannot cast value {value} to type {tp}")
-
-
-def remap_error(fn):
-    def is_gpu_error(e: Exception) -> bool:
-        if isinstance(e, NoGPUError):
-            return True
-        if isinstance(e, RuntimeError):
-            return "Found no NVIDIA driver on your system." in str(e)
-        if isinstance(e, EnvironmentError):
-            return "unknown compute capability. ensure pytorch with cuda support is installed." in str(e).lower()
-        if isinstance(e, ImportError):
-            return "libcuda.so.1: cannot open shared object file" in str(e)
-        return False
-
-    if getattr(fn, "__error_remap__", False):
-        return fn
-
-    @wraps(fn)
-    def wrapped(*args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except Exception as e:
-            if is_gpu_error(e):
-                raise NoGPUError from e
-            raise e
-
-    wrapped.__error_remap__ = True  # type: ignore
-    return wrapped
 
 
 def get_torch_checkpoint_sha(checkpoint_data):
@@ -407,7 +378,6 @@ class NerfStudio(Method):
     _default_nerfstudio_name: str = "nerfacto"
     _require_points3D: bool = False
 
-    @remap_error
     def __init__(self, *,
                  checkpoint: Optional[str] = None,
                  train_dataset: Optional[Dataset] = None, 

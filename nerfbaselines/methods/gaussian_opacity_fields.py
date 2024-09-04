@@ -16,7 +16,6 @@ import random
 import shlex
 import logging
 import copy
-import functools
 from typing import Optional, Iterable, Sequence
 import os
 import tempfile
@@ -37,7 +36,6 @@ from nerfbaselines import (
     Cameras, 
     camera_model_to_int,
     Dataset,
-    NoGPUError,
 )
 
 from arguments import ModelParams, PipelineParams, OptimizationParams
@@ -59,34 +57,6 @@ from train import create_offset_gt, get_edge_aware_distortion_map, L1_loss_appea
 from utils import camera_utils
 from utils.general_utils import PILtoTorch
 from utils.depth_utils import depths_to_points, depth_to_normal
-
-
-def remap_error(fn):
-    def is_gpu_error(e: Exception) -> bool:
-        if isinstance(e, NoGPUError):
-            return True
-        if isinstance(e, RuntimeError):
-            return "Found no NVIDIA driver on your system." in str(e)
-        if isinstance(e, EnvironmentError):
-            return "unknown compute capability. ensure pytorch with cuda support is installed." in str(e).lower()
-        if isinstance(e, ImportError):
-            return "libcuda.so.1: cannot open shared object file" in str(e)
-        return False
-
-    if getattr(fn, "__error_remap__", False):
-        return fn
-
-    @functools.wraps(fn)
-    def wrapped(*args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except Exception as e:
-            if is_gpu_error(e):
-                raise NoGPUError from e
-            raise e
-
-    wrapped.__error_remap__ = True  # type: ignore
-    return wrapped
 
 
 def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
@@ -276,7 +246,6 @@ def _config_overrides_to_args_list(args_list, config_overrides):
 
 
 class GaussianOpacityFields(Method):
-    @remap_error
     def __init__(self, *,
                  checkpoint: Optional[str] = None, 
                  train_dataset: Optional[Dataset] = None,

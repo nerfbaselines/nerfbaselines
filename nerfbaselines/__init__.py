@@ -40,7 +40,6 @@ from ._types import (
     EvaluationProtocolSpec as EvaluationProtocolSpec,
     BackendName as BackendName,
     DatasetNotFoundError as DatasetNotFoundError,
-    NoGPUError as NoGPUError,
     new_dataset as new_dataset,
 )
 from ._constants import (

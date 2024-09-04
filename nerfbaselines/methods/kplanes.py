@@ -25,7 +25,6 @@ from functools import partial
 from nerfbaselines import (
     Dataset, RenderOutput, OptimizeEmbeddingsOutput,
     Method, MethodInfo, ModelInfo, Cameras, camera_model_to_int,
-    NoGPUError
 )
 from nerfbaselines.utils import convert_image_dtype
 import tempfile
@@ -90,11 +89,6 @@ def _patch_kplanes():
     try:
         resource.setrlimit = _noop
         from plenoxels.runners import base_trainer  # type: ignore
-    except EnvironmentError as e:
-        # tcnn import error
-        if "unknown compute capability. ensure pytorch with cuda support is installed." in str(e).lower():
-            raise NoGPUError from e
-        raise
     finally:
         resource.setrlimit = _backup
     del _backup

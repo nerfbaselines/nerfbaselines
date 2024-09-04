@@ -20,7 +20,6 @@ import copy
 from typing import Optional, Iterable, Sequence
 import os
 import tempfile
-import functools
 import dataclasses
 import numpy as np
 from PIL import Image
@@ -32,7 +31,7 @@ import torch
 
 from nerfbaselines import (
     Method, MethodInfo, OptimizeEmbeddingsOutput, RenderOutput, ModelInfo,
-    Dataset, NoGPUError,
+    Dataset,
     Cameras, camera_model_to_int,
 )
 
@@ -52,34 +51,6 @@ from scene import Scene, sceneLoadTypeCallbacks  # type: ignore
 from train import create_offset_gt  # type: ignore
 from utils import camera_utils  # type: ignore
 from utils.general_utils import PILtoTorch  # type: ignore
-
-
-def remap_error(fn):
-    def is_gpu_error(e: Exception) -> bool:
-        if isinstance(e, NoGPUError):
-            return True
-        if isinstance(e, RuntimeError):
-            return "Found no NVIDIA driver on your system." in str(e)
-        if isinstance(e, EnvironmentError):
-            return "unknown compute capability. ensure pytorch with cuda support is installed." in str(e).lower()
-        if isinstance(e, ImportError):
-            return "libcuda.so.1: cannot open shared object file" in str(e)
-        return False
-
-    if getattr(fn, "__error_remap__", False):
-        return fn
-
-    @functools.wraps(fn)
-    def wrapped(*args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except Exception as e:
-            if is_gpu_error(e):
-                raise NoGPUError from e
-            raise e
-
-    wrapped.__error_remap__ = True  # type: ignore
-    return wrapped
 
 
 def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
@@ -269,7 +240,6 @@ def _config_overrides_to_args_list(args_list, config_overrides):
 
 
 class MipSplatting(Method):
-    @remap_error
     def __init__(self, *,
                  checkpoint: Optional[str] = None, 
                  train_dataset: Optional[Dataset] = None,

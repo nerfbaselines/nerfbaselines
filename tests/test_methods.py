@@ -10,7 +10,7 @@ from nerfbaselines.training import (
 )
 from nerfbaselines import build_method_class
 from nerfbaselines.datasets import load_dataset
-from nerfbaselines import Method, NoGPUError
+from nerfbaselines import Method
 from nerfbaselines.backends import Backend
 import tempfile
 
@@ -66,7 +66,7 @@ def test_supported_methods():
 
 @pytest.mark.conda
 @pytest.mark.parametrize("method_name", [pytest.param(k, marks=[pytest.mark.method(k)]) for k in get_supported_methods("conda")])
-def test_method_conda(blender_dataset_path, method_name):
+def test_method_conda(blender_dataset_path, method_name, is_gpu_error):
     from nerfbaselines import get_method_spec
     try:
         spec = get_method_spec(method_name)
@@ -88,8 +88,10 @@ def test_method_conda(blender_dataset_path, method_name):
                 # Test metrics computation inside the container
                 from nerfbaselines.evaluation import compute_metrics
                 _ = compute_metrics(*np.random.rand(2, 1, 50, 50, 3), run_lpips_vgg=True)
-    except NoGPUError:
-        pytest.skip("No GPU available")
+    except Exception as e:
+        if is_gpu_error(e):
+            pytest.skip("No GPU available")
+        raise
 
 
 @pytest.mark.conda
@@ -106,7 +108,7 @@ def test_metrics_conda(method_name):
 
 @pytest.mark.docker
 @pytest.mark.parametrize("method_name", [pytest.param(k, marks=[pytest.mark.method(k)]) for k in get_supported_methods("docker")])
-def test_method_docker(blender_dataset_path, method_name):
+def test_method_docker(blender_dataset_path, method_name, is_gpu_error):
     from nerfbaselines import get_method_spec
     try:
         spec = get_method_spec(method_name)
@@ -128,8 +130,10 @@ def test_method_docker(blender_dataset_path, method_name):
                 # Test metrics computation inside the container
                 from nerfbaselines.evaluation import compute_metrics
                 _ = compute_metrics(*np.random.rand(2, 1, 50, 50, 3), run_lpips_vgg=True)
-    except NoGPUError:
-        pytest.skip("No GPU available")
+    except Exception as e:
+        if is_gpu_error(e):
+            pytest.skip("No GPU available")
+        raise
 
 
 @pytest.mark.docker
@@ -145,7 +149,7 @@ def test_metrics_docker(method_name):
 
 @pytest.mark.apptainer
 @pytest.mark.parametrize("method_name", [pytest.param(k, marks=[pytest.mark.method(k)]) for k in get_supported_methods("apptainer")])
-def test_method_apptainer(blender_dataset_path, method_name):
+def test_method_apptainer(blender_dataset_path, method_name, is_gpu_error):
     try:
         spec = get_method_spec(method_name)
         with build_method_class(spec, backend="apptainer") as method_cls:
@@ -166,8 +170,10 @@ def test_method_apptainer(blender_dataset_path, method_name):
                 # Test metrics computation inside the container
                 from nerfbaselines.evaluation import compute_metrics
                 _ = compute_metrics(*np.random.rand(2, 1, 50, 50, 3), run_lpips_vgg=True)
-    except NoGPUError:
-        pytest.skip("No GPU available")
+    except Exception as e:
+        if is_gpu_error(e):
+            pytest.skip("No GPU available")
+        raise
 
 
 @pytest.mark.apptainer
