@@ -98,7 +98,7 @@ ln -s {shlex.quote(package_path)} "$site_packages"
     prepare_default_nerfbaselines += f"""
 # Add nerfbaselines to the path
 if ! nerfbaselines >/dev/null 2>&1; then
-    echo -e '#!/usr/bin/env python3\nfrom nerfbaselines.__main__ import main\nif __name__ == "__main__":\n  main()\n'>"$CONDA_PREFIX/bin/nerfbaselines"
+    echo '#!/usr/bin/env python3\nfrom nerfbaselines.__main__ import main; main()'>"$CONDA_PREFIX/bin/nerfbaselines"
     chmod +x "$CONDA_PREFIX/bin/nerfbaselines"
 fi
 """

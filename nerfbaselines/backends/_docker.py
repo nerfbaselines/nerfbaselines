@@ -148,7 +148,7 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
         script += "RUN "
         if package_dependencies:
             script += shlex_join([python_path, "-m", "pip", "--no-cache-dir", "install"] + package_dependencies)+ " && \\\n"
-        script += f'if ! nerfbaselines >/dev/null 2>&1; then echo -e \'#!/usr/bin/env python3\\nfrom nerfbaselines.__main__ import main\\nif __name__ == "__main__":\\n  main()\\n\'>"/usr/bin/nerfbaselines" && chmod +x "/usr/bin/nerfbaselines" || echo "Failed to create nerfbaselines in the bin folder"; fi\n'
+        script += f'if ! nerfbaselines >/dev/null 2>&1; then echo "#!/usr/bin/env python3\\nfrom nerfbaselines.__main__ import main; main()">"/usr/bin/nerfbaselines" && chmod +x "/usr/bin/nerfbaselines" || echo "Failed to create nerfbaselines in the bin folder"; fi\n'
         # We manually add nb-package to the PYTHONPATH
         script += f'ENV PYTHONPATH="/var/nb-package:$PYTHONPATH"\n'
 
