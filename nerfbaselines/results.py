@@ -2,7 +2,7 @@ import sys
 import contextlib
 from unittest import mock
 import math
-from typing import List, Dict, Any, cast, Union, Type, Iterator
+from typing import List, Dict, Any, cast, Union, Type, Iterator, Optional
 import base64
 import os
 import struct
@@ -23,17 +23,9 @@ try:
 except ImportError:
     from typing_extensions import Literal
 try:
-    from typing import TypedDict
+    from typing import NotRequired, TypedDict
 except ImportError:
-    from typing_extensions import TypedDict
-try:
-    from typing import Optional
-except ImportError:
-    from typing_extensions import Optional
-try:
-    from typing import NotRequired
-except ImportError:
-    from typing_extensions import NotRequired
+    from typing_extensions import NotRequired, TypedDict
 
 
 DEFAULT_DATASET_ORDER = ["mipnerf360", "blender", "tanksandtemples"]
