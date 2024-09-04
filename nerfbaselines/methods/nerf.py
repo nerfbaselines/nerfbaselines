@@ -152,6 +152,7 @@ class NeRF(Method):
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
         self.checkpoint = str(checkpoint) if checkpoint is not None else None
+        self.transform_args = None
         if checkpoint is not None:
             if not os.path.exists(os.path.join(checkpoint, "transforms.json")):
                 if train_dataset is None:
@@ -202,6 +203,7 @@ class NeRF(Method):
         )
 
     def save(self, path: str):
+        assert self.transform_args is not None, "Transforms must be set before saving"
         os.makedirs(path, exist_ok=True)
         def save_weights(net, prefix, i):
             mpath = os.path.join(path, '{}_{:06d}.npy'.format(prefix, i))
@@ -365,6 +367,7 @@ class NeRF(Method):
             logging.info("Train rays cached")
 
         # Setup kwargs
+        assert self.transform_args is not None, "Transforms must be set before training"
         near, far = self.transform_args["near_far"]
         bds_dict = {
             'near': tf.cast(near, tf.float32),

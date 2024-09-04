@@ -20,7 +20,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "opencv-python>=4.6.0.66",
+    "opencv-python>=4.6.0",
     "typing-extensions>=4.4.0",
     "wandb>=0.13.3",
     "click>=8.0.0",
