@@ -75,14 +75,11 @@ def main(method_name: str,
     with output_context as output:
         with build_method_class(method_spec, backend=backend_name) as method_cls:
             mark_success("Method backend initialized")
+            mark_success("Method installed")
 
             method_info = method_cls.get_method_info()
             logging.info("Method info: \n" + pprint.pformat(method_info))
             mark_success("Method info loaded")
-
-            # Install
-            method_cls.install()
-            mark_success("Method installed")
 
             # Load train dataset
             train_dataset = load_dataset(dataset, 

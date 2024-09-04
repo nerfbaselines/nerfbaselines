@@ -410,13 +410,6 @@ class Method(Protocol):
         pass
 
     @classmethod
-    def install(cls) -> None:
-        """
-        Install the method.
-        """
-        pass
-
-    @classmethod
     @abstractmethod
     def get_method_info(cls) -> MethodInfo:
         """
