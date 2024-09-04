@@ -151,6 +151,14 @@ from sphinx.ext.apidoc import (
     ReSTRenderer, write_file, is_packagedir, is_initpy, is_skipped_package, has_child_module, module_join, is_skipped_module,
     create_module_file
 )
+imported_members = False
+try:
+    # For NerfBaselines >0.1.3, we can use the imported members
+    from nerfbaselines import Method as _
+    imported_members = True
+except ImportError:
+    pass
+
 def recurse_tree(
     rootpath: str,
     excludes,
@@ -203,7 +211,7 @@ def recurse_tree(
             'submodules': submodules,
             'modulefirst': opts.modulefirst,
             'separatemodules': False,
-            'automodule_options': ['imported-members', 'members', 'undoc-members', 'show-inheritance'],
+            'automodule_options': (['imported-members'] if imported_members else []) + ['members', 'undoc-members', 'show-inheritance'],
             'show_headings': not opts.noheadings,
             'maxdepth': opts.maxdepth,
         }

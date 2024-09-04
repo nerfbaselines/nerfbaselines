@@ -112,12 +112,12 @@ jobs:
           import sys,os
           sys.path.append("scripts")
           from has_method_changed import method_has_changes
-          import nerfbaselines.registry as r;
-          blacklist=("trips","nerfonthego","nerfw-reimpl")
+          from nerfbaselines import get_supported_methods
+          blacklist=("trips","nerfonthego")
           import json; 
           github_event = "${{ github.event_name }}"
           for backend in ["docker", "conda", "apptainer"]:
-            methods = [x for x in r.get_supported_methods(backend) if not ":" in x and x not in blacklist]
+            methods = [x for x in get_supported_methods(backend) if not ":" in x and x not in blacklist]
             # Tetra-NeRF currently uses too much disk space, so we skip it
             if backend in ("apptainer", "conda"):
               methods = [x for x in methods if not x.startswith("tetra-nerf")]
