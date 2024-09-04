@@ -232,7 +232,7 @@ def get_package_dependencies(extra=None, ignore: Optional[Set[str]] = None, igno
     requires = set()
     requires_with_conditions = None
     try:
-        requires_with_conditions = distribution(__package__).requires
+        requires_with_conditions = distribution("nerfbaselines").requires
     except importlib_metadata.PackageNotFoundError:
         # Package not installed
         pass

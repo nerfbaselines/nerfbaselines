@@ -11,3 +11,11 @@ def test_docker_get_dockerfile(method_name):
     dockerfile = docker_get_dockerfile(docker_spec)
     assert isinstance(dockerfile, str)
     assert len(dockerfile) > 0
+
+
+def test_get_package_dependencies():
+    from nerfbaselines.backends._common import get_package_dependencies
+
+    dependencies = get_package_dependencies()
+    assert len(dependencies) > 0
+    assert any(x.startswith("click") for x in dependencies)

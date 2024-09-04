@@ -36,7 +36,7 @@ dependencies = [
     "scipy",
     'importlib-metadata>=6.0.0; python_version < "3.10"',
     # Viwer dependencies
-    'viser<0.2.0',
+    'viser<0.2.0; python_version > "3.7"',
 ]
 dynamic = ["version"]
 
@@ -64,8 +64,6 @@ dev = [
     'typeguard<=4.2.1',
     'pytest-benchmark',
     'pyright<=1.1.377',
-    # Viewer
-    'viser<0.2.0',
     # Web
     'jinja2==3.1.4',
     'livereload==2.7.0',
