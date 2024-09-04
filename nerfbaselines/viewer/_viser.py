@@ -235,19 +235,6 @@ class BindableSource:
         return out
 
 
-def autobind(fn) -> Callable[[Union[BindableSource, 'ViewerState']], Any]:
-    signature = inspect.signature(fn)
-    names = list(signature.parameters.keys())
-
-    def wrapped(state):
-        if isinstance(state, BindableSource):
-            inner = lambda args: fn(*args)
-            return state.map(names).map(inner)
-        else:
-            return wrapped(state.b).get()
-    return wrapped
-
-
 def three_js_perspective_camera_focal_length(fov: float, image_height: int):
     """Returns the focal length of a three.js perspective camera.
 
@@ -296,22 +283,6 @@ class Keyframe:
        t1 = dataclasses.astuple(self)
        t2 = dataclasses.astuple(other)
        return all(safe_eq(a1, a2) for a1, a2 in zip(t1, t2))
-
-
-@autobind
-@simple_cache
-def state_compute_duration(camera_path_loop, camera_path_interpolation, camera_path_keyframes, camera_path_default_transition_duration) -> float:
-    if camera_path_interpolation == "none":
-        return len(camera_path_keyframes) * camera_path_default_transition_duration
-    kf = camera_path_keyframes
-    if not camera_path_loop:
-        kf = kf[1:]
-    return sum(
-        k.transition_duration
-        if k.transition_duration is not None
-        else camera_path_default_transition_duration
-        for k in kf
-    )
 
 
 @dataclass(eq=True)
@@ -502,6 +473,37 @@ class ViewerState:
         if len(appearances) != 0:
             data["appearances"] = appearances
         return data
+
+
+def autobind(fn) -> Callable[[Union[BindableSource, ViewerState]], Any]:
+    signature = inspect.signature(fn)
+    names = list(signature.parameters.keys())
+
+    def wrapped(state):
+        if isinstance(state, BindableSource):
+            inner = lambda args: fn(*args)
+            return state.map(names).map(inner)
+        else:
+            return wrapped(state.b).get()
+    return wrapped
+
+
+@autobind
+@simple_cache
+def state_compute_duration(camera_path_loop, camera_path_interpolation, camera_path_keyframes, camera_path_default_transition_duration) -> float:
+    if camera_path_interpolation == "none":
+        return len(camera_path_keyframes) * camera_path_default_transition_duration
+    kf = camera_path_keyframes
+    if not camera_path_loop:
+        kf = kf[1:]
+    return sum(
+        k.transition_duration
+        if k.transition_duration is not None
+        else camera_path_default_transition_duration
+        for k in kf
+    )
+
+
 
 
 _camera_edit_panel = None
