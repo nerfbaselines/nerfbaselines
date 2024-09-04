@@ -239,6 +239,10 @@ class TCPPickleProtocol:
                         message = self._queue.get()
                     if isinstance(message, Exception):
                         raise message
+            except (OSError) as e:
+                if "Bad file descriptor" in str(e):
+                    raise ConnectionError("Connection error") from e
+                raise
             except (EOFError, BrokenPipeError, ConnectionError) as e:
                 raise ConnectionError("Connection error") from e
         return message
@@ -253,7 +257,7 @@ class TCPPickleProtocol:
                 if not self._conn.closed:
                     try:
                         _tcp_pickle_send(self._conn, {"message": "close"}, **self._transport_options)
-                    except (EOFError, ConnectionError):
+                    except (EOFError, ConnectionError, BrokenPipeError, OSError):
                         pass
             self._conn.close()
             self._conn = None

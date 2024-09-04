@@ -24,7 +24,7 @@ import numpy as np
 from PIL import Image
 from random import randint
 from argparse import ArgumentParser
-from shlex import join as shlex_join
+import shlex
 
 import torch
 
@@ -569,7 +569,7 @@ class GaussianOpacityFields(Method):
         self.gaussians.save_ply(os.path.join(str(path), f"point_cloud/iteration_{self.step}", "point_cloud.ply"))
         torch.save((self.gaussians.capture(), self.gaussians.filter_3D, self.step), str(path) + f"/chkpnt-{self.step}.pth")
         with open(str(path) + "/args.txt", "w", encoding="utf8") as f:
-            f.write(shlex_join(self._args_list))
+            f.write(" ".join(shlex.quote(x) for x in self._args_list))
 
     def optimize_embeddings(
         self, 

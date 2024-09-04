@@ -28,10 +28,10 @@ def _assert_not_none(value: Optional[T]) -> T:
     return value
 
 
-methods_registry: Dict[str, 'MethodSpec'] = {}
-datasets_registry: Dict[str, 'DatasetSpec'] = {}
-evaluation_protocols_registry: Dict[str, 'EvaluationProtocolSpec'] = {}
-loggers_registry: Dict[str, 'LoggerSpec'] = {}
+methods_registry: Dict[str, MethodSpec] = {}
+datasets_registry: Dict[str, DatasetSpec] = {}
+evaluation_protocols_registry: Dict[str, EvaluationProtocolSpec] = {}
+loggers_registry: Dict[str, LoggerSpec] = {}
 loggers_registry["wandb"] = {
     "id": "wandb", "logger_class": "nerfbaselines.logging:WandbLogger" }
 loggers_registry["tensorboard"] = { 
@@ -46,7 +46,7 @@ _collected_register_calls = None
 
 
 @contextlib.contextmanager
-def collect_register_calls(output: List[Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec", "LoggerSpec"]]):
+def collect_register_calls(output: List[Union[MethodSpec, DatasetSpec, EvaluationProtocolSpec, LoggerSpec]]):
     """
     Context manager to disable and collect all calls to nerfbaselines.registry.register
 
@@ -81,7 +81,7 @@ def _load_locally_installed_methods():
     return output
 
 
-def _discover_specs() -> List[Tuple["MethodSpec", str]]:
+def _discover_specs() -> List[Tuple[MethodSpec, str]]:
     """
     Discovers all methods, datasets, evaluation protocols registered using the `nerfbaselines.specs` entrypoint.
     And also methods, datasets, evaluation protocols in the NERFBASELINES_METHODS, NERFBASELINES_DATASETS, 
@@ -220,7 +220,7 @@ def _make_entrypoint_absolute(entrypoint: str) -> str:
     return ":".join((module, name))
 
 
-def get_spec_type(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec", "LoggerSpec"]) -> SpecType:
+def get_spec_type(spec: Union[MethodSpec, DatasetSpec, EvaluationProtocolSpec, LoggerSpec]) -> SpecType:
     if "method_class" in spec:
         return "method"
     elif "load_dataset_function" in spec and "priority" in spec:
@@ -233,7 +233,7 @@ def get_spec_type(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSp
         raise ValueError(f"Could not determine type of object {spec}")
 
 
-def register(spec: Union["MethodSpec", "DatasetSpec", "EvaluationProtocolSpec", "LoggerSpec"]) -> None:
+def register(spec: Union[MethodSpec, DatasetSpec, EvaluationProtocolSpec, LoggerSpec]) -> None:
     """
     Register a method, dataset, logger, or evaluation protocol spec.
 

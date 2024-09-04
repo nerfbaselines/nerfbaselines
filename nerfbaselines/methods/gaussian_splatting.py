@@ -31,7 +31,7 @@ from nerfbaselines import (
     Method, MethodInfo, ModelInfo, OptimizeEmbeddingsOutput, RenderOutput, Cameras, camera_model_to_int, Dataset, NoGPUError
 )
 from nerfbaselines.io import wget
-from shlex import join as shlex_join
+import shlex
 
 from argparse import ArgumentParser
 
@@ -474,7 +474,7 @@ class GaussianSplatting(Method):
         self.gaussians.save_ply(os.path.join(str(path), f"point_cloud/iteration_{self.step}", "point_cloud.ply"))
         torch.save((self.gaussians.capture(), self.step), str(path) + f"/chkpnt-{self.step}.pth")
         with open(str(path) + "/args.txt", "w", encoding="utf8") as f:
-            f.write(shlex_join(self._args_list))
+            f.write(" ".join(shlex.quote(x) for x in self._args_list))
 
     def export_demo(self, path: str, *, viewer_transform, viewer_initial_pose):
         from nerfbaselines.utils import get_transform_and_scale

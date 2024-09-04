@@ -46,7 +46,11 @@ except ImportError:
     from typing_extensions import FrozenSet
 
 if TYPE_CHECKING:
-    from . import backends
+    from .backends import CondaBackendSpec, DockerBackendSpec, ApptainerBackendSpec
+else:
+    CondaBackendSpec = Any
+    DockerBackendSpec = Any
+    ApptainerBackendSpec = Any
 
 if TYPE_CHECKING:
     import torch
@@ -663,9 +667,9 @@ ImplementationStatus = Literal["working", "reproducing", "not-working", "working
 class MethodSpec(TypedDict, total=False):
     id: Required[str]
     method_class: Required[str]
-    conda: NotRequired['backends.CondaBackendSpec']
-    docker: NotRequired['backends.DockerBackendSpec']
-    apptainer: NotRequired['backends.ApptainerBackendSpec']
+    conda: NotRequired['CondaBackendSpec']
+    docker: NotRequired['DockerBackendSpec']
+    apptainer: NotRequired['ApptainerBackendSpec']
     metadata: Dict[str, Any]
     backends_order: List[BackendName]
     presets: Dict[str, Dict[str, Any]]
