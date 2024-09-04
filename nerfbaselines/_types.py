@@ -382,7 +382,7 @@ class RenderOutputType(TypedDict, total=False):
 class MethodInfo(TypedDict, total=False):
     method_id: Required[str]
     required_features: FrozenSet[DatasetFeature]
-    supported_camera_models: FrozenSet
+    supported_camera_models: FrozenSet[CameraModel]
     supported_outputs: Tuple[Union[str, RenderOutputType], ...]
 
 

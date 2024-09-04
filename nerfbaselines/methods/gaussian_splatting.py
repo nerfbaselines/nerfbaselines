@@ -12,7 +12,6 @@
 # NOTE: This code modifies 3DGS with the support for cx, cy not in the center of the image
 # It also adds support for sampling masks
 
-import functools
 import dataclasses
 import warnings
 import random
@@ -22,7 +21,7 @@ import subprocess
 import shlex
 import logging
 import copy
-from typing import Optional, Iterable, Sequence
+from typing import Optional, Iterable, Sequence, Any
 import os
 import tempfile
 import numpy as np
@@ -248,11 +247,8 @@ class GaussianSplatting(Method):
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
         self.checkpoint = checkpoint
-        self.gaussians = None
         self.background = None
         self.step = 0
-
-        self.scene = None
 
         # Setup parameters
         self._args_list = ["--source_path", "<empty>", "--resolution", "1", "--eval"]
@@ -275,6 +271,7 @@ class GaussianSplatting(Method):
 
         if self.checkpoint is None:
             # Verify parameters are set correctly
+            assert train_dataset is not None, "train_dataset must be set if checkpoint is not provided"
             if train_dataset["metadata"].get("name") == "blender":
                 assert self.dataset.white_background, "white_background should be True for blender dataset"
 
@@ -303,7 +300,8 @@ class GaussianSplatting(Method):
             self.gaussians.training_setup(self.opt)
         if train_dataset is None or self.checkpoint:
             info = self.get_info()
-            loaded_step = info["loaded_step"]
+            loaded_step = info.get("loaded_step")
+            assert loaded_step is not None, "Could not infer loaded step"
             (model_params, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{loaded_step}.pth")
             self.gaussians.restore(model_params, self.opt)
 
@@ -317,6 +315,7 @@ class GaussianSplatting(Method):
     @classmethod
     def get_method_info(cls):
         return MethodInfo(
+            method_id="",
             required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset(("pinhole",)),
             supported_outputs=("color",),
@@ -347,7 +346,8 @@ class GaussianSplatting(Method):
                     del args, kwargs
                     return _convert_dataset_to_gaussian_splatting(dataset, td, white_background=self.dataset.white_background, scale_coords=self.dataset.scale_coords)
                 sceneLoadTypeCallbacks["Colmap"] = colmap_loader
-                scene = Scene(opt, self.gaussians, load_iteration=str(info["loaded_step"]) if dataset is None else None)
+                loaded_step = info.get("loaded_step")
+                scene = Scene(opt, self.gaussians, load_iteration=str(loaded_step) if dataset is None else None)
                 # NOTE: This is a hack to match the RNG state of GS on 360 scenes
                 _tmp = list(range((len(next(iter(scene.train_cameras.values()))) + 6) // 7))
                 random.shuffle(_tmp)
@@ -358,7 +358,8 @@ class GaussianSplatting(Method):
     def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
         del options
         if embeddings is not None:
-            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
+            method_id = self.get_method_info()["method_id"]
+            raise NotImplementedError(f"Optimizing embeddings is not supported for method {method_id}")
         assert np.all(cameras.camera_types == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
         sizes = cameras.image_sizes
         poses = cameras.poses
@@ -387,7 +388,7 @@ class GaussianSplatting(Method):
 
         # Pick a random Camera
         if not self._viewpoint_stack:
-            loadCam.was_called = False
+            loadCam.was_called = False  # type: ignore
             self._viewpoint_stack = self.scene.getTrainCameras().copy()
             if any(not getattr(cam, "_patched", False) for cam in self._viewpoint_stack):
                 raise RuntimeError("could not patch loadCam!")
@@ -530,7 +531,7 @@ node /tmp/gaussian-splats-3d/util/create-ksplat.js {shlex.quote(ply_file)} {shle
             embeddings: Optional initial embeddings.
         """
         del dataset, embeddings
-        return None
+        raise NotImplementedError("Optimizing embeddings is not supported for method gaussian-splatting")
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
         """

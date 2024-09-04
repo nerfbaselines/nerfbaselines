@@ -103,7 +103,7 @@ def apply_transform(transform, poses):
 
 
 class TensoRFDataset:
-    def __init__(self, dataset: Dataset, transform=None, is_stack=False, dataset_name=None):
+    def __init__(self, dataset, transform=None, is_stack=False, dataset_name=None):
         self.is_stack = is_stack
         self.scene_bbox = torch.tensor([[-1.5, -1.5, -1.5], [1.5, 1.5, 1.5]], dtype=torch.float32)
         self.white_bg = True
@@ -130,13 +130,10 @@ class TensoRFDataset:
                 transform = get_llff_transform(poses, dataset["cameras"].nears_fars)
             poses = apply_transform(transform, poses)
 
-            dataset = dataclasses.replace(
-                dataset,
-                cameras=dataclasses.replace(
-                    dataset["cameras"],
-                    poses=poses,
-                    nears_fars=np.array([[0.0, 1.0]] * len(poses), dtype=np.float32),
-                ),
+            dataset = dataset.copy()
+            dataset["cameras"] = dataset["cameras"].replace(
+                poses=poses,
+                nears_fars=np.array([[0.0, 1.0]] * len(poses), dtype=np.float32),
             )
 
             self.near_far = [0.0, 1.0]
@@ -148,13 +145,14 @@ class TensoRFDataset:
             self.scene_bbox = torch.tensor(scene_bbox).float()
             self.near_far = [0.1, far]
 
-        self.center = torch.mean(self.scene_bbox, axis=0).float().view(1, 1, 3)
+        self.center = torch.mean(self.scene_bbox, dim=0).float().view(1, 1, 3)
         self.radius = (self.scene_bbox[1] - self.center).float().view(1, 1, 3)
         self._setup(dataset)
 
     def _setup(self, dataset: Dataset):
         self.all_rays = []
         self.all_rgbs = []
+        self.reso_mask = None
 
         for i, cam in enumerate(dataset["cameras"]):
             if dataset["metadata"].get("type") == "forward-facing":
@@ -212,7 +210,6 @@ class TensoRF(Method):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.renderer = OctreeRender_trilinear_fast
 
-        self.args = None
         self.metadata = {}
         self._arg_list = ()
         self.step = 0
@@ -226,7 +223,6 @@ class TensoRF(Method):
                 self.step = self.metadata.get("step", 0)
             self._arg_list = shlex.split(self.metadata["args"])
         self.nSamples = None
-        self.tensorf = None
 
         self._load_config()
         if train_dataset is not None and checkpoint is not None:
@@ -243,6 +239,7 @@ class TensoRF(Method):
     @classmethod
     def get_method_info(cls):
         return MethodInfo(
+            method_id="",  # Will be set by the registry
             required_features=frozenset(("color",)),
             supported_camera_models=frozenset(get_args(CameraModel)),
             supported_outputs=("color", "depth"),
@@ -281,6 +278,7 @@ class TensoRF(Method):
         self.metadata["white_bg"] = value
 
     def _setup_eval(self):
+        assert self.checkpoint is not None, "self.checkpoint must be set"
         torch.set_default_dtype(torch.float32)
         torch.manual_seed(20211202)
         np.random.seed(20211202)
@@ -335,11 +333,11 @@ class TensoRF(Method):
         np.random.seed(20211202)
 
         # init dataset
-        train_dataset = TensoRFDataset(train_dataset, transform=self.metadata.get("dataset_transform"), is_stack=False, dataset_name=self.args.dataset_name)
-        self.metadata["dataset_transform"] = train_dataset.transform
+        _train_dataset = TensoRFDataset(train_dataset, transform=self.metadata.get("dataset_transform"), is_stack=False, dataset_name=self.args.dataset_name)
+        self.metadata["dataset_transform"] = _train_dataset.transform
 
-        self.white_bg = train_dataset.white_bg
-        near_far = train_dataset.near_far
+        self.white_bg = _train_dataset.white_bg
+        near_far = _train_dataset.near_far
 
         # init resolution
         upsamp_list = self.args.upsamp_list
@@ -349,7 +347,7 @@ class TensoRF(Method):
 
         # init parameters
         # tensorVM, renderer = init_parameters(args, train_dataset.scene_bbox.to(device), reso_list[0])
-        aabb = train_dataset.scene_bbox.to(self.device)
+        aabb = _train_dataset.scene_bbox.to(self.device)
         self.reso_cur = N_to_reso(self.args.N_voxel_init, aabb)
         self.nSamples = min(self.args.nSamples, cal_n_samples(self.reso_cur, self.args.step_ratio))
 
@@ -390,7 +388,7 @@ class TensoRF(Method):
 
         torch.cuda.empty_cache()
 
-        self.allrays, self.allrgbs = train_dataset.all_rays, train_dataset.all_rgbs
+        self.allrays, self.allrgbs = _train_dataset.all_rays, _train_dataset.all_rgbs
         if not self.args.ndc_ray:
             self.allrays, self.allrgbs = self.tensorf.filtering_rays(self.allrays, self.allrgbs, bbox_only=True)
         self.trainingSampler = SimpleSampler(self.allrays.shape[0], self.args.batch_size)
@@ -412,6 +410,7 @@ class TensoRF(Method):
             N_samples=self.nSamples, white_bg=self.white_bg, ndc_ray=ndc_ray, 
             device=self.device, is_train=True,
         )
+        del alphas_map, depth_map, weights, uncertainty
 
         loss = torch.mean((rgb_map - rgb_train) ** 2)
 
@@ -452,9 +451,9 @@ class TensoRF(Method):
             param_group["lr"] = param_group["lr"] * self.lr_factor
 
         if iteration in self.update_AlphaMask_list:
-            if self.reso_cur[0] * self.reso_cur[1] * self.reso_cur[2] < 256**3:  # update volume resolution
-                reso_mask = self.reso_cur
-            new_aabb = self.tensorf.updateAlphaMask(tuple(reso_mask))
+            if self.reso_mask is None or self.reso_cur[0] * self.reso_cur[1] * self.reso_cur[2] < 256**3:  # update volume resolution
+                self.reso_mask = self.reso_cur
+            new_aabb = self.tensorf.updateAlphaMask(tuple(self.reso_mask))
             if iteration == self.update_AlphaMask_list[0]:
                 self.tensorf.shrink(new_aabb)
                 # tensorVM.alphaMask = None
@@ -489,7 +488,8 @@ class TensoRF(Method):
     def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
         del options
         if embeddings is not None:
-            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
+            method_id = self.get_method_info()["method_id"]
+            raise NotImplementedError(f"Optimizing embeddings is not supported for method {method_id}")
         assert self.metadata.get("dataset_metadata") is not None, "Missing dataset_metadata"
         assert self.metadata.get("dataset_transform") is not None, "Missing dataset_transform"
         test_dataset = TensoRFDataset(
@@ -529,6 +529,7 @@ class TensoRF(Method):
             dataset: Dataset.
             embeddings: Optional initial embeddings.
         """
+        del dataset, embeddings
         raise NotImplementedError()
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
@@ -538,5 +539,6 @@ class TensoRF(Method):
         Args:
             index: Index of the image.
         """
+        del index
         return None
 

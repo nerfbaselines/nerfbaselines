@@ -15,7 +15,12 @@ from nerfbaselines import (
     Dataset, OptimizeEmbeddingsOutput, RenderOutput, MethodInfo, ModelInfo,
     Cameras, CameraModel, Method,
 )
-from nerfbaselines.utils import convert_image_dtype
+from nerfbaselines import cameras as _cameras
+from nerfbaselines.utils import (
+    convert_image_dtype,
+    pad_poses, 
+    apply_transform,
+)
 try:
     from typing import get_args
 except ImportError:
@@ -35,8 +40,6 @@ from run_nerf_helpers import img2mse, mse2psnr  # type: ignore
 from run_nerf import render, config_parser, create_nerf  # type: ignore
 from load_llff import spherify_poses, poses_avg  # type: ignore
 
-from nerfbaselines.utils import pad_poses, apply_transform
-from nerfbaselines import cameras as _cameras
 
 # Setup TF GPUs
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -149,9 +152,6 @@ class NeRF(Method):
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
         self.checkpoint = str(checkpoint) if checkpoint is not None else None
-        self.args = None
-        self.transform_args = None
-        self._arg_list = None
         if checkpoint is not None:
             if not os.path.exists(os.path.join(checkpoint, "transforms.json")):
                 if train_dataset is None:
@@ -169,6 +169,7 @@ class NeRF(Method):
     @classmethod
     def get_method_info(cls):
         return MethodInfo(
+            method_id="",  # Will be set by the registry
             required_features=frozenset(("color",)),
             supported_camera_models=frozenset(get_args(CameraModel)),
             supported_outputs=("color", "depth", "accumulation"),
@@ -225,7 +226,7 @@ class NeRF(Method):
             print(self.transform_args)
             json.dump(self.transform_args, f)
 
-    def _setup(self, train_dataset: Dataset, *, config_overrides: Optional[Dict[str, Any]] = None):
+    def _setup(self, train_dataset: Optional[Dataset], *, config_overrides: Optional[Dict[str, Any]] = None):
         config_overrides = (config_overrides or {}).copy()
         if self.checkpoint is not None:
             config_overrides.pop("config", None)
@@ -330,6 +331,11 @@ class NeRF(Method):
 
         # Prepare raybatch tensor if batching random rays
         use_batching = not self.args.no_batching
+        self._train_rays_rgb = None
+        self._train_i_batch = None
+        self._train_cameras = None
+        self._train_images = None
+        self._train_rays_cumsum = None
         if train_dataset is not None:
             self._train_images = transform_images(self.args, train_dataset["images"])
             self._train_cameras, self.transform_args = transform_cameras(self.args, train_dataset["cameras"], self.transform_args, verbose=True)
@@ -373,6 +379,12 @@ class NeRF(Method):
 
 
     def train_iteration(self, step: int):
+        no_train_dataset_message = "Method not initialized with a training dataset"
+        assert self._train_rays_rgb is not None, no_train_dataset_message
+        assert self._train_cameras is not None, no_train_dataset_message
+        assert self._train_images is not None, no_train_dataset_message
+        assert self._train_rays_cumsum is not None, no_train_dataset_message
+
         self.step = step
         self.global_step.assign(self.step)
         # Sample random ray batch
@@ -414,6 +426,8 @@ class NeRF(Method):
         rays_o, rays_d, target_s = np.moveaxis(batch, 1, 0)
         batch_rays = rays_o, rays_d
         #####  Core optimization loop  #####
+        psnr0 = None
+        img_loss0 = None
 
         with tf.GradientTape() as tape:
 
@@ -440,18 +454,22 @@ class NeRF(Method):
         self.optimizer.apply_gradients(zip(gradients, self.grad_vars))
         self.step = step + 1
         self.global_step.assign(self.step)
-        return {
+        out = {
             "loss": loss.numpy().item(),
             "psnr": psnr.numpy().item(),
             "mse": img_loss.numpy().item(),
-            "psnr0": psnr0.numpy().item(),
-            "mse0": img_loss0.numpy().item(),
         }
+        if psnr0 is not None:
+            out["psnr0"] = psnr0.numpy().item()
+        if img_loss0 is not None:
+            out["mse0"] = img_loss0.numpy().item()
+        return out
 
     def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
         del options
         if embeddings is not None:
-            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
+            method_id = self.get_method_info()["method_id"]
+            raise NotImplementedError(f"Optimizing embeddings is not supported for method {method_id}")
         cameras, _ = transform_cameras(self.args, cameras, self.transform_args)
         for idx in range(len(cameras.poses)):
             W, H = cameras.image_sizes[idx]

@@ -7,7 +7,7 @@ import logging
 import os
 import io
 import base64
-from typing import Optional, Iterable, Sequence
+from typing import Optional, Iterable, Sequence, Any
 from pathlib import Path
 import numpy as np
 import functools
@@ -16,25 +16,25 @@ from nerfbaselines import Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbedd
 from nerfbaselines import Cameras, camera_model_to_int, RenderOptions, RenderOutput
 try:
     # We need to import torch before jax to load correct CUDA libraries
-    import torch
+    import torch  # type: ignore
 except ImportError:
     torch = None
 
-import gin
-import gin.config
-import chex
-import jax
-from jax import random
-import jax.numpy as jnp
-import flax
-from flax.training import checkpoints
-from internal import configs
-from internal import models
-from internal import train_utils  # pylint: disable=unused-import
-from internal import utils
-from internal import datasets
-from internal import camera_utils
-from internal.camera_utils import pad_poses, unpad_poses
+import gin  # type: ignore
+import gin.config  # type: ignore
+import chex  # type: ignore
+import jax  # type: ignore
+from jax import random  # type: ignore
+import jax.numpy as jnp  # type: ignore
+import flax  # type: ignore
+from flax.training import checkpoints  # type: ignore
+from internal import configs  # type: ignore
+from internal import models  # type: ignore
+from internal import train_utils  # type: ignore
+from internal import utils  # type: ignore
+from internal import datasets  # type: ignore
+from internal import camera_utils  # type: ignore
+from internal.camera_utils import pad_poses, unpad_poses  # type: ignore
 
 
 os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.65"
@@ -168,7 +168,7 @@ def gin_config_to_dict(config_str: str):
 
 
 class MNDataset(datasets.Dataset):
-    def __init__(self, dataset: Dataset, config, split, dataparser_transform=None, verbose=True):
+    def __init__(self, dataset, config, split, dataparser_transform=None, verbose=True):
         self.split = split
         self.dataset = dataset
         self.dataparser_transform = dataparser_transform
@@ -341,11 +341,11 @@ class CamP_ZipNeRF(Method):
         self.render_eval_pfn = None
         self.rngs = None
         self.step = 0
-        self.state = None
+        self.state: Any = None
         self.cameras = None
         self.loss_threshold = None
         self.dataset = None
-        self.config = None
+        self.config: Any = None
         self.model = None
         self.opaque_background = True
         self._config_str = None
@@ -381,7 +381,7 @@ class CamP_ZipNeRF(Method):
 
     def _load_config(self, config_overrides=None):
         # Find the config files root
-        import train
+        import train  # type: ignore
 
         configs_path = str(Path(train.__file__).absolute().parent)
         gin.config.clear_config(clear_constants=True)
@@ -411,6 +411,7 @@ class CamP_ZipNeRF(Method):
     @classmethod
     def get_method_info(cls):
         return MethodInfo(
+            method_id="",
             required_features=frozenset(("color",)),
             supported_camera_models=frozenset(("pinhole", "opencv", "opencv_fisheye")),
             supported_outputs=("color", "depth", "accumulation"),
@@ -510,6 +511,8 @@ class CamP_ZipNeRF(Method):
 
     def train_iteration(self, step: int):
         self.step = step
+        assert self.lr_fn is not None, "Must call setup_train before training"
+        assert self.train_pstep is not None, "Must call setup_train before training"
 
         with jax.profiler.StepTraceAnnotation("train", step_num=step):
             batch = next(self.p_raybatcher)
@@ -545,6 +548,9 @@ class CamP_ZipNeRF(Method):
         return out
 
     def save(self, path: str):
+        assert self._config_str is not None, "Config str must be set"
+        assert self._camera_type is not None, "camera_type must be set"
+
         path = os.path.abspath(str(path))
         if self.render_eval_pfn is None:
             self._setup_eval()
@@ -557,6 +563,7 @@ class CamP_ZipNeRF(Method):
 
         if jax.process_index() == 0:
             with Path(path).joinpath("dataparser_transform.json").open("w+") as fp:
+                assert self._dataparser_transform is not None, "dataparser_transform must be set"
                 meters_per_colmap, colmap_to_world_transform = self._dataparser_transform
                 fp.write(
                     json.dumps(
@@ -572,11 +579,14 @@ class CamP_ZipNeRF(Method):
                 f.write(self._config_str)
 
     def render(self, cameras: Cameras, *, embeddings=None, options: Optional[RenderOptions] = None) -> Iterable[RenderOutput]:
+        assert self.rngs is not None, "Must call setup_eval before rendering"
+        assert self.render_eval_pfn is not None, "Must call setup_eval before rendering"
         del options
         if self.render_eval_pfn is None:
             self._setup_eval()
         if embeddings is not None:
-            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
+            method_name = self.get_method_info()["method_id"]
+            raise NotImplementedError(f"Optimizing embeddings is not supported for method {method_name}")
         # Test-set evaluation.
         # We reuse the same random number generator from the optimization step
         # here on purpose so that the visualization matches what happened in

@@ -242,10 +242,7 @@ class GaussianSplattingWild(Method):
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
         self.checkpoint = checkpoint
-        self.gaussians = None
-        self.background = None
         self.step = 0
-        self.scene = None
         self.lpips_criteria = None
 
         # Setup parameters
@@ -288,8 +285,8 @@ class GaussianSplattingWild(Method):
         if self._train_dataset_cache is None and self._train_dataset_link is not None:
             logging.info(f"Loading train dataset from {self._train_dataset_link[0]}")
             from nerfbaselines.datasets import load_dataset
-            features = self.get_method_info()["required_features"]
-            supported_camera_models = self.get_method_info()["supported_camera_models"]
+            features = self.get_method_info().get("required_features")
+            supported_camera_models = self.get_method_info().get("supported_camera_models")
             train_dataset = load_dataset(self._train_dataset_link[0], split="train", features=features, supported_camera_models=supported_camera_models)
             image_names_sha = hashlib.sha256("".join([os.path.split(x)[-1] for x in train_dataset["image_paths"]]).encode()).hexdigest()
             if self._train_dataset_link[1] != image_names_sha:
@@ -332,7 +329,9 @@ class GaussianSplattingWild(Method):
             self.gaussians.training_setup(self.opt)
         if train_dataset is None or self.checkpoint:
             info = self.get_info()
-            loaded_step = info["loaded_step"]
+            loaded_step = info.get("loaded_step")
+            assert self.checkpoint is not None, "Either checkpoint or train_dataset must be set"
+            assert loaded_step is not None, "Loaded step is not set"
             ckpt_path = os.path.join(self.checkpoint,
                                      "ckpts_point_cloud",
                                      "iteration_" + str(loaded_step),
@@ -358,6 +357,7 @@ class GaussianSplattingWild(Method):
     @classmethod
     def get_method_info(cls):
         return MethodInfo(
+            method_id="",  # Will be overriden by the registry
             required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset(("pinhole",)),
             supported_outputs=("color",),
@@ -388,7 +388,9 @@ class GaussianSplattingWild(Method):
                     del args, kwargs
                     return _convert_dataset_to_gaussian_splatting(dataset, td, white_background=self.dataset.white_background, scale_coords=self.dataset.scale_coords)
                 sceneLoadTypeCallbacks["Colmap"] = colmap_loader
-                scene = Scene(opt, self.gaussians, load_iteration=str(info["loaded_step"]) if dataset is None else None)
+                loaded_step = info.get("loaded_step")
+                assert dataset is not None or loaded_step is not None, "Loaded step is not set"
+                scene = Scene(opt, self.gaussians, load_iteration=str(loaded_step) if dataset is None else None)
                 return scene
             finally:
                 sceneLoadTypeCallbacks["Colmap"] = backup
@@ -406,7 +408,7 @@ class GaussianSplattingWild(Method):
 
         # Pick a random Camera
         if not self._viewpoint_stack:
-            loadCam.was_called = False
+            loadCam.was_called = False  # type: ignore
             self._viewpoint_stack = self.scene.getTrainCameras().copy()
             if any(not getattr(cam, "_patched", False) for cam in self._viewpoint_stack):
                 raise RuntimeError("could not patch loadCam!")
@@ -443,6 +445,7 @@ class GaussianSplattingWild(Method):
         if self.args.use_scaling_loss :
             loss+=torch.abs(self.gaussians.get_scaling).mean()*self.args.scaling_loss_coef
         if self.args.use_lpips_loss: 
+            assert self.lpips_criteria is not None, "LPIPS is not initialized"
             loss+=self.lpips_criteria(image,gt_image).mean()*self.args.lpips_loss_coef
 
         if ( self.gaussians.use_kmap_pjmap or self.gaussians.use_okmap) and self.args.use_box_coord_loss:

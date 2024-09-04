@@ -245,11 +245,7 @@ class MipSplatting(Method):
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
         self.checkpoint = checkpoint
-        self.gaussians = None
-        self.background = None
         self.step = 0
-
-        self.scene = None
 
         # Setup parameters
         self._args_list = ["--source_path", "<empty>", "--resolution", "1", "--eval"]
@@ -270,9 +266,6 @@ class MipSplatting(Method):
             _config_overrides_to_args_list(self._args_list, config_overrides)
 
         self._load_config()
-
-        self.trainCameras = None
-        self.highresolution_index = None
 
         self._setup(train_dataset)
 
@@ -316,6 +309,10 @@ class MipSplatting(Method):
         self._input_points = None
         if train_dataset is not None:
             self._input_points = (train_dataset["points3D_xyz"], train_dataset["points3D_rgb"])
+        
+        self.trainCameras = None
+        self.highresolution_index = None
+
         if train_dataset is not None:
             self.trainCameras = self.scene.getTrainCameras().copy()
             if any(not getattr(cam, "_patched", False) for cam in self._viewpoint_stack):
@@ -335,6 +332,7 @@ class MipSplatting(Method):
     @classmethod
     def get_method_info(cls):
         return MethodInfo(
+            method_id="",  # Will be set by the registry
             required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset(("pinhole",)),
             supported_outputs=("color",),
@@ -365,7 +363,9 @@ class MipSplatting(Method):
                     del args, kwargs
                     return _convert_dataset_to_gaussian_splatting(dataset, td, white_background=self.dataset.white_background, scale_coords=self.dataset.scale_coords)
                 sceneLoadTypeCallbacks["Colmap"] = colmap_loader
-                scene = Scene(opt, self.gaussians, load_iteration=str(info["loaded_step"]) if dataset is None else None)
+                loaded_step = info.get("loaded_step")
+                assert dataset is not None or loaded_step is not None, "Either dataset or loaded_step must be set"
+                scene = Scene(opt, self.gaussians, load_iteration=str(loaded_step) if dataset is None else None)
                 # NOTE: This is a hack to match the RNG state of GS on 360 scenes
                 _tmp = list(range((len(next(iter(scene.train_cameras.values()))) + 6) // 7))
                 random.shuffle(_tmp)
@@ -376,7 +376,8 @@ class MipSplatting(Method):
     def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
         del options
         if embeddings is not None:
-            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
+            method_id = self.get_method_info()["method_id"]
+            raise NotImplementedError(f"Optimizing embeddings is not supported for method {method_id}")
         assert np.all(cameras.camera_types == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
         sizes = cameras.image_sizes
         poses = cameras.poses
@@ -393,6 +394,8 @@ class MipSplatting(Method):
                 }
 
     def train_iteration(self, step):
+        assert self.trainCameras is not None, "Model was not initialized with a training dataset"
+        assert self.highresolution_index is not None, "Model was not initialized with a training dataset"
         self.step = step
         iteration = step + 1  # Gaussian Splatting is 1-indexed
         del step
@@ -405,7 +408,7 @@ class MipSplatting(Method):
 
         # Pick a random Camera
         if not self._viewpoint_stack:
-            loadCam.was_called = False
+            loadCam.was_called = False  # type: ignore
             self._viewpoint_stack = self.scene.getTrainCameras().copy()
             if any(not getattr(cam, "_patched", False) for cam in self._viewpoint_stack):
                 raise RuntimeError("could not patch loadCam!")
@@ -530,7 +533,7 @@ class MipSplatting(Method):
             ply_data.write(ply_file)
 
             # Convert to ksplat format
-            subprocess.check_call("bash", "-c", f"""
+            subprocess.check_call(["bash", "-c", f"""
 if [ ! -e /tmp/gaussian-splats-3d ]; then
     rm -rf "/tmp/gaussian-splats-3d-tmp"
     git clone https://github.com/mkkellogg/GaussianSplats3D.git "/tmp/gaussian-splats-3d-tmp"
@@ -541,7 +544,7 @@ if [ ! -e /tmp/gaussian-splats-3d ]; then
     mv /tmp/gaussian-splats-3d-tmp /tmp/gaussian-splats-3d
 fi
 node /tmp/gaussian-splats-3d/util/create-ksplat.js {shlex.quote(ply_file)} {shlex.quote(out_file)}
-""")
+"""])
             output = Path(path)
             os.rename(out_file, output / "scene.ksplat")
             wget(
@@ -571,7 +574,7 @@ node /tmp/gaussian-splats-3d/util/create-ksplat.js {shlex.quote(ply_file)} {shle
             embeddings: Optional initial embeddings.
         """
         del dataset, embeddings
-        return None
+        raise NotImplementedError("Optimizing embeddings is not supported for this method")
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
         """

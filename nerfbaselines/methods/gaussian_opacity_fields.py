@@ -38,25 +38,25 @@ from nerfbaselines import (
     Dataset,
 )
 
-from arguments import ModelParams, PipelineParams, OptimizationParams
-from gaussian_renderer import render
-from scene import GaussianModel
-import scene.dataset_readers
-from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov
-from scene.dataset_readers import storePly, fetchPly
+from arguments import ModelParams, PipelineParams, OptimizationParams  # type: ignore
+from gaussian_renderer import render  # type: ignore
+from scene import GaussianModel  # type: ignore
+import scene.dataset_readers  # type: ignore
+from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # type: ignore
+from scene.dataset_readers import storePly, fetchPly  # type: ignore
 ## from nerfbaselines.utils import get_transform_and_scale
 ## from nerfbaselines.utils import rotate_spherical_harmonics, rotation_matrix_to_quaternion
 ## from scene.gaussian_model import inverse_sigmoid, build_rotation, PlyData, PlyElement  # noqa: E402
-from scene.dataset_readers import CameraInfo as _old_CameraInfo
-from utils.general_utils import safe_state
-from utils.graphics_utils import fov2focal  # noqa: E402
-from utils.loss_utils import l1_loss, ssim
-from utils.sh_utils import SH2RGB
-from scene import Scene, sceneLoadTypeCallbacks
-from train import create_offset_gt, get_edge_aware_distortion_map, L1_loss_appearance
-from utils import camera_utils
-from utils.general_utils import PILtoTorch
-from utils.depth_utils import depths_to_points, depth_to_normal
+from scene.dataset_readers import CameraInfo as _old_CameraInfo  # type: ignore
+from utils.general_utils import safe_state  # type: ignore
+from utils.graphics_utils import fov2focal  # type: ignore
+from utils.loss_utils import l1_loss, ssim  # type: ignore
+from utils.sh_utils import SH2RGB  # type: ignore
+from scene import Scene, sceneLoadTypeCallbacks  # type: ignore
+from train import create_offset_gt, get_edge_aware_distortion_map, L1_loss_appearance  # type: ignore
+from utils import camera_utils  # type: ignore
+from utils.general_utils import PILtoTorch  # type: ignore
+from utils.depth_utils import depth_to_normal  # type: ignore
 
 
 def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
@@ -162,8 +162,8 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
 
     cam_infos = []
     for idx, extr in enumerate(dataset["cameras"].poses):
+        del extr
         intrinsics = dataset["cameras"].intrinsics[idx]
-        width, height = dataset["cameras"].image_sizes[idx]
         pose = dataset["cameras"].poses[idx]
         image_path = dataset["image_paths"][idx] if dataset["image_paths"] is not None else f"{idx:06d}.png"
         image_name = (
@@ -251,11 +251,7 @@ class GaussianOpacityFields(Method):
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
         self.checkpoint = checkpoint
-        self.gaussians = None
-        self.background = None
         self.step = 0
-
-        self.scene = None
 
         # Setup parameters
         self._args_list = ["--source_path", "<empty>", "--resolution", "1", "--eval"]
@@ -271,9 +267,6 @@ class GaussianOpacityFields(Method):
             _config_overrides_to_args_list(self._args_list, config_overrides)
 
         self._load_config()
-
-        self.trainCameras = None
-        self.highresolution_index = None
 
         self._setup(train_dataset)
 
@@ -310,9 +303,10 @@ class GaussianOpacityFields(Method):
         self.background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
         self._viewpoint_stack = []
         self._input_points = None
+        self.trainCameras = None
+        self.highresolution_index = None
         if train_dataset is not None:
             self._input_points = (train_dataset["points3D_xyz"], train_dataset["points3D_rgb"])
-        if train_dataset is not None:
             self.trainCameras = self.scene.getTrainCameras().copy()
             if any(not getattr(cam, "_patched", False) for cam in self._viewpoint_stack):
                 raise RuntimeError("could not patch loadCam!")
@@ -329,6 +323,7 @@ class GaussianOpacityFields(Method):
     @classmethod
     def get_method_info(cls):
         return MethodInfo(
+            method_id="",  # Will be set by the registry
             required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset(("pinhole",)),
             supported_outputs=("color", "normal", "depth", "accumulation", "distortion_map"),
@@ -359,7 +354,9 @@ class GaussianOpacityFields(Method):
                     del args, kwargs
                     return _convert_dataset_to_gaussian_splatting(dataset, td, white_background=self.dataset.white_background, scale_coords=self.dataset.scale_coords)
                 sceneLoadTypeCallbacks["Colmap"] = colmap_loader
-                scene = Scene(opt, self.gaussians, load_iteration=str(info["loaded_step"]) if dataset is None else None)
+                loaded_step = info.get("loaded_step")
+                assert dataset is not None or loaded_step is not None, "Either dataset or loaded_step must be provided"
+                scene = Scene(opt, self.gaussians, load_iteration=str(loaded_step) if dataset is None else None)
                 # NOTE: This is a hack to match the RNG state of GS on 360 scenes
                 _tmp = list(range((len(next(iter(scene.train_cameras.values()))) + 6) // 7))
                 random.shuffle(_tmp)
@@ -416,6 +413,8 @@ class GaussianOpacityFields(Method):
                 }
 
     def train_iteration(self, step):
+        assert self.trainCameras is not None, "Method not initialized with training dataset"
+        assert self.highresolution_index is not None, "Method not initialized with training dataset"
         self.step = step
         iteration = step + 1  # Gaussian Splatting is 1-indexed
         del step
@@ -428,7 +427,7 @@ class GaussianOpacityFields(Method):
 
         # Pick a random Camera
         if not self._viewpoint_stack:
-            loadCam.was_called = False
+            loadCam.was_called = False  # type: ignore
             self._viewpoint_stack = self.scene.getTrainCameras().copy()
             if any(not getattr(cam, "_patched", False) for cam in self._viewpoint_stack):
                 raise RuntimeError("could not patch loadCam!")
@@ -553,7 +552,9 @@ class GaussianOpacityFields(Method):
             dataset: Dataset.
             embeddings: Optional initial embeddings.
         """
-        raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']} at the moment.")
+        del dataset, embeddings
+        method_id = self.get_method_info()["method_id"]
+        raise NotImplementedError(f"Optimizing embeddings is not supported for method {method_id} at the moment.")
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
         """

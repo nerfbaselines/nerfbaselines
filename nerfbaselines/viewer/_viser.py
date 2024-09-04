@@ -306,7 +306,7 @@ class ViewerState:
     preview_time: float = 0.0
     preview_current_frame: int = 0
     preview_is_playing: bool = False
-    render_resolution: Tuple[int, int] = 1920, 1080
+    render_resolution: Tuple[int, int] = (1920, 1080)
     render_fov: float = 75.0
     render_appearance_train_index: Optional[int] = None
     _temporary_appearance_train_index: Optional[int] = None
