@@ -70,19 +70,23 @@ def main():
     pass
 
 
-@main.command("shell")
+@main.command("shell", context_settings=dict(
+    ignore_unknown_options=True,
+    allow_interspersed_args=False,
+))
 @click.option("--method", type=click.Choice(list(nerfbaselines.get_supported_methods())), required=True)
 @click.option("--verbose", "-v", is_flag=True)
 @_click_backend_option()
-def shell_command(method, backend, verbose):
+@click.argument('command', nargs=-1, type=click.UNPROCESSED)
+def shell_command(method, backend_name, verbose, command):
     logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)
 
     method_spec = nerfbaselines.get_method_spec(method)
-    backend_impl = backends.get_backend(method_spec, backend)
+    backend_impl = backends.get_backend(method_spec, backend_name)
     logging.info(f"Using method: {method}, backend: {backend_impl.name}")
     backend_impl.install()
-    backend_impl.shell()
+    backend_impl.shell(command if command else None)
 
 
 @main.command("download-dataset")

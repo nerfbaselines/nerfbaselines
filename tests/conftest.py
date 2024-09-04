@@ -124,7 +124,9 @@ def is_gpu_error(e: Exception) -> bool:
     return False
 
 
-pytest.fixture(is_gpu_error)
+@pytest.fixture(name="is_gpu_error")
+def is_gpu_error_fixture():
+    return is_gpu_error
 
 
 def run_test_train(tmp_path, dataset_path, method_name, backend="python", config_overrides=None):

@@ -127,7 +127,7 @@ def apptainer_run(spec: ApptainerBackendSpec, args, env,
     os.makedirs(torch_home, exist_ok=True)
     image = spec.get("image") or f"docker://{BASE_IMAGE}"
     export_envs = ["TCNN_CUDA_ARCHITECTURES", "TORCH_CUDA_ARCH_LIST", "CUDAARCHS", "GITHUB_ACTIONS", "NB_AUTHKEY", "CI"]
-    package_path = str(Path(__file__).absolute().parent.parent.parent)
+    package_path = str(Path(__file__).absolute().parent.parent)
 
     return [
         "apptainer",
@@ -149,7 +149,7 @@ def apptainer_run(spec: ApptainerBackendSpec, args, env,
         "--mount",
         f'"src={shlex.quote(os.path.join(NB_PREFIX, "apptainer-conda-envs"))}","dst=/var/apptainer-conda-envs"',
         "--mount",
-        f'"src={shlex.quote(package_path)}","dst=/var/nb-package"',
+        f'"src={shlex.quote(package_path)}","dst=/var/nb-package/nerfbaselines"',
         "--mount",
         f'"src={shlex.quote(NB_PREFIX)}",dst=/var/nb-prefix',
         "--mount",
@@ -262,7 +262,7 @@ class ApptainerBackend(RemoteProcessRPCBackend):
                     image = "docker://" + BASE_IMAGE
 
                 with with_environ({**os.environ, "NERFBASELINES_CONDA_ENVIRONMENTS": "/var/apptainer-conda-envs"}) as env:
-                    args = ["bash", "-l", "-c", conda_get_install_script(conda_spec, package_path="/var/nb-package")]
+                    args = ["bash", "-l", "-c", conda_get_install_script(conda_spec, package_path="/var/nb-package/nerfbaselines")]
                 self._installed = True
                 self._spec["image"] = image
                 args, env = apptainer_run(
@@ -305,12 +305,12 @@ class ApptainerBackend(RemoteProcessRPCBackend):
             interactive=False,
             use_gpu=os.getenv("GITHUB_ACTIONS") != "true"))
 
-    def shell(self):
+    def shell(self, args=None):
         # Run apptainer image
         if not self._installed:
             raise RuntimeError("Method is not installed. Please call install() first.")
         env = apptainer_get_safe_environment()
-        args = ["bash"]
+        args = ["bash"] if args is None else list(args)
         conda_spec = self._spec.get("conda_spec")
         if conda_spec is not None:
             env_path = "/var/apptainer-conda-envs"

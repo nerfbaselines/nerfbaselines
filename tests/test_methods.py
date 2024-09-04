@@ -1,3 +1,5 @@
+from unittest import mock
+import contextlib
 import numpy as np
 import pytest
 from nerfbaselines import (
@@ -145,6 +147,28 @@ def test_metrics_docker(method_name):
         # Test metrics computation inside the container
         from nerfbaselines.evaluation import compute_metrics
         _ = compute_metrics(*np.random.rand(2, 1, 50, 50, 3), run_lpips_vgg=True)
+
+
+@contextlib.contextmanager
+def capture_execvpe():
+    def new_execvpe(argv0, argv, env):
+        assert argv0 == argv[0]
+        import subprocess
+        subprocess.check_call(argv, env=env)
+    with mock.patch("os.execvpe", new_execvpe):
+        yield
+
+
+@pytest.mark.docker
+@pytest.mark.parametrize("method_name", [pytest.param(k, marks=[pytest.mark.method(k)]) for k in get_supported_methods("docker")])
+def test_shell_docker(method_name):
+    backend = "docker"
+    from nerfbaselines import backends, get_method_spec
+    spec = get_method_spec(method_name)
+    with capture_execvpe():
+        with backends.get_backend(spec, backend) as backend:
+            backend.install()
+            backend.shell(("nerfbaselines", "train", "--help"))
 
 
 @pytest.mark.apptainer

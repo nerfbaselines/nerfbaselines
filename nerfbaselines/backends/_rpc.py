@@ -710,8 +710,6 @@ from {self._protocol.__class__.__module__} import {self._protocol.__class__.__na
 rw(protocol=P({init_protocol_code}))
 """
         env = get_safe_environment()
-        package_path = Path(__file__).absolute().parent.parent.parent
-        env["PYTHONPATH"] = f'{package_path}:{env.get("PYTHONPATH", "")}'.rstrip(":")
         args = ["python", "-c", code]
 
         self._worker_process = self._launch_worker(args, env)

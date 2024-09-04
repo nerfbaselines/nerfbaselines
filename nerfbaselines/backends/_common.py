@@ -7,7 +7,7 @@ import importlib
 from pathlib import Path
 import subprocess
 from typing import Optional
-from typing import  Union, Set, Callable, List, cast, Dict, Any
+from typing import  Union, Set, Callable, List, cast, Dict, Any, Tuple
 from typing import Sequence
 from nerfbaselines import BackendName, MethodSpec
 try:
@@ -180,7 +180,8 @@ class Backend(metaclass=_BackendMeta):
     def install(self):
         pass
 
-    def shell(self):
+    def shell(self, args: Optional[Tuple[str, ...]] = None):
+        del args
         raise NotImplementedError("shell not implemented")
 
     def static_call(self, function: str, *args, **kwargs):
