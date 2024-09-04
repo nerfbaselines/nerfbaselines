@@ -107,6 +107,17 @@ def test_metrics_conda(method_name):
         _ = compute_metrics(*np.random.rand(2, 1, 50, 50, 3), run_lpips_vgg=True)
 
 
+@pytest.mark.conda
+@pytest.mark.parametrize("method_name", [pytest.param(k, marks=[pytest.mark.method(k)]) for k in get_supported_methods("conda")])
+def test_shell_conda(method_name):
+    backend = "conda"
+    from nerfbaselines import backends, get_method_spec
+    spec = get_method_spec(method_name)
+    with capture_execvpe():
+        with backends.get_backend(spec, backend) as backend:
+            backend.install()
+            backend.shell(("nerfbaselines", "train", "--help"))
+
 
 @pytest.mark.docker
 @pytest.mark.parametrize("method_name", [pytest.param(k, marks=[pytest.mark.method(k)]) for k in get_supported_methods("docker")])
@@ -151,12 +162,18 @@ def test_metrics_docker(method_name):
 
 @contextlib.contextmanager
 def capture_execvpe():
+    import argparse
+    obj = argparse.Namespace()
     def new_execvpe(argv0, argv, env):
         assert argv0 == argv[0]
         import subprocess
-        subprocess.check_call(argv, env=env)
+        process = subprocess.run(argv, env=env, text=True)
+        process.check_returncode()
+        obj.stdout = process.stdout
+        obj.stderr = process.stderr
+
     with mock.patch("os.execvpe", new_execvpe):
-        yield
+        yield obj
 
 
 @pytest.mark.docker
@@ -208,3 +225,15 @@ def test_metrics_apptainer(method_name):
         # Test metrics computation inside the container
         from nerfbaselines.evaluation import compute_metrics
         _ = compute_metrics(*np.random.rand(2, 1, 50, 50, 3), run_lpips_vgg=True)
+
+
+@pytest.mark.apptainer
+@pytest.mark.parametrize("method_name", [pytest.param(k, marks=[pytest.mark.method(k)]) for k in get_supported_methods("apptainer")])
+def test_shell_apptainer(method_name):
+    backend = "apptainer"
+    from nerfbaselines import backends, get_method_spec
+    spec = get_method_spec(method_name)
+    with capture_execvpe():
+        with backends.get_backend(spec, backend) as backend:
+            backend.install()
+            backend.shell(("nerfbaselines", "train", "--help"))

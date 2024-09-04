@@ -52,9 +52,9 @@ def main(method, spec, backend_name, force=False, verbose=False):
     setup_logging(verbose)
     if method is not None:
         method_spec = get_method_spec(method)
-        backend_impl = backends.get_backend(method_spec, backend_name)
-        logging.info(f"Using method: {method}, backend: {backend_impl.name}")
-        backend_impl.install()
+        with backends.get_backend(method_spec, backend_name) as backend_impl:
+            logging.info(f"Using method: {method}, backend: {backend_impl.name}")
+            backend_impl.install()
     elif spec is not None:
         with open_any(spec, "r") as f:
             register_calls = get_register_calls(f)
@@ -92,9 +92,9 @@ def main(method, spec, backend_name, force=False, verbose=False):
             if call["type"] != "method":
                 continue
             if click.get_current_context().get_parameter_source("backend_name") == click.core.ParameterSource.COMMANDLINE:
-                backend_impl = backends.get_backend(call["spec"], backend_name)
-                logging.info(f"Using backend: {backend_impl.name} for method: {call['name']}")
-                backend_impl.install()
+                with backends.get_backend(call["spec"], backend_name) as backend_impl:
+                    logging.info(f"Using backend: {backend_impl.name} for method: {call['name']}")
+                    backend_impl.install()
     else:
         raise RuntimeError("Either --method or --spec must be provided")
 
