@@ -1,4 +1,3 @@
-import logging
 import sys
 from functools import wraps
 import click
@@ -8,7 +7,7 @@ import hashlib
 import os
 import itertools
 
-from typing import Any, cast, Union, Dict
+from typing import Any, cast
 import itertools
 import numpy as np
 import pprint
@@ -18,9 +17,13 @@ from nerfbaselines import BackendName
 from nerfbaselines.backends import run_on_host
 from nerfbaselines.utils import Indices
 try:
-    from typing import get_args, Literal
+    from typing import get_args
 except ImportError:
-    from typing_extensions import get_args, Literal
+    from typing_extensions import get_args
+
+# We reimport setup_logging from backends._common such that
+# it can be safely used in RPC backend without adding click dependency
+from nerfbaselines.backends._common import setup_logging as setup_logging
 
 
 @run_on_host()
@@ -416,43 +419,3 @@ def handle_cli_error(fn):
 
 def click_backend_option():
     return click.option("--backend", "backend_name", type=click.Choice(list(get_args(BackendName))), envvar="NB_BACKEND")
-
-
-def setup_logging(verbose: Union[bool, Literal['disabled']]):
-    class Formatter(logging.Formatter):
-        def format(self, record: logging.LogRecord):
-            levelname = record.levelname[0]
-            message = record.getMessage()
-            if levelname == "D":
-                return f"\033[0;36mdebug:\033[0m {message}"
-            elif levelname == "I":
-                return f"\033[1;36minfo:\033[0m {message}"
-            elif levelname == "W":
-                return f"\033[0;1;33mwarning: {message}\033[0m"
-            elif levelname == "E":
-                return f"\033[0;1;31merror: {message}\033[0m"
-            else:
-                return message
-
-    kwargs: Dict[str, Any] = {}
-    if sys.version_info >= (3, 8):
-        kwargs["force"] = True
-    if verbose == "disabled":
-        logging.basicConfig(level=logging.FATAL, **kwargs)
-        logging.getLogger('PIL').setLevel(logging.FATAL)
-        try:
-            import tqdm as _tqdm
-            old_init = _tqdm.tqdm.__init__
-            _tqdm.tqdm.__init__ = lambda *args, disable=None, **kwargs: old_init(*args, disable=True, **kwargs)
-        except ImportError:
-            pass
-    elif verbose:
-        logging.basicConfig(level=logging.DEBUG, **kwargs)
-        logging.getLogger('PIL').setLevel(logging.WARNING)
-    else:
-        import warnings
-        logging.basicConfig(level=logging.INFO, **kwargs)
-        warnings.formatwarning = lambda message, *args, **kwargs: message
-    for handler in logging.root.handlers:
-        handler.setFormatter(Formatter())
-    logging.captureWarnings(True)

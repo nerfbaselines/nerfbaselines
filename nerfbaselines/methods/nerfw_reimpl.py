@@ -1,3 +1,4 @@
+# TODO: remove points3D requirement
 import dataclasses
 import tempfile
 import sys

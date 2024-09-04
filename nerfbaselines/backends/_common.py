@@ -7,9 +7,13 @@ import importlib
 from pathlib import Path
 import subprocess
 from typing import Optional
-from typing import  Union, Set, Callable, List, cast
+from typing import  Union, Set, Callable, List, cast, Dict, Any
 from typing import Sequence
 from nerfbaselines import BackendName, MethodSpec
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
 
 
 _mounted_paths = {}
@@ -273,3 +277,45 @@ def run_on_host():
         wrapped.__run_on_host_original__ = fn  # type: ignore
         return wrapped
     return wrap
+
+
+def setup_logging(verbose: Union[bool, Literal['disabled']]):
+    import logging
+
+    class Formatter(logging.Formatter):
+        def format(self, record: logging.LogRecord):
+            levelname = record.levelname[0]
+            message = record.getMessage()
+            if levelname == "D":
+                return f"\033[0;36mdebug:\033[0m {message}"
+            elif levelname == "I":
+                return f"\033[1;36minfo:\033[0m {message}"
+            elif levelname == "W":
+                return f"\033[0;1;33mwarning: {message}\033[0m"
+            elif levelname == "E":
+                return f"\033[0;1;31merror: {message}\033[0m"
+            else:
+                return message
+
+    kwargs: Dict[str, Any] = {}
+    if sys.version_info >= (3, 8):
+        kwargs["force"] = True
+    if verbose == "disabled":
+        logging.basicConfig(level=logging.FATAL, **kwargs)
+        logging.getLogger('PIL').setLevel(logging.FATAL)
+        try:
+            import tqdm as _tqdm
+            old_init = _tqdm.tqdm.__init__
+            _tqdm.tqdm.__init__ = lambda *args, disable=None, **kwargs: old_init(*args, disable=True, **kwargs)
+        except ImportError:
+            pass
+    elif verbose:
+        logging.basicConfig(level=logging.DEBUG, **kwargs)
+        logging.getLogger('PIL').setLevel(logging.WARNING)
+    else:
+        import warnings
+        logging.basicConfig(level=logging.INFO, **kwargs)
+        warnings.formatwarning = lambda message, *args, **kwargs: message
+    for handler in logging.root.handlers:
+        handler.setFormatter(Formatter())
+    logging.captureWarnings(True)

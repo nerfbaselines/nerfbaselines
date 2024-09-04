@@ -18,7 +18,7 @@ sed -i '/import open3d as o3d/d' train.py
 conda install -y conda-build
 conda develop .
 
-conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 -c pytorch -c nvidia
+conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 'numpy<2.0.0' -c pytorch -c nvidia
 conda install -y cudatoolkit-dev=11.7 gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 libcxx=17.0.6 -c conda-forge
 conda install -c conda-forge -y nodejs==20.9.0
 conda install -y -c conda-forge conda-forge::gmp==6.3.0 conda-forge::cgal==5.6.1

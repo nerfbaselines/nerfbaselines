@@ -703,7 +703,7 @@ try:
     import cv2
 except Exception:
     pass
-from nerfbaselines.cli._common import setup_logging
+from nerfbaselines.backends._common import setup_logging
 setup_logging(verbose={is_verbose})
 from {run_worker.__module__} import {run_worker.__name__} as rw
 from {self._protocol.__class__.__module__} import {self._protocol.__class__.__name__} as P

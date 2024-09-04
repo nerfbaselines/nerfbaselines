@@ -61,7 +61,7 @@ cmake --build build --config RelWithDebInfo -j
 
 # NOTE: torch is needed for nerfbaselines
 conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 'numpy<2.0.0' -c pytorch -c nvidia
-pip install msgpack==1.0.8
+pip install msgpack==1.0.8 importlib_metadata typing_extensions
 if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
 mkdir -p "$CONDA_PREFIX/etc/conda/activate.d"
 echo "export PYTHONPATH=\"$CONDA_PREFIX/src/instant-ngp/build:\$PYTHONPATH\"" >> "$CONDA_PREFIX/etc/conda/activate.d/env_vars.sh"

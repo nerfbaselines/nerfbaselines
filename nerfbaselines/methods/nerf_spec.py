@@ -38,7 +38,7 @@ pip install torch==2.3.0 torchvision==0.18.0 'numpy<2.0.0' --index-url https://d
 # However, we do not want to corrupt user's environment, so we set the options manually
 # pip install -I nvidia-pyindex==1.0.9
 pip install nvidia-tensorflow==1.15.5+nv22.10 --extra-index-url https://pypi.ngc.nvidia.com --no-cache-dir --trusted-host pypi.ngc.nvidia.com
-pip install configargparse==1.7 'opencv-python-headless<=4.10.0.82' imageio==2.34.1 numpy==1.23.5
+pip install configargparse==1.7 'opencv-python-headless<=4.10.0.82' imageio==2.34.1 numpy==1.23.5 importlib_metadata typing_extensions
 
 conda develop "$PWD"
 """,
