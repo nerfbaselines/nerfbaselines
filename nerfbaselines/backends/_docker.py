@@ -97,7 +97,7 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
     default_cuda_archs = spec.get("default_cuda_archs") or DEFAULT_CUDA_ARCHS
     tcnn_cuda_archs = default_cuda_archs.replace(".", "").replace("+PTX", "").replace(" ", ";")
     if build_script:
-        run_command = f'set -e;export TORCH_CUDA_ARCH_LIST="{default_cuda_archs}";export TCNN_CUDA_ARCHITECTURES="{tcnn_cuda_archs}";export NB_DOCKER_BUILD=1;{build_script.rstrip()}'
+        run_command = f'set -e;export TORCH_CUDA_ARCH_LIST="{default_cuda_archs}";export TCNN_CUDA_ARCHITECTURES="{tcnn_cuda_archs}";export NB_DOCKER_BUILD=1;{build_script.strip()}'
         run_command = shlex.quote(run_command)
         out = ""
         end = ""
@@ -148,7 +148,7 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
         script += "RUN "
         if package_dependencies:
             script += shlex_join([python_path, "-m", "pip", "--no-cache-dir", "install"] + package_dependencies)+ " && \\\n"
-        script += f'if ! nerfbaselines >/dev/null 2>&1; then echo "#!/usr/bin/env python3\\nfrom nerfbaselines.__main__ import main; main()">"/usr/bin/nerfbaselines" && chmod +x "/usr/bin/nerfbaselines" || echo "Failed to create nerfbaselines in the bin folder"; fi\n'
+        script += f'if ! command -v nerfbaselines >/dev/null 2>&1; then echo "#!/usr/bin/env python3\\nfrom nerfbaselines.__main__ import main; main()">"/usr/bin/nerfbaselines" && chmod +x "/usr/bin/nerfbaselines" || echo "Failed to create nerfbaselines in the bin folder"; fi\n'
         # We manually add nb-package to the PYTHONPATH
         script += f'ENV PYTHONPATH="/var/nb-package:$PYTHONPATH"\n'
 
