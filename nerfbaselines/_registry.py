@@ -342,7 +342,7 @@ def get_supported_datasets(automatic_download: bool = False) -> List[str]:
     datasets = list(datasets_registry.keys())
     if automatic_download:
         datasets = [k for k in datasets if datasets_registry[k].get("download_dataset_function") is not None]
-    datasets.sort(key=lambda x: datasets_registry[x]["priority"])
+    datasets.sort(key=lambda x: -datasets_registry[x]["priority"])
     return datasets
 
 
