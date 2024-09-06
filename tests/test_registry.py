@@ -125,7 +125,7 @@ def test_get_presets_to_apply():
         },
     }
     dataset_metadata = {
-        "name": "test-dataset",
+        "id": "test-dataset",
         "scene": "test-scene",
     }
 
@@ -148,7 +148,7 @@ def test_get_presets_to_apply():
     # Test union conditions
     presets = None
     presets, _ = get_presets_and_config_overrides(spec, {
-        "name": "test-dataset-2",
+        "id": "test-dataset-2",
         "scene": "test-scene-3",
     }, presets=presets)
     assert presets == set(("p4",))
@@ -180,7 +180,7 @@ def test_get_config_overrides_from_presets():
         },
     }
     dataset_metadata = {
-        "name": "test-dataset",
+        "id": "test-dataset",
         "scene": "test-scene",
     }
 

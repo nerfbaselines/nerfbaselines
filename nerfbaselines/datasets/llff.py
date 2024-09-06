@@ -74,7 +74,7 @@ def load_llff_dataset(path: Union[Path, str], split: str, downscale_factor: int 
         sampling_mask_paths=None,
         sampling_mask_paths_root=None,
         metadata={
-            "name": DATASET_NAME,
+            "id": DATASET_NAME,
             "scene": scene,
             "downscale_factor": downscale_factor,
             "color_space": "srgb",

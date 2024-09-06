@@ -75,7 +75,7 @@ def load_tanksandtemples_dataset(path: Union[Path, str], split: str, downscale_f
     assert scene is not None, f"Scene not found in path {path}"
 
     dataset = load_colmap_dataset(path, images_path=images_path, split=None, **kwargs)
-    dataset["metadata"]["name"] = DATASET_NAME
+    dataset["metadata"]["id"] = DATASET_NAME
     dataset["metadata"]["scene"] = scene
     dataset["metadata"]["downscale_factor"] = downscale_factor
     dataset["metadata"]["expected_scene_scale"] = get_scene_scale(dataset["cameras"], None)

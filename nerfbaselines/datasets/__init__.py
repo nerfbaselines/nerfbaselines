@@ -117,6 +117,9 @@ def load_dataset(
         logging.info(f"Loading dataset metadata from {os.path.join(path, info_fname)}")
         with open(os.path.join(path, info_fname), "r") as f:
             meta = json.load(f)
+            if meta.get("name") is not None and meta.get("id") is None:
+                logging.warning("Using 'name' field as 'id' field in metadata (nerfbaselines version <1.1.0)")
+                meta["id"] = meta["name"]
         loader_ = meta.pop("loader", None)
         if loader is None:
             loader = loader_

@@ -28,13 +28,13 @@ def get_register_calls(file):
 
     # Now we have aggregated all register() calls, we can process them
     output = []
-    for name, spec in register_calls:
+    for id, spec in register_calls:
         spec_file_content = f"""from nerfbaselines.registry import register
-register({pprint.pformat(spec)}, name="{name}")
+register({pprint.pformat(spec)})
 """
         output.append({
             "type": registry.get_spec_type(spec),
-            "name": name,
+            "id": id,
             "spec": spec,
             "spec_file_content": spec_file_content
         })
@@ -62,25 +62,25 @@ def main(method, spec, backend_name, force=False, verbose=False):
         # Test if some of the specs are already registered
         from nerfbaselines import _registry as registry
         for register_call in register_calls:
-            if register_call["type"] == "method" and register_call["name"] in registry.methods_registry:
+            if register_call["type"] == "method" and register_call["id"] in registry.methods_registry:
                 if not force:
-                    raise RuntimeError(f"Method {register_call['name']} is already registered")
+                    raise RuntimeError(f"Method {register_call['id']} is already registered")
                 else:
-                    logging.warning(f"Method {register_call['name']} is already registered, but --force was provided")
-            if register_call["type"] == "dataset" and register_call["name"] in registry.datasets_registry:
+                    logging.warning(f"Method {register_call['id']} is already registered, but --force was provided")
+            if register_call["type"] == "dataset" and register_call["id"] in registry.datasets_registry:
                 if not force:
-                    raise RuntimeError(f"Dataset {register_call['name']} is already registered")
+                    raise RuntimeError(f"Dataset {register_call['id']} is already registered")
                 else:
-                    logging.warning(f"Dataset {register_call['name']} is already registered, but --force was provided")
-            if register_call["type"] == "evaluation_protocol" and register_call["name"] in registry.evaluation_protocols_registry:
+                    logging.warning(f"Dataset {register_call['id']} is already registered, but --force was provided")
+            if register_call["type"] == "evaluation_protocol" and register_call["id"] in registry.evaluation_protocols_registry:
                 if not force:
-                    raise RuntimeError(f"Evaluation protocol {register_call['name']} is already registered")
+                    raise RuntimeError(f"Evaluation protocol {register_call['id']} is already registered")
                 else:
-                    logging.warning(f"Evaluation protocol {register_call['name']} is already registered, but --force was provided")
+                    logging.warning(f"Evaluation protocol {register_call['id']} is already registered, but --force was provided")
 
         # Register the specs
         for register_call in register_calls:
-            output_name = f"{register_call['type']}-{register_call['name']}.py"
+            output_name = f"{register_call['type']}-{register_call['id']}.py"
             os.makedirs(registry.METHOD_SPECS_PATH, exist_ok=True)
             with open(os.path.join(registry.METHOD_SPECS_PATH, output_name), "w", encoding='utf8') as f:
                 f.write(register_call["spec_file_content"])
@@ -93,7 +93,7 @@ def main(method, spec, backend_name, force=False, verbose=False):
                 continue
             if click.get_current_context().get_parameter_source("backend_name") == click.core.ParameterSource.COMMANDLINE:
                 with backends.get_backend(call["spec"], backend_name) as backend_impl:
-                    logging.info(f"Using backend: {backend_impl.name} for method: {call['name']}")
+                    logging.info(f"Using backend: {backend_impl.name} for method: {call['id']}")
                     backend_impl.install()
     else:
         raise RuntimeError("Either --method or --spec must be provided")

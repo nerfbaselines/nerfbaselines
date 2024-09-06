@@ -73,7 +73,7 @@ def load_seathru_nerf_dataset(path: str, split: Optional[str], **kwargs):
     dataset["cameras"] = dataset["cameras"].replace(nears_fars=nears_fars)
 
     # Set dataset metadata
-    dataset["metadata"]["name"] = DATASET_NAME
+    dataset["metadata"]["id"] = DATASET_NAME
     dataset["metadata"]["scene"] = scene
     dataset["metadata"]["type"] = "forward-facing"
     dataset["metadata"]["viewer_transform"] = np.eye(4, dtype=np.float32)

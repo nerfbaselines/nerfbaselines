@@ -225,7 +225,7 @@ def load_bundler_dataset(path: str,
         points3D_xyz=points3D_xyz if load_points else None,
         points3D_rgb=points3D_rgb if load_points else None,
         metadata={
-            "name": LOADER_NAME,
+            "id": None,
             "color_space": "srgb",
             "evaluation_protocol": "default",
             "viewer_transform": viewer_transform,

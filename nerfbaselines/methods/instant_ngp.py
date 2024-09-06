@@ -366,7 +366,7 @@ class InstantNGP(Method):
 
     def _validate_config(self, train_dataset):
         # Verify blender config
-        if train_dataset["metadata"].get("name") == "blender":
+        if train_dataset["metadata"].get("id") == "blender":
             if self.testbed.color_space.name != "SRGB":
                 warnings.warn("Blender dataset is expected to have 'testbed.color_space=SRGB' in config_overrides.")
             if self.testbed.nerf.cone_angle_constant != 0:

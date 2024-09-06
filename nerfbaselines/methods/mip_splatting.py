@@ -172,9 +172,9 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
             norm_data = im_data / 255.0
             arr = norm_data[:, :, :3] * norm_data[:, :, 3:4] + (1 - norm_data[:, :, 3:4]) * bg
             im_data = np.array(arr * 255.0, dtype=np.uint8)
-        if not white_background and dataset["metadata"].get("name") == "blender":
+        if not white_background and dataset["metadata"].get("id") == "blender":
             warnings.warn("Blender scenes are expected to have white background. If the background is not white, please set white_background=True in the dataset loader.")
-        elif white_background and dataset["metadata"].get("name") != "blender":
+        elif white_background and dataset["metadata"].get("id") != "blender":
             warnings.warn("white_background=True is set, but the dataset is not a blender scene. The background may not be white.")
         image = Image.fromarray(im_data)
         sampling_mask = None
@@ -199,7 +199,7 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
     if scale_coords is not None:
         points3D_xyz = points3D_xyz * scale_coords
     points3D_rgb = dataset["points3D_rgb"]
-    if points3D_xyz is None and dataset["metadata"].get("name", None) == "blender":
+    if points3D_xyz is None and dataset["metadata"].get("id", None) == "blender":
         # https://github.com/graphdeco-inria/gaussian-splatting/blob/2eee0e26d2d5fd00ec462df47752223952f6bf4e/scene/dataset_readers.py#L221C4-L221C4
         num_pts = 100_000
         logging.info(f"generating random point cloud ({num_pts})...")

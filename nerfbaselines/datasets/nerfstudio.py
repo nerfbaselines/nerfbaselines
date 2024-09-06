@@ -492,7 +492,7 @@ def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor
             points3D_rgb=points3D_rgb,
             images_points3D_indices=images_points3D_indices,
             metadata={
-                "name": "nerfstudio",
+                "id": "nerfstudio",
                 "scene": scene,
                 "expected_scene_scale": get_scene_scale(all_cameras, "object-centric") if split == "train" else None,
                 "color_space": "srgb",

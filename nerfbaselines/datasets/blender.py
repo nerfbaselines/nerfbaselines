@@ -71,7 +71,7 @@ def load_blender_dataset(path: Union[Path, str], split: str, **kwargs):
         image_paths=image_paths,
         sampling_mask_paths=None,
         metadata={
-            "name": "blender",
+            "id": "blender",
             "scene": scene,
             "color_space": "srgb",
             "type": "object-centric",

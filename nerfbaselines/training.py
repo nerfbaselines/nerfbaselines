@@ -1,4 +1,3 @@
-import pprint
 import importlib
 import subprocess
 import shutil
@@ -191,7 +190,7 @@ def _get_presets_to_apply(spec: MethodSpec, dataset_metadata: Dict[str, Any], pr
     auto_presets = presets is None
     _presets = set(presets or ())
     _condition_data = dataset_metadata.copy()
-    _condition_data["dataset"] = _condition_data.pop("name", "")
+    _condition_data["dataset"] = _condition_data.pop("id", "")
 
     for preset in presets or []:
         if preset == "@auto":
@@ -523,13 +522,14 @@ def get_presets_and_config_overrides(method_spec: MethodSpec, dataset_metadata: 
         Tuple: List of applied presets, final config overrides
     """
     # Apply config overrides for the train dataset
+    if dataset_metadata.get("id") is None:
+        logging.warning("Dataset ID not specified, dataset-specific config overrides may not be applied")
+
     _presets = _get_presets_to_apply(method_spec, dataset_metadata, presets)
     dataset_overrides = _get_config_overrides_from_presets(
         method_spec,
         _presets,
     )
-    if dataset_metadata.get("name") is None:
-        logging.warning("Dataset name not specified, dataset-specific config overrides may not be applied")
     if dataset_overrides is not None:
         dataset_overrides = dataset_overrides.copy()
         dataset_overrides.update(config_overrides or {})

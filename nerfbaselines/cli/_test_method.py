@@ -112,7 +112,7 @@ def _validate_public_checkpoint(method_cls: Type[Method],
         return np.array([x["psnr"] for x in gt_metrics], dtype=np.float32)
 
     # Get checkpoint path
-    dataset_name = test_dataset["metadata"]["name"]
+    dataset_name = test_dataset["metadata"]["id"]
     scene = test_dataset["metadata"]["scene"]
     if dataset_name is None or scene is None:
         raise skip("Skipping public checkpoint verification - dataset not public")
@@ -517,7 +517,7 @@ def main(method_name: str,
         if fast:
             mark_skip("Skipping paper results comparison for fast test")
         elif "paper_results" in metadata:
-            method_key = train_dataset["metadata"]["name"] + "/" + train_dataset["metadata"]["scene"]
+            method_key = train_dataset["metadata"]["id"] + "/" + train_dataset["metadata"]["scene"]
             paper_results = metadata["paper_results"].get(method_key, None)
             if paper_results is not None:
                 logging.info("Paper results: \n" + pprint.pformat(paper_results))

@@ -177,7 +177,7 @@ def main(input: str,
         print("Info: ", pprint.pformat(info))
         dm = info.get("dataset_metadata") or {}
         scene = dm.get("scene", info.get("dataset_scene"))
-        dataset = dm.get("name", info.get("dataset_name", info.get("dataset_type")))
+        dataset = dm.get("id", dm.get("name", info.get("dataset_name", info.get("dataset_type"))))
         new_data = f"external://{dataset}/{scene}"
         if data is None:
             data = new_data

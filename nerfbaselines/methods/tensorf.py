@@ -113,9 +113,9 @@ class TensoRFDataset:
 
         poses = dataset["cameras"].poses.copy()
 
-        if dataset["metadata"].get("name") == "blender" and dataset_name != "blender":
+        if dataset["metadata"].get("id") == "blender" and dataset_name != "blender":
             warnings.warn("Dataset is 'blender', but not using blender dataset settings.")
-        if dataset["metadata"].get("name") == "llff" and dataset_name != "llff":
+        if dataset["metadata"].get("id") == "llff" and dataset_name != "llff":
             warnings.warn("Dataset is 'llff', but not using llff dataset settings.")
 
         if dataset_name == "blender":
@@ -295,14 +295,14 @@ class TensoRF(Method):
 
         self.metadata["dataset_metadata"] = {
             "type": train_dataset["metadata"].get("type"),
-            "name": train_dataset["metadata"].get("name"),
+            "id": train_dataset["metadata"].get("id"),
         }
         config_overrides = (config_overrides or {}).copy()
         base_config = config_overrides.pop("base_config", "your_own_data.txt")
 
         # Load dataset-specific config
         config_name = f"{base_config}"
-        dataset_name = train_dataset["metadata"].get("name")
+        dataset_name = train_dataset["metadata"].get("id")
         if dataset_name == "blender" and config_name != "lego.txt":
             warnings.warn(f"Using wrong config for blender dataset, set 'base_config=lego.txt' in config overrides.")
         if dataset_name == "llff" and config_name != "flower.txt":

@@ -54,7 +54,7 @@ def load_phototourism_dataset(path: Union[Path, str], split: str, use_nerfw_spli
         colmap_path="sparse",
         split=None, **kwargs
     )
-    dataset["metadata"]["name"] = DATASET_NAME
+    dataset["metadata"]["id"] = DATASET_NAME
     dataset["metadata"]["scene"] = scene
     dataset["metadata"]["expected_scene_scale"] = get_scene_scale(dataset["cameras"], None)
     dataset["metadata"]["type"] = None

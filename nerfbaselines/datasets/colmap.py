@@ -397,7 +397,7 @@ def load_colmap_dataset(path: Union[Path, str],
         points3D_rgb=points3D_rgb,
         images_points3D_indices=images_points3D_indices if "images_points3D_indices" in features else None,
         metadata={
-            "name": "colmap",
+            "id": None,
             "color_space": "srgb",
             "evaluation_protocol": "default",
             "viewer_transform": viewer_transform,

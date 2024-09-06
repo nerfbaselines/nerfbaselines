@@ -52,7 +52,7 @@ def load_mipnerf360_dataset(path: Union[Path, str], split: str, resize_full_imag
     # Use split=None to load all images
     # We then select the same images as in the LLFF multinerf dataset loader
     dataset = load_colmap_dataset(path, images_path=images_path, split=None, **kwargs)
-    dataset["metadata"]["name"] = DATASET_NAME
+    dataset["metadata"]["id"] = DATASET_NAME
     dataset["metadata"]["scene"] = scene
     dataset["metadata"]["downscale_factor"] = res
     if resize_full_image:
