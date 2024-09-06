@@ -296,8 +296,11 @@ def _build_docs(configuration,
                 f2.write(f.read())
 
             # Copy _ext and _templates dirs from the source to tempdir
+            shutil.rmtree(os.path.join(tmpdir, "docs", "_ext"), ignore_errors=True)
             shutil.copytree(os.path.join(repo_path, "docs", "_ext"), os.path.join(tmpdir, "docs", "_ext"))
+            shutil.rmtree(os.path.join(tmpdir, "docs", "_templates"), ignore_errors=True)
             shutil.copytree(os.path.join(repo_path, "docs", "_templates"), os.path.join(tmpdir, "docs", "_templates"))
+            shutil.rmtree(os.path.join(tmpdir, "docs", "_static"), ignore_errors=True)
             shutil.copytree(os.path.join(repo_path, "docs", "_static"), os.path.join(tmpdir, "docs", "_static"))
 
             env["PYTHONPATH"] = f"{shlex.quote(tmpdir)}:{env.get('PYTHONPATH', '')}"

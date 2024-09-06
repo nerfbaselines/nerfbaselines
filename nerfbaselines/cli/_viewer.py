@@ -18,7 +18,7 @@ from ._common import handle_cli_error, click_backend_option, setup_logging
 @click.option("--port", type=int, default=6006)
 @click_backend_option()
 @handle_cli_error
-def viewer_command(checkpoint: str, data, verbose, backend, port=6006):
+def viewer_command(checkpoint: str, data, verbose, backend_name, port=6006):
     setup_logging(verbose)
 
     with ExitStack() as stack:
@@ -44,7 +44,7 @@ def viewer_command(checkpoint: str, data, verbose, backend, port=6006):
             # Build the method
             method_name = nb_info["method"]
             method_spec = get_method_spec(method_name)
-            method_cls = stack.enter_context(build_method_class(method_spec, backend=backend))
+            method_cls = stack.enter_context(build_method_class(method_spec, backend=backend_name))
             method = method_cls(checkpoint=str(checkpoint_path))
         else:
             logging.info("Starting viewer without method")
