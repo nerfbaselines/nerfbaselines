@@ -264,11 +264,7 @@ class InstantNGP(Method):
                  config_overrides: Optional[dict] = None):
         self.checkpoint = Path(checkpoint) if checkpoint is not None else None
         self._train_transforms = None
-        self.testbed = None
-        self.n_steps = None
-        self.dataparser_params = None
         self.n_steps = 35_000
-        self.RenderMode = None
         self._config_overrides = None
         self._base_config = None
         self._loaded_step = None
@@ -285,6 +281,7 @@ class InstantNGP(Method):
     @classmethod
     def get_method_info(cls):
         return MethodInfo(
+            method_id="",  # Will be set by the registry
             required_features=frozenset(("color",)), 
             supported_camera_models=frozenset(("pinhole", "opencv", "opencv_fisheye")),
             supported_outputs=("color", "accumulation"),
@@ -292,7 +289,8 @@ class InstantNGP(Method):
 
     def get_info(self) -> ModelInfo:
         hparams = flatten_hparams(self._base_config or {}, separator=".")
-        hparams.update(self._config_overrides)
+        if self._config_overrides is not None:
+            hparams.update(self._config_overrides)
         return ModelInfo(
             num_iterations=self.n_steps, 
             loaded_step=self._loaded_step,
@@ -302,7 +300,8 @@ class InstantNGP(Method):
         )
 
     def _setup_testbed(self, config_overrides=None):
-        import pyngp as ngp  # Depends on GPU
+        # Importing pyngp triggers error when no GPU is available
+        import pyngp as ngp  # type: ignore
 
         self.RenderMode = ngp.RenderMode
         testbed = ngp.Testbed()
@@ -336,7 +335,7 @@ class InstantNGP(Method):
         self._set_overrides()
 
     def _set_overrides(self):
-        import pyngp as ngp
+        import pyngp as ngp  # type: ignore
         def set_param(k, v):
             parts = k.split(".")
             testbedobj = self.testbed
@@ -357,10 +356,10 @@ class InstantNGP(Method):
         self.testbed.nerf.sharpen = 0.0
         self.testbed.nerf.render_with_lens_distortion = True
 
-        for k, v in self._config_overrides.items():
+        for k, v in (self._config_overrides or {}).items():
             set_param(k, v)
         print("Config overrides:")
-        pprint.pprint(self._config_overrides)
+        pprint.pprint(self._config_overrides or {})
 
         self.testbed.shall_train = True
 
@@ -421,11 +420,14 @@ class InstantNGP(Method):
                     copied += 1
                 progress.set_postfix(linked=linked, copied=copied)
                 if dataset["sampling_masks"] is not None:
+                    sampling_mask_paths = dataset.get("sampling_mask_paths", None)
+                    if sampling_mask_paths is None:
+                        dataset["sampling_mask_paths"] = sampling_mask_paths = [""] * len(dataset["image_paths"])
                     mask = dataset["sampling_masks"][i]
                     mask = Image.fromarray(mask[:height, :width], mode="L")
                     mask = ImageOps.invert(mask)
                     maskname = impath_target.with_name(f"dynamic_mask_{impath_target.name}")
-                    dataset["sampling_masks"][i] = maskname
+                    sampling_mask_paths[i] = str(maskname)
                     mask.save(str(maskname))
         dataset["image_paths_root"] = str(tmpdir)
 
@@ -452,7 +454,7 @@ class InstantNGP(Method):
             keep_coords = cast_value(bool, config_overrides.get("keep_coords", False))
             self.dataparser_params["aabb_scale"] = aabb_scale
             self.dataparser_params["keep_coords"] = keep_coords
-            self.dataparser_params["color_space"] = train_dataset["metadata"].get("color_space", "srgb")
+            self.dataparser_params["color_space"] = (train_dataset or {}).get("metadata", {}).get("color_space", "srgb")
 
         self._setup_testbed(config_overrides)
 
@@ -506,12 +508,14 @@ class InstantNGP(Method):
         }
 
     def save(self, path: str):
-        path: Path = Path(path)
-        path.mkdir(parents=True, exist_ok=True)
-        with (path / "meta.json").open("w") as f:
+        _path: Path = Path(path)
+        _path.mkdir(parents=True, exist_ok=True)
+        with (_path / "meta.json").open("w") as f:
             out = self.dataparser_params.copy()
-            out["dataparser_transform_base64"] = numpy_to_base64(out["dataparser_transform"])
-            out["dataparser_transform"] = out["dataparser_transform"].tolist()
+            dataparser_transform  = out.get("dataparser_transform")
+            assert dataparser_transform is not None, "dataparser_transform is None"
+            out["dataparser_transform_base64"] = numpy_to_base64(dataparser_transform)
+            out["dataparser_transform"] = dataparser_transform.tolist()
             json.dump(
                 {
                     "dataparser_params": out,
@@ -521,17 +525,17 @@ class InstantNGP(Method):
                 f,
                 indent=2,
             )
-        with (path / "base_config.json").open("w") as f:
+        with (_path / "base_config.json").open("w") as f:
             json.dump(self._base_config, f, indent=2)
-        with (path / "config_overrides.json").open("w") as f:
+        with (_path / "config_overrides.json").open("w") as f:
             json.dump(self._config_overrides, f, indent=2)
-        self.testbed.save_snapshot(str(path / "checkpoint.ingp"), False)
+        self.testbed.save_snapshot(str(_path / "checkpoint.ingp"), False)
 
         # In the ingp impl. there is a bug which clears the two following parameters on load
         # They have to be preserved in order to obtain consistent checkpoints.
         # m_nerf.training.counters_rgb.rays_per_batch = 1 << 12;
         # m_nerf.training.counters_rgb.measured_batch_size_before_compaction = 0;
-        with gzip.open(path / "checkpoint.ingp", "r") as f:
+        with gzip.open(_path / "checkpoint.ingp", "r") as f:
             checkpoint_data = msgpack.load(f)
 
             sha = hashlib.sha256()
@@ -554,14 +558,14 @@ class InstantNGP(Method):
             _update(checkpoint_data)
             sha = hashlib.sha256()
             pass
-        with (path / "checkpoint.ingp.sha256").open("w") as f:
+        with (_path / "checkpoint.ingp.sha256").open("w") as f:
             f.write(sha.hexdigest())
 
 
     @contextlib.contextmanager
     def _with_eval_setup(self, cameras: Cameras):
         with tempfile.TemporaryDirectory() as tmpdir:
-            dataset: Dataset = dict(
+            dataset: Dataset = Dataset(
                 points3D_xyz=None,
                 points3D_rgb=None,
                 images_points3D_indices=None,
@@ -607,7 +611,8 @@ class InstantNGP(Method):
     def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
         del options
         if embeddings is not None:
-            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
+            method_id = self.get_method_info()["method_id"]
+            raise NotImplementedError(f"Optimizing embeddings is not supported for method {method_id}")
         with self._with_eval_setup(cameras) as testbed:
             spp = 8
             for i in range(testbed.nerf.training.dataset.n_images):

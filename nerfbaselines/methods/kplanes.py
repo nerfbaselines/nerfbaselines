@@ -144,6 +144,12 @@ def _patch_kplanes_phototourism_dataset(dataset, camera_bounds_index):
             return list(range(len(dataset["cameras"]))), dataset["image_paths"]
         def pt_loadcamerametadata(datadir, idx):
             del datadir
+            assert (
+                poses is not None and 
+                kinvs is not None and 
+                bounds is not None and 
+                res is not None
+            ), "Dataset is required to load camera metadata"
             return poses[idx], kinvs[idx], bounds[idx], res[idx]
         def pt_readpng(impath):
             imgid = dataset["image_paths"].index(impath)
@@ -339,6 +345,7 @@ class CameraBoundsIndex:
 
         if dataset_name == "phototourism" and scene in _phototourism_bounds:
             logging.info(f"Using official K-planes pre-computed camera bounds for scene {scene}")
+            assert scene is not None, "Scene is required"  # pyright not clever enough
             with requests.get(_phototourism_bounds[scene]) as r:
                 r.raise_for_status()
                 names, bounds_data = [], []
@@ -403,7 +410,6 @@ class KPlanes(Method):
                  config_overrides: Optional[dict] = None):
         _patch_kplanes()
         self.checkpoint = str(checkpoint) if checkpoint is not None else None
-        self.camera_bounds_index = None
         self.background = None
         self.step = 0
 
@@ -436,6 +442,8 @@ class KPlanes(Method):
             shutil.copy(config_path, tmpcpath)
             spec = importlib.util.spec_from_file_location(
                 os.path.basename(config_path), tmpcpath)
+            assert spec is not None, f"Could not load config from {config_path}"
+            assert spec.loader is not None, f"Could not load config from {config_path}"
             logging.info(f"Loading config from {config_path}")
             cfg = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(cfg)
@@ -450,7 +458,7 @@ class KPlanes(Method):
         self.batch_iter = None
         self._setup(train_dataset)
 
-    def _setup(self, train_dataset: Dataset):
+    def _setup(self, train_dataset: Optional[Dataset]):
         from plenoxels.main import init_trainer  # type: ignore
         # Set random seed
         np.random.seed(self.config.get("seed", 0))
@@ -464,9 +472,10 @@ class KPlanes(Method):
             model_type = "static"
 
         pprint.pprint(self.config)
+        camera_bounds_index = None
         if self.checkpoint is not None:
             try:
-                self.camera_bounds_index = CameraBoundsIndex.load(self.checkpoint)
+                camera_bounds_index = CameraBoundsIndex.load(self.checkpoint)
             except FileNotFoundError as e:
                 if train_dataset is None:
                     raise RuntimeError("Could not load camera bounds from checkpoint."
@@ -475,9 +484,10 @@ class KPlanes(Method):
                                        "also the train dataset into the constructor.") from e
                 else:
                     logging.warning(f"Could not load camera bounds from {self.checkpoint}")
-        if self.camera_bounds_index is None:
+        if camera_bounds_index is None:
             logging.info("Building camera bounds from dataset")
-            self.camera_bounds_index = CameraBoundsIndex.build(train_dataset, self.config)
+            camera_bounds_index = CameraBoundsIndex.build(train_dataset, self.config)
+        self.camera_bounds_index = camera_bounds_index
         data = load_data(model_type, 
                          validate_only=False, 
                          render_only=False, 
@@ -514,15 +524,8 @@ class KPlanes(Method):
                     par.data = state_dict[name].to(par.device)
             old_load_state_dict(state_dict, *args, **kwargs)
 
-        load_state_dict.__patched__ = True
+        load_state_dict.__patched__ = True  # type: ignore
         self.load_state_dict = load_state_dict
-
-    @property
-    def value(self):
-        return self.val
-
-    def __str__(self):
-        return f"{self.val:.2e}"
 
     def train_iteration(self, step):
         if self.batch_iter is None:
@@ -544,8 +547,8 @@ class KPlanes(Method):
         metrics = {"loss": 0.0}
         try:
             # Patch gscaler.scale(loss) to extract the loss value to report as a metric
+            old_scale = self.trainer.gscaler.scale
             try:
-                old_scale = self.trainer.gscaler.scale
                 def scale(loss):
                     metrics["loss"] = float(loss)
                     return old_scale(loss)
@@ -572,6 +575,7 @@ class KPlanes(Method):
     @classmethod
     def get_method_info(cls):
         return MethodInfo(
+            method_id="",  # Will be set by the registry
             required_features=frozenset(("color", "points3D_xyz", "images_points3D_indices")),
             supported_camera_models=frozenset(("pinhole",)),
             supported_outputs=("color", "depth"),

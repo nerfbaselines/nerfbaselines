@@ -47,8 +47,8 @@ class TetraNeRF(NerfStudio):
                 super().__init__(config, *args, **kwargs)
         return M
 
-    def _patch_datamanager(self, datamanager_cls, *, train_dataset, **kwargs):
-        datamanager_cls = super()._patch_datamanager(datamanager_cls, train_dataset=train_dataset, **kwargs)
+    def _patch_datamanager(self, datamanager_cls, **kwargs):
+        datamanager_cls = super()._patch_datamanager(datamanager_cls, **kwargs)
         class DM(datamanager_cls):
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, **kwargs)

@@ -92,6 +92,9 @@ test_method mipnerf360 $llff
 test_method nerf $blender
 test_method nerf $llff
 
+test_method instant-ngp $mipnerf360
+test_method instant-ngp $blender
+
 test_method nerfacto $mipnerf360
 test_method nerfacto $blender
 

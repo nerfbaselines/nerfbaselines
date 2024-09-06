@@ -175,7 +175,7 @@ def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
             return v.name
         if dataclasses.is_dataclass(v):
             return format_value({
-                f.name: getattr(hparams, f.name) for f in dataclasses.fields(hparams)
+                f.name: getattr(v, f.name) for f in dataclasses.fields(v)
             }, only_simple_types=only_simple_types)
         if callable(v):
             return v.__module__ + ":" + v.__name__
@@ -395,14 +395,12 @@ class NerfStudio(Method):
             # Load nerfstudio checkpoint
             with open(os.path.join(checkpoint, "config.yml"), "r", encoding="utf8") as f:
                 config = yaml.load(f, Loader=yaml.Loader)
-            model_path = os.path.join(self.checkpoint, config.relative_model_dir)
+            model_path = os.path.join(checkpoint, config.relative_model_dir)
             if not os.path.exists(model_path):
                 raise RuntimeError(f"Model directory {model_path} does not exist")
             self._loaded_step = self.step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(model_path))[-1]
         else:
             config = copy.deepcopy(all_methods[nerfstudio_name])
-        self._trainer = None
-        self._dm = None
         self._tmpdir = tempfile.TemporaryDirectory()
         self._mode = None
         self.dataparser_params = None
@@ -462,6 +460,7 @@ class NerfStudio(Method):
         if cls._require_points3D:
             features = features + ("points3D_xyz", "points3D_rgb")
         return MethodInfo(
+            method_id="",  # Will be filled by the registry
             required_features=frozenset(features),
             supported_camera_models=frozenset(
                 (
@@ -488,7 +487,8 @@ class NerfStudio(Method):
     def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
         del options
         if embeddings is not None:
-            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
+            method_id = self.get_method_info()["method_id"]
+            raise NotImplementedError(f"Optimizing embeddings is not supported for method {method_id}")
         poses = cameras.poses.copy()
 
         # Convert from Opencv to OpenGL coordinate system
@@ -577,19 +577,6 @@ class NerfStudio(Method):
             def create_eval_dataset(self, *args, **kwargs):
                 del args, kwargs
                 return None
-
-        if train_dataset is None:
-            # setup_train is not called for eval dataset
-            def setup_train(self, *args, **kwargs):
-                del args, kwargs
-                if self.config.camera_optimizer is not None:
-                    self.train_camera_optimizer = self.config.camera_optimizer.setup(num_cameras=train_dataset["cameras"].size, device=self.device)
-
-            DM.setup_train = setup_train
-            # setup_eval is not called for eval dataset
-            def _noop(*args, **kwargs):
-                del args, kwargs
-            DM.setup_eval = _noop
         return DM
 
     def _patch_model(self, model_cls, *, config):
@@ -633,6 +620,7 @@ class NerfStudio(Method):
         if hasattr(config.pipeline.model._target, "__name__"):  # Protection against mocks
             config.pipeline.model._target.__name__ = model_cls.__name__  # pylint: disable=protected-access
         # Fix rest of the config
+        assert self._tmpdir is not None, "Method already closed"
         config.output_dir = Path(self._tmpdir.name)
         config.set_timestamp()
         config.vis = None
@@ -640,11 +628,13 @@ class NerfStudio(Method):
         config.load_step = None
         return config
 
-    def _setup(self, train_dataset: Dataset, config_overrides):
+    def _setup(self, train_dataset: Optional[Dataset], config_overrides):
         del config_overrides
         train_dataset = None if train_dataset is None else train_dataset.copy()
         dataparser_transforms = dataparser_scale = None
-        if self.checkpoint is not None or train_dataset is None:
+        if self.checkpoint is None and train_dataset is None:
+            raise RuntimeError("Either checkpoint or train_dataset must be provided")
+        if self.checkpoint is not None:
             if os.path.exists(os.path.join(self.checkpoint, "dataparser_transforms.json")):
                 with open(os.path.join(self.checkpoint, "dataparser_transforms.json"), "r", encoding="utf8") as f:
                     dataparser_params = json.load(f)
@@ -690,7 +680,7 @@ class NerfStudio(Method):
         if train_dataset is not None:
             if getattr(self.config.pipeline.datamanager, "train_num_times_to_repeat_images", None) == -1:
                 logging.debug("NerfStudio will cache all images, we will release the memory now")
-                train_dataset["images"] = None
+                train_dataset["images"] = None  # type: ignore
         self._mode = "train"
         self._trainer = trainer
 
@@ -705,12 +695,6 @@ class NerfStudio(Method):
         ## trainer._load_checkpoint()
         ## self._mode = "eval"
         ## self._trainer = trainer
-
-    def _load_checkpoint(self):
-        if self.checkpoint is not None:
-            load_path = os.path.join(self.checkpoint, self.config.relative_model_dir, f"step-{self.get_info().loaded_step:09d}.ckpt")
-            loaded_state = torch.load(load_path, map_location="cpu")
-            self._trainer.pipeline.load_pipeline(loaded_state["pipeline"], loaded_state["step"])
 
     def train_iteration(self, step: int):
         if self._mode != "train":
@@ -740,7 +724,6 @@ class NerfStudio(Method):
                 return v.detach().cpu().item()
             elif isinstance(v, np.ndarray):
                 return v.item()
-            assert isinstance(v, (str, float, int))
             return v
 
         self.step = step + 1
@@ -780,8 +763,9 @@ class NerfStudio(Method):
                 f.write(sha)
 
     def close(self):
-        self._tmpdir.cleanup()
-        self._tmpdir = None
+        if self._tmpdir is not None:
+            self._tmpdir.cleanup()
+            self._tmpdir = None
 
     def optimize_embeddings(
         self, 
