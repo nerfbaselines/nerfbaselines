@@ -120,7 +120,7 @@ class ChangesTracker:
             if obj1.device != obj2.device:
                 self._add_changes(path, f'device: {obj1.device}', f'device: {obj2.device}', True)
                 return True
-            elif not np.array_equal(obj1.cpu().numpy(), obj2.cpu().numpy()):
+            elif not np.array_equal(obj1.detach().cpu().numpy(), obj2.detach().cpu().numpy()):
                 self._add_changes(path, v1, v2, True)
                 return True
             return False
