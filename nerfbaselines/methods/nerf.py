@@ -386,7 +386,6 @@ class NeRF(Method):
         assert self._train_rays_rgb is not None, no_train_dataset_message
         assert self._train_cameras is not None, no_train_dataset_message
         assert self._train_images is not None, no_train_dataset_message
-        assert self._train_rays_cumsum is not None, no_train_dataset_message
 
         self.step = step
         self.global_step.assign(self.step)
@@ -394,9 +393,14 @@ class NeRF(Method):
 
         use_batching = not self.args.no_batching
         N_rand = self.args.N_rand
+        H, W, focal = None, None, None
         if use_batching:
             # Random over all images
             batch = self._train_rays_rgb[self._train_i_batch:self._train_i_batch+N_rand]  # [B, 2+1, 3*?]
+            
+            # TODO: handle NDC better (not a single camera)
+            W, H = self._train_cameras.image_sizes[0]
+            focal = self._train_cameras.intrinsics[0, 0]
 
             self._train_i_batch += N_rand
             if self._train_i_batch >= self._train_rays_rgb.shape[0]:
@@ -407,6 +411,9 @@ class NeRF(Method):
             # Random from one image
             img_i = np.random.choice(list(range(len(self._train_cameras))))
             W, H = self._train_cameras.image_sizes[img_i]
+            # TODO: handle fx != fy
+            focal = self._train_cameras.intrinsics[img_i, 0]
+            assert self._train_rays_cumsum is not None, "_train_rays_cumsum must be set"
             batch = self._train_rays_rgb[self._train_rays_cumsum[img_i]:self._train_rays_cumsum[img_i+1]]
 
             if N_rand is not None:
@@ -435,9 +442,8 @@ class NeRF(Method):
         with tf.GradientTape() as tape:
 
             # Make predictions for color, disparity, accumulated opacity.
-            # TODO: implement NDC rays
             rgb, disp, acc, extras = render(
-                None, None, None, chunk=self.args.chunk, rays=batch_rays,
+                H, W, focal, chunk=self.args.chunk, rays=batch_rays,
                 verbose=step < 10, retraw=True, **self.render_kwargs_train)
             del disp, acc
 
@@ -476,10 +482,12 @@ class NeRF(Method):
         cameras, _ = transform_cameras(self.args, cameras, self.transform_args)
         for idx in range(len(cameras.poses)):
             W, H = cameras.image_sizes[idx]
+            # TODO: handle fx != fy
+            focal = cameras.intrinsics[idx, 0]
             batch_rays = get_rays(cameras[idx:idx+1])
             rays_o, rays_d = batch_rays[:, 0], batch_rays[:, 1]
             rgb, disp, acc, extras = render(
-                None, None, None, chunk=self.args.chunk, rays=(rays_o, rays_d), **self.render_kwargs_test)
+                H, W, focal, chunk=self.args.chunk, rays=(rays_o, rays_d), **self.render_kwargs_test)
             del disp
             rgb = np.clip(rgb.numpy(), 0.0, 1.0)
             yield {

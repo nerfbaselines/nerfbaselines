@@ -117,7 +117,13 @@ class CallbackIterator:
 
 
 
+_patched = False
+
 def patch_nerfw_rempl():
+    global _patched
+    if _patched:
+        return
+    _patched = True
     # Fix bug in the nerf_pl codebase
     # From the README:
     #   There is a difference between the paper: I didn't add the appearance embedding in the coarse model while it should. 
@@ -151,6 +157,19 @@ def patch_nerfw_rempl():
         logger.info("Patched DataLoader to num_workers=0 to avoid OOM")
         return dl
     NeRFSystem.train_dataloader = _train_dataloader
+
+    try:
+        # Patch for newer PL
+        del train.NeRFSystem.validation_epoch_end
+    except AttributeError:
+        pass
+
+    # Patch nerf_pl for newer PL
+    @train.NeRFSystem.hparams.setter
+    def hparams(self, hparams):
+        self.save_hyperparameters(hparams)
+
+    train.NeRFSystem.hparams = hparams
 
 
 patch_nerfw_rempl()
@@ -430,11 +449,6 @@ class NeRFWReimpl(Method):
         self.hparams = hparams
 
         # Load PL module
-        try:
-            # Patch for newer PL
-            del train.NeRFSystem.validation_epoch_end
-        except AttributeError:
-            pass
         system = train.NeRFSystem(self.hparams)
         system.setup = partial(_system_setup, system.setup, train_dataset, self.camera_transformer)
         system.val_dataloader = pl.LightningModule.val_dataloader
