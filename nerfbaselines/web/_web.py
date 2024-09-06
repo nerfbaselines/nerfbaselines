@@ -1,5 +1,6 @@
 import shutil
 import shlex
+from typing import Optional, Tuple
 from contextlib import contextmanager
 import logging
 import subprocess
@@ -10,6 +11,10 @@ from functools import partial
 import math
 import json
 import os
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
 
 
 def _get_average(scenes, metric, sign):
@@ -305,7 +310,7 @@ def _build_docs(configuration,
                                    os.path.join(output, version)], env=env)
 
 
-def build(input_path, output, raw_data, configuration):
+def _build(input_path, output, raw_data, configuration):
     if os.path.exists(output):
         raise FileExistsError(f"Output directory {output} already exists.")
 
@@ -342,24 +347,38 @@ def _reload_data_loading():
         __name__ = old_name
 
 
-def start_dev_server(raw_data, configuration):
-    from livereload import Server  # type: ignore
+def build(output: str, 
+          data: Optional[str] = None,
+          datasets: Optional[Tuple[str, ...]] = None,
+          include_docs: Literal["all", "docs", None] = None,
+          base_path: str = ""):
+    input_path = os.path.dirname(os.path.abspath(__file__))
+    with _prepare_data(data, datasets, include_docs=include_docs) as (raw_data, configuration):
+        configuration["base_path"] = base_path
+        _build(input_path, output, raw_data, configuration)
 
-    with tempfile.TemporaryDirectory() as output:
+
+def start_dev_server(data: Optional[str] = None,
+                     datasets: Optional[Tuple[str, ...]] = None,
+                     include_docs: Literal["all", "docs", None] = None):
+    from livereload import Server  # type: ignore
+    with _prepare_data(data, datasets, include_docs=include_docs) as (raw_data, configuration), \
+            tempfile.TemporaryDirectory() as output:
         input_path = os.path.dirname(os.path.abspath(__file__))
+        del data
 
         # Build first version
         os.rmdir(output)
-        build(input_path, output, raw_data, configuration)
-        data = get_data(raw_data)
+        _build(input_path, output, raw_data, configuration)
+        _data = get_data(raw_data)
 
         def _on_dataloading_change():
-            nonlocal data
+            nonlocal _data
             _reload_data_loading()
             new_data = get_data(raw_data)
-            if json.dumps(data) != json.dumps(new_data):
-                data = new_data
-                _generate_pages(data, input_path, output, configuration)
+            if json.dumps(_data) != json.dumps(new_data):
+                _data = new_data
+                _generate_pages(_data, input_path, output, configuration)
                 logging.info("Data reloaded")
 
         # Create server and watch for changes
@@ -380,15 +399,16 @@ def start_dev_server(raw_data, configuration):
                 return await super().get(path, *args, **kwargs)
         server.SFH = HtmlRewriteSFHserver
         logging.getLogger("tornado").setLevel(logging.WARNING)
-        server.watch(os.path.join(input_path, "templates/**/*.html"), lambda: _generate_pages(data, input_path, output, configuration))
+        server.watch(os.path.join(input_path, "templates/**/*.html"), lambda: _generate_pages(_data, input_path, output, configuration))
         server.watch(os.path.join(input_path, "public/**/*"), partial(_copy_static_files, input_path, output))
         server.watch(__file__, _on_dataloading_change)
 
         build_docs = lambda: _build_docs(
             configuration=configuration,
             output=os.path.join(output, "docs"))
-        if configuration.get("docs_source_repo") is not None:
-            docs_path = os.path.join(configuration["docs_source_repo"], "docs")
+        docs_source_repo = configuration.get("docs_source_repo")
+        if docs_source_repo is not None:
+            docs_path = os.path.join(docs_source_repo, "docs")
             def ignore_files(name):
                 if name == os.path.join(docs_path, "cli.md"):
                     return True
@@ -397,7 +417,7 @@ def start_dev_server(raw_data, configuration):
                 if name.startswith(os.path.join(docs_path, "_build")):
                     return True
                 return False
-            server.watch(os.path.join(configuration["docs_source_repo"], "docs", "**/*"), 
+            server.watch(os.path.join(docs_source_repo, "docs", "**/*"), 
                          build_docs,
                          ignore=ignore_files)
         server._setup_logging = lambda: None
@@ -406,7 +426,7 @@ def start_dev_server(raw_data, configuration):
 
 
 def _get_method_licenses():
-    from nerfbaselines.registry import get_supported_methods, get_method_spec
+    from nerfbaselines import get_supported_methods, get_method_spec
 
     implemented_methods = []
     for method in get_supported_methods():
@@ -439,11 +459,11 @@ def _prepare_data(data_path, datasets=None, include_docs=None):
             logging.info("Loading data from NerfBaselines repository")
 
             # Load data for all datasets
-            from nerfbaselines.registry import get_dataset_downloaders
+            from nerfbaselines import get_supported_datasets
             from nerfbaselines.results import compile_dataset_results, DEFAULT_DATASET_ORDER
 
             if datasets is None:
-                datasets = list(get_dataset_downloaders().keys())
+                datasets = get_supported_datasets(automatic_download=True)
                 datasets.sort(key=lambda x: DEFAULT_DATASET_ORDER.index(x) 
                               if x in DEFAULT_DATASET_ORDER 
                               else len(DEFAULT_DATASET_ORDER))
@@ -453,7 +473,7 @@ def _prepare_data(data_path, datasets=None, include_docs=None):
 
             # Clone results repository
             with tempfile.TemporaryDirectory() as tmpdir:
-                subprocess.check_call("git clone https://huggingface.co/jkulhanek/nerfbaselines".split() + [tmpdir], env={"GIT_LFS_SKIP_SMUDGE": "1"})
+                subprocess.check_call("git clone --depth=1 https://huggingface.co/jkulhanek/nerfbaselines".split() + [tmpdir], env={"GIT_LFS_SKIP_SMUDGE": "1"})
                 # List all paths in tmpdir
                 existing_paths = [os.path.relpath(os.path.join(root, file), tmpdir) for root, _, files in os.walk(tmpdir) for file in files]
                 resolved_paths = {
@@ -477,51 +497,3 @@ def _prepare_data(data_path, datasets=None, include_docs=None):
             root_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             configuration["docs_source_repo"] = root_path
         yield raw_data, configuration
-
-
-def get_click_group():
-    main = click.Group("web")
-
-    @main.command("dev")
-    @click.option("--data", "data_path", default=None, help="Path to data directory. If not provided, data is generated from the NerfBaselines repository.")
-    @click.option("--datasets", default=None, help="List of comma separated dataset ids to include.")
-    @click.option("--docs", "include_docs",
-                  type=click.Choice(['all', 'latest', 'none']), 
-                  default="none", 
-                  help="Whether to include the documentation page for all versions, the latest, or none.")
-    def _(data_path, datasets, include_docs=None):
-        if include_docs == "none":
-            include_docs = None
-        from nerfbaselines.utils import setup_logging
-        setup_logging(False)
-        with _prepare_data(
-            data_path, 
-            datasets.split(",") if datasets else None,
-            include_docs=include_docs,
-        ) as (raw_data, configuration):
-            start_dev_server(raw_data, configuration)
-
-    @main.command("build")
-    @click.option("--data", "data_path", default=None, help="Path to data directory. If not provided, data is generated from the NerfBaselines repository.")
-    @click.option("--output", required=True, help="Output directory.")
-    @click.option("--datasets", default=None, help="List of comma separated dataset ids to include.")
-    @click.option("--base-path", default="", help="Base path for the website.")
-    @click.option("--docs", "include_docs",
-                  type=click.Choice(['all', 'latest', 'none']), 
-                  default="none", 
-                  help="Whether to include the documentation page for all versions, the latest, or none.")
-    def _(output, data_path, datasets, base_path, include_docs=None):
-        if include_docs == "none":
-            include_docs = None
-        from nerfbaselines.utils import setup_logging
-        setup_logging(False)
-        input_path = os.path.dirname(os.path.abspath(__file__))
-        with _prepare_data(data_path, datasets.split(",") if datasets else None, include_docs=include_docs) as (raw_data, configuration):
-            configuration["base_path"] = base_path
-            build(input_path, output, raw_data, configuration)
-
-    return main
-
-
-if __name__ == "__main__":
-    get_click_group()() 

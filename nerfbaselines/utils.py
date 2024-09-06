@@ -1,47 +1,11 @@
-import re
-import shlex
-import dataclasses
-import threading
-from collections import deque
-import contextlib
-import time
-import click
-import sys
 import math
-import os
-import subprocess
-import inspect
-import struct
-from pathlib import Path
-from functools import wraps
-from typing import Any, Optional, Dict, TYPE_CHECKING, Union, List, TypeVar, Iterable, overload, Callable
-from typing import BinaryIO, Tuple, cast, Set
-import logging
-import types
 import numpy as np
-from PIL import Image
-try:
-    from typing import get_args, get_origin
-except ImportError:
-    from typing_extensions import get_args, get_origin
-try:
-    from typing import Literal
-except ImportError:
-    from typing_extensions import Literal
-try:
-    from typing import NotRequired  # noqa: F401
-    from typing import Required  # noqa: F401
-    from typing import TypedDict
-except ImportError:
-    from typing_extensions import NotRequired  # noqa: F401
-    from typing_extensions import Required  # noqa: F401
-    from typing_extensions import TypedDict
-try:
-    from shlex import join as shlex_join
-except ImportError:
-    def shlex_join(split_command):
-        return ' '.join(shlex.quote(arg) for arg in split_command)
-
+from operator import mul
+from functools import reduce
+import threading
+import sys
+from typing import Any, Optional, Dict, TYPE_CHECKING, Union, List, TypeVar, Callable, Tuple, cast
+import numpy as np
 if TYPE_CHECKING:
     import torch
     import jax.numpy as jnp
@@ -68,65 +32,10 @@ def _xnp_astype(tensor: TTensor, dtype, xnp: Any) -> TTensor:
     return tensor.astype(dtype)  # type: ignore
 
 
-def assert_not_none(value: Optional[T]) -> T:
-    assert value is not None
-    return value
-
-
-def is_gpu_error(e: Exception) -> bool:
-    if isinstance(e, NoGPUError):
-        return True
-    if isinstance(e, RuntimeError):
-        return "Found no NVIDIA driver on your system." in str(e)
-    if isinstance(e, EnvironmentError):
-        return "unknown compute capability. ensure pytorch with cuda support is installed." in str(e).lower()
-    if isinstance(e, ImportError):
-        return "libcuda.so.1: cannot open shared object file" in str(e)
-    return False
-
-
-class NoGPUError(RuntimeError):
-    def __init__(self, message="GPUs not available"):
-        super().__init__(message)
-
-
-def remap_error(fn):
-    if getattr(fn, "__error_remap__", False):
-        return fn
-
-    @wraps(fn)
-    def wrapped(*args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except Exception as e:
-            if is_gpu_error(e):
-                raise NoGPUError from e
-            raise e
-
-    wrapped.__error_remap__ = True  # type: ignore
-    return wrapped
-
-
-def build_measure_iter_time():
-    total_time = 0
-
-    def measure_iter_time(iterable: Iterable) -> Iterable:
-        nonlocal total_time
-        
-        total_time = 0
-        start = time.perf_counter()
-        for x in iterable:
-            total_time += time.perf_counter() - start
-            yield x
-            start = time.perf_counter()
-
-    def get_total_time():
-        return total_time
-
-    return measure_iter_time, get_total_time
-
-
 class CancelledException(Exception):
+    """
+    Exception raised when an operation is cancelled using the ``CancellationToken``.
+    """
     pass
 
 
@@ -200,64 +109,11 @@ class CancellationToken(metaclass=_CancellationTokenMeta):
         CancellationToken._set_token(self._old_token)
 
 
-class Formatter(logging.Formatter):
-    def format(self, record: logging.LogRecord):
-        levelname = record.levelname[0]
-        message = record.getMessage()
-        if levelname == "D":
-            return f"\033[0;36mdebug:\033[0m {message}"
-        elif levelname == "I":
-            return f"\033[1;36minfo:\033[0m {message}"
-        elif levelname == "W":
-            return f"\033[0;1;33mwarning: {message}\033[0m"
-        elif levelname == "E":
-            return f"\033[0;1;31merror: {message}\033[0m"
-        else:
-            return message
-
-
-def setup_logging(verbose: Union[bool, Literal['disabled']]):
-    kwargs: Dict[str, Any] = {}
-    if sys.version_info >= (3, 8):
-        kwargs["force"] = True
-    if verbose == "disabled":
-        logging.basicConfig(level=logging.FATAL, **kwargs)
-        logging.getLogger('PIL').setLevel(logging.FATAL)
-        try:
-            import tqdm as _tqdm
-            old_init = _tqdm.tqdm.__init__
-            _tqdm.tqdm.__init__ = lambda *args, disable=None, **kwargs: old_init(*args, disable=True, **kwargs)
-        except ImportError:
-            pass
-    elif verbose:
-        logging.basicConfig(level=logging.DEBUG, **kwargs)
-        logging.getLogger('PIL').setLevel(logging.WARNING)
-    else:
-        import warnings
-        logging.basicConfig(level=logging.INFO, **kwargs)
-        warnings.formatwarning = lambda message, *args, **kwargs: message
-    for handler in logging.root.handlers:
-        handler.setFormatter(Formatter())
-    logging.captureWarnings(True)
-
-
-def handle_cli_error(fn):
-    @wraps(fn)
-    def wrapped(*args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except Exception as e:
-            write_to_logger = getattr(e, "write_to_logger", None)
-            if write_to_logger is not None:
-                write_to_logger()
-                sys.exit(1)
-            else:
-                raise e
-
-    return wrapped
-
-
 class Indices:
+    """
+    A class that represents a set of indices or slices. This is useful for specifying subsets of data
+    training iterations or evaluation steps.
+    """
     def __init__(self, steps):
         self._steps = steps
         self.total: Optional[int] = None
@@ -283,7 +139,18 @@ class Indices:
 
     @classmethod
     def every_iters(cls, iters: int, zero: bool = False):
-        start = iters if zero else 0
+        """
+        Create an ``Indices`` object that represents every ``iters`` iterations.
+        For zero=False, this is equivalent to ``Indices(range(iters, total, iters))``.
+
+        Args:
+            iters: The number of iterations.
+            zero: Whether to include 0 in the indices.
+
+        Returns:
+            The created ``Indices``
+        """
+        start = 0 if zero else iters
         return cls(slice(start, None, iters))
 
     def __repr__(self):
@@ -301,12 +168,16 @@ class Indices:
         return repr(self)
 
 
-def batched(array, batch_size):
-    for i in range(0, len(array), batch_size):
-        yield array[i : i + batch_size]
-
-
 def padded_stack(tensors: Union[np.ndarray, Tuple[np.ndarray, ...], List[np.ndarray]]) -> np.ndarray:
+    """
+    Stack a list of tensors, padding them to the maximum shape.
+
+    Args:
+        tensors: A list of tensors to stack.
+
+    Returns:
+        The stacked tensor.
+    """
     if not isinstance(tensors, (tuple, list)):
         return tensors
     max_shape = tuple(max(s) for s in zip(*[x.shape for x in tensors]))
@@ -317,16 +188,17 @@ def padded_stack(tensors: Union[np.ndarray, Tuple[np.ndarray, ...], List[np.ndar
     return np.stack(out_tensors, 0)
 
 
-def is_broadcastable(shape1, shape2):
-    for a, b in zip(shape1[::-1], shape2[::-1]):
-        if a == 1 or b == 1 or a == b:
-            pass
-        else:
-            return False
-    return True
-
-
 def convert_image_dtype(image: np.ndarray, dtype) -> np.ndarray:
+    """
+    Convert an image to a given dtype.
+
+    Args:
+        image: The input image.
+        dtype: The output dtype.
+    
+    Returns:
+        The converted image.
+    """
     if isinstance(dtype, str):
         dtype = np.dtype(dtype)
     if image.dtype == dtype:
@@ -340,17 +212,39 @@ def convert_image_dtype(image: np.ndarray, dtype) -> np.ndarray:
     raise ValueError(f"cannot convert image from {image.dtype} to {dtype}")
 
 
-def srgb_to_linear(img):
+def _srgb_to_linear(img):
     limit = 0.04045
     return np.where(img > limit, np.power((img + 0.055) / 1.055, 2.4), img / 12.92)
 
+del _srgb_to_linear
 
-def linear_to_srgb(img):
+
+def _linear_to_srgb(img):
     limit = 0.0031308
     return np.where(img > limit, 1.055 * (img ** (1.0 / 2.4)) - 0.055, 12.92 * img)
 
 
 def image_to_srgb(tensor, dtype, color_space: Optional[str] = None, allow_alpha: bool = False, background_color: Optional[np.ndarray] = None):
+    """
+    Convert an image to sRGB color space (if it is not in sRGB color space already). 
+    If the image has an alpha channel, it will be blended with a specified background color,
+    or black if no background color is specified. The image will be converted to the specified dtype.
+    In case the linear->sRGB conversion happens, the following formula is used:
+    
+            sRGB = 1.055 * linear^1/2.4 - 0.055, if linear > 0.0031308
+            sRGB = 12.92 * linear, if linear <= 0.0031308
+
+
+    Args:
+        tensor: The input image tensor.
+        dtype: The output dtype.
+        color_space: The input color space. If None, it is assumed to be sRGB.
+        allow_alpha: Whether to allow an alpha channel. If False, the alpha channel will be removed by blending with a black background.
+        background_color: The background color to blend with if the image has an alpha channel. If None, it will be black.
+        
+    Returns:
+        The converted image tensor.
+    """
     # Remove alpha channel in uint8
     if color_space is None:
         color_space = "srgb"
@@ -366,62 +260,12 @@ def image_to_srgb(tensor, dtype, color_space: Optional[str] = None, allow_alpha:
 
     if color_space == "linear":
         tensor = convert_image_dtype(tensor, np.float32)
-        tensor = linear_to_srgb(tensor)
+        tensor = _linear_to_srgb(tensor)
 
     # Round to 8-bit for fair comparisons
     tensor = convert_image_dtype(tensor, np.uint8)
     tensor = convert_image_dtype(tensor, dtype)
     return tensor
-
-
-def save_image(file: Union[BinaryIO, str, Path], tensor: np.ndarray):
-    if isinstance(file, (str, Path)):
-        with open(file, "wb") as f:
-            return save_image(f, tensor)
-    path = Path(file.name)
-    if str(path).endswith(".bin"):
-        if tensor.shape[2] < 4:
-            tensor = np.dstack((tensor, np.ones([tensor.shape[0], tensor.shape[1], 4 - tensor.shape[2]])))
-        file.write(struct.pack("ii", tensor.shape[0], tensor.shape[1]))
-        file.write(tensor.astype(np.float16).tobytes())
-    else:
-        from PIL import Image
-
-        tensor = convert_image_dtype(tensor, np.uint8)
-        image = Image.fromarray(tensor)
-        image.save(file, format="png")
-
-
-def read_image(file: Union[BinaryIO, str, Path]) -> np.ndarray:
-    if isinstance(file, (str, Path)):
-        with open(file, "rb") as f:
-            return read_image(f)
-    path = Path(file.name)
-    if str(path).endswith(".bin"):
-        h, w = struct.unpack("ii", file.read(8))
-        itemsize = 2
-        img = np.frombuffer(file.read(h * w * 4 * itemsize), dtype=np.float16, count=h * w * 4, offset=8).reshape([h, w, 4])
-        assert img.itemsize == itemsize
-        return img.astype(np.float32)
-    else:
-        from PIL import Image
-
-        return np.array(Image.open(file))
-
-
-def save_depth(file: Union[BinaryIO, str, Path], tensor: np.ndarray):
-    if isinstance(file, (str, Path)):
-        with open(file, "wb") as f:
-            return save_depth(f, tensor)
-    path = Path(file.name)
-    assert str(path).endswith(".bin")
-    file.write(struct.pack("ii", tensor.shape[0], tensor.shape[1]))
-    file.write(tensor.astype(np.float16).tobytes())
-
-
-def mark_host(fn):
-    fn.__host__ = True
-    return fn
 
 
 def _zipnerf_power_transformation(x, lam: float):
@@ -430,6 +274,17 @@ def _zipnerf_power_transformation(x, lam: float):
 
 
 def apply_colormap(array: TTensor, *, pallete: str = "viridis", invert: bool = False) -> TTensor:
+    """
+    Apply a colormap to an array.
+
+    Args:
+        array: The input array.
+        pallete: The matplotlib colormap to use.
+        invert: Whether to invert the colormap.
+
+    Returns:
+        The array with the colormap applied.
+    """
     xnp = _get_xnp(array)
     # TODO: remove matplotlib dependency
     import matplotlib
@@ -481,372 +336,728 @@ def visualize_depth(depth: np.ndarray, expected_scale: Optional[float] = None, n
     return apply_colormap(depth_squashed, pallete=pallete)
 
 
-def run_on_host():
-    def wrap(fn):
-        @wraps(fn)
-        def wrapped(*args, **kwargs):
-            from .backends import Backend
-            if Backend.current is not None:
-                return Backend.current.static_call(f"{fn.__module__}:{fn.__name__}", *args, **kwargs)
-            return fn(*args, **kwargs)
-        wrapped.__run_on_host_original__ = fn  # type: ignore
-        return wrapped
-    return wrap
+#
+# Pose utilities
+#
+def pad_poses(p):
+  """Pad [..., 3, 4] pose matrices with a homogeneous bottom row [0,0,0,1]."""
+  bottom = np.broadcast_to([0, 0, 0, 1.0], p[..., :1, :4].shape)
+  return np.concatenate([p[..., :3, :4], bottom], axis=-2)
 
 
-class ResourcesUtilizationInfo(TypedDict, total=False):
-    memory: int
-    gpu_memory: int
-    gpu_name: str
+def unpad_poses(p):
+  """Remove the homogeneous bottom row from [..., 4, 4] pose matrices."""
+  return p[..., :3, :4]
 
 
-@run_on_host()
-def get_resources_utilization_info(pid: Optional[int] = None) -> ResourcesUtilizationInfo:
-    import platform
+def get_transform_and_scale(transform):
+    """
+    Decomposes a transform-scale matrix into a scale and a transform matrix.
+    The scale is applied after the transform.
 
-    if pid is None:
-        pid = os.getpid()
+    Args:
+        transform: A 4x4 or 3x4 matrix.
 
-    info: ResourcesUtilizationInfo = {}
+    Returns:
+        A tuple of the transform matrix and the scale.
+    """
+    assert len(transform.shape) == 2, "Transform should be a 4x4 or a 3x4 matrix."
+    scale = np.linalg.norm(transform[:3, :3], axis=0)
+    assert np.allclose(scale, scale[0], rtol=1e-3, atol=0)
+    scale = float(np.mean(scale).item())
+    transform = transform.copy()
+    transform[:3, :] /= scale
+    return transform, scale
 
-    # Get all cpu memory and running processes
-    all_processes = set((pid,))
-    current_platform = platform.system()
 
-    if current_platform == "Windows":  # Windows
-        def get_memory_usage_windows(pid: int) -> int:
-            try:
-                process = subprocess.Popen(
-                    ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
-                    stdout=subprocess.PIPE,
-                    text=True
+def apply_transform(transform, poses):
+    """
+    Applies a transform-scale matrix to a set of poses.
+    The scale is applied after the transform.
+
+    Args:
+        transform: A 4x4 or 3x4 matrix.
+        poses: A set of poses.
+
+    Returns:
+        The transformed poses.
+    """
+    transform, scale = get_transform_and_scale(transform)
+    poses = unpad_poses(transform @ pad_poses(poses))
+    poses[..., :3, 3] *= scale
+    return poses
+
+
+def invert_transform(transform, has_scale=False):
+    """
+    Inverts a transform or a transform-scale matrix. By default,
+    it assumes the transform has no scale.
+
+    Args:
+        transform: A 4x4 or 3x4 matrix.
+        has_scale: Whether the transform has scale.
+
+    Returns:
+        The inverted transform.
+    """
+    scale = None
+    if has_scale:
+        transform, scale = get_transform_and_scale(transform)
+    else:
+        transform = transform.copy()
+    R = transform[..., :3, :3]
+    t = transform[..., :3, 3]
+    transform[..., :3, :] = np.concatenate([R.T, -np.matmul(R.T, t[..., None])], axis=-1)
+    if scale is not None:
+        transform[..., :3, :3] *= 1/scale
+    return transform
+
+
+def quaternion_multiply(q1, q2):
+    """
+    Multiply two sets of quaternions.
+
+    Args:
+        q1: A quaternion.
+        q2: A quaternion.
+
+    Returns:
+        The multiplied quaternions.
+    """
+    a = q1[..., 0]*q2[...,0] - q1[...,1]*q2[...,1] - q1[...,2]*q2[...,2] - q1[...,3]*q2[...,3]
+    b = q1[..., 0]*q2[...,1] + q1[...,1]*q2[...,0] + q1[...,2]*q2[...,3] - q1[...,3]*q2[...,2]
+    c = q1[..., 0]*q2[...,2] - q1[...,1]*q2[...,3] + q1[...,2]*q2[...,0] + q1[...,3]*q2[...,1]
+    d = q1[..., 0]*q2[...,3] + q1[...,1]*q2[...,2] - q1[...,2]*q2[...,1] + q1[...,3]*q2[...,0]
+    return np.stack([a, b, c, d], axis=-1)
+
+
+def quaternion_conjugate(q):
+    """
+    Return quaternion-conjugate of quaternion q̄
+
+    Args:
+        q: A quaternion.
+    
+    Returns:
+        The quaternion conjugate.
+    """
+    return np.stack([+q[...,0], -q[...,1], -q[..., 2], -q[...,3]], -1)
+
+def quaternion_to_rotation_matrix(r):
+    """
+    Convert input quaternion to a rotation matrix.
+
+    Args:
+        r: A quaternion.
+
+    Returns:
+        The rotation matrix.
+    """
+    norm = np.sqrt((r**2).sum(-1))
+
+    q = r / norm[..., None]
+
+    R = np.zeros(r.shape[:-1] + (3, 3), dtype=r.dtype)
+
+    r = q[..., 0]
+    x = q[..., 1]
+    y = q[..., 2]
+    z = q[..., 3]
+
+    R[..., 0, 0] = 1 - 2 * (y*y + z*z)
+    R[..., 0, 1] = 2 * (x*y - r*z)
+    R[..., 0, 2] = 2 * (x*z + r*y)
+    R[..., 1, 0] = 2 * (x*y + r*z)
+    R[..., 1, 1] = 1 - 2 * (x*x + z*z)
+    R[..., 1, 2] = 2 * (y*z - r*x)
+    R[..., 2, 0] = 2 * (x*z - r*y)
+    R[..., 2, 1] = 2 * (y*z + r*x)
+    R[..., 2, 2] = 1 - 2 * (x*x + y*y)
+    return R
+
+
+def rotation_matrix_to_quaternion(R):
+    """Convert input 3x3 rotation matrix to unit quaternion.
+
+    Assuming an orthogonal 3x3 matrix ℛ rotates a vector v such that
+
+        v' = ℛ * v,
+
+    we can also express this rotation in terms of a unit quaternion R such that
+
+        v' = R * v * R⁻¹,
+
+    where v and v' are now considered pure-vector quaternions.  This function
+    returns that quaternion.  If `rot` is not orthogonal, the "closest" orthogonal
+    matrix is used; see Notes below.
+
+    Parameters
+    ----------
+    R : (...Nx3x3) float array
+        Each 3x3 matrix represents a rotation by multiplying (from the left)
+        a column vector to produce a rotated column vector.  Note that this
+        input may actually have ndims>3; it is just assumed that the last
+        two dimensions have size 3, representing the matrix.
+
+    Returns
+    -------
+    q : array of quaternions
+        Unit quaternions resulting in rotations corresponding to input
+        rotations.  Output shape is rot.shape[:-2].
+
+    Raises
+    ------
+    LinAlgError
+        If any of the eigenvalue solutions does not converge
+
+    Notes
+    -----
+    This function uses Bar-Itzhack's algorithm to allow for
+    non-orthogonal matrices.  [J. Guidance, Vol. 23, No. 6, p. 1085
+    <http://dx.doi.org/10.2514/2.4654>]  This will almost certainly be quite a bit
+    slower than simpler versions, though it will be more robust to numerical errors
+    in the rotation matrix.  Also note that the Bar-Itzhack paper uses some pretty
+    weird conventions.  The last component of the quaternion appears to represent
+    the scalar, and the quaternion itself is conjugated relative to the convention
+    used throughout the quaternionic module.
+    """
+
+    from scipy import linalg
+    rot = np.array(R, copy=False)
+    shape = rot.shape[:-2]
+
+
+    K3 = np.empty(shape+(4, 4), dtype=rot.dtype)
+    K3[..., 0, 0] = (rot[..., 0, 0] - rot[..., 1, 1] - rot[..., 2, 2])/3
+    K3[..., 0, 1] = (rot[..., 1, 0] + rot[..., 0, 1])/3
+    K3[..., 0, 2] = (rot[..., 2, 0] + rot[..., 0, 2])/3
+    K3[..., 0, 3] = (rot[..., 1, 2] - rot[..., 2, 1])/3
+    K3[..., 1, 0] = K3[..., 0, 1]
+    K3[..., 1, 1] = (rot[..., 1, 1] - rot[..., 0, 0] - rot[..., 2, 2])/3
+    K3[..., 1, 2] = (rot[..., 2, 1] + rot[..., 1, 2])/3
+    K3[..., 1, 3] = (rot[..., 2, 0] - rot[..., 0, 2])/3
+    K3[..., 2, 0] = K3[..., 0, 2]
+    K3[..., 2, 1] = K3[..., 1, 2]
+    K3[..., 2, 2] = (rot[..., 2, 2] - rot[..., 0, 0] - rot[..., 1, 1])/3
+    K3[..., 2, 3] = (rot[..., 0, 1] - rot[..., 1, 0])/3
+    K3[..., 3, 0] = K3[..., 0, 3]
+    K3[..., 3, 1] = K3[..., 1, 3]
+    K3[..., 3, 2] = K3[..., 2, 3]
+    K3[..., 3, 3] = (rot[..., 0, 0] + rot[..., 1, 1] + rot[..., 2, 2])/3
+
+    if not shape:
+        q = np.empty((4,), dtype=rot.dtype)
+        eigvals, eigvecs = linalg.eigh(K3.T, subset_by_index=(3, 3))
+        del eigvals
+        q[0] = eigvecs[-1].item()
+        q[1:] = -eigvecs[:-1].flatten()
+        return q
+    else:
+        q = np.empty(shape+(4,), dtype=rot.dtype)
+        for flat_index in range(reduce(mul, shape)):
+            multi_index = np.unravel_index(flat_index, shape)
+            eigvals, eigvecs = linalg.eigh(K3[multi_index], subset_by_index=(3, 3))
+            del eigvals
+            q[multi_index+(0,)] = eigvecs[-1]
+            q[multi_index+(slice(1,None),)] = -eigvecs[:-1].flatten()
+        return q
+
+
+def _wigner_D_matrix(R, ell_max: int):
+    """
+    Build a Wigner matrix from a rotation matrix.
+
+    Args:
+        R: A 3x3 rotation matrix.
+        ell_max: The maximum ell value.
+    
+    Returns:
+        The Wigner D matrix.
+    """
+    """
+This code was taken from https://github.com/moble/spherica
+It is hosted under the following license:
+
+The MIT License (MIT)
+
+Copyright (c) 2023 Mike Boyle
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
+
+    ell_min = 0
+    mp_max=np.iinfo(np.int64).max
+
+    def _complex_powers(zravel, M, zpowers):
+        """Helper function for complex_powers(z, M)"""
+        for i in range(zravel.size):
+            zpowers[i, 0] = 1.0 + 0.0j
+            if M > 0:
+                z = zravel[i]
+                θ = 1
+                while z.real<0 or z.imag<0:
+                    θ *= 1j
+                    z /= 1j
+                zpowers[i, 1] = z
+                clock = θ
+                dc = -2 * np.sqrt(z).imag ** 2
+                t = 2 * dc
+                dz = dc * (1 + 2 * zpowers[i, 1]) + 1j * np.sqrt(-dc * (2 + dc))
+                for m in range(2, M+1):
+                    zpowers[i, m] = zpowers[i, m-1] + dz
+                    dz += t * zpowers[i, m]
+                    zpowers[i, m-1] *= clock
+                    clock *= θ
+                zpowers[i, M] *= clock
+    
+    def WignerHsize(mp_max, ell_max=-2):
+        if ell_max == -2:
+            ell_max = mp_max
+        elif ell_max < 0:
+            return 0
+        if mp_max is None or mp_max >= ell_max:
+            return (ell_max+1) * (ell_max+2) * (2*ell_max+3) // 6
+        else:
+            return ((ell_max+1) * (ell_max+2) * (2*ell_max+3) - 2*(ell_max-mp_max)*(ell_max-mp_max+1)*(ell_max-mp_max+2)) // 6
+
+    def WignerDsize(ell_min, mp_max, ell_max=-1):
+        if ell_max < 0:
+            ell_max = mp_max
+        if mp_max >= ell_max:
+            return (
+                ell_max * (ell_max * (4 * ell_max + 12) + 11)
+                + ell_min * (1 - 4 * ell_min**2)
+                + 3
+            ) // 3
+        if mp_max > ell_min:
+            return (
+                3 * ell_max * (ell_max + 2)
+                + ell_min * (1 - 4 * ell_min**2)
+                + mp_max * (
+                    3 * ell_max * (2 * ell_max + 4)
+                    + mp_max * (-2 * mp_max - 3) + 5
                 )
-                out, _ = process.communicate()
-                mem_usage_str = out.strip().split(',')[4].strip('"').replace(' K', '').replace(',', '')
-                return int(mem_usage_str) * 1024  # Convert KB to bytes
-            except Exception:
-                return 0
-        try:
-            mem = get_memory_usage_windows(pid)
-            all_processes = set((pid,))
-            out = subprocess.check_output(
-                ["wmic", "process", "where", f"(ParentProcessId={pid})", "get", "ProcessId"],
-                text=True
-            )
-            children_pids = [int(line.strip()) for line in out.strip().split() if line.strip().isdigit()]
-            for child_pid in children_pids:
-                mem += get_memory_usage_windows(child_pid)
-                all_processes.add(child_pid)
-            info["memory"] = (mem + 1024 - 1) // 1024
-        except Exception:
-            logging.error(f"Failed to get resource usage information on {current_platform}", exc_info=True)
-            return info
-    else:  # Linux or macOS
-        try:
-            mem = 0
-            out = subprocess.check_output("ps -ax -o pid= -o ppid= -o rss=".split(), text=True).splitlines()
-            mem_used: Dict[int, int] = {}
-            children = {}
-            for line in out:
-                cpid, ppid, used_memory = map(int, line.split())
-                mem_used[cpid] = used_memory
-                children.setdefault(ppid, set()).add(cpid)
-            all_processes = set()
-            stack = [pid]
-            while stack:
-                cpid = stack.pop()
-                all_processes.add(cpid)
-                mem += mem_used[cpid]
-                stack.extend(children.get(cpid, []))
-            info["memory"] = (mem + 1024 - 1) // 1024
-        except Exception:
-            logging.error(f"Failed to get resource usage information on {current_platform}", exc_info=True)
-            return info
-
-    try:
-        gpu_memory = 0
-        gpus = {}
-        uuids = set()
-        nvidia_smi_command = "nvidia-smi --query-compute-apps=pid,used_memory,gpu_uuid,gpu_name --format=csv,noheader,nounits"
-        if current_platform == "Windows":
-            out = subprocess.check_output("nvidia-smi --query-compute-apps=pid,used_memory,gpu_uuid,gpu_name --format=csv,noheader,nounits", shell=True, text=True).splitlines()
+                + 3
+            ) // 3
         else:
-            out = subprocess.check_output(nvidia_smi_command.split(), text=True).splitlines()
-        for line in out:
-            cpid, used_memory, uuid, gpu_name = tuple(x.strip() for x in line.split(",", 3))
-            try:
-                cpid = int(cpid)
-                used_memory = int(used_memory)
-            except ValueError:
-                # Unused GPUs could sometimes return [N/A]
-                continue
-            if cpid in all_processes:
-                gpu_memory += used_memory
-                if uuid not in uuids:
-                    uuids.add(uuid)
-                    gpus[gpu_name] = gpus.get(gpu_name, 0) + 1
-        info["gpu_name"] = ",".join(f"{k}:{v}" if v > 1 else k for k, v in gpus.items())
-        info["gpu_memory"] = gpu_memory
-    except Exception:
-        logging.error(f"Failed to get GPU utilization on {current_platform}", exc_info=True)
-        return info
-
-    return info
-
-
-def cast_value(tp, value):
-    origin = get_origin(tp)
-    if origin is Literal:
-        for val in get_args(tp):
-            try:
-                value_casted = cast_value(type(val), value)
-                if val == value_casted:
-                    return value_casted
-            except ValueError:
-                pass
-            except TypeError:
-                pass
-        raise TypeError(f"Value {value} is not in {get_args(tp)}")
-            
-    if origin is Union:
-        for t in get_args(tp):
-            try:
-                return cast_value(t, value)
-            except ValueError:
-                pass
-            except TypeError:
-                pass
-        raise TypeError(f"Value {value} is not in {tp}")
-    if tp is type(None):
-        if str(value).lower() == "none":
-            return None
+            return (ell_max * (ell_max + 2) - ell_min**2) * (1 + 2 * mp_max) + 2 * mp_max + 1
+    
+    def _WignerHindex(ell, mp, m, mp_max):
+        mp_max = min(mp_max, ell)
+        i = WignerHsize(mp_max, ell-1)  # total size of everything with smaller ell
+        if mp<1:
+            i += (mp_max + mp) * (2*ell - mp_max + mp + 1) // 2  # size of wedge to the left of m'
         else:
-            raise TypeError(f"Value {value} is not None")
-    if tp is bool:
-        if str(value).lower() in {"true", "1", "yes"}:
-            return True
-        elif str(value).lower() in {"false", "0", "no"}:
-            return False
-        else:
-            raise TypeError(f"Value {value} is not a bool")
-    if tp in {int, float, bool, str}:
-        return tp(value)
-    if isinstance(value, tp):
-        return value
-    raise TypeError(f"Cannot cast value {value} to type {tp}")
+            i += (mp_max + 1) * (2*ell - mp_max + 2) // 2  # size of entire left half of wedge
+            i += (mp - 1) * (2*ell - mp + 2) // 2  # size of right half of wedge to the left of m'
+        i += m - abs(mp)  # size of column in wedge between m and |m'|
+        return i
 
-
-def make_image_grid(*images: np.ndarray, ncol=None, padding=2, max_width=1920, background: Union[None, Tuple[float, float, float], np.ndarray] = None):
-    if ncol is None:
-        ncol = len(images)
-    dtype = images[0].dtype
-    if background is None:
-        background = np.full((3,), 255 if dtype == np.uint8 else 1, dtype=dtype)
-    elif isinstance(background, tuple):
-        background = np.array(background, dtype=dtype)
-    elif isinstance(background, np.ndarray):
-        background = convert_image_dtype(background, dtype=dtype)
-    else:
-        raise ValueError(f"Invalid background type {type(background)}")
-    nrow = int(math.ceil(len(images) / ncol))
-    scale_factor = 1
-    height, width = tuple(map(int, np.max([x.shape[:2] for x in images], axis=0).tolist()))
-    if max_width is not None:
-        scale_factor = min(1, (max_width - padding * (ncol - 1)) / (ncol * width))
-        height = int(height * scale_factor)
-        width = int(width * scale_factor)
-
-    def interpolate(image) -> np.ndarray:
-        img = Image.fromarray(image)
-        img_width, img_height = img.size
-        aspect = img_width / img_height
-        img_width = int(min(width, aspect * height))
-        img_height = int(img_width / aspect)
-        img = img.resize((img_width, img_height))
-        return np.array(img)
-
-    images = tuple(map(interpolate, images))
-    grid: np.ndarray = np.ndarray(
-        (height * nrow + padding * (nrow - 1), width * ncol + padding * (ncol - 1), images[0].shape[-1]),
-        dtype=dtype,
-    )
-    grid[..., :] = background
-    for i, image in enumerate(images):
-        x = i % ncol
-        y = i // ncol
-        h, w = image.shape[:2]
-        offx = x * (width + padding) + (width - w) // 2
-        offy = y * (height + padding) + (height - h) // 2
-        grid[offy : offy + h, 
-             offx : offx + w] = image
-    return grid
-
-
-class IndicesClickType(click.ParamType):
-    name = "indices"
-
-    def convert(self, value, param, ctx):
-        if value is None:
-            return None
-        if isinstance(value, Indices):
-            return value
-        if ":" in value:
-            parts = [int(x) if x else None for x in value.split(":")]
-            assert len(parts) <= 3, "too many parts in slice"
-            return Indices(slice(*parts))
-        return Indices([int(x) for x in value.split(",")])
-
-
-class TupleClickType(click.ParamType):
-    name = "comma-separated-tuple"
-
-    def convert(self, value, param, ctx):
-        if value is None:
-            return None
-        if isinstance(value, tuple):
-            return value
-        return tuple(value.split(","))
-
-
-class SetParamOptionType(click.ParamType):
-    name = "key-value"
-
-    def convert(self, value, param, ctx):
-        if value is None:
-            return None
-        if isinstance(value, tuple):
-            return value
-        if "=" not in value:
-            self.fail(f"expected key=value pair, got {value}", param, ctx)
-        k, v = value.split("=", 1)
-        return k, v
-
-
-def get_package_dependencies(extra=None, ignore: Optional[Set[str]] = None, ignore_viewer: bool = False):
-    assert __package__ is not None, "Package must be set"
-    if sys.version_info < (3, 10):
-        from importlib_metadata import distribution
-        import importlib_metadata
-    else:
-        from importlib import metadata as importlib_metadata
-        from importlib.metadata import distribution
-
-    requires = set()
-    requires_with_conditions = None
-    try:
-        requires_with_conditions = distribution(__package__).requires
-    except importlib_metadata.PackageNotFoundError:
-        # Package not installed
-        pass
-    for r in (requires_with_conditions or ()):
-        if ";" in r:
-            r, condition = r.split(";")
-            r = r.strip().replace(" ", "")
-            condition = condition.strip().replace(" ", "")
-            if condition.startswith("extra=="):
-                extracond = condition.split("==")[1][1:-1]
-                if extra is not None and extracond in extra:
-                    requires.add(r)
-                continue
-            elif condition.startswith("python_version"):
-                requires.add(r)
-                continue
+    def WignerHindex(ell, mp, m, mp_max=None):
+        if ell == 0:
+            return 0
+        mpmax = ell
+        if mp_max is not None:
+            mpmax = min(mp_max, mpmax)
+        if m < -mp:
+            if m < mp:
+                return _WignerHindex(ell, -mp, -m, mpmax)
             else:
-                raise ValueError(f"Unknown condition {condition}")
-        r = r.strip().replace(" ", "")
-        requires.add(r)
-    if ignore_viewer:
-        # NOTE: Viewer is included in the package by default
-        # See https://github.com/pypa/setuptools/pull/1503
-        ignore = set(ignore or ())
-        ignore.add("viser")
-
-    if ignore is not None:
-        ignore = set(x.lower() for x in ignore)
-        for r in list(requires):
-            rsimple = re.sub(r"[^a-zA-Z0-9_-].*", "", r).lower()
-            if rsimple in ignore:
-                requires.remove(r)
-    return sorted(requires)
-
-
-def flatten_hparams(hparams: Any, *, separator: str = "/", _prefix: str = "") -> Dict[str, Any]:
-    flat: Dict[str, Any] = {}
-    if dataclasses.is_dataclass(hparams):
-        hparams = {f.name: getattr(hparams, f.name) for f in dataclasses.fields(hparams)}
-    for k, v in hparams.items():
-        if _prefix:
-            k = f"{_prefix}{separator}{k}"
-        if isinstance(v, dict) or dataclasses.is_dataclass(v):
-            flat.update(flatten_hparams(v, _prefix=k, separator=separator).items())
+                return _WignerHindex(ell, -m, -mp, mpmax)
+        elif m < mp:
+            return _WignerHindex(ell, m, mp, mpmax)
         else:
-            flat[k] = v
-    return flat
+            return _WignerHindex(ell, mp, m, mpmax)
+
+    def WignerDindex(ell, mp, m, ell_min=0, mp_max=-1):
+        if mp_max < 0:
+            mp_max = ell
+        i = (mp + min(mp_max, ell)) * (2 * ell + 1) + m + ell
+        if ell > ell_min:
+            i += WignerDsize(ell_min, mp_max, ell-1)
+        return i
+
+    def nm_index(n, m):
+        return m + n * (n + 1)
+    
+    def nabsm_index(n, absm):
+        return absm + (n * (n + 1)) // 2
+
+    def _step_1(Hwedge):
+        """If n=0 set H_{0}^{0,0}=1."""
+        Hwedge[0] = 1.0
 
 
-MetricAccumulationMode = Literal["average", "last", "sum"]
+    def _step_2(g, h, n_max, mp_max, Hwedge, Hextra, Hv, expiβ):
+        """Compute values H^{0,m}_{n}(β)for m=0,...,n and H^{0,m}_{n+1}(β) for m=0,...,n+1 using Eq. (32):
 
+            H^{0,m}_{n}(β) = (-1)^m √((n-|m|)! / (n+|m|)!) P^{|m|}_{n}(cos β)
+                        = (-1)^m (sin β)^m P̂^{|m|}_{n}(cos β) / √(k (2n+1))
 
-class MetricsAccumulator:
-    def __init__(
-        self,
-        options: Optional[Dict[str, MetricAccumulationMode]] = None,
+        This function computes the associated Legendre functions directly by recursion
+        as explained by Holmes and Featherstone (2002), doi:10.1007/s00190-002-0216-2.
+        Note that I had to adjust certain steps for consistency with the notation
+        assumed by arxiv:1403.7698 -- mostly involving factors of (-1)**m.
+
+        NOTE: Though not specified in arxiv:1403.7698, there is not enough information
+        for step 4 unless we also use symmetry to set H^{1,0}_{n} here.  Similarly,
+        step 5 needs additional information, which depends on setting H^{0, -1}_{n}
+        from its symmetric equivalent H^{0, 1}_{n} in this step.
+
+        """
+        cosβ = expiβ.real
+        sinβ = expiβ.imag
+        if n_max > 0:
+            # n = 1
+            n0n_index = WignerHindex(1, 0, 1, mp_max)
+            nn_index = nm_index(1, 1)
+            Hwedge[n0n_index] = np.sqrt(3)  # Un-normalized
+            Hwedge[n0n_index-1] = (g[nn_index-1] * cosβ) * 1.0 / np.sqrt(2)  # Normalized
+            # n = 2, ..., n_max+1
+            for n in range(2, n_max+2):
+                if n <= n_max:
+                    n0n_index = WignerHindex(n, 0, n, mp_max)
+                    H = Hwedge
+                else:
+                    n0n_index = n
+                    H = Hextra
+                nm10nm1_index = WignerHindex(n-1, 0, n-1, mp_max)
+                nn_index = nm_index(n, n)
+                const = np.sqrt(1.0 + 0.5/n)
+                gi = g[nn_index-1]
+                # m = n
+                H[n0n_index] = const * Hwedge[nm10nm1_index]
+                # m = n-1
+                H[n0n_index-1] = gi * cosβ * H[n0n_index]
+                # m = n-2, ..., 1
+                for i in range(2, n):
+                    gi = g[nn_index-i]
+                    hi = h[nn_index-i]
+                    H[n0n_index-i] = gi * cosβ * H[n0n_index-i+1] - hi * sinβ**2 * H[n0n_index-i+2]
+                # m = 0, with normalization
+                const = 1.0 / np.sqrt(4*n+2)
+                gi = g[nn_index-n]
+                hi = h[nn_index-n]
+                H[n0n_index-n] = (gi * cosβ * H[n0n_index-n+1] - hi * sinβ**2 * H[n0n_index-n+2]) * const
+                # Now, loop back through, correcting the normalization for this row, except for n=n element
+                prefactor = const
+                for i in range(1, n):
+                    prefactor *= sinβ
+                    H[n0n_index-n+i] *= prefactor
+                # Supply extra edge cases as noted in docstring
+                if n <= n_max:
+                    Hv[nm_index(n, 1)] = Hwedge[WignerHindex(n, 0, 1, mp_max)]
+                    Hv[nm_index(n, 0)] = Hwedge[WignerHindex(n, 0, 1, mp_max)]
+            # Correct normalization of m=n elements
+            prefactor = 1.0
+            for n in range(1, n_max+1):
+                prefactor *= sinβ
+                Hwedge[WignerHindex(n, 0, n, mp_max)] *= prefactor / np.sqrt(4*n+2)
+            for n in [n_max+1]:
+                prefactor *= sinβ
+                Hextra[n] *= prefactor / np.sqrt(4*n+2)
+            # Supply extra edge cases as noted in docstring
+            Hv[nm_index(1, 1)] = Hwedge[WignerHindex(1, 0, 1, mp_max)]
+            Hv[nm_index(1, 0)] = Hwedge[WignerHindex(1, 0, 1, mp_max)]
+
+    def _step_3(a, b, n_max, mp_max, Hwedge, Hextra, expiβ):
+        """Use relation (41) to compute H^{1,m}_{n}(β) for m=1,...,n.  Using symmetry and shift
+        of the indices this relation can be written as
+
+            b^{0}_{n+1} H^{1, m}_{n} =   (b^{−m−1}_{n+1} (1−cosβ))/2 H^{0, m+1}_{n+1}
+                                    − (b^{ m−1}_{n+1} (1+cosβ))/2 H^{0, m−1}_{n+1}
+                                    − a^{m}_{n} sinβ H^{0, m}_{n+1}
+
+        """
+        cosβ = expiβ.real
+        sinβ = expiβ.imag
+        if n_max > 0 and mp_max > 0:
+            for n in range(1, n_max+1):
+                # m = 1, ..., n
+                i1 = WignerHindex(n, 1, 1, mp_max)
+                if n+1 <= n_max:
+                    i2 = WignerHindex(n+1, 0, 0, mp_max)
+                    H2 = Hwedge
+                else:
+                    i2 = 0
+                    H2 = Hextra
+                i3 = nm_index(n+1, 0)
+                i4 = nabsm_index(n, 1)
+                inverse_b5 = 1.0 / b[i3]
+                for i in range(n):
+                    b6 = b[-i+i3-2]
+                    b7 = b[i+i3]
+                    a8 = a[i+i4]
+                    Hwedge[i+i1] = inverse_b5 * (
+                        0.5 * (
+                            b6 * (1-cosβ) * H2[i+i2+2]
+                            - b7 * (1+cosβ) * H2[i+i2]
+                        )
+                        - a8 * sinβ * H2[i+i2+1]
+                    )
+
+    def _step_4(d, n_max, mp_max, Hwedge, Hv):
+        """Recursively compute H^{m'+1, m}_{n}(β) for m'=1,...,n−1, m=m',...,n using relation (50) resolved
+        with respect to H^{m'+1, m}_{n}:
+
+        d^{m'}_{n} H^{m'+1, m}_{n} =   d^{m'−1}_{n} H^{m'−1, m}_{n}
+                                    − d^{m−1}_{n} H^{m', m−1}_{n}
+                                    + d^{m}_{n} H^{m', m+1}_{n}
+
+        (where the last term drops out for m=n).
+
+        """
+        if n_max > 0 and mp_max > 0:
+            for n in range(2, n_max+1):
+                for mp in range(1, min(n, mp_max)):
+                    # m = m', ..., n-1
+                    # i1 = WignerHindex(n, mp+1, mp, mp_max)
+                    i1 = WignerHindex(n, mp+1, mp+1, mp_max) - 1
+                    i2 = WignerHindex(n, mp-1, mp, mp_max)
+                    # i3 = WignerHindex(n, mp, mp-1, mp_max)
+                    i3 = WignerHindex(n, mp, mp, mp_max) - 1
+                    i4 = WignerHindex(n, mp, mp+1, mp_max)
+                    i5 = nm_index(n, mp)
+                    i6 = nm_index(n, mp-1)
+                    inverse_d5 = 1.0 / d[i5]
+                    d6 = d[i6]
+                    for i in [0]:
+                        d7 = d[i+i6]
+                        d8 = d[i+i5]
+                        Hv[i+nm_index(n, mp+1)] = inverse_d5 * (
+                            d6 * Hwedge[i+i2]
+                            - d7 * Hv[i+nm_index(n, mp)]
+                            + d8 * Hwedge[i+i4]
+                        )
+                    for i in range(1, n-mp):
+                        d7 = d[i+i6]
+                        d8 = d[i+i5]
+                        Hwedge[i+i1] = inverse_d5 * (
+                            d6 * Hwedge[i+i2]
+                            - d7 * Hwedge[i+i3]
+                            + d8 * Hwedge[i+i4]
+                        )
+                    # m = n
+                    for i in [n-mp]:
+                        Hwedge[i+i1] = inverse_d5 * (
+                            d6 * Hwedge[i+i2]
+                            - d[i+i6] * Hwedge[i+i3]
+                        )
+
+    def _step_5(d, n_max, mp_max, Hwedge, Hv):
+        """Recursively compute H^{m'−1, m}_{n}(β) for m'=−1,...,−n+1, m=−m',...,n using relation (50)
+        resolved with respect to H^{m'−1, m}_{n}:
+
+        d^{m'−1}_{n} H^{m'−1, m}_{n} = d^{m'}_{n} H^{m'+1, m}_{n}
+                                        + d^{m−1}_{n} H^{m', m−1}_{n}
+                                        − d^{m}_{n} H^{m', m+1}_{n}
+
+        (where the last term drops out for m=n).
+
+        NOTE: Although arxiv:1403.7698 specifies the loop over mp to start at -1, I
+        find it necessary to start at 0, or there will be missing information.  This
+        also requires setting the (m',m)=(0,-1) components before beginning this loop.
+
+        """
+        if n_max > 0 and mp_max > 0:
+            for n in range(0, n_max+1):
+                for mp in range(0, -min(n, mp_max), -1):
+                    # m = -m', ..., n-1
+                    # i1 = WignerHindex(n, mp-1, -mp, mp_max)
+                    i1 = WignerHindex(n, mp-1, -mp+1, mp_max) - 1
+                    # i2 = WignerHindex(n, mp+1, -mp, mp_max)
+                    i2 = WignerHindex(n, mp+1, -mp+1, mp_max) - 1
+                    # i3 = WignerHindex(n, mp, -mp-1, mp_max)
+                    i3 = WignerHindex(n, mp, -mp, mp_max) - 1
+                    i4 = WignerHindex(n, mp, -mp+1, mp_max)
+                    i5 = nm_index(n, mp-1)
+                    i6 = nm_index(n, mp)
+                    i7 = nm_index(n, -mp-1)
+                    i8 = nm_index(n, -mp)
+                    inverse_d5 = 1.0 / d[i5]
+                    d6 = d[i6]
+                    for i in [0]:
+                        d7 = d[i+i7]
+                        d8 = d[i+i8]
+                        if mp == 0:
+                            Hv[i+nm_index(n, mp-1)] = inverse_d5 * (
+                                d6 * Hv[i+nm_index(n, mp+1)]
+                                + d7 * Hv[i+nm_index(n, mp)]
+                                - d8 * Hwedge[i+i4]
+                            )
+                        else:
+                            Hv[i+nm_index(n, mp-1)] = inverse_d5 * (
+                                d6 * Hwedge[i+i2]
+                                + d7 * Hv[i+nm_index(n, mp)]
+                                - d8 * Hwedge[i+i4]
+                            )
+                    for i in range(1, n+mp):
+                        d7 = d[i+i7]
+                        d8 = d[i+i8]
+                        Hwedge[i+i1] = inverse_d5 * (
+                            d6 * Hwedge[i+i2]
+                            + d7 * Hwedge[i+i3]
+                            - d8 * Hwedge[i+i4]
+                        )
+                    # m = n
+                    i = n+mp
+                    Hwedge[i+i1] = inverse_d5 * (
+                        d6 * Hwedge[i+i2]
+                        + d[i+i7] * Hwedge[i+i3]
+                    )
+    
+    def ϵ(m):
+        if m <= 0:
+            return 1
+        elif m%2:
+            return -1
+        else:
+            return 1
+
+    def _fill_wigner_D(ell_min, ell_max, mp_max, 𝔇, Hwedge, zₐpowers, zᵧpowers):
+        """Helper function for Wigner.D"""
+        # 𝔇ˡₘₚ,ₘ(R) = dˡₘₚ,ₘ(R) exp[iϕₐ(m-mp)+iϕₛ(m+mp)] = dˡₘₚ,ₘ(R) exp[i(ϕₛ+ϕₐ)m+i(ϕₛ-ϕₐ)mp]
+        # exp[iϕₛ] = R̂ₛ = hat(R[0] + 1j * R[3]) = zp
+        # exp[iϕₐ] = R̂ₐ = hat(R[2] + 1j * R[1]) = zm.conjugate()
+        # exp[i(ϕₛ+ϕₐ)] = zp * zm.conjugate() = z[2] = zᵧ
+        # exp[i(ϕₛ-ϕₐ)] = zp * zm = z[0] = zₐ
+        for ell in range(ell_min, ell_max+1):
+            for mp in range(-ell, 0):
+                i_D = WignerDindex(ell, mp, -ell, ell_min)
+                for m in range(-ell, 0):
+                    i_H = WignerHindex(ell, mp, m, mp_max)
+                    𝔇[i_D] = ϵ(mp) * ϵ(-m) * Hwedge[i_H] * zᵧpowers[-m].conjugate() * zₐpowers[-mp].conjugate()
+                    i_D += 1
+                for m in range(0, ell+1):
+                    i_H = WignerHindex(ell, mp, m, mp_max)
+                    𝔇[i_D] = ϵ(mp) * ϵ(-m) * Hwedge[i_H] * zᵧpowers[m] * zₐpowers[-mp].conjugate()
+                    i_D += 1
+            for mp in range(0, ell+1):
+                i_D = WignerDindex(ell, mp, -ell, ell_min)
+                for m in range(-ell, 0):
+                    i_H = WignerHindex(ell, mp, m, mp_max)
+                    𝔇[i_D] = ϵ(mp) * ϵ(-m) * Hwedge[i_H] * zᵧpowers[-m].conjugate() * zₐpowers[mp]
+                    i_D += 1
+                for m in range(0, ell+1):
+                    i_H = WignerHindex(ell, mp, m, mp_max)
+                    𝔇[i_D] = ϵ(mp) * ϵ(-m) * Hwedge[i_H] * zᵧpowers[m] * zₐpowers[mp]
+                    i_D += 1
+    
+    def _to_euler_phases(R, z):
+        """Helper function for `to_euler_phases`"""
+        a = R[0]**2 + R[3]**2
+        b = R[1]**2 + R[2]**2
+        sqrta = np.sqrt(a)
+        sqrtb = np.sqrt(b)
+        z[1] = ((a - b) + 2j * sqrta * sqrtb) / (a + b)  # exp[iβ]
+        if sqrta > 0.0:
+            zp = (R[0] + 1j * R[3]) / sqrta  # exp[i(α+γ)/2]
+        else:
+            zp = 1.0 + 0.0j
+        if abs(sqrtb) > 0.0:
+            zm = (R[2] - 1j * R[1]) / sqrtb  # exp[i(α-γ)/2]
+        else:
+            zm = 1.0 +0.0j
+        z[0] = zp * zm
+        z[2] = zp * zm.conjugate()
+
+    # quaternions = quaternionic.array(R).ndarray.reshape((-1, 4))
+    quaternions = rotation_matrix_to_quaternion(
+        np.swapaxes(R, -1, -2)
+    ).reshape((-1, 4))
+    Dsize = WignerDsize(ell_min, mp_max, ell_max)
+    Hsize = WignerHsize(mp_max, ell_max)
+    function_values = np.zeros(quaternions.shape[:-1] + (Dsize,), dtype=complex)
+
+    n = np.array([n for n in range(ell_max+2) for _ in range(-n, n+1)])
+    m = np.array([m for n in range(ell_max+2) for m in range(-n, n+1)])
+    absn = np.array([n for n in range(ell_max+2) for _ in range(n+1)])
+    absm = np.array([m for n in range(ell_max+2) for m in range(n+1)])
+    _a = np.sqrt((absn+1+absm) * (absn+1-absm) / ((2*absn+1)*(2*absn+3)))
+    _b = np.sqrt((n-m-1) * (n-m) / ((2*n-1)*(2*n+1)))
+    _b[m<0] *= -1
+    _d = 0.5 * np.sqrt((n-m) * (n+m+1))
+    _d[m<0] *= -1
+    with np.errstate(divide='ignore', invalid='ignore'):
+        _g = 2*(m+1) / np.sqrt((n-m)*(n+m+1))
+        _h = np.sqrt((n+m+2)*(n-m-1) / ((n-m)*(n+m+1)))
+    if not (
+        np.all(np.isfinite(_a)) and
+        np.all(np.isfinite(_b)) and
+        np.all(np.isfinite(_d))
     ):
-        self.options = options or {}
-        self._state = None
+        raise ValueError("Found a non-finite value inside this object")
 
-    def update(self, metrics: Dict[str, Union[int, float]]) -> None:
-        if self._state is None:
-            self._state = {}
-        state = self._state
-        n_iters_since_update = state["n_iters_since_update"] = state.get("n_iters_since_update", {})
-        for k, v in metrics.items():
-            accumulation_mode = self.options.get(k, "average")
-            n_iters_since_update[k] = n = n_iters_since_update.get(k, 0) + 1
-            if k not in state:
-                state[k] = 0
-            if accumulation_mode == "last":
-                state[k] = v
-            elif accumulation_mode == "average":
-                state[k] = state[k] * ((n - 1) / n) + v / n
-            elif accumulation_mode == "sum":
-                state[k] += v
-            else:
-                raise ValueError(f"Unknown accumulation mode {accumulation_mode}")
+    # Loop over all input quaternions
+    for i_R in range(quaternions.shape[0]):
+        # Init
+        Hwedge = np.zeros((Hsize,), dtype=float)
+        Hv = np.zeros(((ell_max+1)**2,), dtype=float)
+        Hextra = np.zeros((ell_max+2,), dtype=float)
+        zₐpowers = np.zeros((ell_max+1), dtype=complex)[np.newaxis]
+        zᵧpowers = np.zeros((ell_max+1), dtype=complex)[np.newaxis]
+        z = np.zeros((3,), dtype=complex)
+        
+        _to_euler_phases(quaternions[i_R], z)
 
-    def pop(self) -> Dict[str, Union[int, float]]:
-        if self._state is None:
-            return {}
-        state = self._state
-        self._state = None
-        state.pop("n_iters_since_update", None)
-        return state
+        # Compute a quarter of the H matrix
+        _step_1(Hwedge)
+        _step_2(_g, _h, ell_max, mp_max, Hwedge, Hextra, Hv, z[1])
+        _step_3(_a, _b, ell_max, mp_max, Hwedge, Hextra, z[1])
+        _step_4(_d, ell_max, mp_max, Hwedge, Hv)
+        _step_5(_d, ell_max, mp_max, Hwedge, Hv)
+
+        D = function_values[i_R]
+        _complex_powers(z[0:1], ell_max, zₐpowers)
+        _complex_powers(z[2:3], ell_max, zᵧpowers)
+        _fill_wigner_D(ell_min, ell_max, mp_max, D, Hwedge, zₐpowers[0], zᵧpowers[0])
+    return function_values.reshape(R.shape[:-2] + (Dsize,))
 
 
-@contextlib.contextmanager
-def run_inside_eval_container(backend_name: Optional[str] = None):
+def _winger_D_multiply_spherical_harmonics(D, y):
     """
-    Ensures PyTorch is available to compute extra metrics (lpips)
+    Multiply a Wigner D matrix by a spherical harmonic coefficients.
     """
-    from .backends import get_backend
-    try:
-        import torch as _
-        yield None
-        return
-    except ImportError:
-        pass
+    output = np.zeros_like(y)
+    offset, ls, i = 0, 0, 0
+    for i in range(int(math.sqrt(y.shape[-1]))):
+        ls = 2*i+1
+        offset = ((2*i-1)*i*(4*i+2))//6
+        d_part = D[..., offset:offset+ls**2].reshape(D.shape[:-1] + (ls, ls)).T
+        offset_sh = i**2
+        y_part = y[..., offset_sh:offset_sh+ls]
+        output[..., offset_sh:offset_sh+ls] = np.matmul(d_part, y_part[..., None])[..., 0].real
+    if (offset+ls**2) != D.shape[-1]:
+        raise ValueError(f"The D matrix shape {D.shape[-1]} does not match the expected shape {offset} for the spherical harmonics with rank {i-1}")
+    return output
 
-    logging.warning("PyTorch is not available in the current environment, we will create a new environment to compute extra metrics (lpips)")
-    if backend_name is None:
-        backend_name = os.environ.get("NERFBASELINES_BACKEND", None)
-    backend = get_backend({
-        "id": "metrics",
-        "method": "base",
-        "conda": {
-            "environment_name": "_metrics", 
-            "install_script": ""
-        }}, backend=backend_name)
-    with backend:
-        backend.install()
-        yield None
 
+def rotate_spherical_harmonics(R, y):
+    """
+    Rotate spherical harmonics coefficients by a rotation matrix R.
+
+    Args:
+        R: A 3x3 rotation matrix.
+        y: The spherical harmonics coefficients.
+
+    Returns:
+        The rotated spherical harmonics coefficients.
+    """
+    D = _wigner_D_matrix(R, int(math.sqrt(y.shape[-1]))-1)
+    return _winger_D_multiply_spherical_harmonics(D, y)

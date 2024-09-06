@@ -1,5 +1,5 @@
 import os
-from nerfbaselines.registry import register
+from nerfbaselines import register, MethodSpec
 
 
 _paper_results = {
@@ -8,7 +8,7 @@ _paper_results = {
 
 
 register({
-    "method": ".nerfonthego:NeRFOnthego",
+    "method_class": ".nerfonthego:NeRFOnthego",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9",

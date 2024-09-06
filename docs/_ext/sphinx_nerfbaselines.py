@@ -5,7 +5,7 @@ from docutils import nodes
 from docutils.parsers.rst import directives
 from sphinx.util.docutils import SphinxDirective
 if TYPE_CHECKING:
-    from nerfbaselines.types import MethodSpec
+    from nerfbaselines import MethodSpec
 
 
 class NerfBaselinesDirective(SphinxDirective):
@@ -19,13 +19,18 @@ class NerfBaselinesDirective(SphinxDirective):
     }
 
     def _get_all_objects(self):
-        import nerfbaselines.registry
         self._register_all()
 
         try:
-            methods_registry = nerfbaselines.registry.methods_registry
+            import nerfbaselines._registry as registry
+        except ImportError:
+            # Older versions
+            import nerfbaselines.registry as registry  # type: ignore
+        try:
+            methods_registry = registry.methods_registry
         except AttributeError:
-            methods_registry = nerfbaselines.registry.registry
+            # Older versions
+            methods_registry = registry.registry
         for name, spec in methods_registry.items():
             metadata = getattr(spec, "metadata", None)
             if metadata is None:
@@ -38,19 +43,19 @@ class NerfBaselinesDirective(SphinxDirective):
             yield "methods/" + name, spec
 
         try:
-            for name, spec in nerfbaselines.registry.datasets_registry.items():
+            for name, spec in registry.datasets_registry.items():
                 yield "datasets/" + name, spec
         except AttributeError:
             pass
 
         try:
-            for name, spec in nerfbaselines.registry.evaluation_protocols_registry.items():
+            for name, spec in registry.evaluation_protocols_registry.items():
                 yield "evaluation-protocols/" + name, spec
         except AttributeError:
             pass
 
         try:
-            for name, spec in nerfbaselines.registry.loggers_registry.items():
+            for name, spec in registry.loggers_registry.items():
                 yield "loggers/" + name, spec
         except AttributeError:
             pass
@@ -115,7 +120,7 @@ class NerfBaselinesDirective(SphinxDirective):
                                   nodes.field_body('', nodes.Text(name))))
 
         try:
-            supported_backends = backends._get_implemented_backends(spec)
+            supported_backends = backends.get_implemented_backends(spec)
             fields.append(nodes.field('', 
                                       nodes.field_name('', nodes.Text("Backends")), 
                                       nodes.field_body('', nodes.Text(", ".join(supported_backends)))))
@@ -156,19 +161,28 @@ class NerfBaselinesDirective(SphinxDirective):
         return section
 
     def _register_all(self):
-        import nerfbaselines.registry
+        try:
+            import nerfbaselines._registry as registry
+        except ImportError:
+            # Older versions
+            import nerfbaselines.registry as registry  # type: ignore
         # Calls register_all
         try:
-            nerfbaselines.registry.get_supported_methods()
+            registry.get_supported_methods()
         except:
             # Older versions of nerfbaselines
-            nerfbaselines.registry.supported_methods()
+            registry.supported_methods()
 
     def _resolve_evaluation_protocol(self, name):
-        import nerfbaselines.registry
+        try:
+            import nerfbaselines._registry as registry
+        except ImportError:
+            # Older versions
+            import nerfbaselines.registry as registry  # type: ignore
         self._register_all()
         resolve_target = getattr(self.env.config, 'linkcode_resolve', None)
-        name = nerfbaselines.registry.evaluation_protocols_registry[name]["evaluation_protocol"]
+        spec = registry.evaluation_protocols_registry[name]
+        name = spec.get("evaluation_protocol_class", spec.get("evaluation_protocol"))
         module, fullname = name.split(":", 1)
         return resolve_target("py", {"module": module, "fullname": fullname})
 

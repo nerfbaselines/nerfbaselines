@@ -1,3 +1,4 @@
+import os
 import logging
 import shutil
 import requests
@@ -7,9 +8,10 @@ import tarfile
 from tqdm import tqdm
 import tempfile
 import numpy as np
-from ..types import UnloadedDataset
-from ._common import DatasetNotFoundError, get_scene_scale, get_default_viewer_transform, dataset_index_select
-from .colmap import load_colmap_dataset
+from ._common import get_scene_scale, get_default_viewer_transform
+from nerfbaselines import UnloadedDataset, DatasetNotFoundError
+from nerfbaselines.datasets import dataset_index_select
+from nerfbaselines.datasets.colmap import load_colmap_dataset
 
 
 T = TypeVar("T")
@@ -73,7 +75,7 @@ def load_tanksandtemples_dataset(path: Union[Path, str], split: str, downscale_f
     assert scene is not None, f"Scene not found in path {path}"
 
     dataset = load_colmap_dataset(path, images_path=images_path, split=None, **kwargs)
-    dataset["metadata"]["name"] = DATASET_NAME
+    dataset["metadata"]["id"] = DATASET_NAME
     dataset["metadata"]["scene"] = scene
     dataset["metadata"]["downscale_factor"] = downscale_factor
     dataset["metadata"]["expected_scene_scale"] = get_scene_scale(dataset["cameras"], None)
@@ -133,6 +135,11 @@ def download_tanksandtemples_dataset(path: str, output: Union[Path, str]) -> Non
                     with _assert_not_none(z.extractfile(info)) as source, open(target, "wb") as target:
                         shutil.copyfileobj(source, target)
 
+            with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f:
+                f.write(f'{{"loader": "{DATASET_NAME}"}}')
             shutil.rmtree(output, ignore_errors=True)
             shutil.move(str(output_tmp), str(output))
             logging.info(f"Downloaded {DATASET_NAME}/{scene} to {output}")
+
+
+__all__ = ["load_tanksandtemples_dataset", "download_tanksandtemples_dataset"]

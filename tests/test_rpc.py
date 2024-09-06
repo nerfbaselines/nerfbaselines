@@ -1,3 +1,5 @@
+import pytest
+import os
 import sys
 from functools import partial
 import threading
@@ -10,6 +12,16 @@ from unittest import mock
 
 from nerfbaselines.utils import CancelledException, CancellationToken
 from nerfbaselines.backends._common import SimpleBackend
+
+
+@pytest.fixture(scope="module", autouse=True)
+def add_tests_to_path():
+    backup_pp = os.environ.get("PYTHONPATH", "")
+    try:
+        os.environ["PYTHONPATH"] = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + ":" + backup_pp
+        yield
+    finally:
+        os.environ["PYTHONPATH"] = backup_pp
 
 
 def _test_function(a, b):

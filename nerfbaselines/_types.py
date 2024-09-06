@@ -46,10 +46,11 @@ except ImportError:
     from typing_extensions import FrozenSet
 
 if TYPE_CHECKING:
-    from .backends import BackendName, CondaBackendSpec, DockerBackendSpec, ApptainerBackendSpec
+    from .backends import CondaBackendSpec, DockerBackendSpec, ApptainerBackendSpec
 else:
-    BackendName = str
-    CondaBackendSpec = DockerBackendSpec = ApptainerBackendSpec = dict
+    CondaBackendSpec = Any
+    DockerBackendSpec = Any
+    ApptainerBackendSpec = Any
 
 if TYPE_CHECKING:
     import torch
@@ -59,6 +60,7 @@ if TYPE_CHECKING:
 NB_PREFIX = os.path.expanduser(os.environ.get("NERFBASELINES_PREFIX", "~/.cache/nerfbaselines"))
 ColorSpace = Literal["srgb", "linear"]
 CameraModel = Literal["pinhole", "opencv", "opencv_fisheye", "full_opencv"]
+BackendName = Literal["conda", "docker", "apptainer", "python"]
 DatasetFeature = Literal["color", "points3D_xyz", "points3D_rgb", "images_points3D_indices"]
 TTensor = TypeVar("TTensor", np.ndarray, "torch.Tensor", "jnp.ndarray")
 TTensor_co = TypeVar("TTensor_co", np.ndarray, "torch.Tensor", "jnp.ndarray", covariant=True)
@@ -294,6 +296,71 @@ class Dataset(_IncompleteDataset):
     images: Union[np.ndarray, List[np.ndarray]]  # [N][H, W, 3]
 
 
+@overload
+def new_dataset(*,
+                cameras: Cameras,
+                image_paths: Sequence[str],
+                image_paths_root: Optional[str] = ...,
+                images: Union[np.ndarray, List[np.ndarray]],
+                sampling_mask_paths: Optional[Sequence[str]] = ...,
+                sampling_mask_paths_root: Optional[str] = None,
+                sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = ...,  # [N][H, W]
+                points3D_xyz: Optional[np.ndarray] = ...,  # [M, 3]
+                points3D_rgb: Optional[np.ndarray] = ...,  # [M, 3]
+                images_points3D_indices: Optional[Sequence[np.ndarray]] = None,  # [N][<M]
+                metadata: Dict) -> Dataset:
+    ...
+
+
+@overload
+def new_dataset(*,
+                cameras: Cameras,
+                image_paths: Sequence[str],
+                image_paths_root: Optional[str] = ...,
+                images: Literal[None] = None,
+                sampling_mask_paths: Optional[Sequence[str]] = ...,
+                sampling_mask_paths_root: Optional[str] = None,
+                sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = ...,  # [N][H, W]
+                points3D_xyz: Optional[np.ndarray] = ...,  # [M, 3]
+                points3D_rgb: Optional[np.ndarray] = ...,  # [M, 3]
+                images_points3D_indices: Optional[Sequence[np.ndarray]] = None,  # [N][<M]
+                metadata: Dict) -> UnloadedDataset:
+    ...
+
+
+def new_dataset(*,
+                cameras: Cameras,
+                image_paths: Sequence[str],
+                image_paths_root: Optional[str] = None,
+                images: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W, 3]
+                sampling_mask_paths: Optional[Sequence[str]] = None,
+                sampling_mask_paths_root: Optional[str] = None,
+                sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W]
+                points3D_xyz: Optional[np.ndarray] = None,  # [M, 3]
+                points3D_rgb: Optional[np.ndarray] = None,  # [M, 3]
+                images_points3D_indices: Optional[Sequence[np.ndarray]] = None,  # [N][<M]
+                metadata: Dict) -> Union[UnloadedDataset, Dataset]:
+    if image_paths_root is None:
+        image_paths_root = os.path.commonpath(image_paths)
+    if sampling_mask_paths_root is None and sampling_mask_paths is not None:
+        sampling_mask_paths_root = os.path.commonpath(sampling_mask_paths)
+    if image_paths_root is None:
+        image_paths_root = os.path.commonpath(image_paths)
+    return UnloadedDataset(
+        cameras=cameras,
+        image_paths=list(image_paths),
+        sampling_mask_paths=list(sampling_mask_paths) if sampling_mask_paths is not None else None,
+        sampling_mask_paths_root=sampling_mask_paths_root,
+        image_paths_root=image_paths_root,
+        images=images,
+        sampling_masks=sampling_masks,
+        points3D_xyz=points3D_xyz,
+        points3D_rgb=points3D_rgb,
+        images_points3D_indices=list(images_points3D_indices) if images_points3D_indices is not None else None,
+        metadata=metadata
+    )
+
+
 RenderOutput = Dict[str, np.ndarray]
 # NOTE: Type intersection is not supported for now
 # color: Required[np.ndarray]  # [h w 3]
@@ -315,7 +382,7 @@ class RenderOutputType(TypedDict, total=False):
 class MethodInfo(TypedDict, total=False):
     method_id: Required[str]
     required_features: FrozenSet[DatasetFeature]
-    supported_camera_models: FrozenSet
+    supported_camera_models: FrozenSet[CameraModel]
     supported_outputs: Tuple[Union[str, RenderOutputType], ...]
 
 
@@ -344,13 +411,6 @@ class Method(Protocol):
                  checkpoint: Union[str, None] = None,
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[Dict[str, Any]] = None):
-        pass
-
-    @classmethod
-    def install(cls) -> None:
-        """
-        Install the method.
-        """
         pass
 
     @classmethod
@@ -606,10 +666,10 @@ ImplementationStatus = Literal["working", "reproducing", "not-working", "working
 
 class MethodSpec(TypedDict, total=False):
     id: Required[str]
-    method: Required[str]
-    conda: NotRequired[CondaBackendSpec]
-    docker: NotRequired[DockerBackendSpec]
-    apptainer: NotRequired[ApptainerBackendSpec]
+    method_class: Required[str]
+    conda: NotRequired['CondaBackendSpec']
+    docker: NotRequired['DockerBackendSpec']
+    apptainer: NotRequired['ApptainerBackendSpec']
     metadata: Dict[str, Any]
     backends_order: List[BackendName]
     presets: Dict[str, Dict[str, Any]]
@@ -621,9 +681,14 @@ class MethodSpec(TypedDict, total=False):
     implementation_status: Dict[str, ImplementationStatus]
 
 
+class LoggerSpec(TypedDict, total=False):
+    id: Required[str]
+    logger_class: Required[str]
+
+
 class EvaluationProtocolSpec(TypedDict, total=False):
     id: Required[str]
-    evaluation_protocol: Required[str]
+    evaluation_protocol_class: Required[str]
 
 
 class DatasetSpec(TypedDict, total=False):
@@ -634,3 +699,6 @@ class DatasetSpec(TypedDict, total=False):
     evaluation_protocol: Union[str, EvaluationProtocolSpec]
     metadata: DatasetSpecMetadata
 
+
+class DatasetNotFoundError(Exception):
+    pass

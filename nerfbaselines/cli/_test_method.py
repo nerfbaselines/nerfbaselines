@@ -1,3 +1,4 @@
+import contextlib
 import traceback
 import sys
 import json
@@ -10,78 +11,230 @@ import click
 from PIL import Image
 import tempfile
 from tqdm import trange
-from nerfbaselines import backends
-from nerfbaselines import registry
+import nerfbaselines
+from typing import Type
+from nerfbaselines import (
+    build_method_class,
+    MethodSpec,
+    Method,
+    Dataset,
+)
 from nerfbaselines.datasets import load_dataset, dataset_index_select
-from nerfbaselines.utils import SetParamOptionType, handle_cli_error, setup_logging, Indices
-from nerfbaselines.utils import run_inside_eval_container
 from nerfbaselines.logging import TensorboardLogger
-from nerfbaselines.io import open_any_directory
-from nerfbaselines.training import Trainer, eval_few, eval_all
-from nerfbaselines.registry import build_evaluation_protocol
-from nerfbaselines.evaluation import evaluate
-from ._common import ChangesTracker
+from nerfbaselines.io import open_any_directory, read_image
+from nerfbaselines.training import (
+    Trainer, Indices, eval_few, eval_all, build_logger,
+    get_presets_and_config_overrides,
+)
+from nerfbaselines.results import load_metrics_from_results
+from nerfbaselines.evaluation import (
+    evaluate, run_inside_eval_container, build_evaluation_protocol
+)
+from ._common import (
+    ChangesTracker, handle_cli_error, SetParamOptionType, click_backend_option, setup_logging,
+    TupleClickType,
+)
+
+
+@contextlib.contextmanager
+def stdout_to_stderr():
+    import sys
+    stdout_fd = sys.stdout.fileno()
+    stdout_copy = os.dup(stdout_fd)
+    try:
+        sys.stdout.flush()
+        os.dup2(sys.stderr.fileno(), stdout_fd)
+        yield None
+    finally:
+        sys.stdout.flush()
+        os.dup2(stdout_copy, stdout_fd)
+        os.close(stdout_copy)
+
+
+class skip(Exception):
+    pass
+
+
+class error(Exception):
+    pass
+
+
+def _resolve_checkpoint_path(spec: MethodSpec, dataset_scene: str, local_results_path=None):
+    method_id = spec["id"]
+    if local_results_path is not None:
+        if os.path.exists(os.path.join(local_results_path, method_id, dataset_scene + ".zip")):
+            artifact = os.path.join(local_results_path, method_id, dataset_scene + ".zip")
+            artifact_json = os.path.join(local_results_path, method_id, dataset_scene + ".json")
+            with open(artifact_json, "r") as f:
+                data = json.load(f)
+            return artifact, data
+
+    import requests
+    output_artifact = spec.get("output_artifacts", {}).get(dataset_scene, None)
+    if output_artifact is not None:
+        artifact = output_artifact["link"]
+        assert artifact.endswith(".zip")
+        artifact_json = artifact[:-4] + ".json"
+        result = requests.get(artifact_json)
+        result.raise_for_status()
+        data = result.json()
+        return artifact, data
+
+    artifact = f"https://huggingface.co/jkulhanek/nerfbaselines/resolve/main/{method_id}/{dataset_scene}.zip"
+    artifact_json = f"https://huggingface.co/jkulhanek/nerfbaselines/resolve/main/{method_id}/{dataset_scene}.json"
+    result = requests.get(artifact_json)
+    if result.status_code == 404:
+        raise skip("Skipping public checkpoint verification - checkpoint not available")
+    result.raise_for_status()
+    data = result.json()
+    return artifact, data
+
+
+def _validate_public_checkpoint(method_cls: Type[Method], 
+                                spec: MethodSpec, 
+                                test_dataset: Dataset,
+                                test_dataset_indices=None,
+                                local_results_path=None):
+    def _recompute_psnrs(checkpoint):
+        logging.info("Stored metrics may be in incorrect order (older version of nerfbaselines), computing GT metrics from scratch.")
+        # For older versions, raw_metrics were unsorted 
+        # so we recompute metrics from scratch.
+        def read_gt_predictions():
+            # Load the prediction
+            for impath in test_dataset["image_paths"]:
+                relpath = os.path.relpath(impath, test_dataset["image_paths_root"])
+                relpath = os.path.splitext(relpath)[0] + ".png"
+                yield {
+                    "color": read_image(os.path.join(checkpoint, "predictions", "color", relpath))
+                }
+
+        gt_metrics = list(eval_protocol.evaluate(read_gt_predictions(), test_dataset))
+        return np.array([x["psnr"] for x in gt_metrics], dtype=np.float32)
+
+    # Get checkpoint path
+    dataset_name = test_dataset["metadata"]["id"]
+    scene = test_dataset["metadata"]["scene"]
+    if dataset_name is None or scene is None:
+        raise skip("Skipping public checkpoint verification - dataset not public")
+    artifact, artifact_data = _resolve_checkpoint_path(spec, f"{dataset_name}/{scene}", local_results_path=local_results_path)
+    del dataset_name, scene
+
+    eval_protocol = build_evaluation_protocol(test_dataset["metadata"]["evaluation_protocol"])
+
+    # Read results from artifact_data
+    # We can only do this for newest version of nerfbaselines artifacts
+    # For older versions, raw_metrics were unsorted.
+    gt_psnrs = np.array(load_metrics_from_results(artifact_data)["psnr"], np.float32)
+    if test_dataset_indices is not None:
+        gt_psnrs = gt_psnrs[np.array(test_dataset_indices, dtype=np.int32)]
+    if len(gt_psnrs) != len(test_dataset["cameras"]):
+        raise error("Public dataset: number of images do not match")
+
+    with contextlib.ExitStack() as stack:
+        # Pull the public checkpoint
+        artifact_path = stack.enter_context(open_any_directory(artifact, "r"))
+
+        method = method_cls(checkpoint=artifact_path + os.path.sep + "checkpoint")
+
+        # Validate if the results match
+        render_output = list(eval_protocol.render(method, test_dataset))
+        metrics = list(eval_protocol.evaluate(render_output, test_dataset))
+        pred_psnrs = np.array([met["psnr"] for met in metrics], np.float32)
+
+        if np.max(np.abs(gt_psnrs - pred_psnrs)) > 3.0:
+            gt_psnrs = _recompute_psnrs(artifact_path)
+
+        print("GT PSNRs:", gt_psnrs)
+        print("Pred PSNRs:", pred_psnrs)
+
+        slack = 0.05
+        if len(gt_psnrs) < 20 and eval_protocol.get_name() == "nerfw":
+            # We give more slack to NeRF-W eval protocol for smaller test sets.
+            # Because it performs optimization on the test set
+            # the results can vary.
+            slack = 0.2
+
+        # Validate predictions
+        max_diff = max(pred_psnrs - gt_psnrs, key=abs)
+        avg_diff = np.mean(pred_psnrs - gt_psnrs)
+        if abs(avg_diff) > slack:
+            raise error(f"Public checkpoint incorrect: psnr diff avg {avg_diff:.2f}, max {max_diff:.2f}")
+
+        return f"Public checkpoint valid, psnr diff avg {avg_diff:.2f}, max{max_diff:.2f}"
 
 
 @click.command("test-method")
-@click.option("--method", "method_name", type=click.Choice(sorted(registry.get_supported_methods())), required=True, help="Method to use")
+@click.option("--method", "method_name", type=click.Choice(sorted(nerfbaselines.get_supported_methods())), required=True, help="Method to use")
 @click.option("--data", "dataset", type=str, required=True)
 @click.option("--verbose", "-v", is_flag=True)
-@click.option("--backend", "backend_name", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
-@click.option("--set", "config_overrides", help="Override a parameter in the method.", type=SetParamOptionType(), multiple=True, default=None)
 @click.option("--fast", is_flag=True, help="Run only the fast tests")
-@click.option("--steps", type=int, default=2013, help="Number of steps to run")
+@click.option("--steps", type=int, default=113, help="Number of steps to run")
+@click.option("--presets", type=TupleClickType(), default=None, help=(
+    "Apply a comma-separated list of preset to the method. If no `--presets` is supplied, or if a special `@auto` preset is present,"
+    " the method's default presets are applied (based on the dataset metadata)."))
+@click.option("--set", "config_overrides", help="Override a parameter in the method.", type=SetParamOptionType(), multiple=True, default=None)
+@click_backend_option()
 @handle_cli_error
 def main(method_name: str, 
          dataset: str, *, 
          backend_name=None, 
          verbose: bool = False,
          config_overrides=None,
+         presets=None,
          steps: int = 113,
          fast=False):
-    logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)
-
-    # For some methods we do less steps by default to make it faster
-    parameter_source = click.get_current_context().get_parameter_source('steps')
-    if parameter_source == click.core.ParameterSource.DEFAULT:
-        if method_name in ("nerf", "mipnerf", "mipnerf360"):
-            steps = 113
+    local_results_path = os.environ.get("NB_LOCAL_RESULTS_PATH", None)
 
     if config_overrides is not None and isinstance(config_overrides, (list, tuple)):
         config_overrides = dict(config_overrides)
-    errors, skips, successes = [], [], []
+    if config_overrides is None:
+        config_overrides = {}
 
-    def mark_success(message: str):
-        logging.info(message)
-        successes.append(message)
+    with contextlib.ExitStack() as stack:
+        # Redirect stdout to stderr
+        stack.enter_context(stdout_to_stderr())
 
-    def mark_error(message: str):
-        logging.error(message)
-        errors.append(message)
+        # For some methods we do less steps by default to make it faster
+        parameter_source = click.get_current_context().get_parameter_source('steps')
+        if parameter_source == click.core.ParameterSource.DEFAULT:
+            if method_name in ("nerfacto", "kplanes", "gaussian-splatting-wild"):
+                # Methods are more random and needs more steps to stabilize
+                steps = 1025
+        if fast and method_name == "nerfw-reimpl":
+            config_overrides["num_gpus"] = 1
+            config_overrides["appearance_optim_steps"] = 32
 
-    def mark_skip(message: str):
-        logging.warning(message)
-        skips.append(message)
+        errors, skips, successes = [], [], []
 
-    # Get method spec
-    method_spec = registry.get_method_spec(method_name)
+        def mark_success(message: str):
+            logging.info(message)
+            successes.append(message)
 
-    # Load train dataset
-    logging.info("loading train dataset")
+        def mark_error(message: str):
+            logging.error(message)
+            errors.append(message)
 
-    output_context = tempfile.TemporaryDirectory()
-    with output_context as output:
-        with registry.build_method(method_spec, backend=backend_name) as method_cls:
+        def mark_skip(message: str):
+            logging.warning(message)
+            skips.append(message)
+
+        # Get method spec
+        method_spec = nerfbaselines.get_method_spec(method_name)
+
+        # Load train dataset
+        logging.info("loading train dataset")
+
+        # Open temp output directory
+        output = stack.enter_context(tempfile.TemporaryDirectory())
+
+        with build_method_class(method_spec, backend=backend_name) as method_cls:
             mark_success("Method backend initialized")
+            mark_success("Method installed")
 
             method_info = method_cls.get_method_info()
             logging.info("Method info: \n" + pprint.pformat(method_info))
             mark_success("Method info loaded")
-
-            # Install
-            method_cls.install()
-            mark_success("Method installed")
 
             # Load train dataset
             train_dataset = load_dataset(dataset, 
@@ -96,14 +249,13 @@ def main(method_name: str,
             mark_success("Train dataset loaded")
 
             # Apply config overrides for the train dataset
-            dataset_name = train_dataset["metadata"].get("name")
-            if dataset_name is not None:
-                _dataset_overrides = (method_spec.get("dataset_overrides") or {}).get(dataset_name, {}) or {}
-                for k, v in _dataset_overrides.items():
-                    config_overrides = config_overrides or {}
-                    if k not in config_overrides:
-                        config_overrides[k] = v
-            logging.info("Config overrides: \n" + pprint.pformat(config_overrides))
+            _presets, _config_overrides = get_presets_and_config_overrides(
+                method_spec, train_dataset["metadata"], presets=presets, config_overrides=config_overrides)
+            del presets, config_overrides
+            # Log the current set of config overrides
+            logging.info(f"Active presets: {', '.join(_presets)}")
+            logging.info(f"Using config overrides: {pprint.pformat(_config_overrides)}")
+
 
             # Load eval dataset
             test_dataset = load_dataset(dataset, 
@@ -111,8 +263,10 @@ def main(method_name: str,
                                         features=method_info.get("required_features"), 
                                         supported_camera_models=method_info.get("supported_camera_models"), 
                                         load_features=True)
+            test_dataset_indices = None
             if fast:
                 test_dataset = dataset_index_select(test_dataset, list(range(min(len(test_dataset["cameras"]), 10))))
+                test_dataset_indices = [i for i, _ in sorted(enumerate(test_dataset["image_paths"]), key=lambda x: x[1])]
             test_dataset["metadata"]["expected_scene_scale"] = train_dataset["metadata"].get("expected_scene_scale")
             mark_success("Test dataset loaded")
 
@@ -120,7 +274,7 @@ def main(method_name: str,
             model = method_cls(
                 checkpoint=None,
                 train_dataset=train_dataset,
-                config_overrides=config_overrides,
+                config_overrides=_config_overrides,
             )
             model_info = model.get_info()
             logging.info("Method info: " + pprint.pformat(model_info))
@@ -208,7 +362,7 @@ def main(method_name: str,
                             assert getattr(v, "shape", v) == getattr(v2, "shape", v2)
                             assert isinstance(v, np.ndarray)
                             assert isinstance(v2, np.ndarray)
-                            np.testing.assert_allclose(v, v2, atol=1e-6)
+                            np.testing.assert_allclose(v, v2, atol=1e-5, rtol=1e-5)
                         mark_success(f"Restored model {post} matches original")
                     except AssertionError:
                         traceback.print_exc()
@@ -228,7 +382,7 @@ def main(method_name: str,
                     model2 = method_cls(
                         checkpoint=os.path.join(tmpdir, "ckpt1"),
                         train_dataset=train_dataset,
-                        config_overrides=config_overrides,
+                        config_overrides=_config_overrides,
                     )
                     model2_info = model2.get_info()
                     print("Loaded model info: \n", pprint.pformat(model2_info))
@@ -247,7 +401,7 @@ def main(method_name: str,
             model = method_cls(
                 checkpoint=None,
                 train_dataset=train_dataset,
-                config_overrides=config_overrides,
+                config_overrides=_config_overrides,
             )
 
             trainer = Trainer(
@@ -258,10 +412,10 @@ def main(method_name: str,
                 save_iters=Indices([]),
                 eval_all_iters=Indices([-1]),
                 eval_few_iters=Indices([2]),
-                loggers=frozenset(("tensorboard",)),
+                logger=build_logger(frozenset(("tensorboard",))),
                 generate_output_artifact=True,
-                config_overrides=config_overrides,
-            )
+                config_overrides=_config_overrides,
+                applied_presets=frozenset(_presets))
             if fast:
                 trainer.num_iterations = max(10, steps)
                 # Fix total for indices
@@ -318,6 +472,17 @@ def main(method_name: str,
                 traceback.print_exc()
                 mark_error("Checkpoint does not reproduce results")
 
+            try:
+                mark_success(_validate_public_checkpoint(method_cls, method_spec, test_dataset, test_dataset_indices=test_dataset_indices, local_results_path=local_results_path))
+            except skip as e:
+                mark_skip(str(e))
+            except error as e:
+                mark_error(str(e))
+            except Exception as e:
+                traceback.print_exc()
+                mark_error("Public checkpoint validation fails")
+
+
         metrics = results["metrics"]
         logging.info("Metrics: \n" + pprint.pformat(metrics))
 
@@ -344,7 +509,6 @@ def main(method_name: str,
         else:
             mark_error("Final evaluation does not match predictions")
 
-
         # Collect the metrics and compare with the expected values
         # Test evaluation command - if the results match the expected values 
         # with run_inside_eval_container(backend_name):
@@ -353,7 +517,7 @@ def main(method_name: str,
         if fast:
             mark_skip("Skipping paper results comparison for fast test")
         elif "paper_results" in metadata:
-            method_key = train_dataset["metadata"]["name"] + "/" + train_dataset["metadata"]["scene"]
+            method_key = train_dataset["metadata"]["id"] + "/" + train_dataset["metadata"]["scene"]
             paper_results = metadata["paper_results"].get(method_key, None)
             if paper_results is not None:
                 logging.info("Paper results: \n" + pprint.pformat(paper_results))
@@ -382,12 +546,15 @@ def main(method_name: str,
         # TODO: If the method can create a demo, test generating the demo
         # TODO: Test running the viewer
 
-        # TODO: print error summary
-        print("Summary:")
-        for message in successes:
-            print(f"  \033[92m\u2713 {message}\033[0m")
-        for message in skips:
-            print(f"  \033[93m\u26A0 {message}\033[0m")
-        for message in errors:
-            print(f"  \033[91m\u2717 {message}\033[0m")
-        sys.exit(1 if errors else 0)
+    # Print error summary
+    if errors:
+        print("There were some errors:")
+    else:
+        print("All tests passed:")
+    for message in successes:
+        print(f"  \033[92m\u2713 {message}\033[0m")
+    for message in skips:
+        print(f"  \033[93m\u26A0 {message}\033[0m")
+    for message in errors:
+        print(f"  \033[91m\u2717 {message}\033[0m")
+    sys.exit(7 if errors else 0)

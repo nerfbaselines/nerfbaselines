@@ -1,8 +1,11 @@
 import pytest
 import numpy as np
 from nerfbaselines import cameras
-from nerfbaselines.types import get_args, camera_model_to_int, CameraModel
-from nerfbaselines.types import new_cameras
+from nerfbaselines import camera_model_to_int, CameraModel, new_cameras
+try:
+    from typing import get_args
+except ImportError:
+    from typing_extensions import get_args
 
 
 @pytest.mark.parametrize("camera_type", get_args(CameraModel))

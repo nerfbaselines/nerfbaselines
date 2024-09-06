@@ -1,6 +1,5 @@
 import os
-from nerfbaselines.types import MethodSpec
-from nerfbaselines.registry import register
+from nerfbaselines import register, MethodSpec
 
 
 _paper_results = {
@@ -21,7 +20,7 @@ _paper_results = {
 
 
 MultiNeRFSpec: MethodSpec = {
-    "method": ".multinerf:MultiNeRF",
+    "method_class": ".multinerf:MultiNeRF",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.11",

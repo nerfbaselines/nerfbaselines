@@ -1,14 +1,8 @@
 from unittest import mock
 import pytest
-import click.core
 from time import sleep, perf_counter
 from nerfbaselines.utils import Indices
 from nerfbaselines.utils import CancellationToken, CancelledException
-
-try:
-    from typing import Literal, Optional
-except ImportError:
-    from typing_extensions import Literal, Optional
 
 
 def test_indices_last():
@@ -33,6 +27,7 @@ class TimeLimitCancellationToken(CancellationToken):
 
     @_cancelled.setter
     def _cancelled(self, value):
+        del value
         pass
 
 
@@ -77,30 +72,15 @@ def test_cancel_generator():
 
 
 def test_get_resources_utilization_info():
-    from nerfbaselines.utils import get_resources_utilization_info
+    from nerfbaselines.training import get_resources_utilization_info
 
     info = get_resources_utilization_info()
     assert isinstance(info, dict)
 
 
-def test_cast_value():
-    from nerfbaselines.utils import cast_value
-
-    assert cast_value(int, 1) == 1
-    assert cast_value(int, "1") == 1
-    assert cast_value(Optional[int], 1) == 1
-    assert cast_value(str, "1") == "1"
-
-    assert cast_value(Optional[int], "none") is None
-    assert cast_value(Literal[3, "ok"], "ok") == "ok"
-    assert cast_value(Literal[3, "ok"], "3") == 3
-    with pytest.raises(TypeError):
-        assert cast_value(Literal[3, "ok"], "5")
-
-
 def test_tuple_click_type():
     import click
-    from nerfbaselines.utils import TupleClickType
+    from nerfbaselines.cli._common import TupleClickType
 
     with mock.patch("sys.argv", ["test"]), \
         pytest.raises(SystemExit) as excinfo:

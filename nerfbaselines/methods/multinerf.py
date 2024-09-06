@@ -8,27 +8,30 @@ import base64
 import numpy as np
 import functools
 import gc
-from nerfbaselines.types import Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput
-from nerfbaselines.types import Cameras, camera_model_to_int
+from nerfbaselines import (
+    Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput,
+    Cameras, camera_model_to_int,
+)
 
 try:
     # We need to import torch before jax to load correct CUDA libraries
-    import torch
+    import torch  # type: ignore
+    del torch
 except ImportError:
     torch = None
-import gin
-import jax
-from jax import random
-import jax.numpy as jnp
-import flax
-from flax.training import checkpoints
-from internal.datasets import Dataset as MNDataset
-from internal import camera_utils
-from internal import configs
-from internal import models
-from internal import train_utils  # pylint: disable=unused-import
-from internal import utils
-from internal import raw_utils
+import gin  # type: ignore
+import jax  # type: ignore
+from jax import random  # type: ignore
+import jax.numpy as jnp  # type: ignore
+import flax  # type: ignore
+from flax.training import checkpoints  # type: ignore
+from internal.datasets import Dataset as MNDataset  # type: ignore
+from internal import camera_utils  # type: ignore
+from internal import configs  # type: ignore
+from internal import models  # type: ignore
+from internal import train_utils  # type: ignore
+from internal import utils  # type: ignore
+from internal import raw_utils  # type: ignore
 
 
 def numpy_to_base64(array: np.ndarray) -> str:
@@ -67,12 +70,14 @@ def patch_multinerf_with_multicam():
             pix_to_dir(pix_x_int, pix_y_int + 1)
         ], axis=0)
         # For jax, need to specify high-precision matmul.
-        matmul = camera_utils.math.matmul if xnp == jnp else xnp.matmul
+        matmul = camera_utils.math.matmul if xnp.__name__ == jnp.__name__ else xnp.matmul
         mat_vec_mul = lambda A, b: matmul(A, b[..., None])[..., 0]
         # Apply inverse intrinsic matrices.
         camera_dirs_stacked = mat_vec_mul(pixtocams, pixel_dirs_stacked)
 
         mask = camtype > 0
+        is_uniform = True
+        dl = None
         if xnp.any(mask):
             is_uniform = xnp.all(mask)
             if is_uniform:
@@ -112,7 +117,8 @@ def patch_multinerf_with_multicam():
                     dl[:, mask, :2] *= sin_theta_over_theta
                     dl[:, mask, 2:] *= xnp.cos(theta)
 
-        if mask.any():
+        if xnp.any(mask):
+            assert dl is not None, "dl must be set if mask is not empty"
             if is_uniform:
                 camera_dirs_stacked = dl
             else:
@@ -255,10 +261,6 @@ class NBDataset(MNDataset):
         if not self._eval:
             return super().start()
 
-    def _next_train(self):
-        if not self._eval:
-            return super()._next_train()
-
     def _next_test(self):
         if not self._eval:
             return super()._next_test()
@@ -400,14 +402,10 @@ class MultiNeRF(Method):
         self.lr_fn = None
         self.train_pstep = None
         self.render_eval_pfn = None
-        self.rngs = None
         self.step = 0
-        self.state = None
         self.cameras = None
         self.loss_threshold = None
         self.dataset = None
-        self.config = None
-        self.model = None
         self._config_str = None
         self._dataparser_transform = None
         if checkpoint is not None:
@@ -435,7 +433,7 @@ class MultiNeRF(Method):
     def _load_config(self, config_overrides=None):
         if self.checkpoint is None:
             # Find the config files root
-            import train
+            import train  # type: ignore
 
             configs_path = str(Path(train.__file__).absolute().parent / "configs")
             config_overrides = (config_overrides or {}).copy()
@@ -460,6 +458,7 @@ class MultiNeRF(Method):
     @classmethod
     def get_method_info(cls):
         return MethodInfo(
+            method_id="",  # Will be set by the registry
             required_features=frozenset(("color",)),
             supported_camera_models=frozenset(("pinhole", "opencv", "opencv_fisheye")),
             supported_outputs=("color", "depth", "accumulation",),
@@ -478,6 +477,7 @@ class MultiNeRF(Method):
         rng = random.PRNGKey(20200823)
         np.random.seed(20201473 + jax.process_index())
         rng, key = random.split(rng)
+        del key
 
         dummy_rays = utils.dummy_rays(include_exposure_idx=self.config.rawnerf_mode, include_exposure_values=True)
         self.model, variables = models.construct_model(rng, dummy_rays, self.config)
@@ -523,7 +523,7 @@ class MultiNeRF(Method):
         self.model, state, self.render_eval_pfn, train_pstep, self.lr_fn = setup
 
         variables = state.params
-        num_params = jax.tree_util.tree_reduce(lambda x, y: x + jnp.prod(jnp.array(y.shape)), variables, initializer=0)
+        num_params = jax.tree_util.tree_reduce(lambda x, y: x + jnp.prod(jnp.array(y.shape)), variables, initializer=0)  # type: ignore
         print(f"Number of parameters being optimized: {num_params}")
 
         if dataset.size > self.model.num_glo_embeddings and self.model.num_glo_features > 0:
@@ -552,6 +552,9 @@ class MultiNeRF(Method):
         return jnp.clip((self.step - 1) / (self.config.max_steps - 1), 0, 1)
 
     def train_iteration(self, step: int):
+        assert self.train_pstep is not None, "Method is not set up for training"
+        assert self.pdataset_iter is not None, "Method is not set up for training"
+        assert self.lr_fn is not None, "Method is not set up for training"
         self.step = step
         batch = next(self.pdataset_iter)
 
@@ -599,6 +602,8 @@ class MultiNeRF(Method):
         return out
 
     def save(self, path: str):
+        assert self._dataparser_transform is not None, "Dataparser transform must be set before saving"
+        assert self._config_str is not None, "Config string must be set before saving"
         path = os.path.abspath(str(path))
         if jax.process_index() == 0:
             state_to_save = jax.device_get(flax.jax_utils.unreplicate(self.state))
@@ -617,9 +622,11 @@ class MultiNeRF(Method):
                 f.write(self._config_str)
 
     def render(self, cameras: Cameras, *, embeddings=None, options=None):
+        assert self.render_eval_pfn is not None, "Method is not set up"
         del options
         if embeddings is not None:
-            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
+            method_id = self.get_method_info()["method_id"]
+            raise NotImplementedError(f"Optimizing embeddings is not supported for method {method_id}")
         # Test-set evaluation.
         # We reuse the same random number generator from the optimization step
         # here on purpose so that the visualization matches what happened in
@@ -641,7 +648,7 @@ class MultiNeRF(Method):
             dataparser_transform=self._dataparser_transform,
         )
 
-        for i, test_case in enumerate(test_dataset):
+        for test_case in test_dataset:
             rendering = models.render_image(functools.partial(self.render_eval_pfn, eval_variables, self.train_frac), test_case.rays, self.rngs[0], self.config, verbose=False)
 
             # TODO: handle rawnerf color space
@@ -681,6 +688,7 @@ class MultiNeRF(Method):
             dataset: Dataset.
             embeddings: Optional initial embeddings.
         """
+        del dataset, embeddings
         raise NotImplementedError()
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
@@ -690,5 +698,6 @@ class MultiNeRF(Method):
         Args:
             index: Index of the image.
         """
+        del index
         return None
 

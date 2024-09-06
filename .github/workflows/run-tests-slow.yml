@@ -27,6 +27,20 @@ jobs:
           exit 1
         fi
 
+  web-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Build web
+        run: |
+          pip install -e '.[web]'
+          nerfbaselines web build --output web-build --base-path "${{ steps.setup-pages.outputs.base_path }}" --docs all
+
   common-tests:
     runs-on: ubuntu-latest
     name: run-tests-common
@@ -92,18 +106,19 @@ jobs:
       - id: data-step
         name: Get required methods
         run: |
+          # TODO: remove nerfw-reimpl from blacklist as soon as it supports no-point3D setup
           pip install --upgrade pip
           pip install -e .
           python -c '
           import sys,os
           sys.path.append("scripts")
           from has_method_changed import method_has_changes
-          import nerfbaselines.registry as r;
+          from nerfbaselines import get_supported_methods
           blacklist=("trips","nerfonthego","nerfw-reimpl")
           import json; 
           github_event = "${{ github.event_name }}"
           for backend in ["docker", "conda", "apptainer"]:
-            methods = [x for x in r.get_supported_methods(backend) if not ":" in x and x not in blacklist]
+            methods = [x for x in get_supported_methods(backend) if not ":" in x and x not in blacklist]
             # Tetra-NeRF currently uses too much disk space, so we skip it
             if backend in ("apptainer", "conda"):
               methods = [x for x in methods if not x.startswith("tetra-nerf")]

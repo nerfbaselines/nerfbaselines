@@ -10,17 +10,21 @@ import warnings
 import tempfile
 import os
 import click
-from nerfbaselines.utils import setup_logging, handle_cli_error
-from nerfbaselines.utils import run_inside_eval_container
+from nerfbaselines import (
+    get_method_spec,
+    build_method_class,
+)
 from nerfbaselines.datasets import load_dataset
-from nerfbaselines.io import open_any_directory, deserialize_nb_info, serialize_nb_info, get_checkpoint_sha
-from nerfbaselines.evaluation import evaluate
-from nerfbaselines.registry import build_evaluation_protocol
-from nerfbaselines.io import save_output_artifact
-from nerfbaselines import registry
-from nerfbaselines import backends
-from ._common import ChangesTracker
-from .fix_checkpoint import fix_checkpoint
+from nerfbaselines.io import (
+    open_any_directory, deserialize_nb_info, serialize_nb_info, get_checkpoint_sha,
+    save_output_artifact,
+)
+from nerfbaselines.evaluation import (
+    evaluate, run_inside_eval_container, build_evaluation_protocol
+)
+from ._common import ChangesTracker, handle_cli_error, click_backend_option
+from ._common import setup_logging
+from ._fix_checkpoint import fix_checkpoint
 
 
 def build_changes_tracker():
@@ -108,7 +112,7 @@ def build_dir_tree(path):
 @click.option("--verbose", "-v", is_flag=True)
 @click.option("--force", is_flag=True)
 @click.option("--inplace", is_flag=True)
-@click.option("--backend", "backend_name", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
+@click_backend_option()
 @handle_cli_error
 def main(input: str,
          data=None,
@@ -173,7 +177,7 @@ def main(input: str,
         print("Info: ", pprint.pformat(info))
         dm = info.get("dataset_metadata") or {}
         scene = dm.get("scene", info.get("dataset_scene"))
-        dataset = dm.get("name", info.get("dataset_name", info.get("dataset_type")))
+        dataset = dm.get("id", dm.get("name", info.get("dataset_name", info.get("dataset_type"))))
         new_data = f"external://{dataset}/{scene}"
         if data is None:
             data = new_data
@@ -247,11 +251,11 @@ def main(input: str,
                 with open(os.path.join(_checkpoint, "nb-info.json"), "r") as f:
                     nb_info = json.load(f)
                     nb_info = deserialize_nb_info(nb_info)
-                method_spec = registry.get_method_spec(nb_info["method"])
-                with registry.build_method(method_spec, backend=backend_name) as method_cls:
+                method_spec = get_method_spec(nb_info["method"])
+                with build_method_class(method_spec, backend=backend_name) as method_cls:
                     method = method_cls(checkpoint=_checkpoint)
                     from nerfbaselines.evaluation import render_all_images
-                    _eval_protocol = registry.build_evaluation_protocol(evaluation_protocol)
+                    _eval_protocol = build_evaluation_protocol(evaluation_protocol)
                     _ = list(render_all_images(method, test_dataset, output=os.path.join(outpath, "predictions"), description="rendering all images", nb_info=nb_info, evaluation_protocol=_eval_protocol))
                     del _
                 changes_tracker.add_dir_changes(("predictions",), os.path.join(inpath, "predictions"), os.path.join(outpath, "predictions"))

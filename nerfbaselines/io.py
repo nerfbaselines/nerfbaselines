@@ -8,7 +8,7 @@ import numpy as np
 import time
 import tarfile
 import os
-from typing import Union, Iterator, IO, Any, Dict, List, Iterable, Optional
+from typing import Union, Iterator, IO, Any, Dict, List, Iterable, Optional, TypeVar
 import zipfile
 import contextlib
 from pathlib import Path
@@ -18,24 +18,31 @@ import logging
 import shutil
 from tqdm import tqdm
 import requests
-from .types import (
+from . import (
     Trajectory, 
     Method,
     Dataset,
     RenderOutput,
-    Literal,
 )
 from .utils import (
-    assert_not_none, 
-    save_image,
-    save_depth,
+    convert_image_dtype,
     visualize_depth,
     image_to_srgb,
 )
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
 from . import __version__
 
 
 OpenMode = Literal["r", "w"]
+T = TypeVar("T")
+
+
+def _assert_not_none(value: Optional[T]) -> T:
+    assert value is not None
+    return value
 
 
 def wget(url: str, output: Union[str, Path]):
@@ -76,7 +83,7 @@ def open_any(
                 rest = "/".join(components[zip_parts[-1] + 1 :])
                 with tarfile.open(fileobj=f, mode=mode + ":gz") as tar:
                     if mode == "r":
-                        with assert_not_none(tar.extractfile(rest)) as f:
+                        with _assert_not_none(tar.extractfile(rest)) as f:
                             yield f
                     elif mode == "w":
                         _, extension = os.path.split(rest)
@@ -548,7 +555,7 @@ def save_predictions(output: str, predictions: Iterable[RenderOutput], dataset: 
     allow_transparency = True
 
     def _predict_all(open_fn) -> Iterable[RenderOutput]:
-        for i, (pred, (w, h)) in enumerate(zip(predictions, assert_not_none(dataset["cameras"].image_sizes))):
+        for i, (pred, (w, h)) in enumerate(zip(predictions, _assert_not_none(dataset["cameras"].image_sizes))):
             gt_image = image_to_srgb(dataset["images"][i][:h, :w], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
             pred_image = image_to_srgb(pred["color"], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
             assert gt_image.shape[:-1] == pred_image.shape[:-1], f"gt size {gt_image.shape[:-1]} != pred size {pred_image.shape[:-1]}"
@@ -752,3 +759,50 @@ def get_torch_checkpoint_sha(checkpoint_data):
             raise ValueError(f"Unsupported type {type(d)}")
     update(checkpoint_data)
     return sha.hexdigest()
+
+
+def save_image(file: Union[BinaryIO, str, Path], tensor: np.ndarray):
+    if isinstance(file, (str, Path)):
+        with open(file, "wb") as f:
+            return save_image(f, tensor)
+    path = Path(file.name)
+    if str(path).endswith(".bin"):
+        if tensor.shape[2] < 4:
+            tensor = np.dstack((tensor, np.ones([tensor.shape[0], tensor.shape[1], 4 - tensor.shape[2]])))
+        file.write(struct.pack("ii", tensor.shape[0], tensor.shape[1]))
+        file.write(tensor.astype(np.float16).tobytes())
+    else:
+        from PIL import Image
+
+        tensor = convert_image_dtype(tensor, np.uint8)
+        image = Image.fromarray(tensor)
+        image.save(file, format="png")
+
+
+def read_image(file: Union[BinaryIO, str, Path]) -> np.ndarray:
+    if isinstance(file, (str, Path)):
+        with open(file, "rb") as f:
+            return read_image(f)
+    path = Path(file.name)
+    if str(path).endswith(".bin"):
+        h, w = struct.unpack("ii", file.read(8))
+        itemsize = 2
+        img = np.frombuffer(file.read(h * w * 4 * itemsize), dtype=np.float16, count=h * w * 4, offset=8).reshape([h, w, 4])
+        assert img.itemsize == itemsize
+        return img.astype(np.float32)
+    else:
+        from PIL import Image
+
+        return np.array(Image.open(file))
+
+
+def save_depth(file: Union[BinaryIO, str, Path], tensor: np.ndarray):
+    if isinstance(file, (str, Path)):
+        with open(file, "wb") as f:
+            return save_depth(f, tensor)
+    path = Path(file.name)
+    assert str(path).endswith(".bin")
+    file.write(struct.pack("ii", tensor.shape[0], tensor.shape[1]))
+    file.write(tensor.astype(np.float16).tobytes())
+
+

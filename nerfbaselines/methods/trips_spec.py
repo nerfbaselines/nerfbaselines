@@ -1,10 +1,9 @@
 import os
-from nerfbaselines.types import MethodSpec
-# from nerfbaselines.registry import register
+from nerfbaselines import MethodSpec, register
 
 
 TRIPSSpec: MethodSpec = {
-    "method": "trips_python:TRIPSMethod",
+    "method_class": "trips_python:TRIPSMethod",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9.7",

@@ -1,9 +1,8 @@
 import sys
 import contextlib
 from unittest import mock
-import ast
 import math
-from typing import List, Dict, Any, cast, Union, Type, Iterator
+from typing import List, Dict, Any, cast, Union, Type, Iterator, Optional
 import base64
 import os
 import struct
@@ -12,12 +11,21 @@ import json
 import warnings
 import numpy as np
 from .io import open_any
-from . import metrics
-from . import datasets
-from . import registry
-from .types import Literal, Optional, TypedDict, DatasetSpecMetadata, LicenseSpec, NotRequired, MethodInfo, Method
-from .registry import MethodSpec
+from . import (
+    metrics, get_method_spec, 
+    get_dataset_spec, get_supported_methods, 
+    get_supported_datasets,
+)
+from . import DatasetSpecMetadata, LicenseSpec, MethodInfo, Method, MethodSpec
 from ._constants import WEBPAGE_URL
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
+try:
+    from typing import NotRequired, TypedDict
+except ImportError:
+    from typing_extensions import NotRequired, TypedDict
 
 
 DEFAULT_DATASET_ORDER = ["mipnerf360", "blender", "tanksandtemples"]
@@ -59,7 +67,6 @@ def get_dataset_info(dataset: str) -> DatasetInfo:
     Returns:
         The dataset info.
     """
-    from .registry import get_dataset_spec
     metrics_info_path = Path(metrics.__file__).with_suffix(".json")
     assert metrics_info_path.exists(), f"Metrics info file {metrics_info_path} does not exist"
     metrics_info = json.loads(metrics_info_path.read_text(encoding="utf8"))
@@ -102,7 +109,7 @@ def load_metrics_from_results(results: Dict) -> Dict[str, List[float]]:
 @contextlib.contextmanager
 def _mock_build_method(spec: MethodSpec) -> Iterator[Type[Method]]:
     from nerfbaselines import backends
-    method_implementation = spec.get("method", None)
+    method_implementation = spec.get("method_class", None)
     if method_implementation is None:
         raise RuntimeError(f"Method spec {spec} does not have a method implementation")
 
@@ -122,11 +129,12 @@ def _mock_build_method(spec: MethodSpec) -> Iterator[Type[Method]]:
         except ImportError:
             return mock.MagicMock()
 
+    from nerfbaselines._method_utils import _build_method_class_internal
     with mock.patch('builtins.__import__', side_effect=_patch_import), \
         mock.patch('sys.modules', new=sys.modules.copy()):
         backend_impl = backends.get_backend(spec, "python")
         with backend_impl:
-            build_method = registry._build_method
+            build_method = _build_method_class_internal
             yield cast(Type[Method], backend_impl.static_call(f"{build_method.__module__}:{build_method.__name__}", spec))
 
 
@@ -177,7 +185,6 @@ def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes
     Compile the results.json file from the results repository.
     """
     results_path = Path(results_path)
-    from . import registry
 
     try:
         dataset_info = cast(Dict[str, Any], get_dataset_info(dataset))
@@ -213,8 +220,8 @@ def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes
             method_data["scenes"][scene_id]["output_artifact"] = output_artifact
 
     # Fill the results from the methods registry
-    for method_id in registry.get_supported_methods():
-        method_spec = registry.get_method_spec(method_id)
+    for method_id in get_supported_methods():
+        method_spec = get_method_spec(method_id)
         method_data = method_spec.get("metadata", {}).copy()
         method_info = get_method_info_from_spec(method_spec)
         if "supported_camera_models" in method_info:
@@ -245,7 +252,7 @@ def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes
         if not any(results_path.joinpath(method_id, dataset).glob("*.json")):
             continue
 
-        method_spec = registry.get_method_spec(method_id)
+        method_spec = get_method_spec(method_id)
         method_data = method_spec.get("metadata", {})
         for path in results_path.joinpath(method_id, dataset).glob("*.json"):
             scene_id = path.stem
@@ -287,7 +294,7 @@ def get_benchmark_datasets() -> List[str]:
     """
     Get the list of registered benchmark datasets.
     """
-    return [name for name in registry.get_supported_datasets() if registry.get_dataset_spec(name).get("metadata") is not None] 
+    return [name for name in get_supported_datasets() if get_dataset_spec(name).get("metadata") is not None] 
 
 
 def format_duration(seconds: Optional[float]) -> str:

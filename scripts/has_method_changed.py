@@ -4,9 +4,73 @@ import sys
 import re
 import os
 import ast
+from functools import lru_cache
 
 
-def get_dependency_tree(root_path, module_path=None, file_path=None, module_filter="nerfbaselines.*", _ignore=None):
+@lru_cache(maxsize=None)
+def _get_file_imports(file_path, module_path):
+    with open(file_path, "r") as file:
+        tree = ast.parse(file.read(), filename=file_path)
+
+    offset_level = 1 if file_path.endswith("__init__.py") else 0
+    imports = {}
+
+    def visit_node(node):
+        if isinstance(node, ast.Import):
+            for n in node.names:
+                name = n.asname if n.asname is not None else n.name
+                imports[name] = n.name
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module
+            level = node.level-offset_level
+            _path = module_path.split(".")[:-level] if level > 0 else module_path.split(".")
+            module = ".".join(_path + ([module] if module is not None else [])) if node.level else module
+            for n in node.names:
+                name = n.asname if n.asname is not None else n.name
+                imports[name] = ".".join((module, n.name))
+        if isinstance(node, ast.If) and isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING":
+            return
+        for child in ast.iter_child_nodes(node):
+            visit_node(child)
+    visit_node(tree)
+    return imports
+
+
+def _resolve_import(root_path, import_path):
+    path = os.path.join(root_path, import_path.replace(".", os.path.sep))
+    pardir, name = os.path.split(path)
+    members = os.listdir(pardir) if os.path.exists(pardir) else []
+    if (name+".py") in members:
+        return import_path, path+".py"
+    elif name in members and os.path.isdir(path) and (os.path.exists(os.path.join(path, "__init__.py"))):
+        return import_path, os.path.join(path, "__init__.py")
+    elif os.path.exists(os.path.join(pardir, "__init__.py")):
+        return ".".join(import_path.split(".")[:-1]), os.path.join(pardir, "__init__.py")
+    elif os.path.exists(pardir+".py"):
+        return ".".join(import_path.split(".")[:-1]), pardir+".py"
+    else:
+        raise FileNotFoundError(f"Module {import_path} not found")
+
+
+def _spider_import(root_path, import_path):
+    module_path, file_path = _resolve_import(root_path, import_path)
+    if module_path == import_path:
+        # Full module import
+        return file_path
+    imports = _get_file_imports(file_path, module_path)
+    name = import_path.split(".")[-1]
+    if name not in imports:
+        # Not reimported in the file
+        return file_path
+    return _spider_import(root_path, imports[name])
+
+
+def get_dependency_tree(root_path, 
+                        module_path=None, 
+                        file_path=None, 
+                        module_filter="nerfbaselines.*", 
+                        include_transient_dependencies: bool = False,
+                        _ignore=None):
     if _ignore is None:
         _ignore = set()
     if file_path is None:
@@ -19,34 +83,32 @@ def get_dependency_tree(root_path, module_path=None, file_path=None, module_filt
     elif module_path is None:
         assert file_path is not None
         module_path = os.path.relpath(file_path, root_path).replace(os.path.sep, ".")
-        if module_path.endswith("__init__.py"):
-            module_path = module_path[:-9]
+        if module_path.endswith(".__init__.py"):
+            module_path = module_path[:-len(".__init__.py")]
         elif module_path.endswith(".py"):
             module_path = module_path[:-3]
 
-    if file_path in _ignore:
-        return {}
-    offset_level = 1 if file_path.endswith("__init__.py") else 0
+    file_imports = _get_file_imports(file_path, module_path)
     imports = {}
+    _to_add_imports = []
+    for import_path in file_imports.values():
+        if not re.match(module_filter, import_path):
+            continue
+        if not include_transient_dependencies:
+            _file_path = _spider_import(root_path, import_path)
+        else:
+            _, _file_path = _resolve_import(root_path, import_path)
+        assert _file_path is not None, f"Import {import_path} not found"
+        if _file_path not in _ignore:
+            _to_add_imports.append(_file_path)
 
-    with open(file_path, "r") as file:
-        tree = ast.parse(file.read(), filename=file_path)
-
-    def visit_node(node):
-        if isinstance(node, ast.Import):
-            for n in node.names:
-                if re.match(module_filter, n.name):
-                    imports.update(get_dependency_tree(root_path, n.name))
-        elif isinstance(node, ast.ImportFrom):
-            module = node.module
-            module = ".".join(module_path.split(".")[:-node.level+offset_level] + ([module] if module is not None else [])) if node.level else module
-            if module is not None and re.match(module_filter, module):
-                imports.update(get_dependency_tree(root_path, module, module_filter=module_filter, _ignore=_ignore.union((file_path,))))
-        if isinstance(node, ast.If) and isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING":
-            return
-        for child in ast.iter_child_nodes(node):
-            visit_node(child)
-    visit_node(tree)
+    _ignore = _ignore.union(_to_add_imports + [file_path])
+    for _file_path in _to_add_imports:
+        imports.update(get_dependency_tree(
+            root_path, 
+            file_path=_file_path, 
+            module_filter=module_filter, 
+            _ignore=_ignore))
     return {
         file_path: imports
     }
@@ -62,16 +124,16 @@ def format_dependency_tree(tree, root_path, level=0):
 
 
 def find_registered_method_specs(path):
+    import nerfbaselines._registry
     registry = {}
     for package in os.listdir(path):
         if package.endswith("_spec.py") and not package.startswith("_"):
             package = package[:-3]
             fpath = os.path.join(path, package + ".py")
 
-            def register(spec, *args, **kwargs):
-                del args, kwargs
-                registry[spec["id"]] = fpath
-            with mock.patch("nerfbaselines.registry.register", register):
+            registered_calls = []
+            with nerfbaselines._registry.collect_register_calls(registered_calls), \
+                    mock.patch("nerfbaselines._registry._make_entrypoint_absolute", lambda x: x):
                 # Execute the file
                 with open(fpath, "r") as file:
                     contents = file.read()
@@ -80,6 +142,7 @@ def find_registered_method_specs(path):
                     exec(contents, globals, {})
                 except Exception as e:
                     raise RuntimeError(f"Error while processing {package}.py") from e
+            registry.update({x["id"]: fpath for x in registered_calls})
     return registry
 
 
@@ -95,14 +158,14 @@ def get_method_dependency_tree(root_path, method_name, backend=None):
         file_path=registered_files[method_name]))
 
     # Now we get path to the actual impl
-    from nerfbaselines.registry import get_method_spec
+    from nerfbaselines import get_method_spec
     method_spec = get_method_spec(method_name)
-    _method_module_name = method_spec["method"].split(":")[0]
+    _method_module_name = method_spec["method_class"].split(":")[0]
     method_module_name = _method_module_name.lstrip(".")
     method_module_level = len(_method_module_name) - len(method_module_name)
     if method_module_level:
         method_module_name = "nerfbaselines.methods".split(".")[:-method_module_level] + [method_module_name]
-    if "method" in method_spec and method_module_name.startswith("nerfbaselines.methods"):
+    if "method_class" in method_spec and method_module_name.startswith("nerfbaselines.methods"):
         dep_tree.update(get_dependency_tree(
             root_path=root_path,
             module_path=method_module_name))

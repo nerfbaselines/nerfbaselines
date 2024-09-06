@@ -1,3 +1,4 @@
+import re
 import os
 import subprocess
 from pathlib import Path
@@ -5,11 +6,17 @@ import shlex
 from typing import Optional
 import hashlib
 
-import nerfbaselines
-from nerfbaselines import registry
-from ..types import NB_PREFIX, TypedDict, Required
-from ..utils import get_package_dependencies, shlex_join
+from nerfbaselines import get_supported_methods, get_method_spec, NB_PREFIX
+from ._common import get_package_dependencies
 from ._rpc import RemoteProcessRPCBackend, get_safe_environment
+try:
+    from typing import TypedDict, Required
+except ImportError:
+    from typing_extensions import TypedDict, Required
+
+
+def shlex_join(split_command):
+    return ' '.join(shlex.quote(arg) for arg in split_command)
 
 
 class CondaBackendSpec(TypedDict, total=False):
@@ -50,16 +57,16 @@ def conda_get_install_script(spec: CondaBackendSpec, package_path: Optional[str]
     dependencies = get_package_dependencies()
     if dependencies:
         install_dependencies_script = "pip install " + " ".join(f"'{x}'" for x in dependencies)
-    if package_path is None:
-        package_path = str(Path(nerfbaselines.__file__).absolute().parent.parent)
-    script = "set -eo pipefail\n"
 
     def is_method_allowed(method):
-        conda_spec = method.get("conda")
+        spec = get_method_spec(method)
+        conda_spec = spec.get("conda")
         if conda_spec is not None:
             return conda_spec.get("environment_name") == spec.get("environment_name")
         return False
-    allowed_methods = ",".join((k for k, v in registry.methods_registry.items() if is_method_allowed(v)))
+
+    allowed_methods = ",".join((k for k in get_supported_methods() if is_method_allowed(k)))
+    script = "set -eo pipefail\n"
 
     if not custom_environment_path:
         script += f"""
@@ -76,6 +83,23 @@ if [ -d {shlex.quote(os.path.dirname(os.path.dirname(env_path)))} ]; then
             rm -rf {shlex.quote(os.path.dirname(os.path.dirname(env_path)))}"/$hash"
         fi
     done
+fi
+"""
+    prepare_default_nerfbaselines = ""
+    if package_path is not None:
+        prepare_default_nerfbaselines = f"""
+# Prepare default nerfbaselines
+site_packages="$(python -c 'import site; print(site.getsitepackages()[0])')"
+if [[ "$site_packages" != "$CONDA_PREFIX/"* ]]; then
+    echo "ERROR: site-packages is not in the conda environment"; exit 1;
+fi
+ln -s {shlex.quote(package_path)} "$site_packages"
+"""
+    prepare_default_nerfbaselines += f"""
+# Add nerfbaselines to the path
+if ! nerfbaselines >/dev/null 2>&1; then
+    echo '#!/usr/bin/env python3\nfrom nerfbaselines.__main__ import main; main()'>"$CONDA_PREFIX/bin/nerfbaselines"
+    chmod +x "$CONDA_PREFIX/bin/nerfbaselines"
 fi
 """
     script += f"""
@@ -114,17 +138,12 @@ conda activate {shlex.quote(env_path)}
 echo -e 'channels:\n  - conda-forge\n' > {shlex.quote(os.path.join(env_path, ".condarc"))}
 conda install -y pip conda-build ffmpeg
 pip install --upgrade pip setuptools
+mkdir -p {shlex.quote(os.path.join(env_path, "nb-sources"))}
 mkdir -p {shlex.quote(os.path.join(env_path, "src"))}
 cd {shlex.quote(os.path.join(env_path, "src"))}
 {spec.get('install_script') or ''}
 {install_dependencies_script}
-if [ -e {shlex.quote(str(package_path))} ]; then
-    conda develop {shlex.quote(str(package_path))}
-fi
-if ! nerfbaselines >/dev/null 2>&1; then
-    echo -e '#!/usr/bin/env python3\nfrom nerfbaselines.__main__ import main\nif __name__ == "__main__":\n  main()\n'>"$CONDA_PREFIX/bin/nerfbaselines"
-    chmod +x "$CONDA_PREFIX/bin/nerfbaselines"
-fi
+{prepare_default_nerfbaselines}
 echo '#!/bin/bash' > {shlex.quote(os.path.join(env_path, ".activate.sh"))}
 echo 'eval "$(conda shell.bash hook)"' >> {shlex.quote(os.path.join(env_path, ".activate.sh"))}
 echo 'conda activate {shlex.quote(env_path)};export NERFBASELINES_BACKEND=python;export NERFBASELINES_ALLOWED_METHODS="{allowed_methods}"' >> {shlex.quote(os.path.join(env_path, ".activate.sh"))}
@@ -148,25 +167,38 @@ class CondaBackend(RemoteProcessRPCBackend):
         super().__init__(python_path="python")
         assert self._spec.get("environment_name") is not None, "CondaBackend requires environment_name to be specified"
 
+    def _prepare_package_path(self, env_path):
+        os.makedirs(os.path.join(env_path, "nb-sources"), exist_ok=True)
+        # Sanitize env path
+        package_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        safe_package_path = re.sub("[^0-9a-zA-Z_]", "_", os.path.abspath(package_path))
+        target = os.path.join(env_path, "nb-sources", safe_package_path, "nerfbaselines")
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        if not os.path.exists(target):
+            os.symlink(package_path, target)
+        return os.path.dirname(target)
+
+
     def _launch_worker(self, args, env):
         environments_path = os.environ.get("NERFBASELINES_CONDA_ENVIRONMENTS", os.path.join(NB_PREFIX, "conda-envs"))
         environment_name = self._spec.get("environment_name")
         assert environment_name is not None, "CondaBackend requires environment_name to be specified"
         env_path = os.path.join(environments_path, environment_name, conda_get_environment_hash(self._spec), environment_name)
-        PACKAGE_PATH = Path(nerfbaselines.__file__).absolute().parent.parent
-        env["PYTHONPATH"] = f'{PACKAGE_PATH}'
+        env["PYTHONPATH"] = self._prepare_package_path(env_path)
         args = [os.path.join(env_path, ".activate.sh")] + list(args)
         return super()._launch_worker(args, env)
 
     def install(self):
-        subprocess.check_call(["bash", "-l", "-c", conda_get_install_script(self._spec)])
+        package_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        subprocess.check_call(["bash", "-l", "-c", conda_get_install_script(self._spec, package_path=package_path)])
 
-    def shell(self):
+    def shell(self, args=None):
         environments_path = os.environ.get("NERFBASELINES_CONDA_ENVIRONMENTS", os.path.join(NB_PREFIX, "conda-envs"))
         environment_name = self._spec.get("environment_name")
         assert environment_name is not None, "CondaBackend requires environment_name to be specified"
         env_path = os.path.join(environments_path, environment_name, conda_get_environment_hash(self._spec), environment_name)
         env = get_safe_environment()
-        env["PYTHONPATH"] = str(Path(nerfbaselines.__file__).absolute().parent.parent)
-        args = [os.path.join(env_path, ".activate.sh")] + ["bash"]
+        env["PYTHONPATH"] = self._prepare_package_path(env_path)
+        args = ["bash"] if args is None else list(args)
+        args = [os.path.join(env_path, ".activate.sh")] + args
         os.execvpe(args[0], args, env)

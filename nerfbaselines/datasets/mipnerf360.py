@@ -1,3 +1,4 @@
+import os
 import warnings
 from typing import List, Tuple, Union
 import logging
@@ -9,10 +10,12 @@ import numpy as np
 import zipfile
 from tqdm import tqdm
 import tempfile
-from ._common import DatasetNotFoundError, single, get_scene_scale, get_default_viewer_transform, dataset_index_select
+from nerfbaselines import DatasetNotFoundError
+from ._common import single, get_scene_scale, get_default_viewer_transform, dataset_index_select
 from .colmap import load_colmap_dataset
 
 
+DATASET_NAME = "mipnerf360"
 _scenes360_res = {
     "bicycle": 4,
     "flowers": 4,
@@ -49,7 +52,7 @@ def load_mipnerf360_dataset(path: Union[Path, str], split: str, resize_full_imag
     # Use split=None to load all images
     # We then select the same images as in the LLFF multinerf dataset loader
     dataset = load_colmap_dataset(path, images_path=images_path, split=None, **kwargs)
-    dataset["metadata"]["name"] = "mipnerf360"
+    dataset["metadata"]["id"] = DATASET_NAME
     dataset["metadata"]["scene"] = scene
     dataset["metadata"]["downscale_factor"] = res
     if resize_full_image:
@@ -80,20 +83,20 @@ def download_mipnerf360_dataset(path: str, output: Union[Path, str]):
     url_extra = "https://storage.googleapis.com/gresearch/refraw360/360_extra_scenes.zip"
     url_base = "http://storage.googleapis.com/gresearch/refraw360/360_v2.zip"
     output = Path(output)
-    if not path.startswith("mipnerf360/") and path != "mipnerf360":
-        raise DatasetNotFoundError("Dataset path must be equal to 'mipnerf360' or must start with 'mipnerf360/'.")
+    if not path.startswith(f"{DATASET_NAME}/") and path != DATASET_NAME:
+        raise DatasetNotFoundError(f"Dataset path must be equal to '{DATASET_NAME}' or must start with '{DATASET_NAME}/'.")
 
     captures: List[Tuple[str, Path]] = []
-    if path == "mipnerf360":
+    if path == DATASET_NAME:
         # We will download all faster here
         for x in _scenes360_res:
             captures.append((x, output / x))
     else:
-        captures = [(path[len("nerfstudio/") :], output)]
+        captures = [(path[len(f"{DATASET_NAME}/") :], output)]
     captures_to_download: List[Tuple[str, str, Path]] = []
     for capture_name, output in captures:
         if capture_name not in _scenes360_res:
-            raise DatasetNotFoundError(f"Capture '{capture_name}' not a valid mipnerf360 scene.")
+            raise DatasetNotFoundError(f"Capture '{capture_name}' not a valid {DATASET_NAME} scene.")
         url = url_extra if capture_name in {"flowers", "treehill"} else url_base
         captures_to_download.append((url, capture_name, output))
     captures_to_download.sort(key=lambda x: x[0])
@@ -131,9 +134,13 @@ def download_mipnerf360_dataset(path: str, output: Union[Path, str]):
                         else:
                             with z.open(info) as source, open(target, "wb") as target:
                                 shutil.copyfileobj(source, target)
-
-                    shutil.rmtree(output, ignore_errors=True)
                     if not has_any:
                         raise RuntimeError(f"Capture '{capture_name}' not found in {url}.")
+                    with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f:
+                        f.write(f'{{"loader": "{DATASET_NAME}"}}')
+                    shutil.rmtree(output, ignore_errors=True)
                     shutil.move(str(output_tmp), str(output))
-                    logging.info(f"Downloaded mipnerf360/{capture_name} to {output}")
+                    logging.info(f"Downloaded {DATASET_NAME}/{capture_name} to {output}")
+
+
+__all__ = ["load_mipnerf360_dataset", "download_mipnerf360_dataset"]

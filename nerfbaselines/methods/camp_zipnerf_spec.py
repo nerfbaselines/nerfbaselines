@@ -1,6 +1,6 @@
+from nerfbaselines import register, MethodSpec
+from nerfbaselines.backends import CondaBackendSpec
 import os
-from nerfbaselines.types import MethodSpec, CondaBackendSpec
-from nerfbaselines.registry import register
 
 
 _zipnerf_paper_results = {
@@ -70,7 +70,7 @@ if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
 
 ZipNerfSpec: MethodSpec = {
     "id": "zipnerf",
-    "method": ".camp_zipnerf:ZipNeRF",
+    "method_class": ".camp_zipnerf:ZipNeRF",
     "conda": _conda_spec,
     "metadata": {
         "name": "Zip-NeRF",
@@ -99,7 +99,7 @@ Instead of sampling along the ray it samples along a spiral path - approximating
 
 CamPSpec: MethodSpec = {
     "id": "camp",
-    "method": ".camp_zipnerf:CamP",
+    "method_class": ".camp_zipnerf:CamP",
     "conda": _conda_spec,
     "metadata": {
         "name": "CamP",

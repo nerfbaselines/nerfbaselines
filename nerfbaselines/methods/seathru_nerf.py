@@ -9,8 +9,10 @@ import base64
 import functools
 import gc
 import numpy as np
-from nerfbaselines.types import Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput
-from nerfbaselines.types import Cameras, camera_model_to_int
+from nerfbaselines import (
+    Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput,
+    Cameras, camera_model_to_int
+)
 
 try:
     # We need to import torch before jax to load correct CUDA libraries
@@ -71,12 +73,14 @@ def patch_multinerf_with_multicam():
             pix_to_dir(pix_x_int, pix_y_int + 1)
         ], axis=0)
         # For jax, need to specify high-precision matmul.
-        matmul = camera_utils.math.matmul if xnp == jnp else xnp.matmul
+        matmul = camera_utils.math.matmul if xnp.__name__ == jnp.__name__ else xnp.matmul
         mat_vec_mul = lambda A, b: matmul(A, b[..., None])[..., 0]
         # Apply inverse intrinsic matrices.
         camera_dirs_stacked = mat_vec_mul(pixtocams, pixel_dirs_stacked)
 
         mask = camtype > 0
+        is_uniform = True
+        dl = camera_dirs_stacked
         if xnp.any(mask):
             is_uniform = xnp.all(mask)
             if is_uniform:
@@ -265,10 +269,6 @@ class NBDataset(MNDataset):
         if not self._eval:
             return super().start()
 
-    def _next_train(self):
-        if not self._eval:
-            return super()._next_train()
-
     def _next_test(self):
         if not self._eval:
             return super()._next_test()
@@ -427,16 +427,11 @@ class SeaThruNeRF(Method):
 
         self._loaded_step = None
         self.pdataset_iter = None
-        self.lr_fn = None
         self.train_pstep = None
-        self.render_eval_pfn = None
-        self.rngs = None
         self.step = 0
         self.state = None
         self.cameras = None
         self.dataset = None
-        self.config = None
-        self.model = None
         self._config_str = None
         self._dataparser_transform = None
         self._pixtocam_ndc = None
@@ -449,9 +444,10 @@ class SeaThruNeRF(Method):
                         self._pixtocam_ndc = numpy_from_base64(meta["pixtocam_ndc_base64"])
             else:
                 raise ValueError("Could not find dataparser_transform.json in the checkpoint.")
-            self.step = self._loaded_step = max((int(x.split("_")[1]) for x in os.listdir(checkpoint) if x.startswith("checkpoint_")), default=None)
+            self._loaded_step = max((int(x.split("_")[1]) for x in os.listdir(checkpoint) if x.startswith("checkpoint_")), default=None)
             if self._loaded_step is None:
                 raise ValueError("Could not find any checkpoints in the directory.")
+            self.step = self._loaded_step
             self._config_str = (Path(checkpoint) / "config.gin").read_text()
             self.config = self._load_config()
         else:
@@ -502,6 +498,7 @@ class SeaThruNeRF(Method):
     @classmethod
     def get_method_info(cls):
         return MethodInfo(
+            method_id="",  # Will be set by the registry
             required_features=frozenset(("color",)),
             supported_camera_models=frozenset(("pinhole", "opencv", "opencv_fisheye")),
             supported_outputs=(
@@ -575,7 +572,7 @@ class SeaThruNeRF(Method):
         self.model, state, self.render_eval_pfn, train_pstep, self.lr_fn = setup
 
         variables = state.params
-        num_params = jax.tree_util.tree_reduce(lambda x, y: x + jnp.prod(jnp.array(y.shape)), variables, initializer=0)
+        num_params = jax.tree_util.tree_reduce(lambda x, y: x + jnp.prod(jnp.array(y.shape)), variables, initializer=0)  # type: ignore
         print(f"Number of parameters being optimized: {num_params}")
 
         if dataset.size > self.model.num_glo_embeddings and self.model.num_glo_features > 0:
@@ -603,6 +600,8 @@ class SeaThruNeRF(Method):
         return jnp.clip((self.step - 1) / (self.config.max_steps - 1), 0, 1)
 
     def train_iteration(self, step: int):
+        assert self.pdataset_iter is not None, "Method not initialized for training"
+        assert self.train_pstep is not None, "Method not initialized for training"
         self.step = step
         batch = next(self.pdataset_iter)
 
@@ -656,6 +655,7 @@ class SeaThruNeRF(Method):
             state_to_save = jax.device_get(flax.jax_utils.unreplicate(self.state))
             checkpoints.save_checkpoint(path, state_to_save, int(self.step), keep=100)
             # np.savetxt(Path(path) / "dataparser_transform.txt", self._dataparser_transform)
+            assert self._dataparser_transform is not None, "dataparser_transform must be set"
             with Path(path).joinpath("dataparser_transform.json").open("w+") as fp:
                 fp.write(
                     json.dumps(
@@ -668,12 +668,13 @@ class SeaThruNeRF(Method):
                     )
                 )
             with (Path(path) / "config.gin").open("w+") as f:
-                f.write(self._config_str)
+                f.write(self._config_str or "")
 
     def render(self, cameras: Cameras, *, embeddings=None, options=None):
         del options
         if embeddings is not None:
-            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
+            method_id = self.get_method_info()["method_id"]
+            raise NotImplementedError(f"Optimizing embeddings is not supported for method {method_id}")
         # Test-set evaluation.
         # We reuse the same random number generator from the optimization step
         # here on purpose so that the visualization matches what happened in

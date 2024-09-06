@@ -3,14 +3,18 @@ import pprint
 import logging
 import os
 import click
-from nerfbaselines import registry
+from nerfbaselines import (
+    get_supported_methods,
+    get_method_spec,
+)
 from nerfbaselines import backends
-from nerfbaselines.utils import handle_cli_error, setup_logging
 from nerfbaselines.io import open_any
+from ._common import handle_cli_error, click_backend_option, setup_logging
 
 
 def get_register_calls(file):
     # First, we collect all register() calls
+    from nerfbaselines import _registry as registry
     register_calls = []
     with registry.collect_register_calls(register_calls):
         # Import the module from the file
@@ -24,13 +28,13 @@ def get_register_calls(file):
 
     # Now we have aggregated all register() calls, we can process them
     output = []
-    for name, spec in register_calls:
+    for id, spec in register_calls:
         spec_file_content = f"""from nerfbaselines.registry import register
-register({pprint.pformat(spec)}, name="{name}")
+register({pprint.pformat(spec)})
 """
         output.append({
             "type": registry.get_spec_type(spec),
-            "name": name,
+            "id": id,
             "spec": spec,
             "spec_file_content": spec_file_content
         })
@@ -38,44 +42,45 @@ register({pprint.pformat(spec)}, name="{name}")
 
 
 @click.command("install-method")
-@click.option("--method", type=click.Choice(list(registry.get_supported_methods())), required=False, default=None)
+@click.option("--method", type=click.Choice(list(get_supported_methods())), required=False, default=None)
 @click.option("--spec", type=str, required=False)
 @click.option("--force", is_flag=True, help="Overwrite existing specs")
-@click.option("--backend", "backend_name", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
 @click.option("--verbose", "-v", is_flag=True)
+@click_backend_option()
 @handle_cli_error
 def main(method, spec, backend_name, force=False, verbose=False):
     setup_logging(verbose)
     if method is not None:
-        method_spec = registry.get_method_spec(method)
-        backend_impl = backends.get_backend(method_spec, backend_name)
-        logging.info(f"Using method: {method}, backend: {backend_impl.name}")
-        backend_impl.install()
+        method_spec = get_method_spec(method)
+        with backends.get_backend(method_spec, backend_name) as backend_impl:
+            logging.info(f"Using method: {method}, backend: {backend_impl.name}")
+            backend_impl.install()
     elif spec is not None:
         with open_any(spec, "r") as f:
             register_calls = get_register_calls(f)
 
         # Test if some of the specs are already registered
+        from nerfbaselines import _registry as registry
         for register_call in register_calls:
-            if register_call["type"] == "method" and register_call["name"] in registry.methods_registry:
+            if register_call["type"] == "method" and register_call["id"] in registry.methods_registry:
                 if not force:
-                    raise RuntimeError(f"Method {register_call['name']} is already registered")
+                    raise RuntimeError(f"Method {register_call['id']} is already registered")
                 else:
-                    logging.warning(f"Method {register_call['name']} is already registered, but --force was provided")
-            if register_call["type"] == "dataset" and register_call["name"] in registry.datasets_registry:
+                    logging.warning(f"Method {register_call['id']} is already registered, but --force was provided")
+            if register_call["type"] == "dataset" and register_call["id"] in registry.datasets_registry:
                 if not force:
-                    raise RuntimeError(f"Dataset {register_call['name']} is already registered")
+                    raise RuntimeError(f"Dataset {register_call['id']} is already registered")
                 else:
-                    logging.warning(f"Dataset {register_call['name']} is already registered, but --force was provided")
-            if register_call["type"] == "evaluation_protocol" and register_call["name"] in registry.evaluation_protocols_registry:
+                    logging.warning(f"Dataset {register_call['id']} is already registered, but --force was provided")
+            if register_call["type"] == "evaluation_protocol" and register_call["id"] in registry.evaluation_protocols_registry:
                 if not force:
-                    raise RuntimeError(f"Evaluation protocol {register_call['name']} is already registered")
+                    raise RuntimeError(f"Evaluation protocol {register_call['id']} is already registered")
                 else:
-                    logging.warning(f"Evaluation protocol {register_call['name']} is already registered, but --force was provided")
+                    logging.warning(f"Evaluation protocol {register_call['id']} is already registered, but --force was provided")
 
         # Register the specs
         for register_call in register_calls:
-            output_name = f"{register_call['type']}-{register_call['name']}.py"
+            output_name = f"{register_call['type']}-{register_call['id']}.py"
             os.makedirs(registry.METHOD_SPECS_PATH, exist_ok=True)
             with open(os.path.join(registry.METHOD_SPECS_PATH, output_name), "w", encoding='utf8') as f:
                 f.write(register_call["spec_file_content"])
@@ -87,9 +92,9 @@ def main(method, spec, backend_name, force=False, verbose=False):
             if call["type"] != "method":
                 continue
             if click.get_current_context().get_parameter_source("backend_name") == click.core.ParameterSource.COMMANDLINE:
-                backend_impl = backends.get_backend(call["spec"], backend_name)
-                logging.info(f"Using backend: {backend_impl.name} for method: {call['name']}")
-                backend_impl.install()
+                with backends.get_backend(call["spec"], backend_name) as backend_impl:
+                    logging.info(f"Using backend: {backend_impl.name} for method: {call['id']}")
+                    backend_impl.install()
     else:
         raise RuntimeError("Either --method or --spec must be provided")
 

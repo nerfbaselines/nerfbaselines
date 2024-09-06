@@ -4,11 +4,14 @@ import logging
 import numpy as np
 from glob import glob
 from tqdm import trange
-from typing import Optional, List, Tuple, Union, cast
-from nerfbaselines.types import camera_model_to_int, new_cameras, FrozenSet, DatasetFeature, Literal
-from nerfbaselines.datasets import DatasetNotFoundError, new_dataset, dataset_index_select
-from nerfbaselines.datasets._common import get_default_viewer_transform
+from typing import Optional, List, Tuple, Union, cast, FrozenSet
+from nerfbaselines import camera_model_to_int, new_cameras, DatasetFeature, DatasetNotFoundError, new_dataset
+from nerfbaselines.datasets import dataset_index_select, get_default_viewer_transform
 from PIL import Image
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
 
 
 LOADER_NAME = "bundler"
@@ -222,7 +225,7 @@ def load_bundler_dataset(path: str,
         points3D_xyz=points3D_xyz if load_points else None,
         points3D_rgb=points3D_rgb if load_points else None,
         metadata={
-            "name": LOADER_NAME,
+            "id": None,
             "color_space": "srgb",
             "evaluation_protocol": "default",
             "viewer_transform": viewer_transform,
@@ -232,6 +235,9 @@ def load_bundler_dataset(path: str,
         dataset = dataset_index_select(dataset, indices)
 
     return dataset
+
+
+__all__ = ["load_bundler_dataset"]
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
-from click import Command, Context
+import sys
+from click import Command
 import pytest
 from unittest import mock
 
@@ -17,6 +18,8 @@ from unittest import mock
     "viewer".split(),
 ])
 def test_cli_command(args):
+    if args[0] == "viewer" and sys.version_info < (3, 8):
+        pytest.skip("Viewer command is not supported on Python < 3.8")
     from nerfbaselines.cli import main
 
     new_invoke = mock.Mock()

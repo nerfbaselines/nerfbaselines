@@ -11,8 +11,8 @@ from tqdm import tqdm
 from pathlib import Path
 from typing import Union
 import numpy as np
-from ..types import camera_model_to_int, new_cameras
-from ._common import DatasetNotFoundError, get_default_viewer_transform, new_dataset
+from .. import camera_model_to_int, new_cameras, new_dataset, DatasetNotFoundError
+from nerfbaselines.datasets import get_default_viewer_transform
 
 
 DATASET_NAME = "blender"
@@ -71,7 +71,7 @@ def load_blender_dataset(path: Union[Path, str], split: str, **kwargs):
         image_paths=image_paths,
         sampling_mask_paths=None,
         metadata={
-            "name": "blender",
+            "id": "blender",
             "scene": scene,
             "color_space": "srgb",
             "type": "object-centric",
@@ -134,6 +134,11 @@ def download_blender_dataset(path: str, output: Union[Path, str]) -> None:
                     mtime = time.mktime(date_time.timetuple())
                     os.utime(target, (mtime, mtime))
 
+            with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f2:
+                f2.write(f'{{"loader": "{DATASET_NAME}"}}')
             shutil.rmtree(output, ignore_errors=True)
             shutil.move(str(output_tmp), str(output))
             logging.info(f"Downloaded {DATASET_NAME}/{scene} to {output}")
+
+
+__all__ = ["load_blender_dataset", "download_blender_dataset"]

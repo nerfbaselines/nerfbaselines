@@ -1,16 +1,23 @@
-import sys
 import pytest
 import os
 import numpy as np
+from typing import Optional, TypeVar
 from unittest import mock
 from unittest.mock import MagicMock
-from nerfbaselines.types import Method, new_cameras
+from nerfbaselines import Method, new_cameras
 from nerfbaselines import evaluation
 from PIL import Image
 import tarfile
 import zipfile
 from typeguard import suppress_type_checks
-from nerfbaselines.utils import assert_not_none
+
+
+T = TypeVar("T")
+
+
+def _assert_not_none(value: Optional[T]) -> T:
+    assert value is not None
+    return value
 
 
 num_cams = 2
@@ -75,7 +82,6 @@ def _mock_trajectory(num_cams):
 
 
 def _test_render_trajectory_command(tmp_path, out, *args):
-    import nerfbaselines.registry
     (tmp_path/"test-checkpoint").mkdir()
     with open(tmp_path/"test-checkpoint"/"nb-info.json", "w") as f:
         f.write('{"method": "test-method"}')
@@ -87,11 +93,11 @@ def _test_render_trajectory_command(tmp_path, out, *args):
     # Patch sys.argv
     test_registry = {"test-method": {
         "id": "test-method",
-        "method": (__package__ or "") + "." + os.path.splitext(os.path.basename(__file__))[0] + ":" + FakeMethod.__name__,
+        "method_class": (__package__ or "") + "." + os.path.splitext(os.path.basename(__file__))[0] + ":" + FakeMethod.__name__,
     }}
     with mock.patch("sys.argv", command + list(args)), \
-         mock.patch("nerfbaselines.registry.methods_registry", test_registry), \
-         mock.patch("nerfbaselines.registry._auto_register_completed", True), \
+         mock.patch("nerfbaselines._registry.methods_registry", test_registry), \
+         mock.patch("nerfbaselines._registry._auto_register_completed", True), \
          suppress_type_checks(), \
          pytest.raises(SystemExit) as ex:
         from nerfbaselines import __main__
@@ -108,7 +114,7 @@ def _verify_targz_single(tmp_path, num_cams):
             path = f"{i:05d}.png"
             assert f"{i:05d}.png" in members
             member = tar.getmember(path)
-            with assert_not_none(tar.extractfile(member)) as f:
+            with _assert_not_none(tar.extractfile(member)) as f:
                 img = Image.open(f)
                 assert img.size == (20, 30)
 
@@ -139,7 +145,7 @@ def _verify_targz_multi(tmp_path, num_cams, all_output_names):
             for i in range(num_cams):
                 p = f"{out}/{i:05d}.png"
                 assert f"{out}/{i:05d}.png" in members
-                with assert_not_none(tar.extractfile(tar.getmember(p))) as f:
+                with _assert_not_none(tar.extractfile(tar.getmember(p))) as f:
                     img = Image.open(f)
                     assert img.size == (20, 30)
 
@@ -166,13 +172,13 @@ def test_render_frames_targz_multi_command(tmp_path):
 def _verify_targz_multi_format(path, all_output_names, num_cams):
     for out in all_output_names:
         assert os.path.exists(path.format(output=out))
-        with assert_not_none(tarfile.open(path.format(output=out))) as tar:
+        with _assert_not_none(tarfile.open(path.format(output=out))) as tar:
             members = list(tar.getnames())
             assert len(members) == num_cams
             for i in range(num_cams):
                 p = f"{i:05d}.png"
                 assert p in members
-                with assert_not_none(tar.extractfile(tar.getmember(p))) as f:
+                with _assert_not_none(tar.extractfile(tar.getmember(p))) as f:
                     img = Image.open(f)
                     assert img.size == (20, 30)
 

@@ -1,4 +1,8 @@
 # pylint: disable=protected-access
+import struct
+import io
+import hashlib
+import base64
 import glob
 import warnings
 import pprint
@@ -12,14 +16,16 @@ from dataclasses import fields
 from pathlib import Path
 import copy
 import tempfile
-from typing import Iterable, Optional, TypeVar, Sequence
+from typing import Iterable, Optional, TypeVar, Sequence, Union
+from typing_extensions import Literal, get_origin, get_args
 import numpy as np
-from nerfbaselines.types import Method, OptimizeEmbeddingsOutput, MethodInfo, ModelInfo
-from nerfbaselines.types import Dataset, RenderOutput
-from nerfbaselines.types import Cameras, camera_model_from_int
+from nerfbaselines import (
+    Method, OptimizeEmbeddingsOutput, MethodInfo, ModelInfo,
+    Dataset, RenderOutput,
+    Cameras, camera_model_from_int,
+)
 from nerfbaselines.utils import convert_image_dtype
-from nerfbaselines.utils import cast_value, remap_error
-from nerfbaselines.io import get_torch_checkpoint_sha, numpy_from_base64, numpy_to_base64
+from nerfbaselines.io import get_torch_checkpoint_sha
 
 import yaml
 import torch  # type: ignore
@@ -35,6 +41,84 @@ from nerfstudio.utils.colors import COLORS_DICT  # type: ignore
 
 
 T = TypeVar("T")
+
+
+def numpy_to_base64(array: np.ndarray) -> str:
+    with io.BytesIO() as f:
+        np.save(f, array)
+        return base64.b64encode(f.getvalue()).decode("ascii")
+
+
+def numpy_from_base64(data: str) -> np.ndarray:
+    with io.BytesIO(base64.b64decode(data)) as f:
+        return np.load(f)
+
+
+def cast_value(tp, value):
+    origin = get_origin(tp)
+    if origin is Literal:
+        for val in get_args(tp):
+            try:
+                value_casted = cast_value(type(val), value)
+                if val == value_casted:
+                    return value_casted
+            except ValueError:
+                pass
+            except TypeError:
+                pass
+        raise TypeError(f"Value {value} is not in {get_args(tp)}")
+            
+    if origin is Union:
+        for t in get_args(tp):
+            try:
+                return cast_value(t, value)
+            except ValueError:
+                pass
+            except TypeError:
+                pass
+        raise TypeError(f"Value {value} is not in {tp}")
+    if tp is type(None):
+        if str(value).lower() == "none":
+            return None
+        else:
+            raise TypeError(f"Value {value} is not None")
+    if tp is bool:
+        if str(value).lower() in {"true", "1", "yes"}:
+            return True
+        elif str(value).lower() in {"false", "0", "no"}:
+            return False
+        else:
+            raise TypeError(f"Value {value} is not a bool")
+    if tp in {int, float, bool, str}:
+        return tp(value)
+    if isinstance(value, tp):
+        return value
+    raise TypeError(f"Cannot cast value {value} to type {tp}")
+
+
+def get_torch_checkpoint_sha(checkpoint_data):
+    sha = hashlib.sha256()
+    def update(d):
+        if type(d).__name__ == "Tensor":
+            sha.update(d.cpu().numpy().tobytes())
+        elif isinstance(d, dict):
+            items = sorted(d.items(), key=lambda x: x[0])
+            for k, v in items:
+                update(k)
+                update(v)
+        elif isinstance(d, (list, tuple)):
+            for v in d:
+                update(v)
+        elif isinstance(d, (int, float)):
+            sha.update(struct.pack("f", d))
+        elif isinstance(d, str):
+            sha.update(d.encode("utf8"))
+        elif d is None:
+            sha.update("(None)".encode("utf8"))
+        else:
+            raise ValueError(f"Unsupported type {type(d)}")
+    update(checkpoint_data)
+    return sha.hexdigest()
 
 
 def _map_distortion_parameters(distortion_parameters):
@@ -91,7 +175,7 @@ def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
             return v.name
         if dataclasses.is_dataclass(v):
             return format_value({
-                f.name: getattr(hparams, f.name) for f in dataclasses.fields(hparams)
+                f.name: getattr(v, f.name) for f in dataclasses.fields(v)
             }, only_simple_types=only_simple_types)
         if callable(v):
             return v.__module__ + ":" + v.__name__
@@ -140,6 +224,7 @@ def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
 
 class _CustomDataParser(DataParser):
     def __init__(self, dataset, dataparser_transform, dataparser_scale, config,  *args, **kwargs):
+        del args, kwargs
         self.dataset = dataset
         self.dataparser_transform = dataparser_transform
         self.dataparser_scale = dataparser_scale
@@ -158,6 +243,7 @@ class _CustomDataParser(DataParser):
         return SceneBox(aabb=torch.tensor([[-aabb_scale, -aabb_scale, -aabb_scale], [aabb_scale, aabb_scale, aabb_scale]], dtype=torch.float32))
 
     def _generate_dataparser_outputs(self, split: str = "train", **kwargs) -> DataparserOutputs:
+        del split, kwargs
         if self.dataset is None:
             assert self.dataparser_transform is not None, "dataparser_transform must be provided if dataset is None"
             assert self.dataparser_scale is not None, "dataparser_scale must be provided if dataset is None"
@@ -292,7 +378,6 @@ class NerfStudio(Method):
     _default_nerfstudio_name: str = "nerfacto"
     _require_points3D: bool = False
 
-    @remap_error
     def __init__(self, *,
                  checkpoint: Optional[str] = None,
                  train_dataset: Optional[Dataset] = None, 
@@ -310,14 +395,12 @@ class NerfStudio(Method):
             # Load nerfstudio checkpoint
             with open(os.path.join(checkpoint, "config.yml"), "r", encoding="utf8") as f:
                 config = yaml.load(f, Loader=yaml.Loader)
-            model_path = os.path.join(self.checkpoint, config.relative_model_dir)
+            model_path = os.path.join(checkpoint, config.relative_model_dir)
             if not os.path.exists(model_path):
                 raise RuntimeError(f"Model directory {model_path} does not exist")
             self._loaded_step = self.step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(model_path))[-1]
         else:
             config = copy.deepcopy(all_methods[nerfstudio_name])
-        self._trainer = None
-        self._dm = None
         self._tmpdir = tempfile.TemporaryDirectory()
         self._mode = None
         self.dataparser_params = None
@@ -377,6 +460,7 @@ class NerfStudio(Method):
         if cls._require_points3D:
             features = features + ("points3D_xyz", "points3D_rgb")
         return MethodInfo(
+            method_id="",  # Will be filled by the registry
             required_features=frozenset(features),
             supported_camera_models=frozenset(
                 (
@@ -403,7 +487,8 @@ class NerfStudio(Method):
     def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
         del options
         if embeddings is not None:
-            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
+            method_id = self.get_method_info()["method_id"]
+            raise NotImplementedError(f"Optimizing embeddings is not supported for method {method_id}")
         poses = cameras.poses.copy()
 
         # Convert from Opencv to OpenGL coordinate system
@@ -492,19 +577,6 @@ class NerfStudio(Method):
             def create_eval_dataset(self, *args, **kwargs):
                 del args, kwargs
                 return None
-
-        if train_dataset is None:
-            # setup_train is not called for eval dataset
-            def setup_train(self, *args, **kwargs):
-                del args, kwargs
-                if self.config.camera_optimizer is not None:
-                    self.train_camera_optimizer = self.config.camera_optimizer.setup(num_cameras=train_dataset["cameras"].size, device=self.device)
-
-            DM.setup_train = setup_train
-            # setup_eval is not called for eval dataset
-            def _noop(*args, **kwargs):
-                del args, kwargs
-            DM.setup_eval = _noop
         return DM
 
     def _patch_model(self, model_cls, *, config):
@@ -548,6 +620,7 @@ class NerfStudio(Method):
         if hasattr(config.pipeline.model._target, "__name__"):  # Protection against mocks
             config.pipeline.model._target.__name__ = model_cls.__name__  # pylint: disable=protected-access
         # Fix rest of the config
+        assert self._tmpdir is not None, "Method already closed"
         config.output_dir = Path(self._tmpdir.name)
         config.set_timestamp()
         config.vis = None
@@ -555,10 +628,13 @@ class NerfStudio(Method):
         config.load_step = None
         return config
 
-    def _setup(self, train_dataset: Dataset, config_overrides):
+    def _setup(self, train_dataset: Optional[Dataset], config_overrides):
+        del config_overrides
         train_dataset = None if train_dataset is None else train_dataset.copy()
         dataparser_transforms = dataparser_scale = None
-        if self.checkpoint is not None or train_dataset is None:
+        if self.checkpoint is None and train_dataset is None:
+            raise RuntimeError("Either checkpoint or train_dataset must be provided")
+        if self.checkpoint is not None:
             if os.path.exists(os.path.join(self.checkpoint, "dataparser_transforms.json")):
                 with open(os.path.join(self.checkpoint, "dataparser_transforms.json"), "r", encoding="utf8") as f:
                     dataparser_params = json.load(f)
@@ -604,7 +680,7 @@ class NerfStudio(Method):
         if train_dataset is not None:
             if getattr(self.config.pipeline.datamanager, "train_num_times_to_repeat_images", None) == -1:
                 logging.debug("NerfStudio will cache all images, we will release the memory now")
-                train_dataset["images"] = None
+                train_dataset["images"] = None  # type: ignore
         self._mode = "train"
         self._trainer = trainer
 
@@ -619,12 +695,6 @@ class NerfStudio(Method):
         ## trainer._load_checkpoint()
         ## self._mode = "eval"
         ## self._trainer = trainer
-
-    def _load_checkpoint(self):
-        if self.checkpoint is not None:
-            load_path = os.path.join(self.checkpoint, self.config.relative_model_dir, f"step-{self.get_info().loaded_step:09d}.ckpt")
-            loaded_state = torch.load(load_path, map_location="cpu")
-            self._trainer.pipeline.load_pipeline(loaded_state["pipeline"], loaded_state["step"])
 
     def train_iteration(self, step: int):
         if self._mode != "train":
@@ -654,7 +724,6 @@ class NerfStudio(Method):
                 return v.detach().cpu().item()
             elif isinstance(v, np.ndarray):
                 return v.item()
-            assert isinstance(v, (str, float, int))
             return v
 
         self.step = step + 1
@@ -694,8 +763,9 @@ class NerfStudio(Method):
                 f.write(sha)
 
     def close(self):
-        self._tmpdir.cleanup()
-        self._tmpdir = None
+        if self._tmpdir is not None:
+            self._tmpdir.cleanup()
+            self._tmpdir = None
 
     def optimize_embeddings(
         self, 
@@ -709,6 +779,7 @@ class NerfStudio(Method):
             dataset: Dataset.
             embeddings: Optional initial embeddings.
         """
+        del dataset, embeddings
         raise NotImplementedError()
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
@@ -718,5 +789,6 @@ class NerfStudio(Method):
         Args:
             index: Index of the image.
         """
+        del index
         return None
 

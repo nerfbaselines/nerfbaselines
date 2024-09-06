@@ -1,23 +1,15 @@
-import sys
 import itertools
 import importlib
-import os
 import logging
 from pathlib import Path
 import click
-import json
-from typing import Union
-from gettext import gettext as _
-from nerfbaselines import registry
-from nerfbaselines import backends
-from nerfbaselines.utils import setup_logging
-from nerfbaselines.utils import run_inside_eval_container, handle_cli_error
-from nerfbaselines.datasets import download_dataset, load_dataset
-from nerfbaselines.types import get_args, NB_PREFIX, Method
-from nerfbaselines.io import load_trajectory, open_any
-from nerfbaselines.io import open_any_directory, deserialize_nb_info
-from nerfbaselines.evaluation import evaluate, render_all_images, render_frames, trajectory_get_embeddings, trajectory_get_cameras, OutputType
-from nerfbaselines.web import get_click_group as get_web_click_group
+import nerfbaselines
+from nerfbaselines import backends, NB_PREFIX
+from nerfbaselines.datasets import download_dataset
+from nerfbaselines.evaluation import evaluate, run_inside_eval_container
+from ._web import web_click_group
+from ._common import click_backend_option as _click_backend_option
+from ._common import setup_logging
 
 
 class LazyGroup(click.Group):
@@ -69,7 +61,7 @@ class LazyGroup(click.Group):
             for subcommand in commands:
                 rows.append((subcommand, ""))
 
-            with formatter.section(_("Commands")):
+            with formatter.section("Commands"):
                 formatter.write_dl(rows)
 
 
@@ -78,19 +70,23 @@ def main():
     pass
 
 
-@main.command("shell")
-@click.option("--method", type=click.Choice(list(registry.get_supported_methods())), required=True)
-@click.option("--backend", type=click.Choice(backends.ALL_BACKENDS), default=os.environ.get("NERFBASELINES_BACKEND", None))
+@main.command("shell", context_settings=dict(
+    ignore_unknown_options=True,
+    allow_interspersed_args=False,
+))
+@click.option("--method", type=click.Choice(list(nerfbaselines.get_supported_methods())), required=True)
 @click.option("--verbose", "-v", is_flag=True)
-def shell_command(method, backend, verbose):
+@_click_backend_option()
+@click.argument('command', nargs=-1, type=click.UNPROCESSED)
+def shell_command(method, backend_name, verbose, command):
     logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)
 
-    method_spec = registry.get_method_spec(method)
-    backend_impl = backends.get_backend(method_spec, backend)
+    method_spec = nerfbaselines.get_method_spec(method)
+    backend_impl = backends.get_backend(method_spec, backend_name)
     logging.info(f"Using method: {method}, backend: {backend_impl.name}")
     backend_impl.install()
-    backend_impl.shell()
+    backend_impl.shell(command if command else None)
 
 
 @main.command("download-dataset")
@@ -114,7 +110,7 @@ def evaluate_command(predictions: str, output: str):
 
 
 @main.command("build-docker-image", hidden=True)
-@click.option("--method", type=click.Choice(list(registry.get_supported_methods("docker"))), required=False)
+@click.option("--method", type=click.Choice(list(nerfbaselines.get_supported_methods("docker"))), required=False)
 @click.option("--environment", type=str, required=False)
 @click.option("--skip-if-exists-remotely", is_flag=True)
 @click.option("--tag-latest", is_flag=True)
@@ -126,7 +122,7 @@ def build_docker_image_command(method=None, environment=None, push=False, skip_i
 
     spec = None
     if method is not None:
-        spec = registry.get_method_spec(method)
+        spec = nerfbaselines.get_method_spec(method)
         if spec is None:
             raise RuntimeError(f"Method {method} not found")
         spec = get_docker_spec(spec)
@@ -135,8 +131,8 @@ def build_docker_image_command(method=None, environment=None, push=False, skip_i
         env_name = spec["environment_name"]
         logging.info(f"Building docker image for environment {env_name} (from method {method})")
     elif environment is not None:
-        for method in registry.get_supported_methods("docker"):
-            spec = registry.get_method_spec(method)
+        for method in nerfbaselines.get_supported_methods("docker"):
+            spec = nerfbaselines.get_method_spec(method)
             spec = get_docker_spec(spec)
             if spec is None:
                 continue
@@ -150,14 +146,14 @@ def build_docker_image_command(method=None, environment=None, push=False, skip_i
     build_docker_image(spec, skip_if_exists_remotely=skip_if_exists_remotely, push=push, tag_latest=tag_latest)
 
 
-main.add_command(get_web_click_group())
-main.add_lazy_command("nerfbaselines.viewer", "viewer")
-main.add_lazy_command("nerfbaselines.cli.export_demo", "export-demo")
-main.add_lazy_command("nerfbaselines.cli.test_method", "test-method")
-main.add_lazy_command("nerfbaselines.cli.render:render_command", "render")
-main.add_lazy_command("nerfbaselines.cli.render:render_trajectory_command", "render-trajectory")
-main.add_lazy_command("nerfbaselines.cli.generate_dataset_results:main", "generate-dataset-results")
-main.add_lazy_command("nerfbaselines.cli.fix_checkpoint:main", "fix-checkpoint")
-main.add_lazy_command("nerfbaselines.cli.install_method:main", "install-method")
-main.add_lazy_command("nerfbaselines.cli.fix_output_artifact:main", "fix-output-artifact")
-main.add_lazy_command("nerfbaselines.training:train_command", "train")
+main.add_command(web_click_group)
+main.add_lazy_command("nerfbaselines.cli._export_demo", "export-demo")
+main.add_lazy_command("nerfbaselines.cli._test_method", "test-method")
+main.add_lazy_command("nerfbaselines.cli._render:render_command", "render")
+main.add_lazy_command("nerfbaselines.cli._render:render_trajectory_command", "render-trajectory")
+main.add_lazy_command("nerfbaselines.cli._generate_dataset_results:main", "generate-dataset-results")
+main.add_lazy_command("nerfbaselines.cli._fix_checkpoint:main", "fix-checkpoint")
+main.add_lazy_command("nerfbaselines.cli._install_method:main", "install-method")
+main.add_lazy_command("nerfbaselines.cli._fix_output_artifact:main", "fix-output-artifact")
+main.add_lazy_command("nerfbaselines.cli._train:train_command", "train")
+main.add_lazy_command("nerfbaselines.cli._viewer:viewer_command", "viewer")

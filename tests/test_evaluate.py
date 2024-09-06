@@ -28,7 +28,7 @@ def _generate_predictions(path, background_color=None):
                 "method": "test",
                 "nb_version": "0.0.0",
                 "dataset_metadata": {
-                    "name": "test",
+                    "id": "test",
                     "scene": "test",
                     "background_color": [0, 0, 0],
                     "color_space": "srgb",

@@ -9,6 +9,7 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+import dataclasses
 import json
 import hashlib
 import pickle
@@ -21,31 +22,47 @@ import os
 import tempfile
 import numpy as np
 from PIL import Image
-from nerfbaselines.types import Method, MethodInfo, ModelInfo, OptimizeEmbeddingsOutput, RenderOutput
-from nerfbaselines.types import Cameras, camera_model_to_int, Dataset
-from nerfbaselines.utils import flatten_hparams, remap_error, convert_image_dtype
+from nerfbaselines import (
+    Method, MethodInfo, ModelInfo, 
+    OptimizeEmbeddingsOutput, RenderOutput,
+    Cameras, camera_model_to_int, Dataset,
+)
+from nerfbaselines.utils import convert_image_dtype
 from argparse import ArgumentParser
 
 import torch
 from random import randint
 
-from utils.general_utils import PILtoTorch
-from arguments import ModelParams, PipelineParams, OptimizationParams, args_init # noqa: E402
-from gaussian_renderer import render # noqa: E402
-from scene import GaussianModel # noqa: E402
-import scene.dataset_readers
-from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # noqa: E402
-from scene.dataset_readers import CameraInfo as _old_CameraInfo
-from scene.dataset_readers import storePly, fetchPly  # noqa: E402
-from utils.general_utils import safe_state  # noqa: E402
-from utils.graphics_utils import fov2focal  # noqa: E402
-from utils.loss_utils import l1_loss, ssim  # noqa: E402
-from utils.sh_utils import SH2RGB  # noqa: E402
-from scene import Scene, sceneLoadTypeCallbacks  # noqa: E402
-from utils import camera_utils  # noqa: E402
+from utils.general_utils import PILtoTorch  # type: ignore
+from arguments import ModelParams, PipelineParams, OptimizationParams, args_init # type: ignore
+from gaussian_renderer import render # type: ignore
+from scene import GaussianModel # type: ignore
+import scene.dataset_readers  # type: ignore
+from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # type: ignore
+from scene.dataset_readers import CameraInfo as _old_CameraInfo  # type: ignore
+from scene.dataset_readers import storePly, fetchPly  # type: ignore
+from utils.general_utils import safe_state  # type: ignore
+from utils.graphics_utils import fov2focal  # type: ignore
+from utils.loss_utils import l1_loss, ssim  # type: ignore
+from utils.sh_utils import SH2RGB  # type: ignore
+from scene import Scene, sceneLoadTypeCallbacks  # type: ignore
+from utils import camera_utils  # type: ignore
 from utils.image_utils import psnr  # type: ignore
 import lpips  # type: ignore
 
+
+def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
+    flat = {}
+    if dataclasses.is_dataclass(hparams):
+        hparams = {f.name: getattr(hparams, f.name) for f in dataclasses.fields(hparams)}
+    for k, v in hparams.items():
+        if _prefix:
+            k = f"{_prefix}{separator}{k}"
+        if isinstance(v, dict) or dataclasses.is_dataclass(v):
+            flat.update(flatten_hparams(v, _prefix=k, separator=separator).items())
+        else:
+            flat[k] = v
+    return flat
 
 
 def getProjectionMatrixFromOpenCV(w, h, fx, fy, cx, cy, znear, zfar):
@@ -176,9 +193,9 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
             norm_data = im_data / 255.0
             arr = norm_data[:, :, :3] * norm_data[:, :, 3:4] + (1 - norm_data[:, :, 3:4]) * bg
             im_data = np.array(arr * 255.0, dtype=np.uint8)
-        if not white_background and dataset["metadata"].get("name") == "blender":
+        if not white_background and dataset["metadata"].get("id") == "blender":
             warnings.warn("Blender scenes are expected to have white background. If the background is not white, please set white_background=True in the dataset loader.")
-        elif white_background and dataset["metadata"].get("name") != "blender":
+        elif white_background and dataset["metadata"].get("id") != "blender":
             warnings.warn("white_background=True is set, but the dataset is not a blender scene. The background may not be white.")
         image = Image.fromarray(im_data)
         sampling_mask = None
@@ -203,7 +220,7 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
     if scale_coords is not None:
         points3D_xyz = points3D_xyz * scale_coords
     points3D_rgb = dataset["points3D_rgb"]
-    if points3D_xyz is None and dataset["metadata"].get("name", None) == "blender":
+    if points3D_xyz is None and dataset["metadata"].get("id", None) == "blender":
         # https://github.com/graphdeco-inria/gaussian-splatting/blob/2eee0e26d2d5fd00ec462df47752223952f6bf4e/scene/dataset_readers.py#L221C4-L221C4
         num_pts = 100_000
         logging.info(f"generating random point cloud ({num_pts})...")
@@ -220,16 +237,12 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
 
 
 class GaussianSplattingWild(Method):
-    @remap_error
     def __init__(self, *,
                  checkpoint: Optional[str] = None,
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
         self.checkpoint = checkpoint
-        self.gaussians = None
-        self.background = None
         self.step = 0
-        self.scene = None
         self.lpips_criteria = None
 
         # Setup parameters
@@ -241,7 +254,7 @@ class GaussianSplattingWild(Method):
         if self.checkpoint is not None:
             if not os.path.exists(self.checkpoint):
                 raise RuntimeError(f"Model directory {self.checkpoint} does not exist")
-            self._loaded_step = sorted(int(x[x.find("_") + 1:]) for x in os.listdir(os.path.join(self.checkpoint, "ckpts_point_cloud")) if x.startswith("iteration_"))[-1]
+            self._loaded_step = self.step = sorted(int(x[x.find("_") + 1:]) for x in os.listdir(os.path.join(self.checkpoint, "ckpts_point_cloud")) if x.startswith("iteration_"))[-1]
 
         self._default_embedding = None
         if self.checkpoint is not None and os.path.exists(os.path.join(self.checkpoint, "default_embedding.npy")):
@@ -259,7 +272,7 @@ class GaussianSplattingWild(Method):
                 self._train_dataset_link = link["link"], link["image_names_sha"]
         if train_dataset is not None:
             if (
-                train_dataset["metadata"].get("name") == "phototourism" and
+                train_dataset["metadata"].get("id") == "phototourism" and
                 train_dataset["metadata"].get("scene") in {"sacre-coeur", "brandenburg-gate", "trevi-fountain"}):
                 scene = train_dataset["metadata"]["scene"]
                 image_names_sha = hashlib.sha256("".join([os.path.split(x)[-1] for x in train_dataset["image_paths"]]).encode()).hexdigest()
@@ -267,17 +280,16 @@ class GaussianSplattingWild(Method):
             else:
                 warnings.warn("Train dataset is not a phototourism scene supported by nerfbaselines. Obtaining train embeddings will be disabled for the method.")
 
-    @property
-    def _train_dataset(self):
+    def _get_train_dataset(self):
         if self._train_dataset_cache is None and self._train_dataset_link is not None:
             logging.info(f"Loading train dataset from {self._train_dataset_link[0]}")
             from nerfbaselines.datasets import load_dataset
-            features = self.get_method_info()["required_features"]
-            supported_camera_models = self.get_method_info()["supported_camera_models"]
+            features = self.get_method_info().get("required_features")
+            supported_camera_models = self.get_method_info().get("supported_camera_models")
             train_dataset = load_dataset(self._train_dataset_link[0], split="train", features=features, supported_camera_models=supported_camera_models)
             image_names_sha = hashlib.sha256("".join([os.path.split(x)[-1] for x in train_dataset["image_paths"]]).encode()).hexdigest()
             if self._train_dataset_link[1] != image_names_sha:
-                raise RuntimeError(f"Image names in train dataset do not match the expected image names '{image_names_sha}' != '{self._train_dataset_link[1]}'. Method wasn't trained on this dataset.")
+                logging.warning(f"Image names in train dataset do not match the expected image names '{image_names_sha}' != '{self._train_dataset_link[1]}'. Method may have been trained on a different dataset.")
             self._train_dataset_cache = train_dataset
         return self._train_dataset_cache
 
@@ -316,7 +328,9 @@ class GaussianSplattingWild(Method):
             self.gaussians.training_setup(self.opt)
         if train_dataset is None or self.checkpoint:
             info = self.get_info()
-            loaded_step = info["loaded_step"]
+            loaded_step = info.get("loaded_step")
+            assert self.checkpoint is not None, "Either checkpoint or train_dataset must be set"
+            assert loaded_step is not None, "Loaded step is not set"
             ckpt_path = os.path.join(self.checkpoint,
                                      "ckpts_point_cloud",
                                      "iteration_" + str(loaded_step),
@@ -342,6 +356,7 @@ class GaussianSplattingWild(Method):
     @classmethod
     def get_method_info(cls):
         return MethodInfo(
+            method_id="",  # Will be overriden by the registry
             required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset(("pinhole",)),
             supported_outputs=("color",),
@@ -372,7 +387,9 @@ class GaussianSplattingWild(Method):
                     del args, kwargs
                     return _convert_dataset_to_gaussian_splatting(dataset, td, white_background=self.dataset.white_background, scale_coords=self.dataset.scale_coords)
                 sceneLoadTypeCallbacks["Colmap"] = colmap_loader
-                scene = Scene(opt, self.gaussians, load_iteration=info["loaded_step"] if dataset is None else None)
+                loaded_step = info.get("loaded_step")
+                assert dataset is not None or loaded_step is not None, "Loaded step is not set"
+                scene = Scene(opt, self.gaussians, load_iteration=str(loaded_step) if dataset is None else None)
                 return scene
             finally:
                 sceneLoadTypeCallbacks["Colmap"] = backup
@@ -390,7 +407,7 @@ class GaussianSplattingWild(Method):
 
         # Pick a random Camera
         if not self._viewpoint_stack:
-            loadCam.was_called = False
+            loadCam.was_called = False  # type: ignore
             self._viewpoint_stack = self.scene.getTrainCameras().copy()
             if any(not getattr(cam, "_patched", False) for cam in self._viewpoint_stack):
                 raise RuntimeError("could not patch loadCam!")
@@ -427,6 +444,7 @@ class GaussianSplattingWild(Method):
         if self.args.use_scaling_loss :
             loss+=torch.abs(self.gaussians.get_scaling).mean()*self.args.scaling_loss_coef
         if self.args.use_lpips_loss: 
+            assert self.lpips_criteria is not None, "LPIPS is not initialized"
             loss+=self.lpips_criteria(image,gt_image).mean()*self.args.lpips_loss_coef
 
         if ( self.gaussians.use_kmap_pjmap or self.gaussians.use_okmap) and self.args.use_box_coord_loss:
@@ -552,10 +570,11 @@ class GaussianSplattingWild(Method):
         Args:
             index: Index of the image.
         """
-        if self._train_dataset is None:
+        train_dataset = self._get_train_dataset()
+        if train_dataset is None:
             raise NotImplementedError("Method supports optimizing embeddings, but train dataset is required to infer the embeddings.")
 
         i = index
-        for _ in self.render(self._train_dataset["cameras"][i:i+1], embeddings=None, _gt_images=self._train_dataset["images"][i:i+1], _store_cache=True):
+        for _ in self.render(train_dataset["cameras"][i:i+1], embeddings=None, _gt_images=train_dataset["images"][i:i+1], _store_cache=True):
             pass
         return self.gaussians.color_net.cache_outd.detach().cpu().numpy().reshape(-1)

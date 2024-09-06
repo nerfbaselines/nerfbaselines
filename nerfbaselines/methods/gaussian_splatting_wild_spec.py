@@ -1,6 +1,5 @@
 import os
-from nerfbaselines.types import MethodSpec
-from nerfbaselines.registry import register
+from nerfbaselines import register, MethodSpec
 
 
 _PHOTOTOURISM_DISCREPANCY_NOTE = """The original paper reports metrics for test images where the appearance embedding is estimated from the full test image, not just the left half as in the official evaluation protocol. The reported numbers are computed using the official evaluation protocol and are, therefore, lower than the numbers reported in the paper."""
@@ -11,7 +10,7 @@ _paper_results = {
 }
 
 GaussianSplattingWildSpec: MethodSpec = {
-    "method": ".gaussian_splatting_wild:GaussianSplattingWild",
+    "method_class": ".gaussian_splatting_wild:GaussianSplattingWild",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9",
@@ -23,7 +22,7 @@ git checkout 79d9e6855298a2632b530644e52d1829c6356b08
 # from "intr = cam_intrinsics[extr.id]" to "intr = cam_intrinsics[extr.camera_id]"
 sed -i '80s/.*/        intr = cam_intrinsics[extr.camera_id]/' scene/dataset_readers.py
 
-conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 -c pytorch -c nvidia
+conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 'numpy<2.0.0' -c pytorch -c nvidia
 conda install -y cudatoolkit-dev=11.7 gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
 pip install -U pip 'setuptools<70.0.0' 'wheel==0.43.0'
 pip install pandas==2.2.2 \

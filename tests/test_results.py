@@ -1,22 +1,21 @@
 import json
 import sys
 import pytest
-from pathlib import Path
 from typing import Any, cast
 from unittest import mock
+from nerfbaselines import get_supported_methods
 from nerfbaselines.results import get_benchmark_datasets, render_markdown_dataset_results_table
-from nerfbaselines.registry import methods_registry as registry
 
 
 def mock_results(results_path, datasets, methods):
-    import nerfbaselines.datasets
-    from nerfbaselines import registry
+    from nerfbaselines import get_method_spec, get_dataset_spec
     from nerfbaselines.io import _encode_values
 
     for method in methods:
-        spec = registry.get_method_spec(method)
+        spec = get_method_spec(method)
         for dataset in datasets:
-            dinfo = cast(Any, registry.datasets_registry[dataset].get("metadata", {}).copy())
+            dataset_spec = get_dataset_spec(dataset)
+            dinfo = cast(Any, dataset_spec.get("metadata", {}).copy())
             for scene_data in dinfo["scenes"]:
                 scene = scene_data["id"]
                 if spec.get("output_artifacts", {}).get(f"{dataset}/{scene}"):
@@ -77,11 +76,10 @@ def assert_compile_dataset_results_correct(results, dataset):
         assert isinstance(fscene.get("psnr"), float)
 
 
-@pytest.mark.parametrize("method", list(registry.keys()))
+@pytest.mark.parametrize("method", list(get_supported_methods()))
 def test_get_method_info_from_spec(method):
-    from nerfbaselines.types import MethodInfo
+    from nerfbaselines import MethodInfo, get_method_spec
     from nerfbaselines.results import get_method_info_from_spec
-    from nerfbaselines.registry import get_method_spec
 
     spec = get_method_spec(method)
     method_info: MethodInfo = get_method_info_from_spec(spec)
@@ -94,7 +92,7 @@ def test_get_method_info_from_spec(method):
 @pytest.mark.parametrize("dataset", get_benchmark_datasets())
 def test_compile_dataset_results(tmp_path, dataset):
     from nerfbaselines.results import compile_dataset_results
-    mock_results(tmp_path, [dataset], list(registry.keys()))
+    mock_results(tmp_path, [dataset], list(get_supported_methods()))
 
     # Mock
     results = compile_dataset_results(tmp_path, dataset)
@@ -102,12 +100,10 @@ def test_compile_dataset_results(tmp_path, dataset):
     assert_compile_dataset_results_correct(results, dataset)
 
 
-def test_render_dataset_results_json_capture_command(tmp_path, capsys):
-    dataset = next(iter(get_benchmark_datasets()))
-    method = next(iter(registry.keys()))
-
+@pytest.mark.parametrize("dataset", get_benchmark_datasets())
+def test_render_dataset_results_json_capture_command(tmp_path, capsys, dataset):
     with mock.patch.object(sys, "argv", ["nerfbaselines", "generate-dataset-results", "--output-type", "json", "--results", str(tmp_path / "results"), "--dataset", dataset]):
-        mock_results(tmp_path.joinpath("results"), [dataset], [method])
+        mock_results(tmp_path.joinpath("results"), [dataset], list(get_supported_methods()))
 
         import nerfbaselines.cli
 
@@ -120,14 +116,12 @@ def test_render_dataset_results_json_capture_command(tmp_path, capsys):
         assert_compile_dataset_results_correct(results, dataset)
 
 
-def test_render_dataset_results_json_command(tmp_path):
-    dataset = next(iter(get_benchmark_datasets()))
-    method = next(iter(registry.keys()))
-
+@pytest.mark.parametrize("dataset", get_benchmark_datasets())
+def test_render_dataset_results_json_command(tmp_path, dataset):
     with mock.patch.object(
         sys, "argv", ["nerfbaselines", "generate-dataset-results", "--output-type", "json", "--results", str(tmp_path / "results"), "--dataset", dataset, "--output", str(tmp_path / "results.json")]
     ):
-        mock_results(tmp_path.joinpath("results"), [dataset], [method])
+        mock_results(tmp_path.joinpath("results"), [dataset], list(get_supported_methods()))
 
         import nerfbaselines.cli
 

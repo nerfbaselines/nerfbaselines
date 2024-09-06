@@ -20,7 +20,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "opencv-python>=4.6.0.66",
+    "opencv-python>=4.6.0",
     "typing-extensions>=4.4.0",
     "wandb>=0.13.3",
     "click>=8.0.0",
@@ -36,7 +36,7 @@ dependencies = [
     "scipy",
     'importlib-metadata>=6.0.0; python_version < "3.10"',
     # Viwer dependencies
-    'viser<0.2.0',
+    'viser<0.2.0; python_version > "3.7"',
 ]
 dynamic = ["version"]
 
@@ -64,8 +64,6 @@ dev = [
     'typeguard<=4.2.1',
     'pytest-benchmark',
     'pyright<=1.1.377',
-    # Viewer
-    'viser<0.2.0',
     # Web
     'jinja2==3.1.4',
     'livereload==2.7.0',
@@ -94,24 +92,7 @@ exclude = ["**/node_modules",
     "**/__pycache__",
     "**/build",
     "docs/**/*",
-    "nerfbaselines/viewer/nerfstudio.py",
-    "nerfbaselines/methods/camp_zipnerf.py",
-    "nerfbaselines/methods/gaussian_splatting.py",
-    "nerfbaselines/methods/gaussian_splatting_wild.py",
-    "nerfbaselines/methods/instant_ngp.py",
-    "nerfbaselines/methods/mip_splatting.py",
-    "nerfbaselines/methods/multinerf.py",
-    "nerfbaselines/methods/nerf.py",
-    "nerfbaselines/methods/nerfstudio.py",
-    "nerfbaselines/methods/tensorf.py",
-    "nerfbaselines/methods/gaussian_opacity_fields.py",
-    "nerfbaselines/methods/nerfw_reimpl.py",
-    "nerfbaselines/methods/kplanes.py",
     "nerfbaselines/methods/nerfonthego.py",
-    "nerfbaselines/methods/seathru_nerf.py",
-    "nerfbaselines/methods/tetranerf.py",
-    "nerfbaselines/methods/kplanes.py",
-    "nerfbaselines/methods/colmap.py",
     "nerfbaselines/methods/trips/**/*",
     "scripts/**/*",
 ]

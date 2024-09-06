@@ -1,9 +1,17 @@
 import sys
-from typing import Tuple, Dict, cast, Any, TYPE_CHECKING, Optional, Union
+from typing import Tuple, Dict, cast, Any, TYPE_CHECKING, Optional
 import numpy as np
-from .utils import padded_stack, is_broadcastable, convert_image_dtype
-from .types import Protocol, runtime_checkable, CameraModel, camera_model_to_int
-from .types import Cameras, GenericCameras, TTensor, _get_xnp
+from .utils import padded_stack, convert_image_dtype
+from . import CameraModel, camera_model_to_int, Cameras, GenericCameras
+from ._types import Cameras, GenericCameras, TTensor, _get_xnp
+try:
+    from typing import Protocol
+except ImportError:
+    from typing_extensions import Protocol
+try:
+    from typing import runtime_checkable
+except ImportError:
+    from typing_extensions import runtime_checkable
 
 
 def _xnp_astype(tensor: TTensor, dtype, xnp: Any) -> TTensor:
@@ -16,6 +24,17 @@ def _xnp_copy(tensor: TTensor, xnp: Any = np) -> TTensor:
     if xnp.__name__ == "torch":
         return tensor.clone()  # type: ignore
     return xnp.copy(tensor)  # type: ignore
+
+
+def _is_broadcastable(shape1, shape2):
+    for a, b in zip(shape1[::-1], shape2[::-1]):
+        if a == 1 or b == 1 or a == b:
+            pass
+        else:
+            return False
+    return True
+
+
 
 
 @runtime_checkable
@@ -252,7 +271,7 @@ def get_rays(cameras: GenericCameras[TTensor], xy: TTensor) -> Tuple[TTensor, TT
 def unproject(cameras: GenericCameras[TTensor], xy: TTensor) -> Tuple[TTensor, TTensor]:
     xnp = _get_xnp(xy)
     assert xy.shape[-1] == 2
-    assert is_broadcastable(xy.shape[:-1], cameras.poses.shape[:-2]), \
+    assert _is_broadcastable(xy.shape[:-1], cameras.poses.shape[:-2]), \
         "xy must be broadcastable with poses, shapes: {}, {}".format(xy.shape[:-1], cameras.poses.shape[:-2])
     if hasattr(xy.dtype, "kind"):
         if not TYPE_CHECKING:
@@ -281,7 +300,7 @@ def project(cameras: GenericCameras[TTensor], xyz: TTensor) -> TTensor:
     xnp = _get_xnp(xyz)
     eps = xnp.finfo(xyz.dtype).eps  # type: ignore
     assert xyz.shape[-1] == 3
-    assert is_broadcastable(xyz.shape[:-1], cameras.poses.shape[:-2]), \
+    assert _is_broadcastable(xyz.shape[:-1], cameras.poses.shape[:-2]), \
         "xyz must be broadcastable with poses, shapes: {}, {}".format(xyz.shape[:-1], cameras.poses.shape[:-2])
 
     # World -> Camera

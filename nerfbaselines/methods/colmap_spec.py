@@ -1,10 +1,9 @@
 import os
-from nerfbaselines.types import MethodSpec
-from nerfbaselines.registry import register
+from nerfbaselines import register, MethodSpec
 
 
 ColmapMVSSpec: MethodSpec = {
-    "method": ".colmap:ColmapMVS",
+    "method_class": ".colmap:ColmapMVS",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.11",

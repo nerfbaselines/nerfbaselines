@@ -1,5 +1,3 @@
-import json
-import functools
 import warnings
 import gc
 import logging
@@ -9,12 +7,14 @@ import numpy as np
 import PIL.Image
 import PIL.ExifTags
 from tqdm import tqdm
-from typing import Optional, TypeVar, Tuple, Union, List, Sequence, Dict, cast, overload, Any
-from ..cameras import camera_model_to_int
-from ..types import Dataset, Literal, Cameras, UnloadedDataset
+from typing import Optional, TypeVar, Tuple, Union, List, Dict, cast, Any
+from nerfbaselines import Dataset, Cameras, UnloadedDataset, camera_model_to_int, DatasetNotFoundError
 from .. import cameras
-from ..utils import padded_stack
-from ..pose_utils import rotation_matrix, pad_poses, unpad_poses, apply_transform
+from ..utils import padded_stack, pad_poses, unpad_poses, apply_transform
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
 
 
 TDataset = TypeVar("TDataset", bound=Union[Dataset, UnloadedDataset])
@@ -76,6 +76,35 @@ def focus_point_fn(poses, xnp = np):
     return focus_pt
 
 
+def make_rotation_matrix(a, b):
+    """Compute the rotation matrix that rotates vector a to vector b.
+
+    Args:
+        a: The vector to rotate.
+        b: The vector to rotate to.
+    Returns:
+        The rotation matrix.
+    """
+    a = a / np.linalg.norm(a)
+    b = b / np.linalg.norm(b)
+    v = np.cross(a, b)
+    c = np.dot(a, b)
+    # If vectors are exactly opposite, we add a little noise to one of them
+    if c < -1 + 1e-8:
+        eps = (np.random.rand(3) - 0.5) * 0.01
+        return make_rotation_matrix(a + eps, b)
+    s = np.linalg.norm(v)
+    skew_sym_mat = np.array(
+        [
+            [0, -v[2], v[1]],
+            [v[2], 0, -v[0]],
+            [-v[1], v[0], 0],
+        ],
+        dtype=a.dtype,
+    )
+    return np.eye(3, dtype=a.dtype) + skew_sym_mat + skew_sym_mat @ skew_sym_mat * ((1 - c) / (s**2 + 1e-8))
+
+
 def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np.ndarray, np.ndarray]:
     if dataset_type == "object-centric":
         transform = get_transform_poses_pca(poses)
@@ -99,7 +128,7 @@ def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np
         up = np.mean(poses[:, :3, 1], 0)
         up = -up / np.linalg.norm(up)
 
-        rotation = rotation_matrix(up, np.array([0, 0, 1], dtype=up.dtype))
+        rotation = make_rotation_matrix(up, np.array([0, 0, 1], dtype=up.dtype))
         transform = np.concatenate([rotation, rotation @ -translation[..., None]], -1)
         transform = np.concatenate([transform, np.array([[0, 0, 0, 1]], dtype=transform.dtype)], 0)
 
@@ -313,7 +342,7 @@ def dataset_load_features(
                 for p in dataset["sampling_mask_paths"]]
             dataset["sampling_mask_paths_root"] = "/resized-sampling-masks"
 
-    dataset["images"] = images  # padded_stack(images)
+    dataset["images"] = images
 
     # Replace image sizes and metadata
     image_sizes = np.array(image_sizes, dtype=np.int32)
@@ -326,10 +355,6 @@ def dataset_load_features(
                 "Some cameras models are not supported by the method. Images have been undistorted. Make sure to use the undistorted images for training."
             )
     return cast(Dataset, dataset)
-
-
-class DatasetNotFoundError(Exception):
-    pass
 
 
 class MultiDatasetError(DatasetNotFoundError):
@@ -392,68 +417,4 @@ def dataset_index_select(dataset: TDataset, i: Union[slice, int, list, np.ndarra
         "metadata"}})
     return cast(TDataset, _dataset)
 
-
-@overload
-def new_dataset(*,
-                cameras: Cameras,
-                image_paths: Sequence[str],
-                image_paths_root: Optional[str] = ...,
-                images: Union[np.ndarray, List[np.ndarray]],
-                sampling_mask_paths: Optional[Sequence[str]] = ...,
-                sampling_mask_paths_root: Optional[str] = None,
-                sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = ...,  # [N][H, W]
-                points3D_xyz: Optional[np.ndarray] = ...,  # [M, 3]
-                points3D_rgb: Optional[np.ndarray] = ...,  # [M, 3]
-                images_points3D_indices: Optional[Sequence[np.ndarray]] = None,  # [N][<M]
-                metadata: Dict) -> Dataset:
-    ...
-
-
-@overload
-def new_dataset(*,
-                cameras: Cameras,
-                image_paths: Sequence[str],
-                image_paths_root: Optional[str] = ...,
-                images: Literal[None] = None,
-                sampling_mask_paths: Optional[Sequence[str]] = ...,
-                sampling_mask_paths_root: Optional[str] = None,
-                sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = ...,  # [N][H, W]
-                points3D_xyz: Optional[np.ndarray] = ...,  # [M, 3]
-                points3D_rgb: Optional[np.ndarray] = ...,  # [M, 3]
-                images_points3D_indices: Optional[Sequence[np.ndarray]] = None,  # [N][<M]
-                metadata: Dict) -> UnloadedDataset:
-    ...
-
-
-def new_dataset(*,
-                cameras: Cameras,
-                image_paths: Sequence[str],
-                image_paths_root: Optional[str] = None,
-                images: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W, 3]
-                sampling_mask_paths: Optional[Sequence[str]] = None,
-                sampling_mask_paths_root: Optional[str] = None,
-                sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W]
-                points3D_xyz: Optional[np.ndarray] = None,  # [M, 3]
-                points3D_rgb: Optional[np.ndarray] = None,  # [M, 3]
-                images_points3D_indices: Optional[Sequence[np.ndarray]] = None,  # [N][<M]
-                metadata: Dict) -> Union[UnloadedDataset, Dataset]:
-    if image_paths_root is None:
-        image_paths_root = os.path.commonpath(image_paths)
-    if sampling_mask_paths_root is None and sampling_mask_paths is not None:
-        sampling_mask_paths_root = os.path.commonpath(sampling_mask_paths)
-    if image_paths_root is None:
-        image_paths_root = os.path.commonpath(image_paths)
-    return UnloadedDataset(
-        cameras=cameras,
-        image_paths=list(image_paths),
-        sampling_mask_paths=list(sampling_mask_paths) if sampling_mask_paths is not None else None,
-        sampling_mask_paths_root=sampling_mask_paths_root,
-        image_paths_root=image_paths_root,
-        images=images,
-        sampling_masks=sampling_masks,
-        points3D_xyz=points3D_xyz,
-        points3D_rgb=points3D_rgb,
-        images_points3D_indices=list(images_points3D_indices) if images_points3D_indices is not None else None,
-        metadata=metadata
-    )
 

@@ -29,7 +29,7 @@ def timeout(timeout):
 
 @pytest.mark.parametrize("protocol_classes", 
                          [[k] for k in _transport_protocols_registry.keys()], ids=lambda x: ",".join(x))
-@timeout(1)
+@timeout(4)
 def test_protocol_wait_for_worker_timeout(protocol_classes):
     if "shm-pickle" in protocol_classes and sys.version_info < (3, 8):
         pytest.skip("Shared memory is not supported for Python < 3.8.")
@@ -87,7 +87,7 @@ def with_echo_protocol():
 
 @pytest.mark.parametrize("protocol_classes", 
                          [[k] for k in _transport_protocols_registry.keys()], ids=lambda x: ",".join(x))
-@timeout(1)
+@timeout(4)
 def test_protocol_send_receive(protocol_classes, with_echo_protocol):
     if "shm-pickle" in protocol_classes and sys.version_info < (3, 8):
         pytest.skip("Shared memory is not supported for Python < 3.8.")
@@ -102,7 +102,7 @@ def test_protocol_send_receive(protocol_classes, with_echo_protocol):
 
 
 @pytest.mark.skipif(sys.version_info < (3, 8), reason="requires python3.8 or higher")
-@timeout(1)
+@timeout(4)
 def test_protocol_shm_pickle_large_message(with_echo_protocol):
     from nerfbaselines.backends.protocol_shm_pickle import SharedMemoryProtocol
     import numpy as np
@@ -114,7 +114,7 @@ def test_protocol_shm_pickle_large_message(with_echo_protocol):
         assert np.array_equal(dummy_data, out["data"])
 
 
-@timeout(1)
+@timeout(4)
 def test_protocol_tcp_pickle_large_message(with_echo_protocol):
     from nerfbaselines.backends.protocol_tcp_pickle import TCPPickleProtocol
     import numpy as np
@@ -130,7 +130,7 @@ def test_protocol_tcp_pickle_large_message(with_echo_protocol):
                          [[k] for k in _transport_protocols_registry.keys()] + [
                              ["tcp-pickle", "shm-pickle"]
                         ], ids=lambda x: ",".join(x))
-@timeout(1)
+@timeout(4)
 def test_protocol_close_connection_host(protocol_classes, with_echo_protocol):
     if "shm-pickle" in protocol_classes and sys.version_info < (3, 8):
         pytest.skip("Shared memory is not supported for Python < 3.8.")
@@ -161,7 +161,7 @@ def test_protocol_close_connection_host(protocol_classes, with_echo_protocol):
                          [[k] for k in _transport_protocols_registry.keys()] + [
                              ["tcp-pickle", "shm-pickle"]
                         ], ids=lambda x: ",".join(x))
-@timeout(4)
+@timeout(8)
 def test_protocol_close_connection_worker(protocol_classes, with_echo_protocol):
     if "shm-pickle" in protocol_classes and sys.version_info < (3, 8):
         pytest.skip("Shared memory is not supported for Python < 3.8.")

@@ -3,12 +3,15 @@ import subprocess
 import tempfile
 import os
 import logging
+from typing import Optional
 from pathlib import Path
 import click
 import json
-from gettext import gettext as _
 from nerfbaselines.results import MethodLink
-from nerfbaselines.types import Optional, get_args
+try:
+    from typing import get_args
+except ImportError:
+    from typing_extensions import get_args
 
 
 @click.command("generate-dataset-results")
@@ -19,7 +22,7 @@ from nerfbaselines.types import Optional, get_args
 @click.option("--output", type=click.Path(file_okay=True, exists=False, dir_okay=False, path_type=str), default=None)
 def main(results: Optional[str], dataset: str, output_type="markdown", output: Optional[str] = None, method_links: MethodLink = "none"):
     from nerfbaselines.results import compile_dataset_results, render_markdown_dataset_results_table
-    from nerfbaselines.utils import setup_logging
+    from ._common import setup_logging
 
     def render_output(dataset_info):
         output_str = None
@@ -38,7 +41,7 @@ def main(results: Optional[str], dataset: str, output_type="markdown", output: O
     setup_logging(False)
     if results is None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            subprocess.check_call("git clone https://huggingface.co/jkulhanek/nerfbaselines".split() + [tmpdir], env={"GIT_LFS_SKIP_SMUDGE": "1"})
+            subprocess.check_call("git clone --depth=1 https://huggingface.co/jkulhanek/nerfbaselines".split() + [tmpdir], env={"GIT_LFS_SKIP_SMUDGE": "1"})
             if dataset is None:
                 logging.fatal("--dataset must be provided")
             dataset_info = compile_dataset_results(Path(tmpdir), dataset)

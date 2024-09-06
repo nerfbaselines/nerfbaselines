@@ -5,15 +5,19 @@ import math
 import shutil
 import json
 import zipfile
-from typing import Optional, List, Tuple, Dict, Union
+from typing import Optional, List, Tuple, Dict, Union, FrozenSet
 
 import numpy as np
 from PIL import Image
 
+from nerfbaselines import DatasetNotFoundError, new_dataset, CameraModel, camera_model_to_int, DatasetFeature, new_cameras
 from ._colmap_utils import read_points3D_binary, read_points3D_text, read_images_binary, read_images_text
-from ._common import DatasetNotFoundError, get_scene_scale, get_default_viewer_transform, new_dataset, dataset_index_select
-from ..types import CameraModel, camera_model_to_int, FrozenSet, DatasetFeature, get_args, new_cameras
+from ._common import get_scene_scale, get_default_viewer_transform, dataset_index_select
 from ..io import wget
+try:
+    from typing import get_args
+except ImportError:
+    from typing_extensions import get_args
 
 
 MAX_AUTO_RESOLUTION = 1600
@@ -488,7 +492,7 @@ def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor
             points3D_rgb=points3D_rgb,
             images_points3D_indices=images_points3D_indices,
             metadata={
-                "name": "nerfstudio",
+                "id": "nerfstudio",
                 "scene": scene,
                 "expected_scene_scale": get_scene_scale(all_cameras, "object-centric") if split == "train" else None,
                 "color_space": "srgb",
@@ -561,6 +565,8 @@ def download_capture_name(output: Path, file_id_or_zip_url):
     inner_folders = os.listdir(tmp_path)
     assert len(inner_folders) == 1, "There is more than one folder inside this zip file."
     folder = os.path.join(tmp_path, inner_folders[0])
+    with open(os.path.join(str(folder), "nb-info.json"), "w", encoding="utf8") as f2:
+        f2.write('{"loader": "nerfstudio"}')
     shutil.rmtree(target_path, ignore_errors=True)
     shutil.move(folder, target_path)
     shutil.rmtree(tmp_path)
@@ -587,3 +593,6 @@ def download_nerfstudio_dataset(path: str, output: Union[Path, str]):
     capture_url = f"https://huggingface.co/datasets/jkulhanek/nerfbaselines-data/resolve/main/nerfstudio/{capture_name}.zip?download=true"
     download_capture_name(output, capture_url)
     logging.info(f"Downloaded {path} to {output}")
+
+
+__all__ = ["load_nerfstudio_dataset", "download_nerfstudio_dataset"]

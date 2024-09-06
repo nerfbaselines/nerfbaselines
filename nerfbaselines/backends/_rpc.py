@@ -21,7 +21,6 @@ import logging
 from queue import Queue
 from ..utils import CancellationToken, CancelledException
 from ._common import Backend
-import nerfbaselines
 
 
 def _remap_error(e: BaseException):
@@ -687,7 +686,6 @@ class RemoteProcessRPCBackend(Backend):
             raise RuntimeError("Cannot start the worker outside of a context")
 
         is_verbose = logging.getLogger().isEnabledFor(logging.DEBUG)
-        nb = nerfbaselines.__name__
         if self._protocol is None:
             self._protocol = AutoTransportProtocol()
 
@@ -705,15 +703,13 @@ try:
     import cv2
 except Exception:
     pass
-from {nb}.utils import setup_logging
+from nerfbaselines.backends._common import setup_logging
 setup_logging(verbose={is_verbose})
 from {run_worker.__module__} import {run_worker.__name__} as rw
 from {self._protocol.__class__.__module__} import {self._protocol.__class__.__name__} as P
 rw(protocol=P({init_protocol_code}))
 """
         env = get_safe_environment()
-        package_path = Path(nerfbaselines.__file__).absolute().parent.parent
-        env["PYTHONPATH"] = f'{package_path}:{env.get("PYTHONPATH", "")}'.rstrip(":")
         args = ["python", "-c", code]
 
         self._worker_process = self._launch_worker(args, env)

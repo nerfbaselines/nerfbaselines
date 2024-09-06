@@ -1,4 +1,4 @@
-import shutil
+import sys
 from pathlib import Path
 import json
 import logging
@@ -6,25 +6,29 @@ import hashlib
 import tempfile
 import subprocess
 import os
-from typing import Optional, List, Tuple, Dict, Union, TYPE_CHECKING, cast
+from typing import Optional, List, Tuple, Dict, Union, cast
 import shlex
 
-import nerfbaselines
+from .. import get_supported_methods, get_method_spec
+from .. import NB_PREFIX, __version__, MethodSpec
+from .._constants import DOCKER_REPOSITORY
 
 from ._conda import CondaBackendSpec, conda_get_environment_hash, conda_get_install_script
-from ..types import NB_PREFIX, TypedDict, Required
-from ..utils import get_package_dependencies, shlex_join
 from ._rpc import RemoteProcessRPCBackend, get_safe_environment, customize_wrapper_separated_fs
-from .._constants import DOCKER_REPOSITORY
-from ._common import get_mounts
-from .. import __version__
-if TYPE_CHECKING:
-    from ..registry import MethodSpec
+from ._common import get_package_dependencies, get_mounts
+try:
+    from typing import TypedDict, Required
+except ImportError:
+    from typing_extensions import TypedDict, Required
 
 
 EXPORT_ENVS = ["TCNN_CUDA_ARCHITECTURES", "TORCH_CUDA_ARCH_LIST", "CUDAARCHS", "GITHUB_ACTIONS", "NB_PORT", "NB_PATH", "NB_AUTHKEY", "NB_ARGS", "CI"]
 DEFAULT_CUDA_ARCHS = "7.0 7.5 8.0 8.6+PTX"
 DOCKER_TAG_HASH_LENGTH = 10
+
+
+def shlex_join(split_command):
+    return ' '.join(shlex.quote(arg) for arg in split_command)
 
 
 class DockerBackendSpec(TypedDict, total=False):
@@ -74,9 +78,22 @@ def get_docker_spec(spec: 'MethodSpec') -> Optional[DockerBackendSpec]:
     return None
 
 
-def docker_get_dockerfile(spec: DockerBackendSpec):
-    from .. import registry
+def _bash_encode(script: str):
+    script = script.rstrip()
+    script = shlex.quote(script)
+    out = ""
+    end = ""
+    for line in script.splitlines():
+        out += end + line
+        if line.endswith("\\"):
+            end = "\\\\n\\\n"
+        else:
+            end = "\\n\\\n"
+    script = out
+    return f'/bin/bash -c "$(echo {script})"'
 
+
+def docker_get_dockerfile(spec: DockerBackendSpec):
     image = spec.get("image")
     if image is None:
         script = Path(__file__).absolute().parent.joinpath("Dockerfile").read_text()
@@ -90,25 +107,14 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
     if environment_name is not None:
         script += f'LABEL com.nerfbaselines.environment="{environment_name}"\n'
 
-    package_path = "/var/nb-package"
     conda_spec = spec.get("conda_spec")
     build_script = spec.get("build_script")
     default_cuda_archs = spec.get("default_cuda_archs") or DEFAULT_CUDA_ARCHS
     tcnn_cuda_archs = default_cuda_archs.replace(".", "").replace("+PTX", "").replace(" ", ";")
     if build_script:
-        run_command = f'set -e;export TORCH_CUDA_ARCH_LIST="{default_cuda_archs}";export TCNN_CUDA_ARCHITECTURES="{tcnn_cuda_archs}";export NB_DOCKER_BUILD=1;{build_script.rstrip()}'
-        run_command = shlex.quote(run_command)
-        out = ""
-        end = ""
-        for line in run_command.splitlines():
-            out += end + line
-            if line.endswith("\\"):
-                end = "\\\\n\\\n"
-            else:
-                end = "\\n\\\n"
-        run_command = out
-        script += f'RUN /bin/bash -c "$(echo {run_command})" && \\\n'
-        script += "bash -c 'rm -Rf /root/.cache/pip'\n"
+        run_command = f'set -e;export TORCH_CUDA_ARCH_LIST="{default_cuda_archs}";export TCNN_CUDA_ARCHITECTURES="{tcnn_cuda_archs}";export NB_DOCKER_BUILD=1;{build_script}'
+        script += f"RUN {_bash_encode(run_command)} && \\\n"
+        script += "rm -Rf /root/.cache/pip || echo 'Failed to remove pip cache'\n"
 
     if conda_spec is not None:
         environment_name = conda_spec.get("environment_name")
@@ -120,20 +126,9 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
         shell_args = [os.path.join(environment_path, ".activate.sh")]
 
         # Add install conda script
-        install_conda = conda_get_install_script(conda_spec, package_path, environment_path=environment_path)
-        run_command = f'export TORCH_CUDA_ARCH_LIST="{default_cuda_archs}" && export TCNN_CUDA_ARCHITECTURES="{tcnn_cuda_archs}" && export NB_DOCKER_BUILD=1 && {install_conda.rstrip()}'
-        run_command = shlex.quote(run_command)
-        out = ""
-        end = ""
-        for line in run_command.splitlines():
-            out += end + line
-            if line.endswith("\\"):
-                end = "\\\\n\\\n"
-            else:
-                end = "\\n\\\n"
-        run_command = out
-
-        script += f'RUN /bin/bash -c "$(echo {run_command})" && \\\n'
+        install_conda = conda_get_install_script(conda_spec, package_path="/var/nb-package/nerfbaselines", environment_path=environment_path)
+        run_command = f'export TORCH_CUDA_ARCH_LIST="{default_cuda_archs}" && export TCNN_CUDA_ARCHITECTURES="{tcnn_cuda_archs}" && export NB_DOCKER_BUILD=1 && {install_conda}'
+        script += f"RUN {_bash_encode(run_command)} && \\\n"
         script += shlex_join(shell_args) + " bash -c 'conda clean -afy && rm -Rf /root/.cache/pip'\n"
         # Fix permissions when changing the user inside the container
         script += "RUN chmod -R og=u /var/conda-envs\n"
@@ -146,20 +141,22 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
         package_dependencies = get_package_dependencies()
         script += "RUN "
         if package_dependencies:
-            script += shlex_join([python_path, "-m", "pip", "--no-cache-dir", "install"] + package_dependencies)+ " && \\\n    "
-        script += f'if ! nerfbaselines >/dev/null 2>&1; then echo -e \'#!/usr/bin/env {python_path}\\nfrom nerfbaselines.__main__ import main\\nif __name__ == "__main__":\\n  main()\\n\'>"/usr/bin/nerfbaselines" && chmod +x "/usr/bin/nerfbaselines" || echo "Failed to create nerfbaselines in the bin folder"; fi\n'
+            script += shlex_join([python_path, "-m", "pip", "--no-cache-dir", "install"] + package_dependencies)+ " && \\\n"
+        script += f'if ! command -v nerfbaselines >/dev/null 2>&1; then echo "#!/usr/bin/env python3\\nfrom nerfbaselines.__main__ import main; main()">"/usr/bin/nerfbaselines" && chmod +x "/usr/bin/nerfbaselines" || echo "Failed to create nerfbaselines in the bin folder"; fi\n'
+        # We manually add nb-package to the PYTHONPATH
+        script += f'ENV PYTHONPATH="/var/nb-package:$PYTHONPATH"\n'
 
     script += "ENV NERFBASELINES_BACKEND=python\n"
-    def is_method_allowed(method_spec: "MethodSpec"):
+    def is_method_allowed(method: str):
+        method_spec = get_method_spec(method)
         docker_spec = get_docker_spec(method_spec)
         return docker_spec is not None and docker_spec.get("environment_name") == spec.get("environment_name")
 
-    allowed_methods = ",".join((k for k, v in registry.methods_registry.items() if is_method_allowed(v)))
+    allowed_methods = ",".join((k for k in get_supported_methods() if is_method_allowed(k)))
     script += f"ENV NERFBASELINES_ALLOWED_METHODS={allowed_methods}\n"
-    script += f'ENV PYTHONPATH="{package_path}:$PYTHONPATH"\n'
     # Add nerfbaselines to the path
     script += 'CMD ["nerfbaselines"]\n'
-    script += "COPY . " + package_path + "\n"
+    script += "COPY . /var/nb-package/nerfbaselines\n"
     return script
 
 
@@ -207,12 +204,11 @@ def _build_docker_image(name, dockerfile, skip_if_exists_remotely: bool = False,
         logging.info(f"Image {name} does not exist remotely, building it locally")
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        package_path = str(Path(nerfbaselines.__file__).absolute().parent.parent)
-        shutil.copytree(os.path.join(package_path, "nerfbaselines"), os.path.join(tmpdir, "nerfbaselines"))
+        package_path = str(Path(__file__).absolute().parent.parent)
         with open(os.path.join(tmpdir, "Dockerfile"), "w") as f:
             f.write(dockerfile)
         subprocess.check_call([
-            "docker", "build", tmpdir, "-f", os.path.join(tmpdir, "Dockerfile"),
+            "docker", "build", package_path, "-f", os.path.join(tmpdir, "Dockerfile"),
             "-t", name,
         ])
     logging.info(f'Created image "{name}"')
@@ -266,12 +262,10 @@ def get_docker_image_name(spec: DockerBackendSpec):
     return f"{DOCKER_REPOSITORY}:{environment_name}-{environment_hash}"
 
 def get_docker_environments_to_build():
-    from .. import registry
-
-    methods = registry.get_supported_methods("docker")
+    methods = get_supported_methods("docker")
     methods_to_install = {}
     for mname in methods:
-        m = registry.get_method_spec(mname)
+        m = get_method_spec(mname)
         spec = m.get("docker", m.get("conda"))
         if not spec:
             continue
@@ -295,7 +289,6 @@ def docker_run_image(spec: DockerBackendSpec,
                      env, 
                      mounts: Optional[List[Tuple[str, str]]] = None, 
                      ports: Optional[List[Tuple[int, int]]] = None, 
-                     use_gpu: bool = True,
                      interactive: bool = True):
     image = get_docker_image_name(spec) or BASE_IMAGE
     os.makedirs(os.path.expanduser("~/.conda/pkgs"), exist_ok=True)
@@ -303,7 +296,8 @@ def docker_run_image(spec: DockerBackendSpec,
     os.makedirs(torch_home, exist_ok=True)
     replace_user = spec.get("replace_user")
     replace_user = replace_user if replace_user is not None else True
-    package_path = str(Path(nerfbaselines.__file__).absolute().parent.parent)
+    package_path = str(Path(__file__).absolute().parent.parent)
+    use_gpu = os.getenv("GITHUB_ACTIONS") != "true"
     args = [
         "docker",
         "run",
@@ -339,7 +333,7 @@ def docker_run_image(spec: DockerBackendSpec,
         "-v",
         shlex.quote(NB_PREFIX) + ":/var/nb-prefix",
         "-v",
-        shlex.quote(package_path) + ":/var/nb-package",
+        shlex.quote(package_path) + ":/var/nb-package/nerfbaselines",
         "-v",
         shlex.quote(torch_home) + ":/var/nb-torch",
         *[f"-v={shlex.quote(src)}:{shlex.quote(dst)}" for src, dst in mounts or []],
@@ -427,18 +421,19 @@ class DockerBackend(RemoteProcessRPCBackend):
             self._spec, args, env, 
             mounts=self._applied_mounts + [(self._tmpdir.name, "/var/nb-tmp")], 
             ports=[],
-            interactive=False,
-            use_gpu=os.getenv("GITHUB_ACTIONS") != "true"))
+            interactive=False))
 
-    def shell(self):
+    def shell(self, args=None):
         # Run docker image
         env = get_safe_environment()
         mounts = get_mounts()
         # Using network=host
         # forwarded_ports = get_forwarded_ports()
+        args = ["/bin/bash"] if args is None else list(args)
+        support_interactive = sys.stdin.isatty()
         args, env = docker_run_image(
-            self._spec, ["/bin/bash"], env, 
+            self._spec, args, env, 
             mounts=mounts,
             ports=[],
-            interactive=True)
+            interactive=support_interactive)
         os.execvpe(args[0], args, env)

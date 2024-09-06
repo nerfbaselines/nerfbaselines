@@ -1,9 +1,8 @@
 import os
-from nerfbaselines.types import MethodSpec
-from nerfbaselines.registry import register
+from nerfbaselines import register, MethodSpec
 
 KPlanesSpec: MethodSpec = {
-    "method": ".kplanes:KPlanes",
+    "method_class": ".kplanes:KPlanes",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.11",

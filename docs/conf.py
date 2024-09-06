@@ -6,6 +6,10 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
+import re
+import fnmatch
+import argparse
+from pathlib import Path
 import os
 import sys
 import importlib
@@ -28,7 +32,7 @@ extensions = [
     'sphinx_click',
     'myst_parser',
     'sphinx_nerfbaselines',
-    'sphinxcontrib.apidoc',
+    # 'sphinxcontrib.apidoc',
 ]
 
 # Hack to fix commands for sphinx_click
@@ -47,36 +51,41 @@ commit = os.popen("git rev-parse --short HEAD").read().strip()
 code_url = f"https://github.com/jkulhanek/nerfbaselines/blob/{commit}/nerfbaselines"
 
 def linkcode_resolve(domain, info):
-    # Non-linkable objects from the starter kit in the tutorial.
-    if domain == "js" or info["module"] == "connect4":
-        return
-
-    assert domain == "py", "expected only Python objects"
-
-    mod = importlib.import_module(info["module"])
-    if "." in info["fullname"]:
-        objname, attrname = info["fullname"].split(".")
-        obj = getattr(mod, objname)
-        try:
-            # object is a method of a class
-            obj = getattr(obj, attrname)
-        except AttributeError:
-            # object is an attribute of a class
-            return None
-    else:
-        obj = getattr(mod, info["fullname"])
-
     try:
-        file = inspect.getsourcefile(obj)
-        lines = inspect.getsourcelines(obj)
-    except TypeError:
-        # e.g. object is a typing.Union
-        return None
-    import nerfbaselines
-    file = os.path.relpath(file, os.path.dirname(os.path.abspath(nerfbaselines.__file__)))
-    start, end = lines[1], lines[1] + len(lines[0]) - 1
+        # Non-linkable objects from the starter kit in the tutorial.
+        if domain == "js" or info["module"] == "connect4":
+            return
 
-    return f"{code_url}/{file}#L{start}-L{end}"
+        assert domain == "py", "expected only Python objects"
+
+        mod = importlib.import_module(info["module"])
+        if "." in info["fullname"]:
+            objname, attrname = info["fullname"].split(".")
+            obj = getattr(mod, objname)
+            try:
+                # object is a method of a class
+                obj = getattr(obj, attrname)
+            except AttributeError:
+                # object is an attribute of a class
+                return None
+        else:
+            obj = getattr(mod, info["fullname"])
+
+        try:
+            file = inspect.getsourcefile(obj)
+            lines = inspect.getsourcelines(obj)
+        except TypeError:
+            # e.g. object is a typing.Union
+            return None
+        import nerfbaselines
+        file = os.path.relpath(file, os.path.dirname(os.path.abspath(nerfbaselines.__file__)))
+        start, end = lines[1], lines[1] + len(lines[0]) - 1
+
+        return f"{code_url}/{file}#L{start}-L{end}"
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        return None
 
 templates_path = ['_templates']
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
@@ -100,21 +109,133 @@ html_sidebars = {
     ]
 }
 
-import nerfbaselines
-nerfbaselines_source = os.path.dirname(os.path.abspath(nerfbaselines.__file__))
-apidoc_module_dir = nerfbaselines_source
-apidoc_separate_modules = True
+# import nerfbaselines
+# nerfbaselines_source = os.path.dirname(os.path.abspath(nerfbaselines.__file__))
+# apidoc_module_dir = nerfbaselines_source
+# apidoc_separate_modules = True
 apidoc_template_dir = "_templates"
+# apidoc_module_first = True
 apidoc_excluded_paths = [
     "methods/*.py",
-    "backends/*.py",
     "datasets/*_spec.py",
-    "viewer/*.py",
     "cli/*.py",
     "cli.py",
-    "web/*.py",
 ]
-apidoc_extra_args = ["--no-toc", "--remove-old"]
+apidoc_extra_args = ["--remove-old"]
+
+# Generate API documentation
+out_path = os.path.join(os.path.dirname(__file__), "api")
+rootpath = os.path.dirname(os.path.abspath(nerfbaselines.__file__))
+excludes = tuple(
+    re.compile(fnmatch.translate(os.path.join(rootpath, exclude)))
+    for exclude in dict.fromkeys(apidoc_excluded_paths)
+)
+
+# Generate modules
+opts = argparse.Namespace()
+opts.followlinks = False
+opts.includeprivate = False
+opts.modulefirst = True
+opts.separatemodules = False
+opts.noheadings = False
+opts.maxdepth = 1
+opts.destdir = out_path
+opts.suffix = "rst"
+opts.dryrun = False
+opts.force = True
+opts.quiet = False
+opts.implicit_namespaces = False
+opts.header = "API Reference"
+from sphinx.ext.apidoc import (
+    walk,
+    ReSTRenderer, write_file, is_packagedir, is_initpy, is_skipped_package, has_child_module, module_join, is_skipped_module,
+    create_module_file
+)
+imported_members = False
+try:
+    # For NerfBaselines >0.1.3, we can use the imported members
+    from nerfbaselines import Method as _
+    imported_members = True
+except ImportError:
+    pass
+
+def recurse_tree(
+    rootpath: str,
+    excludes,
+    opts,
+    user_template_dir: str | None = None,
+) -> tuple[list[Path], list[str]]:
+    root_package = rootpath.split(os.path.sep)[-1]
+    written_files = []
+    cutoff_depth = 2
+    for root, subs, files in walk(rootpath, excludes, opts):
+        del subs
+        # Document modules
+        depth = root[len(rootpath) :].count(os.path.sep)
+        subpackage = root[len(rootpath) :].lstrip(os.path.sep).replace(os.path.sep, '.')
+        for file in files:
+            filename = os.path.join(root, file)
+            if is_skipped_module(filename, opts, excludes) or is_initpy(file):
+                continue
+            if depth+1 >= cutoff_depth:
+                continue
+            basename = os.path.splitext(file)[0]
+            written_files.append(
+                create_module_file(
+                    module_join(root_package, subpackage), basename, opts, user_template_dir
+                )
+            )
+
+        # Document packages
+        if not is_packagedir(root) or is_skipped_package(root, opts, excludes) or not has_child_module(root, excludes, opts):
+            continue
+
+        if depth >= cutoff_depth:
+            continue
+            
+        # If at cutoff_depth, we include submodules in the package file
+        submodules = []
+        if depth == cutoff_depth - 1:
+            # build a list of sub modules
+            submodules = [
+                sub.split('.')[0]
+                for sub in files
+                if not is_skipped_module(Path(root, sub), opts, excludes) and not is_initpy(sub)
+            ]
+            submodules = sorted(set(submodules))
+            submodules = [module_join(root_package, subpackage, modname) for modname in submodules]
+        pkgname = module_join(root_package, subpackage)
+        context = {
+            'pkgname': pkgname,
+            'subpackages': [],
+            'submodules': submodules,
+            'modulefirst': opts.modulefirst,
+            'separatemodules': False,
+            'automodule_options': (['imported-members'] if imported_members else []) + ['members', 'undoc-members', 'show-inheritance'],
+            'show_headings': not opts.noheadings,
+            'maxdepth': opts.maxdepth,
+        }
+        text = ReSTRenderer([user_template_dir]).render('package.rst.jinja', context)
+        written_files.append(write_file(pkgname, text, opts))
+    return written_files
+os.makedirs(out_path, exist_ok=True)
+written_files = recurse_tree(rootpath, excludes, opts, apidoc_template_dir)
+all_modules = [os.path.relpath(x, out_path)[:-len(opts.suffix)-1] for x in written_files]
+all_modules.sort()
+
+# Generate TOC file
+context = {
+    'header': opts.header,
+    'maxdepth': opts.maxdepth,
+    'docnames': all_modules,
+}
+text = ReSTRenderer([apidoc_template_dir]).render('toc.rst.jinja', context)
+written_files.append(write_file("modules", text, opts))
+
+# Remove old files
+for existing in Path(out_path).glob(f'**/*.{opts.suffix}'):
+    if existing not in written_files:
+        existing.unlink()
 
 #
 # Generate files if not present
@@ -208,5 +329,34 @@ def _html_page_context(app, pagename, templatename, context, doctree):
     context["furo_navigation_tree"] = get_navigation_tree(toctree_html)
 
 
+def _get_autodoc_documenter_instance():
+    # Unfortunatelly, autodoc documenter instance is not exported in the callbacks
+    # so we have to get it from the stack
+    for frame in inspect.stack():
+        if frame.filename.endswith("autodoc/__init__.py"):
+            return frame.frame.f_locals["self"]
+
+
+def _autodoc_skip_member(app, what, name, obj, would_skip, options):
+    # If obj is just reimported in the file and it is not publishing reimport
+    # (from underscored file), we will skip it
+    documenter = _get_autodoc_documenter_instance()
+    # Test if the object is reimported with a simpler path
+    module = documenter.object.__name__.split(".")
+    for i in range(1, len(module)):
+        try:
+            reimported = getattr(sys.modules[".".join(module[:i])], name)
+            if reimported is obj:
+                # If object is just visible from higher up, we skip it here
+                return True
+        except AttributeError:
+            pass
+
+    if hasattr(obj, '__module__'):
+        if not getattr(obj, '__module__', '').startswith("nerfbaselines"):
+            return True
+
+
 def setup(app):
     app.connect("html-page-context", _html_page_context, 1000)
+    app.connect("autodoc-skip-member", _autodoc_skip_member)

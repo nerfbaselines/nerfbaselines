@@ -5,33 +5,41 @@ import warnings
 import shlex
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, Sequence
+from typing import Any, Dict, Iterable, Sequence, Optional
+from argparse import ArgumentParser
+import tempfile
 import logging
+import numpy as np
+
+from nerfbaselines import (
+    Dataset, OptimizeEmbeddingsOutput, RenderOutput, MethodInfo, ModelInfo,
+    Cameras, CameraModel, Method,
+)
+from nerfbaselines import cameras as _cameras
+from nerfbaselines.utils import (
+    convert_image_dtype,
+    pad_poses, 
+    apply_transform,
+)
+try:
+    from typing import get_args
+except ImportError:
+    from typing_extensions import get_args
+
 try:
     import torch as _
 except ImportError:
     pass
 import os
-import configargparse
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 
-import tensorflow as tf
-import numpy as np
-import imageio
-import run_nerf
-from run_nerf_helpers import img2mse, mse2psnr, to8b
-from run_nerf import render, get_rays_np, config_parser, create_nerf
-from load_llff import load_llff_data, spherify_poses, poses_avg
-from load_deepvoxels import load_dv_data
-from load_blender import load_blender_data
-import tempfile
-from argparse import ArgumentParser
+import configargparse  # type: ignore
+import tensorflow as tf  # type: ignore
+import run_nerf  # type: ignore
+from run_nerf_helpers import img2mse, mse2psnr  # type: ignore
+from run_nerf import render, config_parser, create_nerf  # type: ignore
+from load_llff import spherify_poses, poses_avg  # type: ignore
 
-from nerfbaselines.types import Dataset, OptimizeEmbeddingsOutput, RenderOutput, MethodInfo, ModelInfo
-from nerfbaselines.types import Cameras, CameraModel, get_args, Method, Optional
-from nerfbaselines.utils import convert_image_dtype
-from nerfbaselines.pose_utils import pad_poses, apply_transform, unpad_poses, invert_transform
-from nerfbaselines import cameras as _cameras
 
 # Setup TF GPUs
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -144,9 +152,7 @@ class NeRF(Method):
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
         self.checkpoint = str(checkpoint) if checkpoint is not None else None
-        self.args = None
         self.transform_args = None
-        self._arg_list = None
         if checkpoint is not None:
             if not os.path.exists(os.path.join(checkpoint, "transforms.json")):
                 if train_dataset is None:
@@ -164,6 +170,7 @@ class NeRF(Method):
     @classmethod
     def get_method_info(cls):
         return MethodInfo(
+            method_id="",  # Will be set by the registry
             required_features=frozenset(("color",)),
             supported_camera_models=frozenset(get_args(CameraModel)),
             supported_outputs=("color", "depth", "accumulation"),
@@ -196,6 +203,7 @@ class NeRF(Method):
         )
 
     def save(self, path: str):
+        assert self.transform_args is not None, "Transforms must be set before saving"
         os.makedirs(path, exist_ok=True)
         def save_weights(net, prefix, i):
             mpath = os.path.join(path, '{}_{:06d}.npy'.format(prefix, i))
@@ -220,7 +228,7 @@ class NeRF(Method):
             print(self.transform_args)
             json.dump(self.transform_args, f)
 
-    def _setup(self, train_dataset: Dataset, *, config_overrides: Optional[Dict[str, Any]] = None):
+    def _setup(self, train_dataset: Optional[Dataset], *, config_overrides: Optional[Dict[str, Any]] = None):
         config_overrides = (config_overrides or {}).copy()
         if self.checkpoint is not None:
             config_overrides.pop("config", None)
@@ -325,6 +333,11 @@ class NeRF(Method):
 
         # Prepare raybatch tensor if batching random rays
         use_batching = not self.args.no_batching
+        self._train_rays_rgb = None
+        self._train_i_batch = None
+        self._train_cameras = None
+        self._train_images = None
+        self._train_rays_cumsum = None
         if train_dataset is not None:
             self._train_images = transform_images(self.args, train_dataset["images"])
             self._train_cameras, self.transform_args = transform_cameras(self.args, train_dataset["cameras"], self.transform_args, verbose=True)
@@ -354,6 +367,7 @@ class NeRF(Method):
             logging.info("Train rays cached")
 
         # Setup kwargs
+        assert self.transform_args is not None, "Transforms must be set before training"
         near, far = self.transform_args["near_far"]
         bds_dict = {
             'near': tf.cast(near, tf.float32),
@@ -368,15 +382,25 @@ class NeRF(Method):
 
 
     def train_iteration(self, step: int):
+        no_train_dataset_message = "Method not initialized with a training dataset"
+        assert self._train_rays_rgb is not None, no_train_dataset_message
+        assert self._train_cameras is not None, no_train_dataset_message
+        assert self._train_images is not None, no_train_dataset_message
+
         self.step = step
         self.global_step.assign(self.step)
         # Sample random ray batch
 
         use_batching = not self.args.no_batching
         N_rand = self.args.N_rand
+        H, W, focal = None, None, None
         if use_batching:
             # Random over all images
             batch = self._train_rays_rgb[self._train_i_batch:self._train_i_batch+N_rand]  # [B, 2+1, 3*?]
+            
+            # TODO: handle NDC better (not a single camera)
+            W, H = self._train_cameras.image_sizes[0]
+            focal = self._train_cameras.intrinsics[0, 0]
 
             self._train_i_batch += N_rand
             if self._train_i_batch >= self._train_rays_rgb.shape[0]:
@@ -387,6 +411,9 @@ class NeRF(Method):
             # Random from one image
             img_i = np.random.choice(list(range(len(self._train_cameras))))
             W, H = self._train_cameras.image_sizes[img_i]
+            # TODO: handle fx != fy
+            focal = self._train_cameras.intrinsics[img_i, 0]
+            assert self._train_rays_cumsum is not None, "_train_rays_cumsum must be set"
             batch = self._train_rays_rgb[self._train_rays_cumsum[img_i]:self._train_rays_cumsum[img_i+1]]
 
             if N_rand is not None:
@@ -409,14 +436,16 @@ class NeRF(Method):
         rays_o, rays_d, target_s = np.moveaxis(batch, 1, 0)
         batch_rays = rays_o, rays_d
         #####  Core optimization loop  #####
+        psnr0 = None
+        img_loss0 = None
 
         with tf.GradientTape() as tape:
 
             # Make predictions for color, disparity, accumulated opacity.
-            # TODO: implement NDC rays
             rgb, disp, acc, extras = render(
-                None, None, None, chunk=self.args.chunk, rays=batch_rays,
+                H, W, focal, chunk=self.args.chunk, rays=batch_rays,
                 verbose=step < 10, retraw=True, **self.render_kwargs_train)
+            del disp, acc
 
             # Compute MSE loss between predicted and true RGB.
             img_loss = img2mse(rgb, target_s)
@@ -434,25 +463,32 @@ class NeRF(Method):
         self.optimizer.apply_gradients(zip(gradients, self.grad_vars))
         self.step = step + 1
         self.global_step.assign(self.step)
-        return {
+        out = {
             "loss": loss.numpy().item(),
             "psnr": psnr.numpy().item(),
             "mse": img_loss.numpy().item(),
-            "psnr0": psnr0.numpy().item(),
-            "mse0": img_loss0.numpy().item(),
         }
+        if psnr0 is not None:
+            out["psnr0"] = psnr0.numpy().item()
+        if img_loss0 is not None:
+            out["mse0"] = img_loss0.numpy().item()
+        return out
 
     def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
         del options
         if embeddings is not None:
-            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
+            method_id = self.get_method_info()["method_id"]
+            raise NotImplementedError(f"Optimizing embeddings is not supported for method {method_id}")
         cameras, _ = transform_cameras(self.args, cameras, self.transform_args)
         for idx in range(len(cameras.poses)):
             W, H = cameras.image_sizes[idx]
+            # TODO: handle fx != fy
+            focal = cameras.intrinsics[idx, 0]
             batch_rays = get_rays(cameras[idx:idx+1])
             rays_o, rays_d = batch_rays[:, 0], batch_rays[:, 1]
             rgb, disp, acc, extras = render(
-                None, None, None, chunk=self.args.chunk, rays=(rays_o, rays_d), **self.render_kwargs_test)
+                H, W, focal, chunk=self.args.chunk, rays=(rays_o, rays_d), **self.render_kwargs_test)
+            del disp
             rgb = np.clip(rgb.numpy(), 0.0, 1.0)
             yield {
                 "color": rgb.reshape(H, W, 3),
@@ -472,6 +508,7 @@ class NeRF(Method):
             dataset: Dataset.
             embeddings: Optional initial embeddings.
         """
+        del dataset, embeddings
         raise NotImplementedError()
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
@@ -481,5 +518,6 @@ class NeRF(Method):
         Args:
             index: Index of the image.
         """
+        del index
         return None
 

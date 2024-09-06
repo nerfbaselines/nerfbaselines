@@ -1,3 +1,7 @@
+import traceback
+import sys
+from functools import wraps
+import click
 import gzip
 import io
 import hashlib
@@ -10,7 +14,17 @@ import numpy as np
 import pprint
 import json
 from PIL import Image
-from nerfbaselines.utils import run_on_host
+from nerfbaselines import BackendName
+from nerfbaselines.backends import run_on_host
+from nerfbaselines.utils import Indices
+try:
+    from typing import get_args
+except ImportError:
+    from typing_extensions import get_args
+
+# We reimport setup_logging from backends._common such that
+# it can be safely used in RPC backend without adding click dependency
+from nerfbaselines.backends._common import setup_logging as setup_logging
 
 
 @run_on_host()
@@ -88,13 +102,25 @@ class ChangesTracker:
         if type(obj1) != type(obj2):
             self._add_changes(path, v1, v2, True)
             return True
-        if type(obj1).__name__ == "Tensor":
+        if isinstance(obj1, (list, tuple)) and isinstance(obj2, (list, tuple)):
+            if len(obj1) != len(obj2):
+                self._add_changes(path, f"len: {len(obj1)} != {len(obj2)}", True)
+                return True
+            out = False
+            for i, (o1, o2) in enumerate(zip(obj1, obj2)):
+                if self.add_dict_changes(path + (f"[{i}]",), o1, o2):
+                    out = True
+            return out
+        if (
+            type(obj1).__name__ == "Parameter" or
+            type(obj1).__name__ == "Tensor"
+        ):
             obj1 = cast(Any, obj1)
             obj2 = cast(Any, obj2)
             if obj1.device != obj2.device:
                 self._add_changes(path, f'device: {obj1.device}', f'device: {obj2.device}', True)
                 return True
-            elif not np.array_equal(obj1.cpu().numpy(), obj2.cpu().numpy()):
+            elif not np.array_equal(obj1.detach().cpu().numpy(), obj2.detach().cpu().numpy()):
                 self._add_changes(path, v1, v2, True)
                 return True
             return False
@@ -120,6 +146,7 @@ class ChangesTracker:
                     return False
                 return True
         except Exception:
+            traceback.print_exc()
             self._add_changes(path, f"failed to comp. {v1} = {v2}", True)
             return True
 
@@ -154,7 +181,15 @@ class ChangesTracker:
                 if self.add_dict_changes(fpath, data1, data2):
                     return True
             except Exception:
+                traceback.print_exc()
                 pass
+
+        if isbinary and fpath[-1].endswith(".pkl"):
+            import pickle
+            data1 = pickle.load(file1)
+            data2 = pickle.load(file2)
+            if self.add_dict_changes(fpath, data1, data2):
+                return True
 
         if isbinary and fpath[-1].endswith(".ingp"):
             data1 = file1.read()
@@ -345,3 +380,64 @@ class ChangesTracker:
     def print_changes(self, indent=2):
         print(self.format_changes(indent))
 
+
+class IndicesClickType(click.ParamType):
+    name = "indices"
+
+    def convert(self, value, param, ctx):
+        del param, ctx
+        if value is None:
+            return None
+        if isinstance(value, Indices):
+            return value
+        if ":" in value:
+            parts = [int(x) if x else None for x in value.split(":")]
+            assert len(parts) <= 3, "too many parts in slice"
+            return Indices(slice(*parts))
+        return Indices([int(x) for x in value.split(",")])
+
+
+class TupleClickType(click.ParamType):
+    name = "comma-separated-tuple"
+
+    def convert(self, value, param, ctx):
+        del param, ctx
+        if value is None:
+            return None
+        if isinstance(value, tuple):
+            return value
+        return tuple(value.split(","))
+
+
+class SetParamOptionType(click.ParamType):
+    name = "key-value"
+
+    def convert(self, value, param, ctx):
+        if value is None:
+            return None
+        if isinstance(value, tuple):
+            return value
+        if "=" not in value:
+            self.fail(f"expected key=value pair, got {value}", param, ctx)
+        k, v = value.split("=", 1)
+        return k, v
+
+
+def handle_cli_error(fn):
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            write_to_logger = getattr(e, "write_to_logger", None)
+            if write_to_logger is not None:
+                write_to_logger()
+                sys.exit(1)
+            else:
+                raise e
+
+    return wrapped
+
+
+def click_backend_option():
+    return click.option("--backend", "backend_name", type=click.Choice(list(get_args(BackendName))), envvar="NB_BACKEND")

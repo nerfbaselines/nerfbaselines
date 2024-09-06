@@ -1,3 +1,4 @@
+import importlib
 from contextlib import contextmanager
 import zipfile
 import tarfile
@@ -7,26 +8,23 @@ from functools import wraps
 import logging
 import os
 import typing
-from typing import Dict, Union, Iterable, TypeVar, Optional, cast, List, Tuple, BinaryIO
+from typing import Dict, Union, Iterable, TypeVar, Optional, cast, List, Tuple, BinaryIO, Any
 import numpy as np
 import json
 from pathlib import Path
 
 from tqdm import tqdm
 
-from .datasets import new_dataset
+
+import nerfbaselines
 from .utils import (
-    read_image, 
     apply_colormap,
-    convert_image_dtype, 
-    run_on_host,
     image_to_srgb,
-    save_image,
     visualize_depth,
-    assert_not_none,
+    convert_image_dtype, 
 )
-from .types import (
-    Literal, 
+from .backends import run_on_host
+from . import (
     Dataset,
     RenderOutput, 
     EvaluationProtocol, 
@@ -36,8 +34,8 @@ from .types import (
     RenderOptions,
     camera_model_to_int,
     new_cameras,
+    new_dataset,
 )
-from .registry import build_evaluation_protocol
 from .io import (
     open_any_directory, 
     deserialize_nb_info, 
@@ -45,9 +43,15 @@ from .io import (
     get_method_sha,
     save_evaluation_results,
     save_predictions,
+    save_image,
+    read_image, 
 )
 from . import metrics
 from . import cameras as _cameras
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
 try:
     from typeguard import suppress_type_checks
 except ImportError:
@@ -56,6 +60,27 @@ except ImportError:
 
 OutputType = Literal["color", "depth"]
 T = TypeVar("T")
+
+
+def _assert_not_none(value: Optional[T]) -> T:
+    assert value is not None
+    return value
+
+
+def _import_type(name: str) -> Any:
+    package, name = name.split(":")
+    obj: Any = importlib.import_module(package)
+    for p in name.split("."):
+        obj = getattr(obj, p)
+    return obj
+
+
+def build_evaluation_protocol(id: str) -> 'EvaluationProtocol':
+    spec = nerfbaselines.get_evaluation_protocol_spec(id)
+    if spec is None:
+        raise RuntimeError(f"Could not find evaluation protocol {id} in registry. Supported protocols: {','.join(nerfbaselines.get_supported_evaluation_protocols())}")
+    return cast('EvaluationProtocol', _import_type(spec["evaluation_protocol_class"])())
+
 
 
 @typing.overload
@@ -495,7 +520,7 @@ def trajectory_get_embeddings(method: Method, trajectory: Trajectory) -> Optiona
         if appearance.get("embedding") is not None:
             appearance_embeddings[i] = appearance.get("embedding")
         elif appearance.get("embedding_train_index") is not None:
-            appearance_embeddings[i] = method.get_train_embedding(assert_not_none(appearance.get("embedding_train_index")))
+            appearance_embeddings[i] = method.get_train_embedding(_assert_not_none(appearance.get("embedding_train_index")))
     if all(x is None for x in appearance_embeddings):
         return None
     if not all(x is not None for x in appearance_embeddings):
@@ -512,4 +537,32 @@ def trajectory_get_embeddings(method: Method, trajectory: Trajectory) -> Optiona
         embedding = (frame.get("appearance_weights") @ appearance_embeddings_np).astype(appearance_embeddings_np.dtype)
         out.append(embedding)
     return out
+
+
+@contextmanager
+def run_inside_eval_container(backend_name: Optional[str] = None):
+    """
+    Ensures PyTorch is available to compute extra metrics (lpips)
+    """
+    from .backends import get_backend
+    try:
+        import torch as _
+        yield None
+        return
+    except ImportError:
+        pass
+
+    logging.warning("PyTorch is not available in the current environment, we will create a new environment to compute extra metrics (lpips)")
+    if backend_name is None:
+        backend_name = os.environ.get("NERFBASELINES_BACKEND", None)
+    backend = get_backend({
+        "id": "metrics",
+        "method_class": "base",
+        "conda": {
+            "environment_name": "_metrics", 
+            "install_script": ""
+        }}, backend=backend_name)
+    with backend:
+        backend.install()
+        yield None
 

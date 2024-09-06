@@ -7,9 +7,8 @@ from typing import Optional
 from collections import defaultdict
 import os
 import tempfile
-from nerfbaselines.types import Method, Dataset, Cameras, RenderOptions, camera_model_from_int
+from nerfbaselines import Method, Dataset, Cameras, RenderOptions, camera_model_from_int, ModelInfo, MethodInfo
 from nerfbaselines.datasets import _colmap_utils as colmap_utils
-from nerfbaselines.utils import NoGPUError
 
 
 logger = logging.getLogger(__name__)
@@ -39,16 +38,18 @@ def _get_colmap_sfm_reconstruction(dataset: Dataset, image_ids=None):
         for ptidx in point3D_idxs:
             image_ids_map[ptidx].append(i+1)
 
+    points3D_rgb = dataset["points3D_rgb"]
     for i, xyz in enumerate(_notnonelist(dataset.get("points3D_xyz"))):
-        rgb = dataset["points3D_rgb"][i]
+        assert points3D_rgb is not None, "RGB values are required for 3D points"
+        rgb = points3D_rgb[i]
         error = 0
-        _image_ids = np.array(image_ids_map[i], dtype=np.int32)
-        point2D_idxs = np.zeros(len(_image_ids), dtype=np.int32)
+        _image_ids = np.array(image_ids_map[i], dtype=np.int64)
+        point2D_idxs = np.zeros(len(_image_ids), dtype=np.int64)
         colmap_points3D[i+1] = colmap_utils.Point3D(i+1, xyz, rgb, error, _image_ids, point2D_idxs)
 
     for i, cam in enumerate(cameras):
         width, height = cam.image_sizes
-        cam_model = camera_model_from_int(cam.camera_types)
+        cam_model = camera_model_from_int(int(cam.camera_types))
         fx, fy, cx, cy = cam.intrinsics
         if cam_model == "pinhole":
             model = "PINHOLE"
@@ -77,10 +78,11 @@ def _get_colmap_sfm_reconstruction(dataset: Dataset, image_ids=None):
         R = cam.poses[:3, :3].T
         qvec = colmap_utils.rotmat2qvec(R)
         tvec = -np.matmul(R, cam.poses[:3, 3]).reshape(3)
-        point3D_ids = np.array([], dtype=np.int32)
+        point3D_ids = np.array([], dtype=np.int64)
         xys = np.zeros((0, 2), dtype=np.float32)
-        if dataset.get("images_points3D_indices") is not None:
-            point3D_ids = dataset["images_points3D_indices"][i] + 1
+        images_points3D_indices = dataset.get("images_points3D_indices")
+        if images_points3D_indices is not None:
+            point3D_ids = images_points3D_indices[i] + 1
             xys = np.zeros((len(point3D_ids), 2), dtype=np.float32)
         colmap_images[image_id] = colmap_utils.Image(image_id, qvec, tvec, i+1, name, xys, point3D_ids)
     return colmap_cameras, colmap_images, colmap_points3D
@@ -143,16 +145,16 @@ def _fill_missing_colmap_points3D(dataset: Dataset, hparams):
         dataset["points3D_xyz"] = np.array([x.xyz for x in points3D.values()])
         dataset["points3D_rgb"] = np.array([x.rgb for x in points3D.values()])
         inverse_index = {x.id: i for i, x in enumerate(points3D.values())}
-        dataset["images_points3D_indices"] = [[] for _ in range(len(images))]
+        dataset["images_points3D_indices"] = [np.zeros((0,), dtype=np.int64) for _ in range(len(images))]
         for i, full_path in enumerate(dataset["image_paths"]):
             relpath = os.path.relpath(full_path, dataset["image_paths_root"])
             image_id = image_ids[relpath]
             dataset["images_points3D_indices"][i] = \
-                np.array([inverse_index[x] for x in images[image_id].point3D_ids if x != -1], dtype=np.int32)
+                np.array([inverse_index[x] for x in images[image_id].point3D_ids if x != -1], dtype=np.int64)
 
 
 def _create_raymond_lights():
-    from pyrender import DirectionalLight
+    from pyrender import DirectionalLight  # type: ignore
     thetas = np.pi * np.array([1.0 / 6.0, 1.0 / 6.0, 1.0 / 6.0])
     phis = np.pi * np.array([0.0, 2.0 / 3.0, 4.0 / 3.0])
 
@@ -205,24 +207,26 @@ class ColmapMVS(Method):
 
         self._hparams = hparams
         self._train_dataset = train_dataset
-        self._model_path = self._checkpoint
         
         # For newly trained model, we store it in 
         # a temporary directory before save is called
         self._tmpdir = None
-        if self._model_path is None:
+        if self._checkpoint is None:
             self._tmpdir = tempfile.TemporaryDirectory()
             self._model_path = self._tmpdir.name
+        else:
+            self._model_path = self._checkpoint
 
         # Setup renderer
         try:
             os.environ["PYOPENGL_PLATFORM"] = "egl"
-            import pyrender
-            from pyrender import Renderer as PyRenderer
-            from pyrender.platforms import egl
+            import pyrender  # type: ignore
+            from pyrender import Renderer as PyRenderer  # type: ignore
+            from pyrender.platforms import egl  # type: ignore
         except ImportError as e:
             if "Unable to load EGL library" in str(e):
-                raise NoGPUError() from e
+                raise RuntimeError("No suitable GPU found for rendering") from e
+            raise
 
         camera = pyrender.IntrinsicsCamera(fx=200., fy=200.0, cx=100.0, cy=100.0, znear=0.001, zfar=10_000.0)
         self._scene = pyrender.Scene(
@@ -247,8 +251,8 @@ class ColmapMVS(Method):
             self._load_mesh()
 
     def _load_mesh(self):
-        import trimesh
-        import pyrender
+        import trimesh  # type: ignore
+        import pyrender  # type: ignore
         mesh_path = os.path.join(self._model_path, "mesh.ply")
         mesh = trimesh.load_mesh(mesh_path)
         if isinstance(mesh, trimesh.Scene) and mesh.is_empty:
@@ -263,17 +267,17 @@ class ColmapMVS(Method):
             for m in mesh
         ]
 
-    @staticmethod
-    def get_method_info():
-        return dict(
-            method_id="colmap",
+    @classmethod
+    def get_method_info(cls):
+        return MethodInfo(
+            method_id="",  # Will be filled in by the registry
             required_features=frozenset(("color", "points3D_xyz", "points3D_rgb", "images_points3D_indices")),
             supported_camera_models=frozenset(("pinhole", "opencv", "opencv_fisheye", "full_opencv")),
             supported_outputs=("color", "depth"),
         )
 
     def get_info(self):
-        return dict(
+        return ModelInfo(
             **self.get_method_info(),
             num_iterations=1,
             loaded_checkpoint=self._checkpoint,
@@ -282,6 +286,7 @@ class ColmapMVS(Method):
         )
 
     def train_iteration(self, step):
+        assert self._train_dataset is not None, "No training dataset provided"
         assert step == 0, "COLMAP is not an iterative method"
 
         # Write the sparse reconstruction
@@ -367,8 +372,10 @@ class ColmapMVS(Method):
                cameras: Cameras, *, 
                embeddings=None, 
                options: Optional[RenderOptions] = None):
-        from pyrender import RenderFlags
+        from pyrender import RenderFlags  # type: ignore
         del embeddings, options
+        assert self._platform is not None, "Method is already destroyed"
+        assert self._renderer is not None, "Method is already destroyed"
         flags = RenderFlags.OFFSCREEN | RenderFlags.FLAT | RenderFlags.RGBA
         assert self._platform.supports_framebuffers(), "Platform does not support framebuffers"
         self._platform.make_current()
@@ -380,12 +387,17 @@ class ColmapMVS(Method):
                 self._camera.matrix = pose
                 fx, fy, cx, cy = cam.intrinsics
                 w, h = cam.image_sizes
-                main_cam = self._scene.main_camera_node.camera
+                main_cam_node = self._scene.main_camera_node
+                assert main_cam_node is not None, "Main camera node is missing"
+                main_cam = main_cam_node.camera
+                assert main_cam is not None, "Main camera is missing"
                 main_cam.fx, main_cam.fy, main_cam.cx, main_cam.cy = fx, fy, cx, cy
                 self._renderer.viewport_width, self._renderer.viewport_height = w, h
-                color, depth = self._renderer.render(self._scene, flags)
+                out = self._renderer.render(self._scene, flags)
+                assert out is not None, "Rendering failed"
+                color, depth = out
                 if cam.nears_fars is not None:
-                    self._camera.znear, self._camera.zfar = cam.nears_fars
+                    main_cam.znear, main_cam.zfar = cam.nears_fars
                 yield {
                     "color": color,
                     "depth": depth,
@@ -412,6 +424,9 @@ class ColmapMVS(Method):
             self._platform.delete_context()
             del self._platform
             self._platform = None
+        if self._tmpdir is not None:
+            self._tmpdir.cleanup()
+            self._tmpdir = None
         import gc
         gc.collect()
 

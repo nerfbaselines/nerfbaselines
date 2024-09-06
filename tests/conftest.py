@@ -64,6 +64,7 @@ def make_dataset(path: Path, num_images=10):
 
 
 def make_blender_dataset(path: Path, num_images=10):
+    del num_images
     path = Path(path) / "lego"
     path.mkdir(parents=True)
     w, h = 64, 64
@@ -111,17 +112,33 @@ def patch_prefix(tmp_path):
             os.environ.pop("NS_PREFIX", None)
 
 
+def is_gpu_error(e: Exception) -> bool:
+    if isinstance(e, RuntimeError) and "Found no NVIDIA driver on your system." in str(e):
+        return True
+    if isinstance(e, EnvironmentError) and "unknown compute capability. ensure pytorch with cuda support is installed." in str(e).lower():
+        return True
+    if isinstance(e, ImportError) and "libcuda.so.1: cannot open shared object file" in str(e):
+        return True
+    if isinstance(e, RuntimeError) and "No suitable GPU found for rendering" in str(e):
+        return True
+    return False
+
+
+@pytest.fixture(name="is_gpu_error")
+def is_gpu_error_fixture():
+    return is_gpu_error
+
+
 def run_test_train(tmp_path, dataset_path, method_name, backend="python", config_overrides=None):
     from nerfbaselines.training import Trainer
     from nerfbaselines import metrics
     metrics._LPIPS_CACHE.clear()
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
-    from nerfbaselines.training import train_command
+    from nerfbaselines.cli._train import train_command
     from nerfbaselines.io import get_checkpoint_sha
-    from nerfbaselines.cli.render import render_command
-    from nerfbaselines.utils import Indices, remap_error
-    from nerfbaselines.utils import is_gpu_error
+    from nerfbaselines.cli._render import render_command
+    from nerfbaselines.utils import Indices
     from nerfbaselines.io import deserialize_nb_info
 
     # train_command.callback(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters)
@@ -427,6 +444,7 @@ def mock_torch(patch_modules):
             self.modules = list(args)
 
         def add_module(self, name, module):
+            del name
             self.modules.append(module)
 
         def forward(self, x):  # type: ignore

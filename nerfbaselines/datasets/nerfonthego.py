@@ -1,9 +1,8 @@
 import logging
 import os
 import json
-from ..types import UnloadedDataset
+from nerfbaselines import UnloadedDataset, DatasetNotFoundError
 from .colmap import load_colmap_dataset
-from ._common import DatasetNotFoundError
 
 
 def extract_train_test_split(original_path):
@@ -82,7 +81,7 @@ def preprocess_nerfonthego_dataset(path, output):
 
     # Save metadata
     metadata = {
-        "name": "nerfonthego",
+        "id": "nerfonthego",
         "downscale_factor": scale,
         "scene": os.path.split(path)[-1].replace("_", "-")
     }
@@ -95,7 +94,7 @@ def load_nerfonthego_dataset(path: str, split: str, **kwargs) -> UnloadedDataset
     if os.path.exists("metadata.json"):
         with open("metadata.json", "r") as f:
             metadata = json.load(f)
-            is_onthego = metadata.get("name") == "nerfonthego"
+            is_onthego = metadata.get("id") == "nerfonthego"
     if not is_onthego:
         raise DatasetNotFoundError("This dataset is not an nerfonthego dataset. The folder is mmissing a metadata.json file with the name field set to 'nerfonthego'")
     assert split in ['train', 'test']
@@ -105,8 +104,10 @@ def load_nerfonthego_dataset(path: str, split: str, **kwargs) -> UnloadedDataset
                                   images_path=f"images_{scale}",
                                   **kwargs)
     metadata = dataset["metadata"]
-    metadata["name"] = "nerfonthego"
+    metadata["id"] = "nerfonthego"
     metadata["downscale_factor"] = scale
     metadata["scene"] = os.path.split(path)[-1].replace("_", "-")
     return dataset
 
+
+__all__ = ["load_nerfonthego_dataset"]

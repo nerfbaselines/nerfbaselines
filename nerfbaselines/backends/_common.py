@@ -1,18 +1,20 @@
+import functools
+import sys
+import re
 from collections import deque
 import threading
 import importlib
 from pathlib import Path
 import subprocess
 from typing import Optional
-from typing import  Union, Set, Callable, TYPE_CHECKING, List, cast
+from typing import  Union, Set, Callable, List, cast, Dict, Any, Tuple
 from typing import Sequence
-from ..types import Method, Literal, get_args
-if TYPE_CHECKING:
-    from ..registry import MethodSpec
+from nerfbaselines import BackendName, MethodSpec
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
 
-
-BackendName = Literal["conda", "docker", "apptainer", "python"]
-ALL_BACKENDS = list(get_args(BackendName))
 
 _mounted_paths = {}
 _forwarded_ports = {}
@@ -31,6 +33,7 @@ def mount(ps: Union[str, Path], pd: Union[str, Path]):
         def __enter__(self):
             return self
         def __exit__(self, *args):
+            del args
             if tid in _mounted_paths and dest in _mounted_paths[tid]:
                 _mounted_paths[tid].pop(dest)
             if tid in _mounted_paths and not _mounted_paths[tid]:
@@ -57,6 +60,7 @@ def forward_port(ps: int, pd: int):
         def __enter__(self):
             return self
         def __exit__(self, *args):
+            del args
             if tid in _forwarded_ports and pd in _forwarded_ports[tid]:
                 _forwarded_ports[tid].pop(pd)
             if tid in _forwarded_ports and not _forwarded_ports[tid]:
@@ -72,7 +76,7 @@ def get_forwarded_ports():
     return out
 
 
-def _get_implemented_backends(method_spec: 'MethodSpec') -> Sequence[BackendName]:
+def get_implemented_backends(method_spec: 'MethodSpec') -> Sequence[BackendName]:
     from ._apptainer import get_apptainer_spec
     from ._docker import get_docker_spec
 
@@ -119,7 +123,7 @@ def _get_default_backend(implemented_backends: Sequence[BackendName]) -> Backend
 
 
 def get_backend(method_spec: "MethodSpec", backend: Optional[str]) -> 'Backend':
-    implemented_backends = _get_implemented_backends(method_spec)
+    implemented_backends = get_implemented_backends(method_spec)
     if backend is None:
         backend = _get_default_backend(implemented_backends)
     elif backend not in implemented_backends:
@@ -166,6 +170,7 @@ class Backend(metaclass=_BackendMeta):
         return self
 
     def __exit__(self, *args):
+        del args
         tid = threading.get_ident()
         if tid in _active_backend and _active_backend[tid]:
             _active_backend[tid].pop()
@@ -175,16 +180,20 @@ class Backend(metaclass=_BackendMeta):
     def install(self):
         pass
 
-    def shell(self):
+    def shell(self, args: Optional[Tuple[str, ...]] = None):
+        del args
         raise NotImplementedError("shell not implemented")
 
     def static_call(self, function: str, *args, **kwargs):
+        del function, args, kwargs
         raise NotImplementedError("static_call not implemented")
 
     def instance_call(self, instance: int, method: str, *args, **kwargs):
+        del instance, method, args, kwargs
         raise NotImplementedError("instance_call not implemented")
 
     def instance_del(self, instance: int):
+        del instance
         raise NotImplementedError("instance_del not implemented")
 
 
@@ -209,3 +218,105 @@ class SimpleBackend(Backend):
 
     def instance_del(self, instance: int):
         del self._instances[instance]
+
+
+def get_package_dependencies(extra=None, ignore: Optional[Set[str]] = None, ignore_viewer: bool = False):
+    assert __package__ is not None, "Package must be set"
+    if sys.version_info < (3, 10):
+        from importlib_metadata import distribution
+        import importlib_metadata
+    else:
+        from importlib import metadata as importlib_metadata
+        from importlib.metadata import distribution
+
+    requires = set()
+    requires_with_conditions = None
+    try:
+        requires_with_conditions = distribution("nerfbaselines").requires
+    except importlib_metadata.PackageNotFoundError:
+        # Package not installed
+        pass
+    for r in (requires_with_conditions or ()):
+        if ";" in r:
+            r, condition = r.split(";")
+            r = r.strip().replace(" ", "")
+            condition = condition.strip().replace(" ", "")
+            if condition.startswith("extra=="):
+                extracond = condition.split("==")[1][1:-1]
+                if extra is not None and extracond in extra:
+                    requires.add(r)
+                continue
+            elif condition.startswith("python_version"):
+                requires.add(r)
+                continue
+            else:
+                raise ValueError(f"Unknown condition {condition}")
+        r = r.strip().replace(" ", "")
+        requires.add(r)
+    if ignore_viewer:
+        # NOTE: Viewer is included in the package by default
+        # See https://github.com/pypa/setuptools/pull/1503
+        ignore = set(ignore or ())
+        ignore.add("viser")
+
+    if ignore is not None:
+        ignore = set(x.lower() for x in ignore)
+        for r in list(requires):
+            rsimple = re.sub(r"[^a-zA-Z0-9_-].*", "", r).lower()
+            if rsimple in ignore:
+                requires.remove(r)
+    return sorted(requires)
+
+
+def run_on_host():
+    def wrap(fn):
+        @functools.wraps(fn)
+        def wrapped(*args, **kwargs):
+            if Backend.current is not None:
+                return Backend.current.static_call(f"{fn.__module__}:{fn.__name__}", *args, **kwargs)
+            return fn(*args, **kwargs)
+        wrapped.__run_on_host_original__ = fn  # type: ignore
+        return wrapped
+    return wrap
+
+
+def setup_logging(verbose: Union[bool, Literal['disabled']]):
+    import logging
+
+    class Formatter(logging.Formatter):
+        def format(self, record: logging.LogRecord):
+            levelname = record.levelname[0]
+            message = record.getMessage()
+            if levelname == "D":
+                return f"\033[0;36mdebug:\033[0m {message}"
+            elif levelname == "I":
+                return f"\033[1;36minfo:\033[0m {message}"
+            elif levelname == "W":
+                return f"\033[0;1;33mwarning: {message}\033[0m"
+            elif levelname == "E":
+                return f"\033[0;1;31merror: {message}\033[0m"
+            else:
+                return message
+
+    kwargs: Dict[str, Any] = {}
+    if sys.version_info >= (3, 8):
+        kwargs["force"] = True
+    if verbose == "disabled":
+        logging.basicConfig(level=logging.FATAL, **kwargs)
+        logging.getLogger('PIL').setLevel(logging.FATAL)
+        try:
+            import tqdm as _tqdm
+            old_init = _tqdm.tqdm.__init__
+            _tqdm.tqdm.__init__ = lambda *args, disable=None, **kwargs: old_init(*args, disable=True, **kwargs)
+        except ImportError:
+            pass
+    elif verbose:
+        logging.basicConfig(level=logging.DEBUG, **kwargs)
+        logging.getLogger('PIL').setLevel(logging.WARNING)
+    else:
+        import warnings
+        logging.basicConfig(level=logging.INFO, **kwargs)
+        warnings.formatwarning = lambda message, *args, **kwargs: message
+    for handler in logging.root.handlers:
+        handler.setFormatter(Formatter())
+    logging.captureWarnings(True)

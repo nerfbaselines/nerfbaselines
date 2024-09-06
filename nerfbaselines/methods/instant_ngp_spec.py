@@ -1,6 +1,5 @@
 import os
-from nerfbaselines.types import MethodSpec
-from nerfbaselines.registry import register
+from nerfbaselines import register, MethodSpec
 
 
 _BLENDER_NOTE = """Instant-NGP trained and evaluated on black background instead of white."""
@@ -19,7 +18,7 @@ paper_results = {
 
 
 InstantNGPSpec: MethodSpec = {
-    "method": ".instant_ngp:InstantNGP",
+    "method_class": ".instant_ngp:InstantNGP",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9",
@@ -62,7 +61,7 @@ cmake --build build --config RelWithDebInfo -j
 
 # NOTE: torch is needed for nerfbaselines
 conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 'numpy<2.0.0' -c pytorch -c nvidia
-pip install msgpack==1.0.8
+pip install msgpack==1.0.8 importlib_metadata typing_extensions
 if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
 mkdir -p "$CONDA_PREFIX/etc/conda/activate.d"
 echo "export PYTHONPATH=\"$CONDA_PREFIX/src/instant-ngp/build:\$PYTHONPATH\"" >> "$CONDA_PREFIX/etc/conda/activate.d/env_vars.sh"
@@ -88,6 +87,8 @@ function nb-post-install () {
         "build_script": """
 # Install default torch to compute metrics on cuda inside the container
 pip install opencv-python-headless torch==2.0.1 torchvision==0.15.2 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu117
+pip install msgpack==1.0.8 importlib_metadata typing_extensions
+if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
 """,
     },
     "metadata": {

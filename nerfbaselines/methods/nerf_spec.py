@@ -1,6 +1,5 @@
 import os
-from nerfbaselines.types import MethodSpec
-from nerfbaselines.registry import register
+from nerfbaselines import register, MethodSpec
 
 
 _paper_results = {
@@ -19,7 +18,7 @@ _paper_results = {
 }
 
 NeRFSpec: MethodSpec = {
-    "method": ".nerf:NeRF",
+    "method_class": ".nerf:NeRF",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.8",
@@ -39,7 +38,7 @@ pip install torch==2.3.0 torchvision==0.18.0 'numpy<2.0.0' --index-url https://d
 # However, we do not want to corrupt user's environment, so we set the options manually
 # pip install -I nvidia-pyindex==1.0.9
 pip install nvidia-tensorflow==1.15.5+nv22.10 --extra-index-url https://pypi.ngc.nvidia.com --no-cache-dir --trusted-host pypi.ngc.nvidia.com
-pip install configargparse==1.7 'opencv-python-headless<=4.10.0.82' imageio==2.34.1 numpy==1.23.5
+pip install configargparse==1.7 'opencv-python-headless<=4.10.0.82' imageio==2.34.1 numpy==1.23.5 importlib_metadata typing_extensions
 
 conda develop "$PWD"
 """,
@@ -49,6 +48,7 @@ conda develop "$PWD"
         "description": "Original NeRF method representing radiance field using a large MLP.",
         "paper_title": "NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis",
         "paper_authors": ["Ben Mildenhall", "Pratul P. Srinivasan", "Matthew Tancik", "Jonathan T. Barron", "Ravi Ramamoorthi", "Ren Ng"],
+        "paper_results": _paper_results,
         "paper_link": "https://arxiv.org/pdf/2003.08934.pdf",
         "link": "https://www.matthewtancik.com/nerf",
         "licenses": [{"name": "MIT", "url": "https://github.com/bmild/nerf/blob/master/LICENSE"}],

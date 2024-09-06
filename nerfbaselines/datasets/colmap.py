@@ -2,17 +2,15 @@ import typing
 from collections import OrderedDict
 import logging
 from pathlib import Path
-from typing import Tuple, Optional, Dict, List, Union
+from typing import Tuple, Optional, Dict, List, Union, FrozenSet
 import numpy as np
-from ..types import DatasetFeature, FrozenSet
-from ..types import CameraModel, camera_model_to_int, new_cameras
+from nerfbaselines import DatasetFeature, CameraModel, camera_model_to_int, new_cameras, DatasetNotFoundError, new_dataset
 from ..utils import Indices
-from ._colmap_utils import read_cameras_binary, read_images_binary, read_points3D_binary, qvec2rotmat
-from ._colmap_utils import read_cameras_text, read_images_text, read_points3D_text, Image, Camera, Point3D
-from ._common import DatasetNotFoundError, padded_stack, get_default_viewer_transform, dataset_index_select, new_dataset
+from . import _colmap_utils as colmap_utils
+from ._common import padded_stack, get_default_viewer_transform, dataset_index_select
 
 
-def _parse_colmap_camera_params(camera: Camera) -> Tuple[np.ndarray, int, np.ndarray, Tuple[int, int]]:
+def _parse_colmap_camera_params(camera: colmap_utils.Camera) -> Tuple[np.ndarray, int, np.ndarray, Tuple[int, int]]:
     """
     Parses all currently supported COLMAP cameras into the transforms.json metadata
 
@@ -252,29 +250,29 @@ def load_colmap_dataset(path: Union[Path, str],
         raise DatasetNotFoundError(f"Missing '{rel_images_path}' folder in COLMAP dataset")
 
     if (colmap_path / "cameras.bin").exists():
-        colmap_cameras = read_cameras_binary(colmap_path / "cameras.bin")
+        colmap_cameras = colmap_utils.read_cameras_binary(colmap_path / "cameras.bin")
     elif (colmap_path / "cameras.txt").exists():
-        colmap_cameras = read_cameras_text(colmap_path / "cameras.txt")
+        colmap_cameras = colmap_utils.read_cameras_text(colmap_path / "cameras.txt")
     else:
         raise DatasetNotFoundError("Missing 'sparse/0/cameras.{bin,txt}' file in COLMAP dataset")
 
     if not (colmap_path / "images.bin").exists() and not (colmap_path / "images.txt").exists():
         raise DatasetNotFoundError("Missing 'sparse/0/images.{bin,txt}' file in COLMAP dataset")
     if (colmap_path / "images.bin").exists():
-        images = read_images_binary(colmap_path / "images.bin")
+        images = colmap_utils.read_images_binary(colmap_path / "images.bin")
     elif (colmap_path / "images.txt").exists():
-        images = read_images_text(colmap_path / "images.txt")
+        images = colmap_utils.read_images_text(colmap_path / "images.txt")
     else:
         raise DatasetNotFoundError("Missing 'sparse/0/images.{bin,txt}' file in COLMAP dataset")
 
-    points3D: Optional[Dict[int, Point3D]] = None
+    points3D: Optional[Dict[int, colmap_utils.Point3D]] = None
     if load_points:
         if not (colmap_path / "points3D.bin").exists() and not (colmap_path / "points3D.txt").exists():
             raise DatasetNotFoundError("Missing 'sparse/0/points3D.{bin,txt}' file in COLMAP dataset")
         if (colmap_path / "points3D.bin").exists():
-            points3D = read_points3D_binary(colmap_path / "points3D.bin")
+            points3D = colmap_utils.read_points3D_binary(colmap_path / "points3D.bin")
         elif (colmap_path / "points3D.txt").exists():
-            points3D = read_points3D_text(colmap_path / "points3D.txt")
+            points3D = colmap_utils.read_points3D_text(colmap_path / "points3D.txt")
         else:
             raise DatasetNotFoundError("Missing 'sparse/0/points3D.{bin,txt}' file in COLMAP dataset")
 
@@ -288,12 +286,12 @@ def load_colmap_dataset(path: Union[Path, str],
     sampling_mask_paths: Optional[List[str]] = None if not sampling_masks_path.exists() else []
     camera_sizes = []
 
-    image: Image
+    image: colmap_utils.Image
     i = 0
     c2w: np.ndarray
     images_points3D_ids = []
     for image in images.values():
-        camera: Camera = colmap_cameras[image.camera_id]
+        camera: colmap_utils.Camera = colmap_cameras[image.camera_id]
         intrinsics, camera_type, distortion_params, (w, h) = _parse_colmap_camera_params(camera)
         camera_sizes.append(np.array((w, h), dtype=np.int32))
         camera_intrinsics.append(intrinsics)
@@ -311,7 +309,7 @@ def load_colmap_dataset(path: Union[Path, str],
         # c2w = np.linalg.inv(w2c)[:3, :4]
 
         # w2c
-        R = qvec2rotmat(image.qvec.astype(np.float64))
+        R = colmap_utils.qvec2rotmat(image.qvec.astype(np.float64))
         t = image.tvec.reshape(3, 1).astype(np.float64)
         # c2w
         c2w = np.concatenate([R.T, -np.matmul(R.T, t)], axis=-1)
@@ -399,7 +397,7 @@ def load_colmap_dataset(path: Union[Path, str],
         points3D_rgb=points3D_rgb,
         images_points3D_indices=images_points3D_indices if "images_points3D_indices" in features else None,
         metadata={
-            "name": "colmap",
+            "id": None,
             "color_space": "srgb",
             "evaluation_protocol": "default",
             "viewer_transform": viewer_transform,
@@ -409,3 +407,6 @@ def load_colmap_dataset(path: Union[Path, str],
         dataset = dataset_index_select(dataset, indices)
 
     return dataset
+
+
+__all__ = ["load_colmap_dataset"]

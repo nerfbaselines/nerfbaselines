@@ -1,18 +1,19 @@
+import os
 import csv
 import logging
 from pathlib import Path
 import shutil
 import tempfile
-from typing import Union, cast, Dict
+from typing import Union, cast, Dict, Iterable
 import tarfile
 
 import numpy as np
 import requests
 from tqdm import tqdm
 
-from ..types import Dataset, EvaluationProtocol, Method, RenderOutput, Iterable
+from nerfbaselines import Dataset, EvaluationProtocol, Method, RenderOutput, DatasetNotFoundError
 from ..utils import image_to_srgb
-from ._common import DatasetNotFoundError, single, get_scene_scale, get_default_viewer_transform, dataset_index_select
+from ._common import single, get_scene_scale, get_default_viewer_transform, dataset_index_select
 from .colmap import load_colmap_dataset
 
 DATASET_NAME = "phototourism"
@@ -53,7 +54,7 @@ def load_phototourism_dataset(path: Union[Path, str], split: str, use_nerfw_spli
         colmap_path="sparse",
         split=None, **kwargs
     )
-    dataset["metadata"]["name"] = DATASET_NAME
+    dataset["metadata"]["id"] = DATASET_NAME
     dataset["metadata"]["scene"] = scene
     dataset["metadata"]["expected_scene_scale"] = get_scene_scale(dataset["cameras"], None)
     dataset["metadata"]["type"] = None
@@ -171,6 +172,8 @@ def download_phototourism_dataset(path: str, output: Union[Path, str]):
                     yield member
 
             z.extractall(output_tmp, members=members(z))
+            with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f2:
+                f2.write(f'{{"loader": "{DATASET_NAME}"}}')
             shutil.rmtree(output, ignore_errors=True)
             if not has_any:
                 raise RuntimeError(f"Capture '{capture_name}' not found in {url}.")
@@ -252,3 +255,4 @@ class NerfWEvaluationProtocol(EvaluationProtocol):
                 acc[k] = (acc.get(k, 0) * i + v) / (i + 1)
         return acc
 
+__all__ = ["load_phototourism_dataset", "download_phototourism_dataset", "NerfWEvaluationProtocol"]
