@@ -105,7 +105,7 @@ def test_register_spec():
 
 def test_get_presets_to_apply():
     from nerfbaselines import MethodSpec
-    from nerfbaselines.training import get_presets_to_apply
+    from nerfbaselines.training import get_presets_and_config_overrides
 
     spec: MethodSpec = {
         "method_class": test_register_spec.__module__ + ":_TestMethod",
@@ -130,33 +130,33 @@ def test_get_presets_to_apply():
     }
 
     presets = None
-    presets = get_presets_to_apply(spec, dataset_metadata, presets)
+    presets, _ = get_presets_and_config_overrides(spec, dataset_metadata, presets=presets)
     assert presets == set(("p1",))
 
     presets = []
-    presets = get_presets_to_apply(spec, dataset_metadata, presets)
+    presets, _ = get_presets_and_config_overrides(spec, dataset_metadata, presets=presets)
     assert presets == set(())
 
     presets = ["p2"]
-    presets = get_presets_to_apply(spec, dataset_metadata, presets)
+    presets, _ = get_presets_and_config_overrides(spec, dataset_metadata, presets=presets)
     assert presets == set(("p2",))
 
     presets = ["p2", "@auto"]
-    presets = get_presets_to_apply(spec, dataset_metadata, presets)
+    presets, _ = get_presets_and_config_overrides(spec, dataset_metadata, presets=presets)
     assert presets == set(("p2", "p1"))
 
     # Test union conditions
     presets = None
-    presets = get_presets_to_apply(spec, {
+    presets, _ = get_presets_and_config_overrides(spec, {
         "name": "test-dataset-2",
         "scene": "test-scene-3",
-    }, presets)
+    }, presets=presets)
     assert presets == set(("p4",))
 
 
 def test_get_config_overrides_from_presets():
     from nerfbaselines import MethodSpec
-    from nerfbaselines.training import get_config_overrides_from_presets
+    from nerfbaselines.training import get_presets_and_config_overrides
 
     spec: MethodSpec = {
         "method_class": "TestMethod",
@@ -179,22 +179,34 @@ def test_get_config_overrides_from_presets():
             },
         },
     }
+    dataset_metadata = {
+        "name": "test-dataset",
+        "scene": "test-scene",
+    }
 
     # Simple test
-    o = get_config_overrides_from_presets(spec, ["p1"])
+    _, o = get_presets_and_config_overrides(spec, dataset_metadata, presets=["p1"])
     assert o == {
         "key1": "value1",
         "key2": "value2",
     }
 
+    # Passed config overrides override the presets
+    _, o = get_presets_and_config_overrides(spec, dataset_metadata, presets=["p1"], config_overrides={"key1": "value3", "key4": "value4"})
+    assert o == {
+        "key1": "value3",
+        "key2": "value2",
+        "key4": "value4",
+    }
+
     # Test override previous preset
-    o = get_config_overrides_from_presets(spec, ["p1", "p2"])
+    _, o = get_presets_and_config_overrides(spec, dataset_metadata, presets=["p1", "p2"])
     assert o == {
         "key1": "value3",
         "key2": "value2",
         "key3": "value3",
     }
-    o = get_config_overrides_from_presets(spec, ["p2", "p1"])
+    _, o = get_presets_and_config_overrides(spec, dataset_metadata, presets=["p2", "p1"])
     assert o == {
         "key1": "value3",
         "key2": "value2",
@@ -202,7 +214,7 @@ def test_get_config_overrides_from_presets():
     }
 
     # Test override previous preset
-    o = get_config_overrides_from_presets(spec, ["p1", "p2", "p3"])
+    _, o = get_presets_and_config_overrides(spec, dataset_metadata, presets=["p1", "p2", "p3"])
     assert o == {
         "key1": "value3",
         "key2": "value2",

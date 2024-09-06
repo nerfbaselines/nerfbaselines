@@ -19,7 +19,7 @@ from nerfbaselines.io import (
     serialize_nb_info, new_nb_info
 )
 from nerfbaselines.training import (
-    get_presets_to_apply, get_config_overrides_from_presets,
+    get_presets_and_config_overrides
 )
 from ._common import ChangesTracker, SetParamOptionType, TupleClickType, handle_cli_error, click_backend_option
 from ._common import setup_logging
@@ -89,26 +89,19 @@ def fix_checkpoint(checkpoint_path, new_checkpoint, load_train_dataset_fn, backe
              features=method_info.get("required_features"),
              supported_camera_models=method_info.get("supported_camera_models"))
 
-        _presets = get_presets_to_apply(method_spec, train_dataset["metadata"], presets=presets)
-        dataset_overrides = get_config_overrides_from_presets(method_spec, _presets)
-        if train_dataset["metadata"].get("name") is None:
-            logging.warning("Dataset name not specified, dataset-specific config overrides may not be applied")
-        if dataset_overrides is not None:
-            dataset_overrides = dataset_overrides.copy()
-            dataset_overrides.update(config_overrides or {})
-            config_overrides = dataset_overrides
-        del dataset_overrides
+        _presets, _config_overrides = get_presets_and_config_overrides(
+            method_spec, train_dataset["metadata"], presets=presets, config_overrides=config_overrides)
 
         method: Method = method_cls(
             checkpoint=str(checkpoint_path), 
             train_dataset=cast(Dataset, train_dataset),
-            config_overrides=config_overrides)
+            config_overrides=_config_overrides)
 
         nb_info = (nb_info or {}).copy()
         update_nb_info(nb_info, new_nb_info(
             train_dataset["metadata"],
             method,
-            config_overrides=config_overrides,
+            config_overrides=_config_overrides,
             applied_presets=_presets,
         ))
         try:

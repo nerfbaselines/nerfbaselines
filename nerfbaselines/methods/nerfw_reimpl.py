@@ -51,6 +51,11 @@ logger = logging.getLogger("nerfw-reimpl")
 warnings.filterwarnings("ignore", ".*does not have many workers.*")
 
 
+# We copy the Trainer class to remove the global_step property
+class ETrainer(Trainer):
+    global_step = 0
+
+
 def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
     flat = {}
     if dataclasses.is_dataclass(hparams):
@@ -403,7 +408,7 @@ class NeRFWReimpl(Method):
             hparams = get_opts(config_overrides)
             for k, v in ckpt_data["hyper_parameters"].items():
                 setattr(hparams, k, v)
-            self._loaded_step = ckpt_data["global_step"]
+            self._loaded_step = int(ckpt_data["global_step"])
             self._num_pixels = ckpt_data.get("num_pixels", 10)
             camera_transformer_data = ckpt_data.get("camera_transformer", None)
             if camera_transformer_data is not None:
@@ -441,16 +446,18 @@ class NeRFWReimpl(Method):
         os.environ.pop("SLURM_JOB_NAME", None)
 
         # Setup trainer
-        trainer = Trainer(max_epochs=self.hparams.num_epochs,
-                          devices=self.hparams.num_gpus if train_dataset is not None else 1,
-                          accelerator="cuda",
-                          strategy="ddp",
-                          barebones=True,
-                          num_sanity_val_steps=0,
-                          limit_train_batches=self.hparams.steps_per_epoch,
-                          enable_progress_bar=False,
-                          benchmark=True,
-                          profiler=None)
+        trainer = (Trainer if train_dataset is not None else ETrainer)(
+            max_epochs=self.hparams.num_epochs,
+            devices=self.hparams.num_gpus if train_dataset is not None else 1,
+            accelerator="cuda",
+            strategy="ddp",
+            barebones=True,
+            num_sanity_val_steps=0,
+            limit_train_batches=self.hparams.steps_per_epoch,
+            enable_progress_bar=False,
+            benchmark=True,
+            profiler=None)
+
         # Setup training
         if train_dataset is not None:
             with tempfile.NamedTemporaryFile() as tmpfile:
@@ -487,7 +494,6 @@ class NeRFWReimpl(Method):
             trainer.model.setup("eval")
             trainer._checkpoint_connector._restore_modules_and_callbacks(ckpt_file)
             # We need to fix the trainer.global_step and trainer.current_epoch
-            del Trainer.global_step
             trainer.global_step = ckpt_data["global_step"]
             if "current_epoch" in ckpt_data:
                 del Trainer.current_epoch
@@ -513,6 +519,7 @@ class NeRFWReimpl(Method):
 
     def get_info(self) -> ModelInfo:
         num_iterations = self.hparams.num_epochs * min(15000, ((self._num_pixels + self.hparams.batch_size - 1) // self.hparams.batch_size))
+        num_iterations = int(num_iterations)
         hparamsflat = flatten_hparams(vars(self.hparams), separator=".")
         hparamsflat.pop("root_dir", None)
         hparamsflat.pop("prefixes_to_ignore", None)
@@ -740,7 +747,7 @@ class NeRFWReimpl(Method):
 
             render_output = None
             appearance_embedding = np.concatenate((param_a.detach().cpu().numpy(), param_t.detach().cpu().numpy()), -1)
-            for render_output in self.render(cameras[i:i+1], [appearance_embedding] if appearance_embedding is not None else None):
+            for render_output in self.render(cameras[i:i+1], embeddings=([appearance_embedding] if appearance_embedding is not None else None)):
                 pass
             assert render_output is not None
             yield {

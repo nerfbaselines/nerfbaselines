@@ -1,3 +1,4 @@
+import pprint
 import importlib
 import subprocess
 import shutil
@@ -150,7 +151,7 @@ def get_resources_utilization_info(pid: Optional[int] = None) -> ResourcesUtiliz
     return info
 
 
-def get_config_overrides_from_presets(spec: MethodSpec, presets: Union[Set[str], Sequence[str]]) -> Dict[str, Any]:
+def _get_config_overrides_from_presets(spec: MethodSpec, presets: Union[Set[str], Sequence[str]]) -> Dict[str, Any]:
     """
     Apply presets to a method spec and return the config overrides.
 
@@ -173,7 +174,7 @@ def get_config_overrides_from_presets(spec: MethodSpec, presets: Union[Set[str],
     return _config_overrides
 
 
-def get_presets_to_apply(spec: MethodSpec, dataset_metadata: Dict[str, Any], presets: Union[Set[str], Sequence[str], None] = None) -> Set[str]:
+def _get_presets_to_apply(spec: MethodSpec, dataset_metadata: Dict[str, Any], presets: Union[Set[str], Sequence[str], None] = None) -> Set[str]:
     """
     Given a method spec, dataset metadata, and the optional list of presets from the user,
     this function returns the list of presets that should be applied.
@@ -504,6 +505,37 @@ def _is_tensorboard_enabled(logger: Logger, output: str) -> bool:
     elif isinstance(logger, ConcatLogger):
         return any(_is_tensorboard_enabled(sub_logger, output) for sub_logger in logger.loggers)
     return False
+
+
+def get_presets_and_config_overrides(method_spec: MethodSpec, dataset_metadata: Dict, *, presets=None, config_overrides=None):
+    """
+    Given a method spec, dataset metadata, and the optional list of presets from the user,
+    this function computes the list of presets that should be applied. The presets
+    are then applied to obtain config_overrides which are merged with the provided config_overrides.
+
+    Args:
+        method_spec: Method spec
+        dataset_metadata: Dataset metadata
+        presets: List of presets to apply or a special "@auto" preset that will automatically apply presets based on the dataset metadata
+        config_overrides: Config overrides to be applied after all presets were processed
+
+    Returns:
+        Tuple: List of applied presets, final config overrides
+    """
+    # Apply config overrides for the train dataset
+    _presets = _get_presets_to_apply(method_spec, dataset_metadata, presets)
+    dataset_overrides = _get_config_overrides_from_presets(
+        method_spec,
+        _presets,
+    )
+    if dataset_metadata.get("name") is None:
+        logging.warning("Dataset name not specified, dataset-specific config overrides may not be applied")
+    if dataset_overrides is not None:
+        dataset_overrides = dataset_overrides.copy()
+        dataset_overrides.update(config_overrides or {})
+        config_overrides = dataset_overrides
+    del dataset_overrides
+    return _presets, config_overrides
 
 
 class Trainer:

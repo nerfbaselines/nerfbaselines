@@ -473,7 +473,7 @@ def _prepare_data(data_path, datasets=None, include_docs=None):
 
             # Clone results repository
             with tempfile.TemporaryDirectory() as tmpdir:
-                subprocess.check_call("git clone https://huggingface.co/jkulhanek/nerfbaselines".split() + [tmpdir], env={"GIT_LFS_SKIP_SMUDGE": "1"})
+                subprocess.check_call("git clone --depth=1 https://huggingface.co/jkulhanek/nerfbaselines".split() + [tmpdir], env={"GIT_LFS_SKIP_SMUDGE": "1"})
                 # List all paths in tmpdir
                 existing_paths = [os.path.relpath(os.path.join(root, file), tmpdir) for root, _, files in os.walk(tmpdir) for file in files]
                 resolved_paths = {

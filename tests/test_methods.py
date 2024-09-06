@@ -7,8 +7,7 @@ from nerfbaselines import (
     get_method_spec,
 )
 from nerfbaselines.training import (
-    get_config_overrides_from_presets,
-    get_presets_to_apply,
+    get_presets_and_config_overrides,
 )
 from nerfbaselines import build_method_class
 from nerfbaselines.datasets import load_dataset
@@ -79,8 +78,7 @@ def test_method_conda(blender_dataset_path, method_name, is_gpu_error):
             assert Backend.current.name == "conda"
             assert method_cls.get_method_info()["method_id"] == method_name
             with tempfile.TemporaryDirectory() as tmpdir:
-                dataset_overrides = get_config_overrides_from_presets(
-                    spec, get_presets_to_apply(spec, dataset["metadata"]))
+                _, dataset_overrides = get_presets_and_config_overrides(spec, dataset["metadata"])
                 method = method_cls(train_dataset=dataset, config_overrides=dataset_overrides)
                 assert isinstance(method, Method)  # type: ignore
                 method.save(tmpdir)
@@ -132,8 +130,7 @@ def test_method_docker(blender_dataset_path, method_name, is_gpu_error):
             assert Backend.current.name == "docker"
             assert method_cls.get_method_info()["method_id"] == method_name
             with tempfile.TemporaryDirectory() as tmpdir:
-                dataset_overrides = get_config_overrides_from_presets(
-                    spec, get_presets_to_apply(spec, dataset["metadata"]))
+                _, dataset_overrides = get_presets_and_config_overrides(spec, dataset["metadata"])
                 method = method_cls(train_dataset=dataset, config_overrides=dataset_overrides)
                 assert isinstance(method, Method)  # type: ignore
                 method.save(tmpdir)
@@ -200,8 +197,7 @@ def test_method_apptainer(blender_dataset_path, method_name, is_gpu_error):
             assert Backend.current.name == "apptainer"
             assert method_cls.get_method_info()["method_id"] == method_name
             with tempfile.TemporaryDirectory() as tmpdir:
-                dataset_overrides = get_config_overrides_from_presets(
-                    spec, get_presets_to_apply(spec, dataset["metadata"]))
+                _, dataset_overrides = get_presets_and_config_overrides(spec, dataset["metadata"])
                 method = method_cls(train_dataset=dataset, config_overrides=dataset_overrides)
                 assert isinstance(method, Method)  # type: ignore
                 method.save(tmpdir)

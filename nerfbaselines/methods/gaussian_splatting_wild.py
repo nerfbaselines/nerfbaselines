@@ -254,7 +254,7 @@ class GaussianSplattingWild(Method):
         if self.checkpoint is not None:
             if not os.path.exists(self.checkpoint):
                 raise RuntimeError(f"Model directory {self.checkpoint} does not exist")
-            self._loaded_step = sorted(int(x[x.find("_") + 1:]) for x in os.listdir(os.path.join(self.checkpoint, "ckpts_point_cloud")) if x.startswith("iteration_"))[-1]
+            self._loaded_step = self.step = sorted(int(x[x.find("_") + 1:]) for x in os.listdir(os.path.join(self.checkpoint, "ckpts_point_cloud")) if x.startswith("iteration_"))[-1]
 
         self._default_embedding = None
         if self.checkpoint is not None and os.path.exists(os.path.join(self.checkpoint, "default_embedding.npy")):
@@ -280,8 +280,7 @@ class GaussianSplattingWild(Method):
             else:
                 warnings.warn("Train dataset is not a phototourism scene supported by nerfbaselines. Obtaining train embeddings will be disabled for the method.")
 
-    @property
-    def _train_dataset(self):
+    def _get_train_dataset(self):
         if self._train_dataset_cache is None and self._train_dataset_link is not None:
             logging.info(f"Loading train dataset from {self._train_dataset_link[0]}")
             from nerfbaselines.datasets import load_dataset
@@ -290,7 +289,7 @@ class GaussianSplattingWild(Method):
             train_dataset = load_dataset(self._train_dataset_link[0], split="train", features=features, supported_camera_models=supported_camera_models)
             image_names_sha = hashlib.sha256("".join([os.path.split(x)[-1] for x in train_dataset["image_paths"]]).encode()).hexdigest()
             if self._train_dataset_link[1] != image_names_sha:
-                raise RuntimeError(f"Image names in train dataset do not match the expected image names '{image_names_sha}' != '{self._train_dataset_link[1]}'. Method wasn't trained on this dataset.")
+                logging.warning(f"Image names in train dataset do not match the expected image names '{image_names_sha}' != '{self._train_dataset_link[1]}'. Method may have been trained on a different dataset.")
             self._train_dataset_cache = train_dataset
         return self._train_dataset_cache
 
@@ -571,7 +570,8 @@ class GaussianSplattingWild(Method):
         Args:
             index: Index of the image.
         """
-        if self._train_dataset is None:
+        train_dataset = self._get_train_dataset()
+        if train_dataset is None:
             raise NotImplementedError("Method supports optimizing embeddings, but train dataset is required to infer the embeddings.")
 
         i = index

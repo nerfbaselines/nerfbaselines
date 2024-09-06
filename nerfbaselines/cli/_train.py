@@ -12,7 +12,7 @@ from nerfbaselines import (
 from nerfbaselines.datasets import load_dataset
 from nerfbaselines.training import (
     Trainer, Indices, build_logger,
-    get_presets_to_apply, get_config_overrides_from_presets,
+    get_presets_and_config_overrides,
 )
 from nerfbaselines.io import open_any_directory, deserialize_nb_info
 from nerfbaselines import backends
@@ -119,28 +119,17 @@ def train_command(
         test_dataset["metadata"]["expected_scene_scale"] = train_dataset["metadata"].get("expected_scene_scale")
 
         # Apply config overrides for the train dataset
-        _presets = get_presets_to_apply(method_spec, train_dataset["metadata"], presets)
-        dataset_overrides = get_config_overrides_from_presets(
-            method_spec,
-            _presets,
-        )
-        if train_dataset["metadata"].get("name") is None:
-            logging.warning("Dataset name not specified, dataset-specific config overrides may not be applied")
-        if dataset_overrides is not None:
-            dataset_overrides = dataset_overrides.copy()
-            dataset_overrides.update(config_overrides or {})
-            config_overrides = dataset_overrides
-        del dataset_overrides
-
+        _presets, _config_overrides = get_presets_and_config_overrides(
+            method_spec, train_dataset["metadata"], presets=presets, config_overrides=config_overrides)
         # Log the current set of config overrides
         logging.info(f"Active presets: {', '.join(_presets)}")
-        logging.info(f"Using config overrides: {pprint.pformat(config_overrides)}")
+        logging.info(f"Using config overrides: {pprint.pformat(_config_overrides)}")
 
         # Build the method
         method = method_cls(
             checkpoint=os.path.abspath(checkpoint_path) if checkpoint_path else None,
             train_dataset=train_dataset,
-            config_overrides=config_overrides,
+            config_overrides=_config_overrides,
         )
 
         # Train the method
@@ -154,7 +143,7 @@ def train_command(
             eval_few_iters=eval_few_iters,
             logger=build_logger(_loggers),
             generate_output_artifact=generate_output_artifact,
-            config_overrides=config_overrides,
+            config_overrides=_config_overrides,
             applied_presets=frozenset(_presets),
         )
         trainer.train()

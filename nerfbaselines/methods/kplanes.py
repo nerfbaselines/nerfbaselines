@@ -755,7 +755,7 @@ class KPlanes(Method):
 
                 # Render
                 render_output = None
-                for render_output in self.render(cameras[img_idx:img_idx+1], [appearance_embedding]):
+                for render_output in self.render(cameras[img_idx:img_idx+1], embeddings=[appearance_embedding]):
                     pass
                 assert render_output is not None
                 yield {

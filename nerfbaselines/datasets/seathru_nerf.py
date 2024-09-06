@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from nerfbaselines import NB_PREFIX, DatasetNotFoundError
 from nerfbaselines.datasets import dataset_index_select
 from nerfbaselines.datasets.colmap import load_colmap_dataset
+from ._common import single
 
 
 DATASET_NAME = "seathru-nerf"
@@ -59,6 +60,11 @@ def load_seathru_nerf_dataset(path: str, split: Optional[str], **kwargs):
     import numpy as np
     images_path = "images_wb"
     dataset = load_colmap_dataset(path, split=None, images_path=images_path, **kwargs) 
+
+    if "seathru" not in str(path) or not any(s in str(path) for s in SCENES):
+        raise DatasetNotFoundError(f"seathru and {set(SCENES)} is missing from the dataset path: {path}")
+
+    scene = single(scene for scene in SCENES if scene in str(path))
     
     # Load bounds
     poses_bounds = np.load(os.path.join(path, "poses_bounds.npy"))
@@ -68,6 +74,7 @@ def load_seathru_nerf_dataset(path: str, split: Optional[str], **kwargs):
 
     # Set dataset metadata
     dataset["metadata"]["name"] = DATASET_NAME
+    dataset["metadata"]["scene"] = scene
     dataset["metadata"]["type"] = "forward-facing"
     dataset["metadata"]["viewer_transform"] = np.eye(4, dtype=np.float32)
     dataset["metadata"]["viewer_initial_pose"] = dataset["cameras"].poses[0][..., :3, :4]

@@ -41,7 +41,7 @@ def main(results: Optional[str], dataset: str, output_type="markdown", output: O
     setup_logging(False)
     if results is None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            subprocess.check_call("git clone https://huggingface.co/jkulhanek/nerfbaselines".split() + [tmpdir], env={"GIT_LFS_SKIP_SMUDGE": "1"})
+            subprocess.check_call("git clone --depth=1 https://huggingface.co/jkulhanek/nerfbaselines".split() + [tmpdir], env={"GIT_LFS_SKIP_SMUDGE": "1"})
             if dataset is None:
                 logging.fatal("--dataset must be provided")
             dataset_info = compile_dataset_results(Path(tmpdir), dataset)

@@ -1,3 +1,4 @@
+import traceback
 import sys
 from functools import wraps
 import click
@@ -101,7 +102,19 @@ class ChangesTracker:
         if type(obj1) != type(obj2):
             self._add_changes(path, v1, v2, True)
             return True
-        if type(obj1).__name__ == "Tensor":
+        if isinstance(obj1, (list, tuple)) and isinstance(obj2, (list, tuple)):
+            if len(obj1) != len(obj2):
+                self._add_changes(path, f"len: {len(obj1)} != {len(obj2)}", True)
+                return True
+            out = False
+            for i, (o1, o2) in enumerate(zip(obj1, obj2)):
+                if self.add_dict_changes(path + (f"[{i}]",), o1, o2):
+                    out = True
+            return out
+        if (
+            type(obj1).__name__ == "Parameter" or
+            type(obj1).__name__ == "Tensor"
+        ):
             obj1 = cast(Any, obj1)
             obj2 = cast(Any, obj2)
             if obj1.device != obj2.device:
@@ -133,6 +146,7 @@ class ChangesTracker:
                     return False
                 return True
         except Exception:
+            traceback.print_exc()
             self._add_changes(path, f"failed to comp. {v1} = {v2}", True)
             return True
 
@@ -167,7 +181,15 @@ class ChangesTracker:
                 if self.add_dict_changes(fpath, data1, data2):
                     return True
             except Exception:
+                traceback.print_exc()
                 pass
+
+        if isbinary and fpath[-1].endswith(".pkl"):
+            import pickle
+            data1 = pickle.load(file1)
+            data2 = pickle.load(file2)
+            if self.add_dict_changes(fpath, data1, data2):
+                return True
 
         if isbinary and fpath[-1].endswith(".ingp"):
             data1 = file1.read()
