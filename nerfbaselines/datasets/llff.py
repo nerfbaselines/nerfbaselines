@@ -13,6 +13,7 @@ from nerfbaselines import camera_model_to_int, new_cameras, DatasetNotFoundError
 
 gdrive_id = "16VnMcF1KJYxN9QId6TClMsZRahHNMW5g"
 LLFF_SCENES = "fern flower fortress horns leaves orchids room trex".split()
+DATASET_NAME = "llff"
 
 
 def load_llff_dataset(path: Union[Path, str], split: str, downscale_factor: int = 4, **_):
@@ -23,15 +24,15 @@ def load_llff_dataset(path: Union[Path, str], split: str, downscale_factor: int 
     scene = path.name
     if scene not in LLFF_SCENES:
         raise DatasetNotFoundError(f"Scene {scene} not found in LLFF dataset. Supported scenes: {LLFF_SCENES}.")
-    for file in ("poses_bounds.npy", "simplices.npy", "sparse", "trimesh.png", "database.db", "images", "images_4", "images_8"):
+    for file in ("poses_bounds.npy", "sparse", "database.db", "images", "images_4", "images_8"):
         if not (path / file).exists():
             raise DatasetNotFoundError(f"Path {path} does not contain a LLFF dataset. Missing file: {path / file}")
     assert split in ["train", "test"], "split must be one of 'train', 'test'"
 
     poses_bounds = np.load(path / "poses_bounds.npy")
-    image_paths = sorted(path.glob(f"images_{downscale_factor}/*"))
+    image_paths = sorted(path.glob(f"images_{downscale_factor}/*.png"))
     assert len(image_paths) > 0, f"No images found in {path / f'images_{downscale_factor}'}"
-    assert len(poses_bounds) == len(image_paths), "Mismatch between number of images and number of poses! Please rerun COLMAP!"
+    assert len(poses_bounds) == len(image_paths), f"Mismatch between number of images ({len(image_paths)}) and number of poses ({len(poses_bounds)})!"
 
     poses = poses_bounds[:, :15].reshape(-1, 3, 5)  # (N_images, 3, 5)
     near_fars = poses_bounds[:, -2:]  # (N_images, 2)
@@ -73,7 +74,7 @@ def load_llff_dataset(path: Union[Path, str], split: str, downscale_factor: int 
         sampling_mask_paths=None,
         sampling_mask_paths_root=None,
         metadata={
-            "name": "llff",
+            "name": DATASET_NAME,
             "scene": scene,
             "downscale_factor": downscale_factor,
             "color_space": "srgb",
@@ -131,6 +132,8 @@ def download_llff_dataset(path: str, output: Union[Path, str]):
                     has_member = True
     if not has_member:
         raise RuntimeError(f"Path {path} not found in LLFF dataset.")
+    with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f2:
+        f2.write(f'{{"loader": "{DATASET_NAME}"}}')
     if os.path.exists(str(output)):
         shutil.rmtree(str(output))
     os.rename(str(output) + ".tmp", str(output))

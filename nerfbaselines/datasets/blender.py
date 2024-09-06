@@ -134,6 +134,8 @@ def download_blender_dataset(path: str, output: Union[Path, str]) -> None:
                     mtime = time.mktime(date_time.timetuple())
                     os.utime(target, (mtime, mtime))
 
+            with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f2:
+                f2.write(f'{{"loader": "{DATASET_NAME}"}}')
             shutil.rmtree(output, ignore_errors=True)
             shutil.move(str(output_tmp), str(output))
             logging.info(f"Downloaded {DATASET_NAME}/{scene} to {output}")

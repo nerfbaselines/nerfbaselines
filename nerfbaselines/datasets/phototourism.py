@@ -1,3 +1,4 @@
+import os
 import csv
 import logging
 from pathlib import Path
@@ -171,6 +172,8 @@ def download_phototourism_dataset(path: str, output: Union[Path, str]):
                     yield member
 
             z.extractall(output_tmp, members=members(z))
+            with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f2:
+                f2.write(f'{{"loader": "{DATASET_NAME}"}}')
             shutil.rmtree(output, ignore_errors=True)
             if not has_any:
                 raise RuntimeError(f"Capture '{capture_name}' not found in {url}.")

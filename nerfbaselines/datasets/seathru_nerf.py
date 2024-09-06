@@ -110,6 +110,8 @@ def download_seathru_nerf_dataset(path: str, output: str):
                 if zip_info.filename.startswith("Images_wb/"):
                     zip_info.filename = "images_wb/" + zip_info.filename[len("Images_wb/") :]
                 zip_ref.extract(zip_info, output)
+    with open(os.path.join(str(output), "nb-info.json"), "w", encoding="utf8") as f2:
+        f2.write(f'{{"loader": "{DATASET_NAME}"}}')
     logging.info(f"Extracted {path} to {output}")
 
 

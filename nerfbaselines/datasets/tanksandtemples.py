@@ -1,3 +1,4 @@
+import os
 import logging
 import shutil
 import requests
@@ -134,6 +135,8 @@ def download_tanksandtemples_dataset(path: str, output: Union[Path, str]) -> Non
                     with _assert_not_none(z.extractfile(info)) as source, open(target, "wb") as target:
                         shutil.copyfileobj(source, target)
 
+            with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f:
+                f.write(f'{{"loader": "{DATASET_NAME}"}}')
             shutil.rmtree(output, ignore_errors=True)
             shutil.move(str(output_tmp), str(output))
             logging.info(f"Downloaded {DATASET_NAME}/{scene} to {output}")

@@ -565,6 +565,8 @@ def download_capture_name(output: Path, file_id_or_zip_url):
     inner_folders = os.listdir(tmp_path)
     assert len(inner_folders) == 1, "There is more than one folder inside this zip file."
     folder = os.path.join(tmp_path, inner_folders[0])
+    with open(os.path.join(str(folder), "nb-info.json"), "w", encoding="utf8") as f2:
+        f2.write('{"loader": "nerfstudio"}')
     shutil.rmtree(target_path, ignore_errors=True)
     shutil.move(folder, target_path)
     shutil.rmtree(tmp_path)
