@@ -42,7 +42,7 @@ cd submodules/tetra-triangulation
 cmake . && make && pip install -e . || exit 1
 
 function nb-post-install () {
-if [ "$NB_DOCKER_BUILD" = "1" ]; then
+if [ "$NERFBASELINES_DOCKER_BUILD" = "1" ]; then
 # Reduce size of the environment by removing unused files
 find "$CONDA_PREFIX" -name '*.a' -delete
 find "$CONDA_PREFIX" -type d -name 'nsight*' -exec rm -r {} +

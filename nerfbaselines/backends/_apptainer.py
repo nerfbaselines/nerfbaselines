@@ -31,7 +31,7 @@ class ApptainerBackendSpec(TypedDict, total=False):
 
 def apptainer_get_safe_environment():
     env = get_safe_environment()
-    allowed = {"APPTAINER_IMAGES", "APPTAINER_CACHEDIR", "CI", "NB_USE_GPU", "GITHUB_ACTIONS"}
+    allowed = {"APPTAINER_IMAGES", "APPTAINER_CACHEDIR", "CI", "NERFBASELINES_USE_GPU", "GITHUB_ACTIONS"}
     env.update({k: v for k, v in os.environ.items() if k in allowed})
     return env
 
@@ -126,7 +126,7 @@ def apptainer_run(spec: ApptainerBackendSpec, args, env,
     torch_home = os.path.expanduser(env.get("TORCH_HOME", "~/.cache/torch/hub"))
     os.makedirs(torch_home, exist_ok=True)
     image = spec.get("image") or f"docker://{BASE_IMAGE}"
-    export_envs = ["TCNN_CUDA_ARCHITECTURES", "TORCH_CUDA_ARCH_LIST", "CUDAARCHS", "GITHUB_ACTIONS", "NB_AUTHKEY", "CI"]
+    export_envs = ["TCNN_CUDA_ARCHITECTURES", "TORCH_CUDA_ARCH_LIST", "CUDAARCHS", "GITHUB_ACTIONS", "CI"]
     package_path = str(Path(__file__).absolute().parent.parent)
 
     return [
@@ -162,7 +162,7 @@ def apptainer_run(spec: ApptainerBackendSpec, args, env,
         *(sum((["--env", f"{name}={shlex.quote(shlex.quote(env.get(name, '')))}"] for name in export_envs if name in env), [])),
         ## "--env", "PYTHONPATH=/var/nb-package:${PYTHONPATH}",
         "--env",
-        "NB_USE_GPU=" + ("1" if use_gpu else "0"),
+        "NERFBASELINES_USE_GPU=" + ("1" if use_gpu else "0"),
         "--env",
         "CONDA_PKGS_DIRS=/var/nb-conda-pkgs",
         "--env",

@@ -184,7 +184,7 @@ def main(method_name: str,
          steps: int = 113,
          fast=False):
     setup_logging(verbose)
-    local_results_path = os.environ.get("NB_LOCAL_RESULTS_PATH", None)
+    local_results_path = os.environ.get("NERFBASELINES_LOCAL_RESULTS_PATH", None)
 
     if config_overrides is not None and isinstance(config_overrides, (list, tuple)):
         config_overrides = dict(config_overrides)

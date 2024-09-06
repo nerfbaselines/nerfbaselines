@@ -485,7 +485,7 @@ class NeRFWReimpl(Method):
                 tmpfile.flush()
                 tmpfile.seek(0)
                 sys.argv = [os.path.abspath(__file__), tmpfile.name]
-                os.environ["_NB_DISABLE_LOGGING"] = "1"
+                os.environ["_NERFBASELINES_DISABLE_LOGGING"] = "1"
                 def _run_training(yield_cb):
                     system.training_step = partial(_override_train_iteration, system, system.training_step, yield_cb)
                     # Patch yield_cb to pause the training after each step

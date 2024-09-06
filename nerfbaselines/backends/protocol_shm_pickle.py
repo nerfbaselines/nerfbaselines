@@ -203,7 +203,7 @@ class SharedMemoryProtocol:
     def __init__(self,
                  *,
                  shared_memory_name=None,
-                 shared_memory_size=int(os.environ.get("NB_SHARED_MEMORY_SIZE", _SHM_SIZE))):
+                 shared_memory_size=int(os.environ.get("NERFBASELINES_SHARED_MEMORY_SIZE", _SHM_SIZE))):
         self._shared_memory_name = shared_memory_name
         self._shared_memory = None
         self._is_host = None

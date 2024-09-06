@@ -39,7 +39,7 @@ pip install lpips==0.1.4 importlib_metadata typing_extensions
 if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
 
 function nb-post-install () {
-if [ "$NB_DOCKER_BUILD" = "1" ]; then
+if [ "$NERFBASELINES_DOCKER_BUILD" = "1" ]; then
 # Reduce size of the environment by removing unused files
 find "$CONDA_PREFIX" -name '*.a' -delete
 find "$CONDA_PREFIX" -type d -name 'nsight*' -exec rm -r {} +

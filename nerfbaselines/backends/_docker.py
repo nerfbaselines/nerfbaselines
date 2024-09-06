@@ -22,7 +22,7 @@ except ImportError:
     from typing_extensions import TypedDict, Required
 
 
-EXPORT_ENVS = ["TCNN_CUDA_ARCHITECTURES", "TORCH_CUDA_ARCH_LIST", "CUDAARCHS", "GITHUB_ACTIONS", "NB_PORT", "NB_PATH", "NB_AUTHKEY", "NB_ARGS", "CI"]
+EXPORT_ENVS = ["TCNN_CUDA_ARCHITECTURES", "TORCH_CUDA_ARCH_LIST", "CUDAARCHS", "GITHUB_ACTIONS", "CI"]
 DEFAULT_CUDA_ARCHS = "7.0 7.5 8.0 8.6+PTX"
 DOCKER_TAG_HASH_LENGTH = 10
 
@@ -112,7 +112,7 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
     default_cuda_archs = spec.get("default_cuda_archs") or DEFAULT_CUDA_ARCHS
     tcnn_cuda_archs = default_cuda_archs.replace(".", "").replace("+PTX", "").replace(" ", ";")
     if build_script:
-        run_command = f'set -e;export TORCH_CUDA_ARCH_LIST="{default_cuda_archs}";export TCNN_CUDA_ARCHITECTURES="{tcnn_cuda_archs}";export NB_DOCKER_BUILD=1;{build_script}'
+        run_command = f'set -e;export TORCH_CUDA_ARCH_LIST="{default_cuda_archs}";export TCNN_CUDA_ARCHITECTURES="{tcnn_cuda_archs}";export NERFBASELINES_DOCKER_BUILD=1;{build_script}'
         script += f"RUN {_bash_encode(run_command)} && \\\n"
         script += "rm -Rf /root/.cache/pip || echo 'Failed to remove pip cache'\n"
 
@@ -127,7 +127,7 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
 
         # Add install conda script
         install_conda = conda_get_install_script(conda_spec, package_path="/var/nb-package/nerfbaselines", environment_path=environment_path)
-        run_command = f'export TORCH_CUDA_ARCH_LIST="{default_cuda_archs}" && export TCNN_CUDA_ARCHITECTURES="{tcnn_cuda_archs}" && export NB_DOCKER_BUILD=1 && {install_conda}'
+        run_command = f'export TORCH_CUDA_ARCH_LIST="{default_cuda_archs}" && export TCNN_CUDA_ARCHITECTURES="{tcnn_cuda_archs}" && export NERFBASELINES_DOCKER_BUILD=1 && {install_conda}'
         script += f"RUN {_bash_encode(run_command)} && \\\n"
         script += shlex_join(shell_args) + " bash -c 'conda clean -afy && rm -Rf /root/.cache/pip'\n"
         # Fix permissions when changing the user inside the container
@@ -341,7 +341,7 @@ def docker_run_image(spec: DockerBackendSpec,
         "--env", "PIP_CACHE_DIR=/var/nb-pip-cache",
         "--env", "TORCH_HOME=/var/nb-torch",
         "--env", "NERFBASELINES_PREFIX=/var/nb-prefix",
-        "--env", "NB_USE_GPU=" + ("1" if use_gpu else "0"),
+        "--env", "NERFBASELINES_USE_GPU=" + ("1" if use_gpu else "0"),
         *(sum((["--env", name] for name in env if name in EXPORT_ENVS), [])),
         *(sum((["-p", f"{ps}:{pd}"] for ps, pd in ports or []), [])),
         "--rm",

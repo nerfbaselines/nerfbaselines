@@ -65,11 +65,11 @@ class TCPPickleProtocol:
                  hostname=None,
                  port=None,
                  authkey=None,
-                 max_message_size=int(os.environ.get("NB_TCP_MAX_MESSAGE_SIZE", _TCP_MAX_MESSAGE_SIZE))):
+                 max_message_size=int(os.environ.get("NERFBASELINES_TCP_MAX_MESSAGE_SIZE", _TCP_MAX_MESSAGE_SIZE))):
         if hostname is None:
-            hostname = os.environ.get("NB_TCP_HOSTNAME", "localhost")
+            hostname = os.environ.get("NERFBASELINES_TCP_HOSTNAME", "localhost")
         if port is None:
-            port = int(os.environ.get("NB_TCP_PORT", random.randint(10000, 20000)))
+            port = int(os.environ.get("NERFBASELINES_TCP_PORT", random.randint(10000, 20000)))
         if authkey is None:
             authkey = _tcp_generate_authkey()
         self._hostname = hostname

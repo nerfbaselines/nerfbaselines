@@ -455,8 +455,8 @@ class AutoTransportProtocol:
                  protocol_classes=None,
                  default_protocol_configuration=None):
         if protocol_classes is None:
-            if "NB_PROTOCOL" in os.environ:
-                protocol_classes = os.environ["NB_PROTOCOL"].split(",")
+            if "NERFBASELINES_PROTOCOL" in os.environ:
+                protocol_classes = os.environ["NERFBASELINES_PROTOCOL"].split(",")
             else:
                 protocol_classes = _default_transport_protocol
         self._protocol_classes = protocol_classes
