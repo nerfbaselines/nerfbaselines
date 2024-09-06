@@ -575,6 +575,6 @@ class GaussianSplattingWild(Method):
             raise NotImplementedError("Method supports optimizing embeddings, but train dataset is required to infer the embeddings.")
 
         i = index
-        for _ in self.render(self._train_dataset["cameras"][i:i+1], embeddings=None, _gt_images=self._train_dataset["images"][i:i+1], _store_cache=True):
+        for _ in self.render(train_dataset["cameras"][i:i+1], embeddings=None, _gt_images=train_dataset["images"][i:i+1], _store_cache=True):
             pass
         return self.gaussians.color_net.cache_outd.detach().cpu().numpy().reshape(-1)

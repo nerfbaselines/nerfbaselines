@@ -148,7 +148,7 @@ def _validate_public_checkpoint(method_cls: Type[Method],
         print("Pred PSNRs:", pred_psnrs)
 
         slack = 0.05
-        if len(test_dataset_indices) < 20 and eval_protocol.get_name() == "nerfw":
+        if len(gt_psnrs) < 20 and eval_protocol.get_name() == "nerfw":
             # We give more slack to NeRF-W eval protocol for smaller test sets.
             # Because it performs optimization on the test set
             # the results can vary.
