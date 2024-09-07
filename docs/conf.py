@@ -256,9 +256,7 @@ try:
         has_methods = False
 except Exception:
     pass
-try:
-    import nerfbaselines.datasets.mipnerf360_spec
-except ImportError:
+if not os.path.exists(os.path.join(rootpath, "datasets", "mipnerf360_spec.py")):
     has_datasets = False
 if not os.path.exists(os.path.join(local_path, "index.md")):
     with open(os.path.join(local_path, "index.md"), "w", encoding="utf8") as f:

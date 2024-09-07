@@ -1,3 +1,7 @@
+import pytest
+import os
+import sys
+import contextlib
 from unittest import mock
 from nerfbaselines import Method, MethodInfo, ModelInfo
 import numpy as np
@@ -260,3 +264,155 @@ def test_method_autocast_render():
             assert out["anoutput2"].shape == (23, 30)
             num_called += 1
         assert num_called == 2
+
+
+def test_register_environment_variable(tmp_path):
+    from nerfbaselines._registry import _discover_specs
+
+    (tmp_path / "test1.py").write_text(f"""
+from nerfbaselines import register
+register({{
+    "id": "test1",
+    "method_class": "{_TestMethod.__module__}:{_TestMethod.__name__}",
+    "backends_order": ["python"],
+    "metadata": {{ "test": 1 }},
+}})
+register({{
+    "id": "test2",
+    "method_class": "{_TestMethod.__module__}:{_TestMethod.__name__}",
+    "backends_order": ["python"],
+    "metadata": {{ "test": 2 }},
+}})
+""")
+
+    with mock.patch.dict("os.environ", {"NERFBASELINES_REGISTER": str(tmp_path/"test1.py")}):
+        specs = _discover_specs()
+        assert len(specs) == 2
+        assert specs[0]["metadata"]["test"] == 1
+        assert specs[1]["metadata"]["test"] == 2
+
+
+@contextlib.contextmanager
+def _patch_registry():
+    with contextlib.ExitStack() as stack:
+        from nerfbaselines import _registry as registry
+        stack.enter_context(mock.patch.object(registry, "methods_registry", {}))
+        stack.enter_context(mock.patch.object(registry, "datasets_registry", {}))
+        stack.enter_context(mock.patch.object(registry, "evaluation_protocols_registry", {}))
+        stack.enter_context(mock.patch.object(registry, "loggers_registry", {}))
+        stack.enter_context(mock.patch.object(registry, "_auto_register_completed", False))
+        yield
+
+
+def test_register_environment_variable_does_not_override_default(tmp_path):
+    from nerfbaselines import _registry as registry
+    (tmp_path / "test1.py").write_text(f"""
+from nerfbaselines import register
+register({{
+    "id": "nerf",
+    "method_class": "{_TestMethod.__module__}:{_TestMethod.__name__}",
+    "backends_order": ["python"],
+    "metadata": {{ "@@test": 1 }},
+}})
+register({{
+    "id": "@@unique-nerf",
+    "method_class": "{_TestMethod.__module__}:{_TestMethod.__name__}",
+    "backends_order": ["python"],
+    "metadata": {{ "@@test": 1 }},
+}})
+""")
+    with mock.patch.dict("os.environ", {"NERFBASELINES_REGISTER": str(tmp_path/"test1.py")}), \
+            _patch_registry():
+        registry._auto_register()
+        assert "@@unique-nerf" in registry.methods_registry
+        assert "nerf" in registry.methods_registry
+        assert registry.methods_registry["nerf"].get("metadata", {}).get("@@test") is None
+        assert registry.methods_registry["@@unique-nerf"].get("metadata", {}).get("@@test") == 1
+
+
+def test_register_from_entrypoints(tmp_path):
+    from nerfbaselines import _registry as registry
+
+    (tmp_path / "test1.py").write_text(f"""
+from nerfbaselines import register
+register({{
+    "id": "test1",
+    "method_class": "{_TestMethod.__module__}:{_TestMethod.__name__}",
+    "backends_order": ["python"],
+    "metadata": {{ "test": 1 }},
+}})
+""")
+    if sys.version_info < (3, 10):
+        import importlib_metadata
+    else:
+        from importlib import metadata as importlib_metadata
+
+    def entry_points(group=None):
+        assert group is not None, "group should not be None"
+        return importlib_metadata.EntryPoints(
+            [
+                importlib_metadata.EntryPoint(
+                    name="test1", value="test1", group="nerfbaselines.specs"
+                )
+            ]
+        ).select(group=group)
+
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(_patch_registry())
+        stack.enter_context(mock.patch("nerfbaselines._registry.entry_points", entry_points))
+        stack.enter_context(mock.patch("sys.modules", sys.modules.copy()))
+        # Add tmp_path to sys.path
+        stack.enter_context(mock.patch("sys.path", sys.path + [str(tmp_path)]))
+
+        # Check if the entrypoint was registered
+        specs = registry._discover_specs()
+        assert len(specs) == 1
+        assert specs[0]["metadata"]["test"] == 1
+
+
+def test_install_method_spec(tmp_path):
+    from nerfbaselines import _registry as registry
+
+    (tmp_path / "input").mkdir()
+    (tmp_path / "input" / "test3.py").write_text(f"""
+from nerfbaselines import register
+register({{
+    "id": "test3",
+    "method_class": "{_TestMethod.__module__}:{_TestMethod.__name__}",
+    "backends_order": ["python"],
+    "metadata": {{ "test": 1 }},
+}})
+register({{
+    "id": "test3i",
+    "method_class": "{_TestMethod.__module__}:{_TestMethod.__name__}",
+    "backends_order": ["python"],
+    "metadata": {{ "test": 2 }},
+}})
+""")
+
+    command = "nerfbaselines install-method --spec {tmp_path}test3.py"
+    command = [x.replace("{tmp_path}", str(tmp_path / "input") + os.path.sep) for x in command.split()]
+
+    # Patch sys.argv
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(_patch_registry())
+        stack.enter_context(mock.patch("sys.argv", command))
+        stack.enter_context(mock.patch("nerfbaselines._registry.METHOD_SPECS_PATH", tmp_path / "output"))
+        ex = stack.enter_context(pytest.raises(SystemExit))
+        from nerfbaselines import __main__
+        __main__.main()
+        assert ex.value.code == 0
+
+        # Test if spec exists
+        assert (tmp_path / "output" / "method-test3.py").exists()
+        assert (tmp_path / "output" / "method-test3i.py").exists()
+
+    # Can the spec be imported now?
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(_patch_registry())
+        stack.enter_context(mock.patch("nerfbaselines._registry.METHOD_SPECS_PATH", tmp_path / "output"))
+
+        assert "test3" in registry.get_supported_methods()
+        assert "test3i" in registry.get_supported_methods()
+        assert registry.get_method_spec("test3").get("metadata", {}).get("test") == 1
+        assert registry.get_method_spec("test3i").get("metadata", {}).get("test") == 2

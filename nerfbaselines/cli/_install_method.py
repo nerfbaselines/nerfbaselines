@@ -28,13 +28,13 @@ def get_register_calls(file):
 
     # Now we have aggregated all register() calls, we can process them
     output = []
-    for id, spec in register_calls:
-        spec_file_content = f"""from nerfbaselines.registry import register
+    for spec in register_calls:
+        spec_file_content = f"""from nerfbaselines import register
 register({pprint.pformat(spec)})
 """
         output.append({
             "type": registry.get_spec_type(spec),
-            "id": id,
+            "id": spec["id"],
             "spec": spec,
             "spec_file_content": spec_file_content
         })
@@ -48,7 +48,7 @@ register({pprint.pformat(spec)})
 @click.option("--verbose", "-v", is_flag=True)
 @click_backend_option()
 @handle_cli_error
-def main(method, spec, backend_name, force=False, verbose=False):
+def install_method_command(method, spec, backend_name, force=False, verbose=False):
     setup_logging(verbose)
     if method is not None:
         method_spec = get_method_spec(method)

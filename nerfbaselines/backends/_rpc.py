@@ -8,7 +8,6 @@ import functools
 import traceback
 import sys
 import subprocess
-from pathlib import Path
 import os
 import dataclasses
 from functools import partial
@@ -573,13 +572,7 @@ class AutoTransportProtocol:
             old_protocol = self._current_protocol
             self._current_protocol = working_new_protocol
             # We need to process the old_protocol messages until it is closed
-            logging.debug("Waiting for the old protocol ({old_protocol.protocol_name}) to be closed")
-            while True:
-                msg = old_protocol.receive()
-                if msg.get("message") == "close":
-                    old_protocol.close()
-                    break
-                old_protocol.send({})
+            old_protocol.close()
             logging.debug("Finished protocol upgrade {old_protocol.protocol_name} -> {self._current_protocol.protocol_name}")
 
     def start_host(self):
@@ -622,11 +615,14 @@ class RemoteProcessRPCBackend(Backend):
         self._inside_context = True
         return self
 
-    def __exit__(self, *args):
+    def __exit__(self, exc_type, exc_val, exc_tb):
         # If there was no exception, we safely close the worker by sending a close message
+        force = False
+        if isinstance(exc_val, (ConnectionError, BrokenPipeError, OSError, TimeoutError)):
+            force = True
         self._inside_context = False
-        self.close(_force=bool(args))
-        super().__exit__(*args)
+        self.close(_force=force)
+        super().__exit__(exc_type, exc_val, exc_tb)
 
     def close(self, _force=False):
         if not _force:

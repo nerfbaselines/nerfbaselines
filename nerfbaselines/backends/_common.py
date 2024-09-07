@@ -169,8 +169,8 @@ class Backend(metaclass=_BackendMeta):
         _active_backend[tid].append(self)
         return self
 
-    def __exit__(self, *args):
-        del args
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        del exc_type, exc_val, exc_tb
         tid = threading.get_ident()
         if tid in _active_backend and _active_backend[tid]:
             _active_backend[tid].pop()

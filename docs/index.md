@@ -48,6 +48,7 @@ quickstart
 :maxdepth: 1
 :caption: Advanced
 backends
+adding-new-methods
 ```
 
 ```{toctree}

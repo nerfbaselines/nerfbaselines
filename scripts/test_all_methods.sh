@@ -4,14 +4,9 @@ exec 3>&1
 args=()
 method="*"
 data="*"
-fast=1
 while [[ $# -gt 0 ]]; do
     key="$1"
     case $key in
-        --not-fast)
-            fast=0
-            shift
-            ;;
         --method)
             method="$2"
             shift
@@ -28,7 +23,6 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
-if [ $fast -eq 1 ]; then args+=("--fast"); fi
 set -- "${args[@]}"
 
 result_rows=""

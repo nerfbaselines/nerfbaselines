@@ -33,7 +33,8 @@ def _tcp_pickle_recv(connection: Connection):
         
         for i in range(0, buff_len, max_block_size):
             mess_len = min(buff_len - i, max_block_size)
-            assert connection.recv_bytes_into(memoryview(buffer)[i:i+mess_len]) == mess_len, "Failed to read message"
+            if connection.recv_bytes_into(memoryview(buffer)[i:i+mess_len]) != mess_len:
+                raise ConnectionError("Failed to read message")
     return pickle.loads(buffers[-1], **({'buffers': buffers[:-1]} if len(buffers) > 1 else {}))  # type: ignore
 
 
@@ -153,8 +154,7 @@ class TCPPickleProtocol:
                 # conn.poll(None)
                 try:
                     conn.poll(timeout=1.0)
-                except TimeoutError as to:
-                    print(to)
+                except TimeoutError:
                     continue
                 with lock:
                     msg = _tcp_pickle_recv(conn)
@@ -252,13 +252,6 @@ class TCPPickleProtocol:
             return
 
         if self._conn is not None:
-            if self._is_host:
-                # Send the close message
-                if not self._conn.closed:
-                    try:
-                        _tcp_pickle_send(self._conn, {"message": "close"}, **self._transport_options)
-                    except (EOFError, ConnectionError, BrokenPipeError, OSError):
-                        pass
             self._conn.close()
             self._conn = None
 

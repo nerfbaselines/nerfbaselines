@@ -341,16 +341,32 @@ def test_remote_process_rpc_backend_cancel(protocol_classes):
     protocol = AutoTransportProtocol(protocol_classes=protocol_classes)
     with RemoteProcessRPCBackend(protocol=protocol) as endpoint:
         cancellation_token = CancellationToken()
+        ended = [False]
         def cancel_target():
-            for _ in range(8):
+            for _ in range(20):
+                if ended[0]:
+                    break
                 sleep(0.3)
-                cancellation_token.cancel()
-        threading.Thread(target=cancel_target, daemon=True).start()
+                try:
+                    cancellation_token.cancel()
+                except Exception:
+                    import traceback
+                    traceback.print_exc()
+                    pass
+        thread = threading.Thread(target=cancel_target, daemon=True)
+        thread.start()
         start = time.time()
         with pytest.raises(CancelledException):
             with cancellation_token:
                 endpoint.static_call(_test_function_cancel.__module__+":"+_test_function_cancel.__name__)
-    assert time.time() - start < 10.0
+        duration = time.time() - start
+        ended[0] = True
+        thread.join()
+        
+        # Test connection still active after the cancel
+        assert endpoint.static_call(_test_function.__module__+":"+_test_function.__name__, 1, 2) == 3
+
+    assert duration < 5.0
 
 
 @pytest.mark.parametrize("protocol_classes", 

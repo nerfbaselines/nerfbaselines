@@ -1,13 +1,12 @@
 import contextlib
 import importlib.util
-import types
 import sys
 import logging
 import inspect
 import os
 import importlib
 import contextlib
-from typing import Optional, Any, Tuple, Dict, List, cast, Union, TypeVar, FrozenSet
+from typing import Optional, Dict, List, cast, Union, TypeVar, FrozenSet
 from . import MethodSpec, DatasetSpec, EvaluationProtocolSpec, BackendName, LoggerSpec
 try:
     from typing import Literal
@@ -19,7 +18,7 @@ else:
     from importlib.metadata import entry_points
 
 T = TypeVar("T")
-METHOD_SPECS_PATH = os.path.join(os.path.expanduser("~/.config/nerfbaselines/methods"))
+METHOD_SPECS_PATH = os.path.join(os.path.expanduser("~/.config/nerfbaselines/specs"))
 SpecType = Literal["method", "dataset", "evaluation_protocol", "logger"]
 
 
@@ -62,7 +61,7 @@ def collect_register_calls(output: List[Union[MethodSpec, DatasetSpec, Evaluatio
         _collected_register_calls = old
 
 
-def _load_locally_installed_methods():
+def _load_locally_installed_specs():
     if not os.path.exists(METHOD_SPECS_PATH):
         return []
     # Register locally installed methods
@@ -75,91 +74,131 @@ def _load_locally_installed_methods():
             path = os.path.join(METHOD_SPECS_PATH, file)
             spec = importlib.util.spec_from_file_location(file, path)
             if spec is None or spec.loader is None:
+                logging.error(f"Could not load spec file {file} (loaded from {METHOD_SPECS_PATH})")
                 continue
-            cfg = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(cfg)
+            try:
+                cfg = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(cfg)
+            except Exception as e:
+                logging.exception(e)
+                logging.error(f"Could not load spec file {file} (loaded from {METHOD_SPECS_PATH})")
     return output
 
 
-def _discover_specs() -> List[Tuple[MethodSpec, str]]:
-    """
-    Discovers all methods, datasets, evaluation protocols registered using the `nerfbaselines.specs` entrypoint.
-    And also methods, datasets, evaluation protocols in the NERFBASELINES_METHODS, NERFBASELINES_DATASETS, 
-    NERFBASELINES_REGISTER environment variables.
-    """
-    global _collected_register_calls
-    _types = []
-    registered_methods = set()
-
-    types_to_register = (
-        os.environ.get("NERFBASELINES_METHODS", "") + "," +
-        os.environ.get("NERFBASELINES_DATASETS", "") + "," +
-        os.environ.get("NERFBASELINES_REGISTER", "")
-    )
-    try:
-        for definition in types_to_register.split(","):
-            if not definition:
+def _load_specs_from_environment() -> List[MethodSpec]:
+    # Register methods from environment variables
+    output = []
+    with collect_register_calls(output):
+        for spec_path in os.environ.get("NERFBASELINES_REGISTER", "").split(":"):  
+            spec_path = spec_path.strip()
+            if not spec_path:
+                # Skip empty definitions
                 continue
-            name, path = None, definition
-            if "=" in definition:
-                name, path = definition.split("=")
-            logging.info(f"Loading object {name} from environment variable")
-            register_calls = []
-            with collect_register_calls(register_calls):
-                modname, qualname_separator, qualname = path.partition(":")
-                spec = importlib.import_module(modname)
-                if qualname_separator:
-                    for attr in qualname.split("."):
-                        spec = getattr(spec, attr)
 
-            # If spec is a module, we register all register_calls
-            if isinstance(spec, types.ModuleType):
-                assert name is None, "If the registered type is module, no name should be provided"
-                for _spec in register_calls:
-                    _types.append((_spec, "environment_variable"))
-                    del _spec
-            else:
-                # If it's a dict, we register it directly
-                # Register based on object type
-                assert "id" in spec, "Spec does not have an id"
-                get_spec_type(cast(Any, spec))
-                _types.append((spec, "environment_variable"))
-    except Exception as e:
-        logging.exception(e)
-        logging.error("Could not load methods from environment variables NERFBASELINES_METHODS, NERFBASELINES_DATASETS, NERFBASELINES_REGISTER")
-    registered_methods = set((spec["id"], get_spec_type(spec)) for spec, _ in _types)
+            if not spec_path.endswith(".py"):
+                logging.error(f"Spec file {spec_path} (loaded from NERFBASELINES_REGISTER env variable) is not a python file")
+                continue
 
+            if not os.path.exists(spec_path):
+                logging.error(f"Spec file {spec_path} (loaded from NERFBASELINES_REGISTER env variable) does not exist")
+                continue
+
+            # Import the module from the file
+            spec = importlib.util.spec_from_file_location(os.path.split(spec_path)[-1], spec_path)
+            if spec is None or spec.loader is None:
+                logging.error(f"Could not load spec file {spec_path} (loaded from NERFBASELINES_REGISTER env variable)")
+                continue
+            try:
+                cfg = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(cfg)
+            except Exception as e:
+                logging.exception(e)
+                logging.error(f"Could not load spec file {spec_path} (loaded from NERFBASELINES_REGISTER env variable)")
+    return output
+
+
+def _load_specs_from_entrypoints() -> List[MethodSpec]:
+    output = []
     discovered_entry_points = entry_points(group="nerfbaselines.specs")
-    for name in discovered_entry_points.names:
-        temptypes = []
-        with collect_register_calls(temptypes):
-            spec = discovered_entry_points[name].load()
-            for spec in temptypes:
-                name = spec["id"]
-                if "method_class" in spec:
-                    # For method spec, we set the default backend to python, we also drop other backends
-                    spec = spec.copy()
-                    spec["backends_order"] = ["python"] + [b for b in spec.get("backends_order", []) if b != "python"]
-                if (name, get_spec_type(spec)) in registered_methods:
-                    logging.warning(f"Not registering spec {name} as was supplied from an environment variable")
-                    continue
-                _types.append((spec, "spec"))
-    registered_methods = set((spec["id"], get_spec_type(spec)) for spec, _ in _types)
+    with collect_register_calls(output):
+        for _name in discovered_entry_points.names:
+            try:
+                discovered_entry_points[_name].load()
+            except Exception as e:
+                logging.exception(e)
+                logging.error(f"Could not load spec from entrypoint {_name}")
+
+    # For installed methods, we set the default backend to python, we also drop other backends
+    # This is done because the installed packages are assumed to be already in the target environment
+    # as in the case of user installing NerfBaselines to their environment.
+    for i, spec in enumerate(output):
+        if "method_class" in spec:
+            # For method spec, we set the default backend to python, we also drop other backends
+            spec = spec.copy()
+            spec["backends_order"] = ["python"] + [b for b in spec.get("backends_order", []) if b != "python"]
+            output[i] = spec
+    return output
+
+
+def _discover_specs():
+    """
+    Discovers all methods, datasets, evaluation protocols, and loggers from the following sources:
+      1) `nerfbaselines.specs` entrypoint
+      2) NERFBASELINES_REGISTER environment variable
+      3) locally installed methods in ~/.config/nerfbaselines/specs
+    """
+    output = []
+    _registered = {}
+    for spec in _load_specs_from_environment():
+        spec_type = get_spec_type(spec)
+        if (spec["id"], spec_type) in _registered:
+            logging.warning(f"Not registering spec {spec['id']} as was already registered in environment variable")
+            continue
+        _registered[(spec["id"], spec_type)] = "env"
+        output.append(spec)
+
+    for spec in _load_specs_from_entrypoints():
+        spec_type = get_spec_type(spec)
+        source = _registered.get((spec["id"], spec_type))
+        if source == "env":
+            logging.warning(f"Not registering spec {spec['id']} as was supplied from an environment variable")
+            continue
+        if source == "entrypoint":
+            logging.warning(f"Not registering spec {spec['id']} as was already registered in another entrypoint")
+            continue
+        _registered[(spec["id"], spec_type)] = "entrypoint"
+        output.append(spec)
 
     # Register locally installed methods
     # We skip the ones registered using entrypoints (can be inside PYTHON backend 
-    for spec in _load_locally_installed_methods():
-        name = spec["id"]
-        if (name, get_spec_type(spec)) in registered_methods:
-            logging.debug(f"Skipping locally installed spec {name} as it is already registered")
+    for spec in _load_locally_installed_specs():
+        spec_type = get_spec_type(spec)
+        source = _registered.get((spec["id"], spec_type))
+        if source is not None:
+            logging.debug(f"Not registering spec {spec['id']} as was already registered (source {source})")
             continue
-        _types.append((spec, "local"))
-    return _types
+        _registered[(spec["id"], spec_type)] = "local"
+        output.append(spec)
+    return output
 
 
 # Auto register
 _auto_register_completed = False
 _registration_fastpath = None
+
+
+def _is_registered(spec):
+    spec_type = get_spec_type(spec)
+    if spec_type == "method":
+        return spec["id"] in methods_registry
+    elif spec_type == "dataset":
+        return spec["id"] in datasets_registry
+    elif spec_type == "evaluation_protocol":
+        return spec["id"] in evaluation_protocols_registry
+    elif spec_type == "logger":
+        return spec["id"] in loggers_registry
+    else:
+        raise ValueError(f"Could not determine type of object {spec}")
 
 
 def _auto_register(force=False):
@@ -175,19 +214,29 @@ def _auto_register(force=False):
     for package in os.listdir(os.path.join(nb_path, "methods")):
         if package.endswith("_spec.py") and not package.startswith("_"):
             package = package[:-3]
-            importlib.import_module(f".methods.{package}", __package__)
+            module_spec = importlib.util.find_spec(f"nerfbaselines.methods.{package}", __package__)
+            assert module_spec is not None and module_spec.loader is not None, f"Could not find spec for {package}"
+            cfg = importlib.util.module_from_spec(module_spec)
+            module_spec.loader.exec_module(cfg)
 
     # Dataset registration
     _registration_fastpath = __package__ + ".datasets"
     for package in os.listdir(os.path.join(nb_path, "datasets")):
         if package.endswith("_spec.py") and not package.startswith("_"):
             package = package[:-3]
-            importlib.import_module(f".datasets.{package}", __package__)
+            module_spec = importlib.util.find_spec(f"nerfbaselines.datasets.{package}", __package__)
+            assert module_spec is not None and module_spec.loader is not None, f"Could not find spec for {package}"
+            cfg = importlib.util.module_from_spec(module_spec)
+            module_spec.loader.exec_module(cfg)
+
     # Reset the fastpath since we will be loading modules dynamically now
     _registration_fastpath = None
 
     # Register all external methods
-    for spec, _ in _discover_specs():
+    for spec in _discover_specs():
+        if _is_registered(spec):
+            logging.warning(f"Skipping registration of {spec['id']} as it would overwrite an existing NerfBaselines object")
+            continue
         register(spec)
 
     # If we restrict methods to some subset, remove all other registered methods from the registry

@@ -167,8 +167,8 @@ def _validate_public_checkpoint(method_cls: Type[Method],
 @click.option("--method", "method_name", type=click.Choice(sorted(nerfbaselines.get_supported_methods())), required=True, help="Method to use")
 @click.option("--data", "dataset", type=str, required=True)
 @click.option("--verbose", "-v", is_flag=True)
-@click.option("--fast", is_flag=True, help="Run only the fast tests")
-@click.option("--steps", type=int, default=113, help="Number of steps to run")
+@click.option("--full", is_flag=True, help="Run the full method training")
+@click.option("--steps", type=int, default=113, help="Number of steps to run (for initial tests, not --full)")
 @click.option("--presets", type=TupleClickType(), default=None, help=(
     "Apply a comma-separated list of preset to the method. If no `--presets` is supplied, or if a special `@auto` preset is present,"
     " the method's default presets are applied (based on the dataset metadata)."))
@@ -182,8 +182,9 @@ def main(method_name: str,
          config_overrides=None,
          presets=None,
          steps: int = 113,
-         fast=False):
+         full=False):
     setup_logging(verbose)
+    fast = not full
     local_results_path = os.environ.get("NERFBASELINES_LOCAL_RESULTS_PATH", None)
 
     if config_overrides is not None and isinstance(config_overrides, (list, tuple)):
