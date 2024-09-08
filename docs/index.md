@@ -48,9 +48,10 @@ using-custom-data
 ```{toctree}
 :maxdepth: 1
 :caption: Advanced
-backends
 adding-new-methods
 custom-dataset-loader
+adding-new-datasets
+backends
 ```
 
 ```{toctree}

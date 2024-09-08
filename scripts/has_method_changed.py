@@ -185,6 +185,7 @@ def get_method_dependency_tree(root_path, method_name, backend=None):
                 _walk(v, name=k)
         _walk(backend_tree)
         dep_tree.update(backend_tree)
+
     return dep_tree
 
 
@@ -225,6 +226,8 @@ def method_has_changes(method, backend=None):
     print("Dependency tree: \n" + "".join(dep_tree_formatted), file=sys.stderr)
 
     dependencies = dependency_tree_to_list(dep_tree)
+    if os.path.join(root_path, "nerfbaselines/_version.py") in dependencies:
+        dependencies.remove(os.path.join(root_path, "nerfbaselines/_version.py"))
     changes = list(map(git_has_change, dependencies))
     dependencies_formatted = [
         f"   \033[31m{os.path.relpath(x, root_path)}\033[0m\n" if change else f"   {os.path.relpath(x, root_path)}\n"
