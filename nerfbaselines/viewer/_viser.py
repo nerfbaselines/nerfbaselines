@@ -2055,7 +2055,7 @@ class ViserViewer:
                 nb_camera = new_cameras(
                     poses=c2w[None, :3, :4],
                     intrinsics=np.array([[focal * w/w_total, focal* h/h_total, w / 2, h / 2]], dtype=np.float32),
-                    camera_types=np.array([0], dtype=np.int32),
+                    camera_models=np.array([0], dtype=np.int32),
                     distortion_parameters=np.zeros((1, 8), dtype=np.float32),
                     image_sizes=np.array([[w, h]], dtype=np.int32),
                     nears_fars=None,

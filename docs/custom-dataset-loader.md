@@ -26,7 +26,7 @@ In order to construct the {class}`Cameras <nerfbaselines.Cameras>`, you can use 
 - `poses`: A numpy array of shape `(N, 3, 4)` containing the camera poses (camera-to-world matrices with OpenCV coordinate system convention).
 - `intrinsics`: A numpy array of shape `(N, 4)` containing the camera intrinsics in the form `[focal_x, focal_y, center_x, center_y]`.
 - `image_sizes`: A numpy array of shape `(N, 2,)` containing the image sizes in the form `[width, height]`.
-- `camera_types`: A numpy array of shape `(N,)` and dtype `np.uint8` containing the camera types (e.g., `perspective`, `opencv`, etc.). The camera types are converted to integers using the {func}`camera_model_to_int <nerfbaselines.camera_model_to_int>` function.
+- `camera_models`: A numpy array of shape `(N,)` and dtype `np.uint8` containing the camera types (e.g., `perspective`, `opencv`, etc.). The camera types are converted to integers using the {func}`camera_model_to_int <nerfbaselines.camera_model_to_int>` function.
 
 Optionally, you can also specify the following parameters:
 - `distortion_parameters`: A numpy array of shape `(N, K)` containing the distortion parameters (k1, k2, p1, p2, k3, k4, k5, k6, ...). See OpenCV documentation for more information.
@@ -71,7 +71,7 @@ def _load_cameras(path):
         poses=np.stack(poses),
         intrinsics=np.stack(intrinsics),
         image_sizes=np.stack(image_sizes),
-        camera_types=np.zeros(len(poses), dtype=np.uint8))
+        camera_models=np.zeros(len(poses), dtype=np.uint8))
 ```
 
 Now, we can write the loader function:

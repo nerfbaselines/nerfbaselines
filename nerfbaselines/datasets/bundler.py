@@ -79,7 +79,7 @@ def load_bundler_file(path: str,
     # Read images
     intrinsics = np.zeros((num_images, 4), dtype=np.float32)
     distortion_params = np.zeros((num_images, 6), dtype=np.float32)
-    camera_types = np.full((num_images,), camera_model_to_int("pinhole"), dtype=np.uint8)
+    camera_models = np.full((num_images,), camera_model_to_int("pinhole"), dtype=np.uint8)
     c2ws = np.zeros((num_images, 3, 4), dtype=np.float32)
     image_sizes = np.zeros((num_images, 2), dtype=np.int32)
     for img in trange(0, num_images, desc="Loading bundler file"):
@@ -106,7 +106,7 @@ def load_bundler_file(path: str,
             if all((props.get(x, 0.0) == 0.0) for x in "k1 k2 k3 k4 p1 p2".split()):
                 camera_model_ = camera_model_to_int("pinhole")
                 logging.debug(f"Camera {img} has all distortion parameters set to 0, switching to pinhole camera model")
-        camera_types[img] = camera_model_
+        camera_models[img] = camera_model_
 
         if props.get("filename") is not None:
             image_list[img] = filename = props.pop("filename")
@@ -172,7 +172,7 @@ def load_bundler_file(path: str,
     cameras = new_cameras(
         poses=c2ws,
         intrinsics=intrinsics,
-        camera_types=camera_types,
+        camera_models=camera_models,
         distortion_parameters=distortion_params,
         image_sizes=image_sizes,
         nears_fars=None,

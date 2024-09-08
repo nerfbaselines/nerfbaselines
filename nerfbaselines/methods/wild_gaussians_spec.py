@@ -13,7 +13,7 @@ WildGaussiansMethodSpec: MethodSpec = {
         "install_script": r"""
 git clone https://github.com/jkulhanek/wild-gaussians.git
 cd wild-gaussians
-git checkout 511e2cabbc8a1c48002b792b661a711ceacea1f0
+git checkout 1149c8161dadb17ababb221782bcbf2f1c967960
 conda install -y --override-channels -c nvidia/label/cuda-11.8.0 cuda-toolkit
 if [ "$NERFBASELINES_DOCKER_BUILD" != "1" ]; then
 conda install -y gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge

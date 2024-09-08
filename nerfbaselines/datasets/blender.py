@@ -61,7 +61,7 @@ def load_blender_dataset(path: str, split: str, **kwargs):
         cameras=new_cameras(
             poses=c2w,
             intrinsics=intrinsics,
-            camera_types=np.full(len(cams), camera_model_to_int("pinhole"), dtype=np.int32),
+            camera_models=np.full(len(cams), camera_model_to_int("pinhole"), dtype=np.int32),
             distortion_parameters=np.zeros((len(cams), 0), dtype=np.float32),
             image_sizes=image_sizes,
             nears_fars=nears_fars,

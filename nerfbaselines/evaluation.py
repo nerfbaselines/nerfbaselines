@@ -269,7 +269,7 @@ def with_supported_camera_models(supported_camera_models):
             needs_distort = []
             undistorted_cameras_list: List[Cameras] = []
             for cam in cameras:
-                if cam.camera_types.item() not in supported_cam_models:
+                if cam.camera_models.item() not in supported_cam_models:
                     needs_distort.append(True)
                     undistorted_cameras_list.append(_cameras.undistort_camera(cam)[None])
                 else:
@@ -500,11 +500,11 @@ def trajectory_get_cameras(trajectory: Trajectory) -> Cameras:
         raise NotImplementedError("Only pinhole camera model is supported")
     poses = np.stack([x["pose"] for x in trajectory["frames"]])
     intrinsics = np.stack([x["intrinsics"] for x in trajectory["frames"]])
-    camera_types = np.array([camera_model_to_int(trajectory["camera_model"])]*len(poses), dtype=np.int32)
+    camera_models = np.array([camera_model_to_int(trajectory["camera_model"])]*len(poses), dtype=np.int32)
     image_sizes = np.array([list(trajectory["image_size"])]*len(poses), dtype=np.int32)
     return new_cameras(poses=poses, 
                        intrinsics=intrinsics, 
-                       camera_types=camera_types, 
+                       camera_models=camera_models, 
                        image_sizes=image_sizes,
                        distortion_parameters=np.zeros((len(poses), 0), dtype=np.float32),
                        nears_fars=None, 

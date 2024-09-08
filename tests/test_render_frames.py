@@ -60,7 +60,7 @@ def _mock_cameras(num_cameras=2):
     return new_cameras(
         poses=np.zeros((num_cameras, 3, 4),),
         intrinsics=np.zeros((num_cameras, 4),),
-        camera_types=np.zeros((num_cameras, ), dtype=np.uint8),
+        camera_models=np.zeros((num_cameras, ), dtype=np.uint8),
         distortion_parameters=np.zeros((num_cameras, 0),),
         image_sizes=np.array([[w,h]]*num_cameras, dtype=np.uint32))
 

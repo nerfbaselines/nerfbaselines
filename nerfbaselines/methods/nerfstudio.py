@@ -272,12 +272,11 @@ class _CustomDataParser(DataParser):
             )
 
         image_names = [f"{i:06d}.png" for i in range(len(self.dataset["cameras"].poses))]
-        camera_types = [NPCameraType.PERSPECTIVE for _ in range(len(self.dataset["cameras"].poses))]
         npmap = {x.name.lower(): x.value for x in NPCameraType.__members__.values()}
         npmap["pinhole"] = npmap["perspective"]
         npmap["opencv"] = npmap["perspective"]
         npmap["opencv_fisheye"] = npmap["fisheye"]
-        camera_types = [npmap[camera_model_from_int(int(self.dataset["cameras"].camera_types[i]))] for i in range(len(self.dataset["cameras"].poses))]
+        camtypes = [npmap[camera_model_from_int(int(self.dataset["cameras"].camera_models[i]))] for i in range(len(self.dataset["cameras"].poses))]
 
         poses = self.dataset["cameras"].poses.copy()
        
@@ -313,7 +312,7 @@ class _CustomDataParser(DataParser):
             distortion_params=distortion_parameters.contiguous(),
             width=torch.from_numpy(self.dataset["cameras"].image_sizes[..., 0]).long().contiguous(),
             height=torch.from_numpy(self.dataset["cameras"].image_sizes[..., 1]).long().contiguous(),
-            camera_type=torch.tensor(camera_types, dtype=torch.long),
+            camera_type=torch.tensor(camtypes, dtype=torch.long),
         )
         metadata = {}
         transform_matrix = self.dataparser_transform
@@ -499,12 +498,11 @@ class NerfStudio(Method):
         train_dataparser_outputs = self._trainer.pipeline.datamanager.train_dataparser_outputs
         poses = transform_poses(train_dataparser_outputs.dataparser_transform, train_dataparser_outputs.dataparser_scale,  poses)
         intrinsics = torch.from_numpy(cameras.intrinsics)
-        camera_types = [NPCameraType.PERSPECTIVE for _ in range(len(poses))]
         npmap = {x.name.lower(): x.value for x in NPCameraType.__members__.values()}
         npmap["pinhole"] = npmap["perspective"]
         npmap["opencv"] = npmap["perspective"]
         npmap["opencv_fisheye"] = npmap["fisheye"]
-        camera_types = [npmap[camera_model_from_int(int(cameras.camera_types[i]))] for i in range(len(poses))]
+        camtypes = [npmap[camera_model_from_int(int(cameras.camera_models[i]))] for i in range(len(poses))]
         sizes = cameras.image_sizes
         distortion_parameters = torch.from_numpy(_map_distortion_parameters(cameras.distortion_parameters))
         ns_cameras = NSCameras(
@@ -516,7 +514,7 @@ class NerfStudio(Method):
             distortion_params=distortion_parameters.contiguous(),
             width=torch.from_numpy(sizes[..., 0]).long().contiguous(),
             height=torch.from_numpy(sizes[..., 1]).long().contiguous(),
-            camera_type=torch.tensor(camera_types, dtype=torch.long),
+            camera_type=torch.tensor(camtypes, dtype=torch.long),
         ).to(self._trainer.pipeline.device)
         self._trainer.pipeline.eval()
         global_i = 0

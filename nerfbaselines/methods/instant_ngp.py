@@ -137,7 +137,7 @@ def get_transforms(dataset: Dataset, dataparser_transform=None, dataparser_scale
         camera["k3"] = 0
         camera["k4"] = 0
         camera["is_fisheye"] = False
-        cam_type = dataset["cameras"].camera_types[i]
+        cam_type = dataset["cameras"].camera_models[i]
         if cam_type == camera_model_to_int("pinhole"):
             pass
         elif cam_type in {camera_model_to_int("opencv"), camera_model_to_int("opencv_fisheye")}:

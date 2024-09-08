@@ -43,7 +43,7 @@ def test_render(use_remote_method):
         all_cameras = new_cameras(
             poses=np.eye(4, dtype=np.float32)[None, :3, :4],
             intrinsics=np.zeros((1, 4), dtype=np.float32),
-            camera_types=np.zeros((1,), dtype=np.int32),
+            camera_models=np.zeros((1,), dtype=np.int32),
             distortion_parameters=np.zeros((1, 6), dtype=np.float32),
             image_sizes=np.array((64, 48), dtype=np.int32),
             nears_fars=None,
@@ -183,7 +183,7 @@ def test_render_cancel(use_remote_method):
         all_cameras = new_cameras(
             poses=np.eye(4, dtype=np.float32)[None, :3, :4],
             intrinsics=np.zeros((1, 4), dtype=np.float32),
-            camera_types=np.zeros((1,), dtype=np.int32),
+            camera_models=np.zeros((1,), dtype=np.int32),
             distortion_parameters=np.zeros((1, 6), dtype=np.float32),
             image_sizes=np.array((64, 48), dtype=np.int32),
             nears_fars=None,

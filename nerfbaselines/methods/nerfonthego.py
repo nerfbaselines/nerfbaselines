@@ -169,7 +169,7 @@ class GoDataset(GoBaseDataset):
 
         # Validate cameras first
         assert (
-            np.all(dataset["cameras"].camera_types[:1] == dataset["cameras"].camera_types) and
+            np.all(dataset["cameras"].camera_models[:1] == dataset["cameras"].camera_models) and
             np.all(dataset["cameras"].image_sizes[:1] == dataset["cameras"].image_sizes) and
             np.all(dataset["cameras"].distortion_parameters[:1] == dataset["cameras"].distortion_parameters) and
             np.all(dataset["cameras"].intrinsics[:1] == dataset["cameras"].intrinsics)), "All cameras must be the same"
@@ -185,7 +185,7 @@ class GoDataset(GoBaseDataset):
         pixtocam = np.linalg.inv(camera_utils.intrinsic_matrix(fx, fy, cx, cy))
         coeffs = ['k1', 'k2', 'p1', 'p2', 'k3', 'k4']
         distortion_params = None
-        if dataset["cameras"].camera_types[0].item() in (camera_model_to_int("opencv"), camera_model_to_int("opencv_fisheye")):
+        if dataset["cameras"].camera_models[0].item() in (camera_model_to_int("opencv"), camera_model_to_int("opencv_fisheye")):
             distortion_params = dict(zip(coeffs, chain(dataset["cameras"].distortion_parameters[0], [0]*6)))
         camtype = camera_utils.ProjectionType.PERSPECTIVE
 

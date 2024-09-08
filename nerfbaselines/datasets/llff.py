@@ -62,7 +62,7 @@ def load_llff_dataset(path: Union[Path, str], split: str, *, downscale_factor: i
         cameras=new_cameras(
             poses=c2w,
             intrinsics=(intrinsics)[indices],
-            camera_types=np.full(len(indices), camera_model_to_int("pinhole"), dtype=np.int32),
+            camera_models=np.full(len(indices), camera_model_to_int("pinhole"), dtype=np.int32),
             distortion_parameters=np.zeros((len(indices), 0), dtype=np.float32),
             image_sizes=img_wh.T[indices],
             nears_fars=near_fars[indices],

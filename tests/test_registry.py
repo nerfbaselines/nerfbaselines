@@ -237,7 +237,7 @@ def test_method_autocast_render():
             poses=np.zeros((2, 4, 4)), 
             intrinsics=np.zeros((2, 4)), 
             image_sizes=np.zeros((2, 2), dtype=np.int32),
-            camera_types=np.zeros(2, dtype=np.int32),
+            camera_models=np.zeros(2, dtype=np.int32),
             distortion_parameters=np.zeros((2, 6)),
         )
         for out in method.render(cameras):

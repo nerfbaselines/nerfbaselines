@@ -49,7 +49,7 @@ def _get_colmap_sfm_reconstruction(dataset: Dataset, image_ids=None):
 
     for i, cam in enumerate(cameras):
         width, height = cam.image_sizes
-        cam_model = camera_model_from_int(int(cam.camera_types))
+        cam_model = camera_model_from_int(int(cam.camera_models))
         fx, fy, cx, cy = cam.intrinsics
         if cam_model == "pinhole":
             model = "PINHOLE"

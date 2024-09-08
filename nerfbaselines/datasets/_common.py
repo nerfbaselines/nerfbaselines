@@ -215,7 +215,7 @@ def _dataset_undistort_unsupported(dataset: Dataset, supported_camera_models):
     supported_models_int = set(camera_model_to_int(x) for x in supported_camera_models)
     undistort_tasks = []
     for i, camera in enumerate(dataset["cameras"]):
-        if camera.camera_types.item() in supported_models_int:
+        if camera.camera_models.item() in supported_models_int:
             continue
         undistort_tasks.append((i, camera))
     if len(undistort_tasks) == 0:
@@ -538,7 +538,7 @@ def _load_unknown_dataset(path, **kwargs):
     if path.startswith(os.path.join(NB_PREFIX, "datasets")):
         raise RuntimeError("Dataset is an external dataset, but it does not have nb-info.json metadata. "
                            "This might have been caused by an older version of NerfBaselines. "
-                           "Please remove the directory {path} and try again.")
+                           f"Please remove the directory {path} and try again.")
     from .mipnerf360 import SCENES as MIPNERF360_SCENES
     from .blender import SCENES as BLENDER_SCENES
     from .tanksandtemples import SCENES as TANKSANDTEMPLES_SCENES
@@ -619,6 +619,7 @@ def load_dataset(
         features = frozenset(("color",))
     kwargs["features"] = features
     del features
+
     # If path is and external path, we download the dataset first
     if path.startswith("external://"):
         dataset = path.split("://", 1)[1]

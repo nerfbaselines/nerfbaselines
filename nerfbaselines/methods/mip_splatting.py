@@ -152,7 +152,7 @@ def _load_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, ima
 def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: str, white_background: bool = False, scale_coords=None):
     if dataset is None:
         return SceneInfo(None, [], [], nerf_normalization=dict(radius=None, translate=None), ply_path=None)
-    assert np.all(dataset["cameras"].camera_types == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
+    assert np.all(dataset["cameras"].camera_models == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
 
     cam_infos = []
     for idx, extr in enumerate(dataset["cameras"].poses):
@@ -378,7 +378,7 @@ class MipSplatting(Method):
         if embeddings is not None:
             method_id = self.get_method_info()["method_id"]
             raise NotImplementedError(f"Optimizing embeddings is not supported for method {method_id}")
-        assert np.all(cameras.camera_types == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
+        assert np.all(cameras.camera_models == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
         sizes = cameras.image_sizes
         poses = cameras.poses
         intrinsics = cameras.intrinsics

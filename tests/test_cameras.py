@@ -11,15 +11,15 @@ except ImportError:
 @pytest.mark.parametrize("camera_type", get_args(CameraModel))
 def test_distortions(camera_type: CameraModel):
     num_samples = 10000
-    camera_types = np.full((num_samples,), camera_model_to_int(camera_type), dtype=np.int32)
+    camera_models = np.full((num_samples,), camera_model_to_int(camera_type), dtype=np.int32)
     params = np.random.rand(num_samples, 8) * 0.01
     xy = np.random.rand(num_samples, 2) * 2 - 1
     xy *= 0.8
 
-    xy_distorted = cameras._distort(camera_types, params, xy)
+    xy_distorted = cameras._distort(camera_models, params, xy)
     if camera_type != "pinhole":
         assert not np.allclose(xy, xy_distorted, atol=5e-4, rtol=0), "distorted image should not be equal to original image"
-    new_xy = cameras._undistort(camera_types, params, xy_distorted)
+    new_xy = cameras._undistort(camera_models, params, xy_distorted)
     np.testing.assert_allclose(xy, new_xy, atol=5e-4, rtol=0)
 
 
@@ -35,7 +35,7 @@ def test_camera(camera_type):
     all_cameras = new_cameras(
         poses=poses,
         intrinsics=(np.random.randn(num_cam, 4) * 0.2 + np.array([1.0, 1.0, 0.5, 0.5])) * sizes[..., :1],
-        camera_types=np.full((num_cam,), camera_model_to_int(camera_type), dtype=np.int32),
+        camera_models=np.full((num_cam,), camera_model_to_int(camera_type), dtype=np.int32),
         distortion_parameters=np.random.rand(num_cam, 8).astype(np.float32) * 0.01,
         image_sizes=sizes,
         nears_fars=None,
@@ -54,7 +54,7 @@ def _build_camera(camera_model: CameraModel, intrinsics, distortion_parameters):
         poses=np.eye(4)[:3, :4],
         intrinsics=intrinsics,
         image_sizes=image_sizes,
-        camera_types=np.array(camera_model_to_int(camera_model), dtype=np.int32),
+        camera_models=np.array(camera_model_to_int(camera_model), dtype=np.int32),
         distortion_parameters=distortion_parameters,
         nears_fars=None,
     )
@@ -72,7 +72,7 @@ def test_camera_undistort(camera_type):
     cams = new_cameras(
         poses=poses,
         intrinsics=(np.random.randn(num_cam, 4) * 0.1 + np.array([2.0, 2.0, 0.5, 0.5])) * image_sizes[..., :1],
-        camera_types=np.full((num_cam,), camera_model_to_int(camera_type), dtype=np.int32),
+        camera_models=np.full((num_cam,), camera_model_to_int(camera_type), dtype=np.int32),
         distortion_parameters=np.random.randn(num_cam, 8) * 0.001,
         image_sizes=image_sizes,
         nears_fars=None,
@@ -94,7 +94,7 @@ def test_camera_undistort(camera_type):
 # #     cameras = new_cameras(
 # #         poses=poses,
 # #         normalized_intrinsics=np.random.rand(num_cam, 4),
-# #         camera_types=np.full((num_cam,), camera_type.value, dtype=np.int32),
+# #         camera_models=np.full((num_cam,), camera_type.value, dtype=np.int32),
 # #         distortion_parameters=np.random.randn(num_cam, 6) * 0.1,
 # #         image_sizes=np.random.randint(100, 200, (num_cam, 2), dtype=np.int32),
 # #         nears_fars=None)
@@ -110,7 +110,7 @@ def test_camera_undistort(camera_type):
 
 def _test_cam_to_cam_from_img(camera_model, intrinsics, params, uvw0):
     image_size = np.array([800, 600], dtype=np.int32)
-    cam = new_cameras(poses=np.eye(4)[:3, :4], intrinsics=intrinsics, image_sizes=image_size, camera_types=np.array(camera_model_to_int(camera_model), dtype=np.int32), distortion_parameters=params, nears_fars=None)[None]
+    cam = new_cameras(poses=np.eye(4)[:3, :4], intrinsics=intrinsics, image_sizes=image_size, camera_models=np.array(camera_model_to_int(camera_model), dtype=np.int32), distortion_parameters=params, nears_fars=None)[None]
     np.testing.assert_allclose(cam.intrinsics[0], intrinsics, atol=1e-4, rtol=0)
 
     xy = cameras.project(cam, uvw0)
@@ -122,7 +122,7 @@ def _test_cam_to_cam_from_img(camera_model, intrinsics, params, uvw0):
 
 def _test_cam_from_img_to_img(camera_model, intrinsics, params, xy0):
     image_size = np.array([800, 600], dtype=np.int32)
-    cam = new_cameras(poses=np.eye(4)[:3, :4], intrinsics=intrinsics, image_sizes=image_size, camera_types=np.array(camera_model_to_int(camera_model), dtype=np.int32), distortion_parameters=params, nears_fars=None)[None]
+    cam = new_cameras(poses=np.eye(4)[:3, :4], intrinsics=intrinsics, image_sizes=image_size, camera_models=np.array(camera_model_to_int(camera_model), dtype=np.int32), distortion_parameters=params, nears_fars=None)[None]
     np.testing.assert_allclose(cam.intrinsics[0], intrinsics, atol=1e-4, rtol=0)
 
     _, directions = cameras.unproject(cam, xy0)

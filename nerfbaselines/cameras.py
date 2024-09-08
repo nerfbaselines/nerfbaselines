@@ -193,22 +193,22 @@ _DISTORTIONS: Dict[CameraModel, _DistortionFunction] = {
 }
 
 
-def _distort(camera_types, distortion_params, uv, xnp: Any = np):
+def _distort(camera_models, distortion_params, uv, xnp: Any = np):
     """
     Distorts OpenCV points according to the distortion parameters.
 
     Args:
-        camera_types: [batch]
+        camera_models: [batch]
         distortion_params: [batch, num_params]
         uv: [batch, ..., 2]
         xnp: The numpy module to use.
     """
-    pinhole_mask = camera_types == camera_model_to_int("pinhole")
+    pinhole_mask = camera_models == camera_model_to_int("pinhole")
     if xnp.all(pinhole_mask):
         return uv
     out = None
     for cam, distortion in _DISTORTIONS.items():
-        mask = camera_types == camera_model_to_int(cam)
+        mask = camera_models == camera_model_to_int(cam)
         if xnp.any(mask):
             if xnp.all(mask):
                 return uv + distortion(distortion_params, uv, xnp=xnp)
@@ -221,13 +221,13 @@ def _distort(camera_types, distortion_params, uv, xnp: Any = np):
     return out
 
 
-def _undistort(camera_types: TTensor, distortion_params: TTensor, uv: TTensor, xnp: Any = np, **kwargs) -> TTensor:
-    pinhole_mask = camera_types == camera_model_to_int("pinhole")
+def _undistort(camera_models: TTensor, distortion_params: TTensor, uv: TTensor, xnp: Any = np, **kwargs) -> TTensor:
+    pinhole_mask = camera_models == camera_model_to_int("pinhole")
     if xnp.all(pinhole_mask):
         return uv
     out: Optional[TTensor] = None
     for cam, distortion in _DISTORTIONS.items():
-        mask = camera_types == camera_model_to_int(cam)
+        mask = camera_models == camera_model_to_int(cam)
         if xnp.any(mask):
             if xnp.all(mask):
                 return _iterative_undistortion(distortion, uv, distortion_params, xnp=xnp, **kwargs)
@@ -287,7 +287,7 @@ def unproject(cameras: GenericCameras[TTensor], xy: TTensor) -> Tuple[TTensor, T
     v = (y - cy) / fy
 
     uv = xnp.stack((u, v), -1)
-    uv = _undistort(cameras.camera_types, cameras.distortion_parameters, uv, xnp=xnp)
+    uv = _undistort(cameras.camera_models, cameras.distortion_parameters, uv, xnp=xnp)
     directions = xnp.concatenate((uv, xnp.ones_like(uv[..., :1])), -1)
 
     rotation = cameras.poses[..., :3, :3]  # (..., 3, 3)
@@ -313,7 +313,7 @@ def project(cameras: GenericCameras[TTensor], xyz: TTensor) -> TTensor:
     # Camera -> Camera distorted
     uv = xnp.where(uvw[..., 2:] > eps, uvw[..., :2] / uvw[..., 2:], xnp.zeros_like(uvw[..., :2]))
 
-    uv = _distort(cameras.camera_types, cameras.distortion_parameters, uv, xnp=xnp)
+    uv = _distort(cameras.camera_models, cameras.distortion_parameters, uv, xnp=xnp)
     x, y = xnp.moveaxis(uv, -1, 0)
 
     # Transform to image coordinates
@@ -435,7 +435,7 @@ def undistort_camera(camera: Cameras):
     # xnp = _get_xnp(camera.image_sizes)
     original_camera = camera
 
-    mask = camera.camera_types != camera_model_to_int("pinhole")
+    mask = camera.camera_models != camera_model_to_int("pinhole")
     if not np.any(mask):
         return camera
 
@@ -448,7 +448,7 @@ def undistort_camera(camera: Cameras):
     # Scale the image such the the boundary of the undistorted image.
     empty_poses = np.eye(4, dtype=camera.poses.dtype)[None].repeat(len(camera), axis=0)[..., :3, :4]
     camera_empty = camera.replace(poses=empty_poses)
-    camera_empty_undistorted = camera.replace(poses=empty_poses, camera_types=np.zeros_like(camera.camera_types), distortion_parameters=np.zeros_like(camera.distortion_parameters))
+    camera_empty_undistorted = camera.replace(poses=empty_poses, camera_models=np.zeros_like(camera.camera_models), distortion_parameters=np.zeros_like(camera.distortion_parameters))
     assert len(camera_empty) == len(camera)
 
     # Determine min/max coordinates along top / bottom image border.
@@ -528,7 +528,7 @@ def undistort_camera(camera: Cameras):
 
     out = vars(original_camera)
     out.update(dict(
-        camera_types=np.full_like(original_camera.camera_types, camera_model_to_int("pinhole")),
+        camera_models=np.full_like(original_camera.camera_models, camera_model_to_int("pinhole")),
         distortion_parameters=np.zeros_like(original_camera.distortion_parameters),
         intrinsics=intrinsics,
         image_sizes=image_sizes,

@@ -404,7 +404,7 @@ def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor
     all_cameras = new_cameras(
         poses=c2w.astype(np.float32),
         intrinsics=np.stack([fx, fy, cx, cy], -1).astype(np.float32),
-        camera_types=np.full((len(poses),), camera_model_to_int(camera_type), dtype=np.uint8),
+        camera_models=np.full((len(poses),), camera_model_to_int(camera_type), dtype=np.uint8),
         distortion_parameters=distortion_params.astype(np.float32),
         image_sizes=np.stack([height, width], -1).astype(np.int32),
         nears_fars=None,

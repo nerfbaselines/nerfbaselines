@@ -316,13 +316,13 @@ def test_train_command_undistort(tmp_path, wandb_init_run, mock_extras):
         def __init__(self, *args, train_dataset, **kwargs):
             nonlocal setup_data_was_called
             setup_data_was_called = True
-            assert all(train_dataset["cameras"].camera_types == 0)
+            assert all(train_dataset["cameras"].camera_models == 0)
             super().__init__(*args, train_dataset=train_dataset, **kwargs)
 
         def render(self, cameras, *args, **kwargs):
             nonlocal render_was_called
             render_was_called = True
-            assert all(cameras.camera_types == 0)
+            assert all(cameras.camera_models == 0)
             return super().render(cameras, *args, **kwargs)
 
     test_train_command_undistort._TestMethod = _Method  # type: ignore

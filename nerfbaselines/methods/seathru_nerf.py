@@ -100,9 +100,9 @@ def patch_multinerf_with_multicam():
               **dist_dict,
               xnp=xnp)
             dl = xnp.stack([x, y, xnp.ones_like(x)], -1)
-            dcamera_types = camtype[mask]
+            dcamtypes = camtype[mask]
 
-            fisheye_mask = dcamera_types == 2
+            fisheye_mask = dcamtypes == 2
             if fisheye_mask.any():
                 is_all_fisheye = xnp.all(fisheye_mask)
                 if is_all_fisheye:
@@ -297,7 +297,7 @@ class NBDataset(MNDataset):
             camera_model_to_int("opencv"): 1,
             camera_model_to_int("opencv_fisheye"): 2,
         }
-        self.camtype = np.array([camtype_map[i] for i in cameras.camera_types], np.int32)
+        self.camtype = np.array([camtype_map[i] for i in cameras.camera_models], np.int32)
         self.images_files = self.dataset["image_paths"]
         dataset_len = len(self.dataset["image_paths"])
         distortion_params = np.zeros((dataset_len, 6), dtype=np.float32)

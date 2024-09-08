@@ -80,13 +80,13 @@ def flatten_data(images):
 
 
 def convert_posedata(dataset: Dataset):
-    camera_types = dataset["cameras"].camera_types
-    assert np.all(camera_types == camera_types[:1]), "Currently, all camera types must be the same for the ZipNeRF method"
+    camtypes = dataset["cameras"].camera_models
+    assert np.all(camtypes == camtypes[:1]), "Currently, all camera types must be the same for the ZipNeRF method"
     camtype = {
         camera_model_to_int("pinhole"): camera_utils.ProjectionType.PERSPECTIVE,
         camera_model_to_int("opencv"): camera_utils.ProjectionType.PERSPECTIVE,
         camera_model_to_int("opencv_fisheye"): camera_utils.ProjectionType.FISHEYE,
-    }[camera_types[0]]
+    }[camtypes[0]]
 
     names = []
     camtoworlds = []
