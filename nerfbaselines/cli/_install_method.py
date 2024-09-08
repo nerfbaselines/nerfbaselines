@@ -72,6 +72,11 @@ def install_method_command(method, spec, backend_name, force=False, verbose=Fals
                     raise RuntimeError(f"Dataset {register_call['id']} is already registered")
                 else:
                     logging.warning(f"Dataset {register_call['id']} is already registered, but --force was provided")
+            if register_call["type"] == "dataset_loader" and register_call["id"] in registry.dataset_loaders_registry:
+                if not force:
+                    raise RuntimeError(f"Dataset loader {register_call['id']} is already registered")
+                else:
+                    logging.warning(f"Dataset loader {register_call['id']} is already registered, but --force was provided")
             if register_call["type"] == "evaluation_protocol" and register_call["id"] in registry.evaluation_protocols_registry:
                 if not force:
                     raise RuntimeError(f"Evaluation protocol {register_call['id']} is already registered")

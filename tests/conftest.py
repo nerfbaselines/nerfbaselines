@@ -82,6 +82,14 @@ def make_blender_dataset(path: Path, num_images=10):
     create_split("train")
     create_split("test")
     create_split("val")
+    with path.joinpath("nb-info.json").open("w") as f:
+        json.dump({
+            "id": "blender",
+            "scene": "lego",
+            "type": "object-centric",
+            "evaluation_protocol": "nerf",
+            "loader": "nerfbaselines.datasets.blender:load_blender_dataset",
+        }, f)
     return path
 
 

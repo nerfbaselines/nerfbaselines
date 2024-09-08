@@ -1249,7 +1249,7 @@ class ViserViewer:
                  dataset_metadata=None,
                  state=None):
 
-        self.transform = self._inv_transform = np.eye(4, dtype=np.float32)
+        self.transform = np.eye(4, dtype=np.float32)
         self.initial_pose = None
         self._dataset_metadata = dataset_metadata
 

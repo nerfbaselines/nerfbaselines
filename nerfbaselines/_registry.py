@@ -7,7 +7,7 @@ import os
 import importlib
 import contextlib
 from typing import Optional, Dict, List, cast, Union, TypeVar, FrozenSet
-from . import MethodSpec, DatasetSpec, EvaluationProtocolSpec, BackendName, LoggerSpec
+from . import MethodSpec, DatasetSpec, EvaluationProtocolSpec, BackendName, LoggerSpec, DatasetLoaderSpec
 try:
     from typing import Literal
 except ImportError:
@@ -19,7 +19,8 @@ else:
 
 T = TypeVar("T")
 METHOD_SPECS_PATH = os.path.join(os.path.expanduser("~/.config/nerfbaselines/specs"))
-SpecType = Literal["method", "dataset", "evaluation_protocol", "logger"]
+SpecType = Literal["method", "dataset", "dataset_loader", "evaluation_protocol", "logger"]
+AnySpec = Union[MethodSpec, DatasetSpec, DatasetLoaderSpec, EvaluationProtocolSpec, LoggerSpec]
 
 
 def _assert_not_none(value: Optional[T]) -> T:
@@ -29,6 +30,7 @@ def _assert_not_none(value: Optional[T]) -> T:
 
 methods_registry: Dict[str, MethodSpec] = {}
 datasets_registry: Dict[str, DatasetSpec] = {}
+dataset_loaders_registry: Dict[str, DatasetLoaderSpec] = {}
 evaluation_protocols_registry: Dict[str, EvaluationProtocolSpec] = {}
 loggers_registry: Dict[str, LoggerSpec] = {}
 loggers_registry["wandb"] = {
@@ -45,7 +47,7 @@ _collected_register_calls = None
 
 
 @contextlib.contextmanager
-def collect_register_calls(output: List[Union[MethodSpec, DatasetSpec, EvaluationProtocolSpec, LoggerSpec]]):
+def collect_register_calls(output: List[AnySpec]):
     """
     Context manager to disable and collect all calls to nerfbaselines.registry.register
 
@@ -193,6 +195,8 @@ def _is_registered(spec):
         return spec["id"] in methods_registry
     elif spec_type == "dataset":
         return spec["id"] in datasets_registry
+    elif spec_type == "dataset_loader":
+        return spec["id"] in dataset_loaders_registry
     elif spec_type == "evaluation_protocol":
         return spec["id"] in evaluation_protocols_registry
     elif spec_type == "logger":
@@ -269,10 +273,12 @@ def _make_entrypoint_absolute(entrypoint: str) -> str:
     return ":".join((module, name))
 
 
-def get_spec_type(spec: Union[MethodSpec, DatasetSpec, EvaluationProtocolSpec, LoggerSpec]) -> SpecType:
+def get_spec_type(spec: AnySpec) -> SpecType:
     if "method_class" in spec:
         return "method"
-    elif "load_dataset_function" in spec and "priority" in spec:
+    elif "load_dataset_function" in spec:
+        return "dataset_loader"
+    elif "download_dataset_function" in spec:
         return "dataset"
     elif "evaluation_protocol_class" in spec:
         return "evaluation_protocol"
@@ -282,12 +288,12 @@ def get_spec_type(spec: Union[MethodSpec, DatasetSpec, EvaluationProtocolSpec, L
         raise ValueError(f"Could not determine type of object {spec}")
 
 
-def register(spec: Union[MethodSpec, DatasetSpec, EvaluationProtocolSpec, LoggerSpec]) -> None:
+def register(spec: AnySpec) -> None:
     """
     Register a method, dataset, logger, or evaluation protocol spec.
 
     Args:
-        spec: Spec to register (MethodSpec, DatasetSpec, EvaluationProtocolSpec, LoggerSpec)
+        spec: Spec to register (MethodSpec, DatasetSpec, DatasetLoaderSpec, EvaluationProtocolSpec, LoggerSpec)
     """
     spec = spec.copy()
     spec_type = get_spec_type(spec)
@@ -312,14 +318,20 @@ def register(spec: Union[MethodSpec, DatasetSpec, EvaluationProtocolSpec, Logger
             _collected_register_calls.append(spec)
         else:
             loggers_registry[name] = spec
+    elif spec_type == "dataset_loader":
+        spec = cast("DatasetLoaderSpec", spec)
+        if _collected_register_calls is None:
+            assert name not in dataset_loaders_registry, f"Dataset loader {name} already registered"
+        spec["load_dataset_function"] = _make_entrypoint_absolute(spec["load_dataset_function"])
+        if _collected_register_calls is not None:
+            _collected_register_calls.append(spec)
+        else:
+            dataset_loaders_registry[name] = spec
     elif spec_type == "dataset":
         spec = cast("DatasetSpec", spec)
         if _collected_register_calls is None:
             assert name not in datasets_registry, f"Dataset {name} already registered"
-        spec["load_dataset_function"] = _make_entrypoint_absolute(spec["load_dataset_function"])
-        download_fn = spec.get("download_dataset_function")
-        if download_fn is not None:
-            spec["download_dataset_function"] = _make_entrypoint_absolute(download_fn)
+        spec["download_dataset_function"] = _make_entrypoint_absolute(spec["download_dataset_function"])
         eval_protocol = spec.get("evaluation_protocol")
         if isinstance(eval_protocol, dict):
             eval_protocol_name = eval_protocol["id"]
@@ -376,23 +388,15 @@ def get_method_spec(id: str) -> MethodSpec:
     return methods_registry[id]
 
 
-def get_supported_datasets(automatic_download: bool = False) -> List[str]:
+def get_supported_datasets() -> FrozenSet[str]:
     """
-    Get all supported datasets. Optionally, filter the datasets that support automatic download.
-    The list of supported datasets is sorted by priority.
-
-    Args:
-        automatic_download: If True, only return datasets that support automatic download
+    Get all supported datasets.
 
     Returns:
-        List of dataset IDs (sorted by priority)
+        Set of dataset IDs
     """
     _auto_register()
-    datasets = list(datasets_registry.keys())
-    if automatic_download:
-        datasets = [k for k in datasets if datasets_registry[k].get("download_dataset_function") is not None]
-    datasets.sort(key=lambda x: -datasets_registry[x]["priority"])
-    return datasets
+    return frozenset(datasets_registry.keys())
 
 
 def get_dataset_spec(id: str) -> DatasetSpec:
@@ -409,6 +413,33 @@ def get_dataset_spec(id: str) -> DatasetSpec:
     if id not in datasets_registry:
         raise RuntimeError(f"Could not find dataset {id} in registry. Supported datasets: {','.join(datasets_registry.keys())}")
     return datasets_registry[id]
+
+
+def get_supported_dataset_loaders() -> FrozenSet[str]:
+    """
+    Get all supported dataset loaders. The loaders are sorted by priority.
+
+    Returns:
+        List of dataset loader IDs (sorted by priority)
+    """
+    _auto_register()
+    return frozenset(dataset_loaders_registry.keys())
+
+
+def get_dataset_loader_spec(id: str) -> DatasetLoaderSpec:
+    """
+    Get a dataset loader specification by registered dataset loader ID.
+
+    Args:
+        id: Dataset loader ID
+
+    Returns:
+        Dataset loader specification
+    """
+    _auto_register()
+    if id not in dataset_loaders_registry:
+        raise RuntimeError(f"Could not find dataset loader {id} in registry. Supported dataset loaders: {','.join(dataset_loaders_registry.keys())}")
+    return dataset_loaders_registry[id]
 
 
 def get_supported_loggers() -> FrozenSet[str]:

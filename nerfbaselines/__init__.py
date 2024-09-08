@@ -19,6 +19,7 @@ from ._types import (
     Dataset as Dataset,
     EvaluationProtocol as EvaluationProtocol,
     LicenseSpec as LicenseSpec,
+    DatasetLoaderSpec as DatasetLoaderSpec,
     DatasetSpecMetadata as DatasetSpecMetadata,
     LoadDatasetFunction as LoadDatasetFunction,
     DownloadDatasetFunction as DownloadDatasetFunction,
@@ -51,10 +52,12 @@ from ._registry import (
     get_dataset_spec as get_dataset_spec,
     get_logger_spec as get_logger_spec,
     get_evaluation_protocol_spec as get_evaluation_protocol_spec,
+    get_dataset_loader_spec as get_dataset_loader_spec,
     get_supported_methods as get_supported_methods,
     get_supported_datasets as get_supported_datasets,
     get_supported_loggers as get_supported_loggers,
     get_supported_evaluation_protocols as get_supported_evaluation_protocols,
+    get_supported_dataset_loaders as get_supported_dataset_loaders,
 )
 from ._method_utils import (
     build_method_class as build_method_class,

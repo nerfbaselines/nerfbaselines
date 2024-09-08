@@ -65,7 +65,7 @@ jobs:
             pip install tensorboard==2.11.2
             pip install 'protobuf<4' 
           fi
-          pytest -rA --require-ffmpeg
+          pytest -vrA --require-ffmpeg
       - name: Test if README results are up to date
         run: |
           for dataset in blender mipnerf360 nerfstudio; do
@@ -82,7 +82,7 @@ jobs:
       - name: Run dev-extras tests
         run: |
           pyright
-          pytest --run-extras --require-ffmpeg
+          pytest -v --run-extras --require-ffmpeg
         if: ${{ steps.dev-extras.outcome == 'success' }}
 
   setup:
@@ -92,6 +92,7 @@ jobs:
       conda_methods: ${{ steps.data-step.outputs.conda_methods }}
       docker_methods: ${{ steps.data-step.outputs.docker_methods }}
       apptainer_methods: ${{ steps.data-step.outputs.apptainer_methods }}
+      datasets: ${{ steps.data-step.outputs.datasets }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -125,6 +126,8 @@ jobs:
             if os.environ["GITHUB_EVENT_NAME"] in ("pull_request", "push"):
               methods = [x for x in methods if method_has_changes(x, backend)]
             print(f"{backend}_methods=" + json.dumps(methods))
+          from nerfbaselines import get_supported_datasets
+          print("datasets=" + json.dumps(list(get_supported_datasets())))
           ' >> $GITHUB_OUTPUT
 
   docker-tests:
@@ -163,7 +166,7 @@ jobs:
           export TORCH_CUDA_ARCH_LIST="8.0"
           export CUDAARCHS="80"
           method_regex="^$(python -c 'import re;print(re.escape("${{ matrix.method }}"))')(?:\\:.*|)\$"
-          pytest -s --run-docker --method-regex "$method_regex" -rA -x
+          pytest -sv --run-docker --method-regex "$method_regex" -rA -x
 
   apptainer-tests:
     runs-on: ubuntu-latest
@@ -217,7 +220,7 @@ jobs:
           export TORCH_CUDA_ARCH_LIST="8.0"
           export CUDAARCHS="80"
           method_regex="^$(python -c 'import re;print(re.escape("${{ matrix.method }}"))')(?:\\:.*|)\$"
-          pytest -s --run-apptainer --method-regex "$method_regex" -rA -x
+          pytest -sv --run-apptainer --method-regex "$method_regex" -rA -x
 
   conda-tests:
     runs-on: ubuntu-latest
@@ -258,15 +261,17 @@ jobs:
           export TORCH_CUDA_ARCH_LIST="8.0"
           export CUDAARCHS="80"
           method_regex="^$(python -c 'import re;print(re.escape("${{ matrix.method }}"))')(?:\\:.*|)\$"
-          pytest -s --run-conda --method-regex "$method_regex" -rA -x
+          pytest -sv --run-conda --method-regex "$method_regex" -rA -x
 
   dataset-tests:
     runs-on: ubuntu-latest
     name: test-datasets
     needs: setup
+    if: ${{ needs.setup.outputs.datasets != '' && toJson(fromJson(needs.setup.outputs.datasets)) != '[]' }}
     strategy:
+      fail-fast: false
       matrix:
-        dataset: ["blender/lego", "mipnerf360/garden", "nerfstudio/bww_entrance", "tanksandtemples/truck"]
+        dataset: ${{ fromJson(needs.setup.outputs.datasets) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -278,8 +283,4 @@ jobs:
           pip install -e '.[dev]'
       - name: Test datasets
         run: |
-          scene_name="${{ matrix.dataset }}"
-          scene_name="${scene_name##*/}"
-          nerfbaselines download-dataset '${{ matrix.dataset }}' -o /tmp/${{ matrix.dataset }}
-          python -c "import nerfbaselines.datasets as d;f=set(['color']);k=d.load_dataset('/tmp/${{ matrix.dataset }}', split='train', features=f, load_features=True);"
-          python -c "import nerfbaselines.datasets as d;f=set(['color']);k=d.load_dataset('/tmp/${{ matrix.dataset }}', split='test', features=f, load_features=True);"
+          pytest -vsrA --dataset "${{ matrix.dataset }}"

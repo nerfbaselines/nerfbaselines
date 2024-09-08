@@ -259,11 +259,13 @@ def new_cameras(
     poses: np.ndarray,
     intrinsics: np.ndarray,
     camera_types: np.ndarray,
-    distortion_parameters: np.ndarray,
     image_sizes: np.ndarray,
+    distortion_parameters: Optional[np.ndarray] = None,
     nears_fars: Optional[np.ndarray] = None,
     metadata: Optional[np.ndarray] = None,
 ) -> Cameras:
+    if distortion_parameters is None:
+        distortion_parameters = np.zeros((len(intrinsics), 0), dtype=intrinsics.dtype)
     return GenericCamerasImpl[np.ndarray](
         poses=poses,
         intrinsics=intrinsics,
@@ -303,12 +305,12 @@ def new_dataset(*,
                 image_paths_root: Optional[str] = ...,
                 images: Union[np.ndarray, List[np.ndarray]],
                 sampling_mask_paths: Optional[Sequence[str]] = ...,
-                sampling_mask_paths_root: Optional[str] = None,
+                sampling_mask_paths_root: Optional[str] = ...,
                 sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = ...,  # [N][H, W]
                 points3D_xyz: Optional[np.ndarray] = ...,  # [M, 3]
                 points3D_rgb: Optional[np.ndarray] = ...,  # [M, 3]
-                images_points3D_indices: Optional[Sequence[np.ndarray]] = None,  # [N][<M]
-                metadata: Dict) -> Dataset:
+                images_points3D_indices: Optional[Sequence[np.ndarray]] = ...,  # [N][<M]
+                metadata: Optional[Dict] = ...) -> Dataset:
     ...
 
 
@@ -319,12 +321,12 @@ def new_dataset(*,
                 image_paths_root: Optional[str] = ...,
                 images: Literal[None] = None,
                 sampling_mask_paths: Optional[Sequence[str]] = ...,
-                sampling_mask_paths_root: Optional[str] = None,
+                sampling_mask_paths_root: Optional[str] = ...,
                 sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = ...,  # [N][H, W]
                 points3D_xyz: Optional[np.ndarray] = ...,  # [M, 3]
                 points3D_rgb: Optional[np.ndarray] = ...,  # [M, 3]
-                images_points3D_indices: Optional[Sequence[np.ndarray]] = None,  # [N][<M]
-                metadata: Dict) -> UnloadedDataset:
+                images_points3D_indices: Optional[Sequence[np.ndarray]] = ...,  # [N][<M]
+                metadata: Optional[Dict] = ...) -> UnloadedDataset:
     ...
 
 
@@ -339,13 +341,15 @@ def new_dataset(*,
                 points3D_xyz: Optional[np.ndarray] = None,  # [M, 3]
                 points3D_rgb: Optional[np.ndarray] = None,  # [M, 3]
                 images_points3D_indices: Optional[Sequence[np.ndarray]] = None,  # [N][<M]
-                metadata: Dict) -> Union[UnloadedDataset, Dataset]:
+                metadata: Optional[Dict] = None) -> Union[UnloadedDataset, Dataset]:
     if image_paths_root is None:
         image_paths_root = os.path.commonpath(image_paths)
     if sampling_mask_paths_root is None and sampling_mask_paths is not None:
         sampling_mask_paths_root = os.path.commonpath(sampling_mask_paths)
     if image_paths_root is None:
         image_paths_root = os.path.commonpath(image_paths)
+    if metadata is None:
+        metadata = {}
     return UnloadedDataset(
         cameras=cameras,
         image_paths=list(image_paths),
@@ -693,11 +697,14 @@ class EvaluationProtocolSpec(TypedDict, total=False):
 
 class DatasetSpec(TypedDict, total=False):
     id: Required[str]
-    load_dataset_function: Required[str]
-    priority: Required[int]
-    download_dataset_function: str
+    download_dataset_function: Required[str]
     evaluation_protocol: Union[str, EvaluationProtocolSpec]
     metadata: DatasetSpecMetadata
+
+
+class DatasetLoaderSpec(TypedDict, total=False):
+    id: Required[str]
+    load_dataset_function: Required[str]
 
 
 class DatasetNotFoundError(Exception):

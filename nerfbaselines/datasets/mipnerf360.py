@@ -1,3 +1,4 @@
+import json
 import os
 import warnings
 from typing import List, Tuple, Union
@@ -11,7 +12,7 @@ import zipfile
 from tqdm import tqdm
 import tempfile
 from nerfbaselines import DatasetNotFoundError
-from ._common import single, get_scene_scale, get_default_viewer_transform, dataset_index_select
+from ._common import single, dataset_index_select
 from .colmap import load_colmap_dataset
 
 
@@ -27,6 +28,7 @@ _scenes360_res = {
     "kitchen": 2,
     "room": 2,
 }
+SCENES = set(_scenes360_res.keys())
 
 
 def load_mipnerf360_dataset(path: Union[Path, str], split: str, resize_full_image: bool = False, downscale_factor=None, **kwargs):
@@ -57,14 +59,7 @@ def load_mipnerf360_dataset(path: Union[Path, str], split: str, resize_full_imag
     dataset["metadata"]["downscale_factor"] = res
     if resize_full_image:
         dataset["metadata"]["downscale_loaded_factor"] = res
-    dataset["metadata"]["expected_scene_scale"] = get_scene_scale(dataset["cameras"], "object-centric")
-    dataset["metadata"]["type"] = "object-centric"
     dataset["metadata"]["color_space"] = "srgb"
-    dataset["metadata"]["evaluation_protocol"] = "nerf"
-
-    viewer_transform, viewer_pose = get_default_viewer_transform(dataset["cameras"].poses, "object-centric")
-    dataset["metadata"]["viewer_transform"] = viewer_transform
-    dataset["metadata"]["viewer_initial_pose"] = viewer_pose
 
     image_names = dataset["image_paths"]
     inds = np.argsort(image_names)
@@ -137,7 +132,14 @@ def download_mipnerf360_dataset(path: str, output: Union[Path, str]):
                     if not has_any:
                         raise RuntimeError(f"Capture '{capture_name}' not found in {url}.")
                     with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f:
-                        f.write(f'{{"loader": "{DATASET_NAME}"}}')
+                        json.dump({
+                            "loader": load_mipnerf360_dataset.__module__ + ":" + load_mipnerf360_dataset.__name__,
+                            "loader_kwargs": {},
+                            "id": DATASET_NAME,
+                            "scene": capture_name,
+                            "evaluation_protocol": "nerf",
+                            "type": "object-centric",
+                        }, f)
                     shutil.rmtree(output, ignore_errors=True)
                     shutil.move(str(output_tmp), str(output))
                     logging.info(f"Downloaded {DATASET_NAME}/{capture_name} to {output}")

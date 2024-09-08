@@ -6,7 +6,7 @@ from glob import glob
 from tqdm import trange
 from typing import Optional, List, Tuple, Union, cast, FrozenSet
 from nerfbaselines import camera_model_to_int, new_cameras, DatasetFeature, DatasetNotFoundError, new_dataset
-from nerfbaselines.datasets import dataset_index_select, get_default_viewer_transform
+from nerfbaselines.datasets import dataset_index_select
 from PIL import Image
 try:
     from typing import Literal
@@ -215,7 +215,6 @@ def load_bundler_dataset(path: str,
                                                                                coordinate_system=coordinate_system,
                                                                                camera_model=camera_model)
     indices, train_indices = get_split_and_train_indices(image_names, path, split)
-    viewer_transform, viewer_pose = get_default_viewer_transform(all_cameras[train_indices].poses, None)
     dataset = new_dataset(
         cameras=all_cameras,
         image_paths=[os.path.join(images_root, x) for x in image_names],
@@ -228,8 +227,6 @@ def load_bundler_dataset(path: str,
             "id": None,
             "color_space": "srgb",
             "evaluation_protocol": "default",
-            "viewer_transform": viewer_transform,
-            "viewer_initial_pose": viewer_pose,
         })
     if indices is not None:
         dataset = dataset_index_select(dataset, indices)

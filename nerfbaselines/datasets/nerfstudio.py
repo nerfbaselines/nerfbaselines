@@ -12,7 +12,7 @@ from PIL import Image
 
 from nerfbaselines import DatasetNotFoundError, new_dataset, CameraModel, camera_model_to_int, DatasetFeature, new_cameras
 from ._colmap_utils import read_points3D_binary, read_points3D_text, read_images_binary, read_images_text
-from ._common import get_scene_scale, get_default_viewer_transform, dataset_index_select
+from ._common import dataset_index_select
 from ..io import wget
 try:
     from typing import get_args
@@ -128,6 +128,7 @@ def get_train_eval_split_all(image_filenames: List) -> Tuple[np.ndarray, np.ndar
 
 
 def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor: Optional[int] = None, features: Optional[FrozenSet[DatasetFeature]] = None, **kwargs):
+    del kwargs
     path = Path(path)
     downscale_factor_original = downscale_factor
     downscale_factor = None
@@ -471,15 +472,7 @@ def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor
                 impath = os.path.relpath(impath, str(images_root))
                 images_points3D_indices.append(images_colmap_map[impath])
 
-    viewer_transform, viewer_pose = get_default_viewer_transform(all_cameras.poses, None)
-
     idx_tensor = np.array(indices, dtype=np.int32)
-
-    # Get scene name (if official nerfstudio dataset)
-    scene = None
-    abspath = path.resolve()
-    if len(abspath.parts) > 2 and abspath.parts[-1].lower() in nerfstudio_file_ids and abspath.parts[-2] == "nerfstudio":
-        scene = abspath.parts[-1].lower()
 
     return dataset_index_select(
         new_dataset(
@@ -492,14 +485,9 @@ def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor
             points3D_rgb=points3D_rgb,
             images_points3D_indices=images_points3D_indices,
             metadata={
-                "id": "nerfstudio",
-                "scene": scene,
-                "expected_scene_scale": get_scene_scale(all_cameras, "object-centric") if split == "train" else None,
                 "color_space": "srgb",
                 "type": None,
                 "evaluation_protocol": "default",
-                "viewer_transform": viewer_transform,
-                "viewer_initial_pose": viewer_pose,
                 "downscale_factor": downscale_factor if downscale_factor > 1 else None,
             },
         ), idx_tensor)
@@ -534,7 +522,7 @@ nerfstudio_file_ids = {
 }
 
 
-def download_capture_name(output: Path, file_id_or_zip_url):
+def _download_capture_name(output: Path, file_id_or_zip_url, capture_name):
     """Download specific captures a given dataset and capture name."""
     target_path = str(output)
     download_path = Path(f"{target_path}.zip")
@@ -566,7 +554,13 @@ def download_capture_name(output: Path, file_id_or_zip_url):
     assert len(inner_folders) == 1, "There is more than one folder inside this zip file."
     folder = os.path.join(tmp_path, inner_folders[0])
     with open(os.path.join(str(folder), "nb-info.json"), "w", encoding="utf8") as f2:
-        f2.write('{"loader": "nerfstudio"}')
+        json.dump({
+            "loader": load_nerfstudio_dataset.__module__ + ":" + load_nerfstudio_dataset.__name__,
+            "id": "nerfstudio",
+            "scene": capture_name,
+            "type": None,
+            "evaluation_protocol": "default",
+        }, f2)
     shutil.rmtree(target_path, ignore_errors=True)
     shutil.move(folder, target_path)
     shutil.rmtree(tmp_path)
@@ -591,7 +585,7 @@ def download_nerfstudio_dataset(path: str, output: Union[Path, str]):
     if capture_name not in nerfstudio_file_ids:
         raise DatasetNotFoundError(f"Capture '{capture_name}' not a valid nerfstudio scene.")
     capture_url = f"https://huggingface.co/datasets/jkulhanek/nerfbaselines-data/resolve/main/nerfstudio/{capture_name}.zip?download=true"
-    download_capture_name(output, capture_url)
+    _download_capture_name(output, capture_url, capture_name)
     logging.info(f"Downloaded {path} to {output}")
 
 

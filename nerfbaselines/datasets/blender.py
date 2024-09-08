@@ -11,37 +11,38 @@ from tqdm import tqdm
 from pathlib import Path
 from typing import Union
 import numpy as np
-from .. import camera_model_to_int, new_cameras, new_dataset, DatasetNotFoundError
-from nerfbaselines.datasets import get_default_viewer_transform
+from nerfbaselines import camera_model_to_int, new_cameras, new_dataset, DatasetNotFoundError
 
 
 DATASET_NAME = "blender"
-BLENDER_SCENES = {"lego", "ship", "drums", "hotdog", "materials", "mic", "chair", "ficus"}
-BLENDER_SPLITS = {"train", "test"}
+SCENES = {"lego", "ship", "drums", "hotdog", "materials", "mic", "chair", "ficus"}
+SPLITS = {"train", "test"}
 _URL = "https://huggingface.co/datasets/jkulhanek/nerfbaselines-data/resolve/main/blender/{scene}.zip"
 
 
-def load_blender_dataset(path: Union[Path, str], split: str, **kwargs):
+def load_blender_dataset(path: str, split: str, **kwargs):
+    """
+    Load a Blender dataset (scenes: lego, ship, drums, hotdog, materials, mic, chair, ficus).
+
+    Args:
+        path: Path to the dataset directory.
+        split: The split to load, either 'train' or 'test'.
+
+    Returns:
+        Unloaded dataset dictionary.
+    """
     del kwargs
-    assert isinstance(path, (Path, str)), "path must be a pathlib.Path or str"
-    path = Path(path)
+    _path = Path(path)
 
-    scene = path.name
-    if scene not in BLENDER_SCENES:
-        raise DatasetNotFoundError(f"Scene {scene} not found in nerf_synthetic dataset. Supported scenes: {BLENDER_SCENES}.")
-    for dsplit in BLENDER_SPLITS:
-        if not (path / f"transforms_{dsplit}.json").exists():
-            raise DatasetNotFoundError(f"Path {path} does not contain a blender dataset. Missing file: {path / f'transforms_{dsplit}.json'}")
+    assert split in SPLITS, "split must be one of 'train' or 'test'"
 
-    assert split in BLENDER_SPLITS, "split must be one of 'train' or 'test'"
-
-    with (path / f"transforms_{split}.json").open("r", encoding="utf8") as fp:
+    with (_path / f"transforms_{split}.json").open("r", encoding="utf8") as fp:
         meta = json.load(fp)
 
     cams = []
     image_paths = []
     for _, frame in enumerate(meta["frames"]):
-        fprefix = path / frame["file_path"]
+        fprefix = _path / frame["file_path"]
         image_paths.append(str(fprefix) + ".png")
         cams.append(np.array(frame["transform_matrix"], dtype=np.float32))
 
@@ -56,8 +57,6 @@ def load_blender_dataset(path: Union[Path, str], split: str, **kwargs):
     # Convert from OpenGL to OpenCV coordinate system
     c2w[..., 0:3, 1:3] *= -1
 
-    viewer_transform, viewer_pose = get_default_viewer_transform(c2w, "object-centric")
-
     return new_dataset(
         cameras=new_cameras(
             poses=c2w,
@@ -67,18 +66,12 @@ def load_blender_dataset(path: Union[Path, str], split: str, **kwargs):
             image_sizes=image_sizes,
             nears_fars=nears_fars,
         ),
-        image_paths_root=str(path),
+        image_paths_root=path,
         image_paths=image_paths,
         sampling_mask_paths=None,
         metadata={
-            "id": "blender",
-            "scene": scene,
             "color_space": "srgb",
-            "type": "object-centric",
-            "evaluation_protocol": "nerf",
             "expected_scene_scale": 4,
-            "viewer_transform": viewer_transform,
-            "viewer_initial_pose": viewer_pose,
             "background_color": np.array([255, 255, 255], dtype=np.uint8),
         },
     )
@@ -90,13 +83,13 @@ def download_blender_dataset(path: str, output: Union[Path, str]) -> None:
         raise DatasetNotFoundError("Dataset path must be equal to 'blender' or must start with 'blender/'.")
 
     if path == DATASET_NAME:
-        for scene in BLENDER_SCENES:
+        for scene in SCENES:
             download_blender_dataset(f"{DATASET_NAME}/{scene}", output/scene)
         return
 
     scene = path.split("/")[-1]
-    if scene not in BLENDER_SCENES:
-        raise RuntimeError(f"Unknown scene {scene}, supported scenes: {BLENDER_SCENES}")
+    if scene not in SCENES:
+        raise RuntimeError(f"Unknown scene {scene}, supported scenes: {SCENES}")
     url = _URL.format(scene=scene)
     response = requests.get(url, stream=True)
     response.raise_for_status()
@@ -135,7 +128,13 @@ def download_blender_dataset(path: str, output: Union[Path, str]) -> None:
                     os.utime(target, (mtime, mtime))
 
             with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f2:
-                f2.write(f'{{"loader": "{DATASET_NAME}"}}')
+                json.dump({
+                    "loader": load_blender_dataset.__module__ + ":" + load_blender_dataset.__name__,
+                    "id": DATASET_NAME,
+                    "scene": scene,
+                    "evaluation_protocol": "nerf",
+                    "type": "object-centric",
+                }, f2)
             shutil.rmtree(output, ignore_errors=True)
             shutil.move(str(output_tmp), str(output))
             logging.info(f"Downloaded {DATASET_NAME}/{scene} to {output}")

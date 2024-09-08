@@ -1,3 +1,4 @@
+import json
 import os
 import csv
 import logging
@@ -13,7 +14,7 @@ from tqdm import tqdm
 
 from nerfbaselines import Dataset, EvaluationProtocol, Method, RenderOutput, DatasetNotFoundError
 from ..utils import image_to_srgb
-from ._common import single, get_scene_scale, get_default_viewer_transform, dataset_index_select
+from ._common import dataset_index_select
 from .colmap import load_colmap_dataset
 
 DATASET_NAME = "phototourism"
@@ -22,17 +23,8 @@ DATASET_NAME = "phototourism"
 def load_phototourism_dataset(path: Union[Path, str], split: str, use_nerfw_split=None, **kwargs):
     path = Path(path)
     use_nerfw_split = use_nerfw_split if use_nerfw_split is not None else True
-    if split:
-        assert split in {"train", "test"}
-    if DATASET_NAME not in str(path) or not any(
-        s in str(path) for s in _phototourism_downloads
-    ):
-        raise DatasetNotFoundError(
-            f"360 and {set(_phototourism_downloads.keys())} is missing from the dataset path: {path}"
-        )
 
     # Load phototourism dataset
-    scene = single(res for res in _phototourism_downloads if str(res) in path.name)
     images_path = "images"
     split_list = None
     if use_nerfw_split:
@@ -44,7 +36,7 @@ def load_phototourism_dataset(path: Union[Path, str], split: str, use_nerfw_spli
                 assert len(split_list) > 0, f"{split} list is empty"
         else:
             logging.warning(
-                f"NeRF-W test list not found for {DATASET_NAME}/{scene} Using a standard split."
+                f"NeRF-W test list not found for. Using a standard COLMAP split!"
             )
 
     # We then select the same images as in the LLFF multinerf dataset loader
@@ -54,14 +46,6 @@ def load_phototourism_dataset(path: Union[Path, str], split: str, use_nerfw_spli
         colmap_path="sparse",
         split=None, **kwargs
     )
-    dataset["metadata"]["id"] = DATASET_NAME
-    dataset["metadata"]["scene"] = scene
-    dataset["metadata"]["expected_scene_scale"] = get_scene_scale(dataset["cameras"], None)
-    dataset["metadata"]["type"] = None
-    dataset["metadata"]["evaluation_protocol"] = "nerfw"
-    viewer_transform, viewer_pose = get_default_viewer_transform(dataset["cameras"].poses, None)
-    dataset["metadata"]["viewer_transform"] = viewer_transform
-    dataset["metadata"]["viewer_initial_pose"] = viewer_pose
 
     dataset_len = len(dataset["image_paths"])
     if split_list is not None:
@@ -100,6 +84,7 @@ _phototourism_downloads = {
     # "prague-old-town": "https://www.cs.ubc.ca/research/kmyi_data/imw2020/TrainingData/prague_old_town.tar.gz",
     "hagia-sophia": "https://www.cs.ubc.ca/research/kmyi_data/imw2020/TrainingData/hagia_sophia.tar.gz",
 }
+SCENES = list(_phototourism_downloads.keys())
 
 _split_lists = {
     "brandenburg-gate": "https://nerf-w.github.io/data/selected_images/brandenburg.tsv",
@@ -173,7 +158,13 @@ def download_phototourism_dataset(path: str, output: Union[Path, str]):
 
             z.extractall(output_tmp, members=members(z))
             with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f2:
-                f2.write(f'{{"loader": "{DATASET_NAME}"}}')
+                json.dump({
+                    "loader": load_phototourism_dataset.__module__ + ":" + load_phototourism_dataset.__name__,
+                    "id": DATASET_NAME,
+                    "scene": capture_name,
+                    "type": None,
+                    "evaluation_protocol": "nerfw",
+                }, f2)
             shutil.rmtree(output, ignore_errors=True)
             if not has_any:
                 raise RuntimeError(f"Capture '{capture_name}' not found in {url}.")

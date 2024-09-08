@@ -1,3 +1,4 @@
+import json
 import hashlib
 import shutil
 import os
@@ -12,18 +13,15 @@ from nerfbaselines import camera_model_to_int, new_cameras, DatasetNotFoundError
 
 
 gdrive_id = "16VnMcF1KJYxN9QId6TClMsZRahHNMW5g"
-LLFF_SCENES = "fern flower fortress horns leaves orchids room trex".split()
+SCENES = "fern flower fortress horns leaves orchids room trex".split()
 DATASET_NAME = "llff"
 
 
-def load_llff_dataset(path: Union[Path, str], split: str, downscale_factor: int = 4, **_):
+def load_llff_dataset(path: Union[Path, str], split: str, *, downscale_factor: int = 4, **_):
     assert isinstance(path, (Path, str)), "path must be a pathlib.Path or str"
     path = Path(path)
 
     hold_every: int = 8
-    scene = path.name
-    if scene not in LLFF_SCENES:
-        raise DatasetNotFoundError(f"Scene {scene} not found in LLFF dataset. Supported scenes: {LLFF_SCENES}.")
     for file in ("poses_bounds.npy", "sparse", "database.db", "images", "images_4", "images_8"):
         if not (path / file).exists():
             raise DatasetNotFoundError(f"Path {path} does not contain a LLFF dataset. Missing file: {path / file}")
@@ -74,26 +72,24 @@ def load_llff_dataset(path: Union[Path, str], split: str, downscale_factor: int 
         sampling_mask_paths=None,
         sampling_mask_paths_root=None,
         metadata={
-            "id": DATASET_NAME,
-            "scene": scene,
             "downscale_factor": downscale_factor,
             "color_space": "srgb",
+            "type": "forward-facing",
             "evaluation_protocol": "nerf",
             "expected_scene_scale": 0.5,
-            "type": "forward-facing",
         },
     )
 
 
-def download_llff_dataset(path: str, output: Union[Path, str]):
-    output = Path(output)
+def download_llff_dataset(path: str, output: str):
+    # Validate arguments
     if path == "llff":
-        extract_prefix = "nerf_llff_data/"
+        # Download full dataset
+        pass
     elif path.startswith("llff/") and len(path) > len("llff/"):
         scene_name = path[len("llff/") :]
-        if scene_name not in LLFF_SCENES:
-            raise DatasetNotFoundError(f"Scene {scene_name} not found in LLFF dataset. Supported scenes: {LLFF_SCENES}.")
-        extract_prefix = f"nerf_llff_data/{scene_name}/"
+        if scene_name not in SCENES:
+            raise DatasetNotFoundError(f"Scene {scene_name} not found in LLFF dataset. Supported scenes: {SCENES}.")
     else:
         raise DatasetNotFoundError(f"Dataset path must be equal to 'llff' or must start with 'llff/'. It was {path}")
 
@@ -105,11 +101,36 @@ def download_llff_dataset(path: str, output: Union[Path, str]):
         sys.exit(2)
 
     url = f"https://drive.google.com/uc?id={gdrive_id}"
-    output_tmp = str(output) + ".tmp"
-    if os.path.exists(output_tmp):
-        shutil.rmtree(output_tmp)
-    os.makedirs(output_tmp)
-    has_member = False
+
+    def _extract_scene(zip_ref: zipfile.ZipFile, scene_name: str, output: str):
+        extract_prefix = f"nerf_llff_data/{scene_name}/"
+        output_tmp = output + ".tmp"
+        if os.path.exists(output_tmp):
+            shutil.rmtree(output_tmp)
+        os.makedirs(output_tmp)
+        has_member = False
+        for member in zip_ref.infolist():
+            if member.filename.startswith(extract_prefix) and len(member.filename) > len(extract_prefix):
+                member.filename = member.filename[len(extract_prefix) :]
+                zip_ref.extract(member, output_tmp)
+                has_member = True
+        if not has_member:
+            raise RuntimeError(f"Path {extract_prefix} not found in LLFF dataset.")
+        with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f2:
+            json.dump({
+                "loader": load_llff_dataset.__module__ + ":" + load_llff_dataset.__name__,
+                "id": DATASET_NAME,
+                "scene": scene_name,
+                "evaluation_protocol": "nerf",
+                "type": "forward-facing",
+                "evaluation_protocol": "nerf",
+            }, f2)
+        if os.path.exists(output):
+            shutil.rmtree(output)
+        os.rename(output_tmp, output)
+        logging.info(f"Extracted dataset LLFF/{scene_name} to {output}")
+
+
     with tempfile.TemporaryDirectory() as tmpdir:
         gdown.download(url, output=tmpdir + "/llff_data.zip")
 
@@ -123,21 +144,14 @@ def download_llff_dataset(path: str, output: Union[Path, str]):
 
         # Extract files
         logging.info("LLFF dataset downloaded and verified")
-        logging.info(f"Extracting LLFF dataset: {tmpdir + '/llff_data.zip'}")
         with zipfile.ZipFile(tmpdir + "/llff_data.zip", "r") as zip_ref:
-            for member in zip_ref.infolist():
-                if member.filename.startswith(extract_prefix) and len(member.filename) > len(extract_prefix):
-                    member.filename = member.filename[len(extract_prefix) :]
-                    zip_ref.extract(member, output_tmp)
-                    has_member = True
-    if not has_member:
-        raise RuntimeError(f"Path {path} not found in LLFF dataset.")
-    with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f2:
-        f2.write(f'{{"loader": "{DATASET_NAME}"}}')
-    if os.path.exists(str(output)):
-        shutil.rmtree(str(output))
-    os.rename(str(output) + ".tmp", str(output))
-    logging.info(f"Downloaded {path} to {output}")
+            # Now we extract all requested scenes from the zip file
+            if path == "llff":
+                for scene_name in SCENES:
+                    _extract_scene(zip_ref, scene_name, os.path.join(output, scene_name))
+            else:
+                scene_name = path[len("llff/") :]
+                _extract_scene(zip_ref, scene_name, output)
 
 
 __all__ = ["load_llff_dataset", "download_llff_dataset"]

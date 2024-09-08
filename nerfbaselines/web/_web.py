@@ -466,7 +466,7 @@ def _prepare_data(data_path, datasets=None, include_docs=None):
             from nerfbaselines.results import compile_dataset_results, DEFAULT_DATASET_ORDER
 
             if datasets is None:
-                datasets = get_supported_datasets(automatic_download=True)
+                datasets = list(get_supported_datasets())
                 datasets.sort(key=lambda x: DEFAULT_DATASET_ORDER.index(x) 
                               if x in DEFAULT_DATASET_ORDER 
                               else len(DEFAULT_DATASET_ORDER))

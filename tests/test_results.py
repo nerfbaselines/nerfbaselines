@@ -3,8 +3,8 @@ import sys
 import pytest
 from typing import Any, cast
 from unittest import mock
-from nerfbaselines import get_supported_methods
-from nerfbaselines.results import get_benchmark_datasets, render_markdown_dataset_results_table
+from nerfbaselines import get_supported_methods, get_supported_datasets
+from nerfbaselines.results import render_markdown_dataset_results_table
 
 
 def mock_results(results_path, datasets, methods):
@@ -32,8 +32,8 @@ def mock_results(results_path, datasets, methods):
                 )
 
 
-def test_get_benchmark_datasets():
-    datasets = get_benchmark_datasets()
+def test_get_supported_datasets():
+    datasets = get_supported_datasets()
     assert "blender" in datasets
     assert "mipnerf360" in datasets
 
@@ -89,18 +89,17 @@ def test_get_method_info_from_spec(method):
     assert method_info["method_id"] == method
 
 
-@pytest.mark.parametrize("dataset", get_benchmark_datasets())
+@pytest.mark.parametrize("dataset", get_supported_datasets())
 def test_compile_dataset_results(tmp_path, dataset):
     from nerfbaselines.results import compile_dataset_results
     mock_results(tmp_path, [dataset], list(get_supported_methods()))
 
     # Mock
     results = compile_dataset_results(tmp_path, dataset)
-    print(json.dumps(results, indent=2))
     assert_compile_dataset_results_correct(results, dataset)
 
 
-@pytest.mark.parametrize("dataset", get_benchmark_datasets())
+@pytest.mark.parametrize("dataset", get_supported_datasets())
 def test_render_dataset_results_json_capture_command(tmp_path, capsys, dataset):
     with mock.patch.object(sys, "argv", ["nerfbaselines", "generate-dataset-results", "--output-type", "json", "--results", str(tmp_path / "results"), "--dataset", dataset]):
         mock_results(tmp_path.joinpath("results"), [dataset], list(get_supported_methods()))
@@ -116,7 +115,7 @@ def test_render_dataset_results_json_capture_command(tmp_path, capsys, dataset):
         assert_compile_dataset_results_correct(results, dataset)
 
 
-@pytest.mark.parametrize("dataset", get_benchmark_datasets())
+@pytest.mark.parametrize("dataset", get_supported_datasets())
 def test_render_dataset_results_json_command(tmp_path, dataset):
     with mock.patch.object(
         sys, "argv", ["nerfbaselines", "generate-dataset-results", "--output-type", "json", "--results", str(tmp_path / "results"), "--dataset", dataset, "--output", str(tmp_path / "results.json")]

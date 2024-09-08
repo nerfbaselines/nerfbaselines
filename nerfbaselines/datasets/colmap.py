@@ -7,7 +7,7 @@ import numpy as np
 from nerfbaselines import DatasetFeature, CameraModel, camera_model_to_int, new_cameras, DatasetNotFoundError, new_dataset
 from ..utils import Indices
 from . import _colmap_utils as colmap_utils
-from ._common import padded_stack, get_default_viewer_transform, dataset_index_select
+from ._common import padded_stack, dataset_index_select
 
 
 def _parse_colmap_camera_params(camera: colmap_utils.Camera) -> Tuple[np.ndarray, int, np.ndarray, Tuple[int, int]]:
@@ -386,7 +386,6 @@ def load_colmap_dataset(path: Union[Path, str],
             indices = np.argsort(image_names)[indices]
             logging.info(f"Colmap dataloader is using LLFF split with {train_indices.sum()} training and {test_indices_array.sum()} test images")
 
-    viewer_transform, viewer_pose = get_default_viewer_transform(all_cameras[train_indices].poses, None)
     dataset = new_dataset(
         cameras=all_cameras,
         image_paths=image_paths,
@@ -400,8 +399,6 @@ def load_colmap_dataset(path: Union[Path, str],
             "id": None,
             "color_space": "srgb",
             "evaluation_protocol": "default",
-            "viewer_transform": viewer_transform,
-            "viewer_initial_pose": viewer_pose,
         })
     if indices is not None:
         dataset = dataset_index_select(dataset, indices)

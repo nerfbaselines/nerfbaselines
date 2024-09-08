@@ -298,6 +298,7 @@ def _patch_registry():
         from nerfbaselines import _registry as registry
         stack.enter_context(mock.patch.object(registry, "methods_registry", {}))
         stack.enter_context(mock.patch.object(registry, "datasets_registry", {}))
+        stack.enter_context(mock.patch.object(registry, "dataset_loaders_registry", {}))
         stack.enter_context(mock.patch.object(registry, "evaluation_protocols_registry", {}))
         stack.enter_context(mock.patch.object(registry, "loggers_registry", {}))
         stack.enter_context(mock.patch.object(registry, "_auto_register_completed", False))

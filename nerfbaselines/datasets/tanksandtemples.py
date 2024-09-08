@@ -1,3 +1,4 @@
+import json
 import os
 import logging
 import shutil
@@ -8,7 +9,6 @@ import tarfile
 from tqdm import tqdm
 import tempfile
 import numpy as np
-from ._common import get_scene_scale, get_default_viewer_transform
 from nerfbaselines import UnloadedDataset, DatasetNotFoundError
 from nerfbaselines.datasets import dataset_index_select
 from nerfbaselines.datasets.colmap import load_colmap_dataset
@@ -18,6 +18,7 @@ T = TypeVar("T")
 DATASET_NAME = "tanksandtemples"
 BASE_URL = "https://huggingface.co/datasets/jkulhanek/nerfbaselines-data/resolve/main/tanksandtemples"
 _URL = f"{BASE_URL}/{{scene}}.tar.gz"
+del _URL
 _URL2DOWN = f"{BASE_URL}/{{scene}}_2down.tar.gz"
 SCENES = {
     # advanced
@@ -78,11 +79,7 @@ def load_tanksandtemples_dataset(path: Union[Path, str], split: str, downscale_f
     dataset["metadata"]["id"] = DATASET_NAME
     dataset["metadata"]["scene"] = scene
     dataset["metadata"]["downscale_factor"] = downscale_factor
-    dataset["metadata"]["expected_scene_scale"] = get_scene_scale(dataset["cameras"], None)
-    dataset["metadata"]["type"] = None
-    viewer_transform, viewer_pose = get_default_viewer_transform(dataset["cameras"].poses, None)
-    dataset["metadata"]["viewer_transform"] = viewer_transform
-    dataset["metadata"]["viewer_initial_pose"] = viewer_pose
+    dataset["metadata"]["type"] = "object-centric"
     dataset["metadata"]["evaluation_protocol"] = "default"
     indices_train, indices_test = _select_indices_llff(dataset["image_paths"])
     indices = indices_train if split == "train" else indices_test
@@ -136,7 +133,13 @@ def download_tanksandtemples_dataset(path: str, output: Union[Path, str]) -> Non
                         shutil.copyfileobj(source, target)
 
             with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f:
-                f.write(f'{{"loader": "{DATASET_NAME}"}}')
+                json.dump({
+                    "id": DATASET_NAME,
+                    "loader": load_tanksandtemples_dataset.__module__ + ":" + load_tanksandtemples_dataset.__name__,
+                    "scene": scene,
+                    "evaluation_protocol": "default",
+                    "type": "object-centric",
+                }, f)
             shutil.rmtree(output, ignore_errors=True)
             shutil.move(str(output_tmp), str(output))
             logging.info(f"Downloaded {DATASET_NAME}/{scene} to {output}")

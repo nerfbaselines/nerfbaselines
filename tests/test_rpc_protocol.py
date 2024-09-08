@@ -73,7 +73,7 @@ def with_echo_protocol():
             daemon=True)
         try:
             worker_thread.start()
-            protocol_host.wait_for_worker(timeout=0.1)
+            protocol_host.wait_for_worker(timeout=1.0)
 
             yield protocol_host
 

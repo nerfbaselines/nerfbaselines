@@ -13,8 +13,8 @@ import numpy as np
 from .io import open_any
 from . import (
     metrics, get_method_spec, 
-    get_dataset_spec, get_supported_methods, 
-    get_supported_datasets,
+    get_dataset_spec, 
+    get_supported_methods, 
 )
 from . import DatasetSpecMetadata, LicenseSpec, MethodInfo, Method, MethodSpec
 from ._constants import WEBPAGE_URL
@@ -288,13 +288,6 @@ def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes
         for method_data in dataset_info["methods"]:
             method_data["scenes"] = {x["id"]: {**x, **method_data["scenes"][x["id"]]} for x in dataset_info_scenes if x["id"] in method_data["scenes"]}
     return dataset_info
-
-
-def get_benchmark_datasets() -> List[str]:
-    """
-    Get the list of registered benchmark datasets.
-    """
-    return [name for name in get_supported_datasets() if get_dataset_spec(name).get("metadata") is not None] 
 
 
 def format_duration(seconds: Optional[float]) -> str:

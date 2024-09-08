@@ -70,7 +70,7 @@ def update_reproducing_results_table(readme: str):
     max_label_length = 1 + max(len(x) for x in labels.values())
     max_method_length = max(len("Method"), max(len(get_method_spec(method).get("metadata", {}).get("name", "")) for method in get_supported_methods()))
     out = ""
-    datasets = sorted([x for x in get_supported_datasets() if get_dataset_spec(x).get("metadata", {}).get("name")], key=lambda x: get_dataset_spec(x).get("metadata", {}).get("name"))
+    datasets = sorted([x for x in get_supported_datasets()], key=lambda x: get_dataset_spec(x).get("metadata", {}).get("name"))
     dataset_names = [get_dataset_spec(x).get("metadata", {}).get("name") for x in datasets]
     out += f"| {'Method'.ljust(max_method_length)} "
     for i, dataset in enumerate(datasets):

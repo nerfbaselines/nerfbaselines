@@ -27,7 +27,7 @@ jobs:
             pip install tensorboard==2.11.2
             pip install 'protobuf<4'
           fi
-          pytest -rA --require-ffmpeg
+          pytest -vrA --require-ffmpeg
       - name: Install dev-extras
         id: dev-extras
         if: ${{ matrix.python == '3.9' }}
@@ -39,7 +39,7 @@ jobs:
       - name: Run dev-extras tests
         run: |
           pyright
-          pytest --run-extras --require-ffmpeg
+          pytest -v --run-extras --require-ffmpeg
         if: ${{ steps.dev-extras.outcome == 'success' }}
 
   setup:
@@ -57,7 +57,7 @@ jobs:
           pip install --upgrade pip
           pip install -e '.[dev]'
       - name: Run tests
-        run: pytest -rA
+        run: pytest -vrA
       - id: data-step
         run: |
           pip install --upgrade pip

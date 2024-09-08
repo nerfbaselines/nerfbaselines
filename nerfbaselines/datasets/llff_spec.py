@@ -3,8 +3,6 @@ from nerfbaselines import register
 
 register({
     "id": "llff",
-    "load_dataset_function": ".llff:load_llff_dataset",
-    "priority": 130,
     "download_dataset_function": ".llff:download_llff_dataset",
     "evaluation_protocol": "nerf",
     "metadata": {

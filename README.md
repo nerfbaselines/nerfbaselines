@@ -36,17 +36,17 @@ The backend can be set as the `--backend <backend>` argument or using the `NERFB
 ## Downloading data
 For some datasets, e.g. Mip-NeRF 360, NerfStudio, Blender, or Tanks and Temples, the datasets can be downloaded automatically. 
 You can specify the argument `--data external://dataset/scene` during training
-or download the dataset beforehand by running `nerfbaselines download-dataset dataset/scene`.
+or download the dataset beforehand by running `nerfbaselines download-dataset external://dataset/scene`.
 Examples:
 ```bash
 # Downloads the garden scene to the cache folder.
-nerfbaselines download-dataset mipnerf360/garden
+nerfbaselines download-dataset external://mipnerf360/garden
 
 # Downloads all nerfstudio scenes to the cache folder.
-nerfbaselines download-dataset nerfstudio
+nerfbaselines download-dataset external://nerfstudio
 
 # Downloads kithen scene to folder kitchen
-nerfbaselines download-dataset mipnerf360/kitchen -o kitchen
+nerfbaselines download-dataset external://mipnerf360/kitchen -o kitchen
 ```
 
 ## Training

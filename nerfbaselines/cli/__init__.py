@@ -97,8 +97,12 @@ def download_dataset_command(dataset: str, output: str, verbose: bool):
     logging.basicConfig(level=logging.INFO)
     setup_logging(verbose)
     if output is None:
-        output = str(Path(NB_PREFIX) / "datasets" / dataset)
+        _out_dataset = dataset
+        if _out_dataset.startswith("external://"):
+            _out_dataset = _out_dataset[len("external://") :]
+        output = str(Path(NB_PREFIX) / "datasets" / _out_dataset)
     download_dataset(dataset, output)
+    logging.info(f"Dataset {dataset} downloaded to {output}")
 
 
 @main.command("evaluate")

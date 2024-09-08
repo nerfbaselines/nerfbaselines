@@ -1,3 +1,7 @@
+import re
+import json
+import importlib
+from pathlib import Path
 import warnings
 import gc
 import logging
@@ -7,8 +11,21 @@ import numpy as np
 import PIL.Image
 import PIL.ExifTags
 from tqdm import tqdm
-from typing import Optional, TypeVar, Tuple, Union, List, Dict, cast, Any
-from nerfbaselines import Dataset, Cameras, UnloadedDataset, camera_model_to_int, DatasetNotFoundError
+from typing import (
+    Optional, TypeVar, Tuple, Union, List, Dict, Any, 
+    FrozenSet,
+    overload, cast,
+)
+from nerfbaselines import (
+    Dataset, UnloadedDataset, DatasetFeature,
+    Cameras, CameraModel,
+    camera_model_to_int, DatasetNotFoundError,
+    get_dataset_spec,
+    get_supported_datasets,
+    get_dataset_loader_spec,
+    get_supported_dataset_loaders,
+    NB_PREFIX,
+)
 from .. import cameras
 from ..utils import padded_stack, pad_poses, unpad_poses, apply_transform
 try:
@@ -18,6 +35,14 @@ except ImportError:
 
 
 TDataset = TypeVar("TDataset", bound=Union[Dataset, UnloadedDataset])
+
+
+def _import_type(name: str) -> Any:
+    package, name = name.split(":")
+    obj: Any = importlib.import_module(package)
+    for p in name.split("."):
+        obj = getattr(obj, p)
+    return obj
 
 
 def experimental_parse_dataset_path(path: str) -> Tuple[str, Dict[str, Any]]:
@@ -105,7 +130,25 @@ def make_rotation_matrix(a, b):
     return np.eye(3, dtype=a.dtype) + skew_sym_mat + skew_sym_mat @ skew_sym_mat * ((1 - c) / (s**2 + 1e-8))
 
 
+def _viewmatrix(lookdir, up, position):
+    def normalize(x):
+        return x / np.linalg.norm(x)
+    z = normalize(lookdir)
+    x = normalize(np.cross(z, up))
+    y = normalize(np.cross(z, x))
+    m = np.stack([x, y, z, position], axis=1)
+    return m
+
+
 def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Compute the default viewer transform and initial pose for a dataset.
+    The default viewer transform assumes z=up, y=forward, x=right in the world coordinate system.
+
+    Args:
+        poses: The camera poses.
+        dataset_type: The type of dataset. If None, the dataset type is unknown.
+    """
     if dataset_type == "object-centric":
         transform = get_transform_poses_pca(poses)
 
@@ -117,7 +160,31 @@ def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np
         return transform, poses[0][..., :3, :4]
 
     elif dataset_type == "forward-facing":
-        raise NotImplementedError("Forward-facing dataset type is not supported")
+        # First, we compute the average pose
+        position = poses[:, :3, 3].mean(0)
+        lookdir = poses[:, :3, 2].mean(0)
+        up = -poses[:, :3, 1].mean(0)
+        avg_pose = _viewmatrix(lookdir, up, position)
+
+        # Then, we compute the transform that moves the average pose to the origin
+        transform = np.linalg.inv(pad_poses(avg_pose))
+
+        # Currently we assume (z=forward, y=down, x=right)
+        # We need to convert to (z=up, y=forward, x=right)
+        # Swap z, y
+        transform[:3, [1, 2]] = transform[:3, [2, 1]]
+        # Invert y
+        transform[:3, 1] = -transform[:3, 1]
+
+        # Finally, we fix the scale
+        # Scale so that cameras fit in a 2x2x2 cube centered at the origin
+        mean_origin = apply_transform(transform, poses)[..., :3, 3].mean(0)
+        maxlen = np.quantile(np.abs(poses[..., 0:3, 3] - mean_origin[None]).max(-1), 0.95) * 1.1
+        dataparser_scale = float(1 / maxlen)
+        transform = np.diag([dataparser_scale, dataparser_scale, dataparser_scale, 1]) @ transform
+
+        initial_pose = apply_transform(transform, poses[1])
+        return transform, initial_pose[..., :3, :4]
     elif dataset_type is None:
         # Unknown dataset type
         # We move all center the scene on the mean of the camera origins
@@ -268,8 +335,6 @@ def dataset_load_features(
 ) -> Dataset:
     if features is None:
         features = frozenset(("color",))
-    if supported_camera_models is None:
-        supported_camera_models = frozenset(("pinhole",))
     images: List[np.ndarray] = []
     image_sizes = []
     all_metadata = []
@@ -418,3 +483,215 @@ def dataset_index_select(dataset: TDataset, i: Union[slice, int, list, np.ndarra
     return cast(TDataset, _dataset)
 
 
+def download_dataset(path: str, output: Union[str, Path]):
+    if not path.startswith("external://"):
+        raise ValueError("Only external datasets can be downloaded (path must start with 'external://')")
+    path = path[len("external://") :]
+    output = Path(output)
+    errors = {}
+    for name in get_supported_datasets():
+        dataset_spec = get_dataset_spec(name)
+        download_fn = _import_type(dataset_spec["download_dataset_function"])
+        try:
+            download_fn(path, str(output))
+            logging.info(f"Downloaded {name} dataset with path {path}")
+            return
+        except DatasetNotFoundError as e:
+            logging.debug(e)
+            logging.debug(f"Path {path} is not supported by {name} dataset")
+            errors[name] = str(e)
+    raise MultiDatasetError(errors, f"No supported dataset found for path {path}")
+
+
+@overload
+def load_dataset(
+        path: Union[Path, str], 
+        split: str, 
+        features: Optional[FrozenSet[DatasetFeature]] = ...,
+        supported_camera_models: Optional[FrozenSet[CameraModel]] = ...,
+        load_features: Literal[True] = ...,
+        **kwargs) -> Dataset:
+    ...
+
+
+@overload
+def load_dataset(
+        path: Union[Path, str], 
+        split: str, 
+        features: Optional[FrozenSet[DatasetFeature]] = ...,
+        supported_camera_models: Optional[FrozenSet[CameraModel]] = ...,
+        load_features: Literal[False] = ...,
+        **kwargs) -> UnloadedDataset:
+    ...
+
+
+def _resolve_loader(loader):
+    if loader in get_supported_dataset_loaders():
+        loader = get_dataset_loader_spec(loader)["load_dataset_function"]
+    elif ":" not in loader:
+        raise ValueError(f"Unknown dataset loader {loader}")
+    return _import_type(loader)
+
+
+def _load_unknown_dataset(path, **kwargs):
+    logging.info(f"Detecting dataset format from path: {path}")
+    if path.startswith(os.path.join(NB_PREFIX, "datasets")):
+        raise RuntimeError("Dataset is an external dataset, but it does not have nb-info.json metadata. "
+                           "This might have been caused by an older version of NerfBaselines. "
+                           "Please remove the directory {path} and try again.")
+    from .mipnerf360 import SCENES as MIPNERF360_SCENES
+    from .blender import SCENES as BLENDER_SCENES
+    from .tanksandtemples import SCENES as TANKSANDTEMPLES_SCENES
+    from .phototourism import SCENES as PHOTOTOURISM_SCENES
+    from .llff import SCENES as LLFF_SCENES
+
+    # Validate for common mistakes (e.g., not specifying loader for known datasets)
+    def _give_warning(dataset_id, dataset_name):
+        logging.warning(f"Detected {dataset_name} dataset, but no loader was specified. "
+                        f"If the dataset really is {dataset_name}, please use the official NerfBaselines downloader "
+                        f"e.g., by specifying `--data external://{dataset_id}/{scene}`. "
+                        "Otherwise, the dataset will be loaded as a generic dataset. "
+                        f"If the dataset is not a {dataset_name} dataset, you can ignore the message. "
+                        "In order to suppress this message, please specify the loader by adding a nb-info.json file.")
+    def _simplify(x):
+        return re.sub("[^a-z0-9]", "", x.lower())
+    scene = _simplify(os.path.split(path)[-1].lower())
+    spath = _simplify(path)
+    if "360" in spath and any(scene == _simplify(x) for x in MIPNERF360_SCENES):
+        _give_warning("mipnerf360", "MipNeRF 360")
+    elif (("blender" in spath or ("nerf" in spath and "synthetic" in spath)) and
+          any(scene == _simplify(x) for x in BLENDER_SCENES)):
+        _give_warning("blender", "Blender")
+    elif ("tanks" in spath and "temples" in spath and 
+        any(scene == _simplify(x) for x in TANKSANDTEMPLES_SCENES)):
+        _give_warning("tanksandtemples", "Tanks and Temples")
+    elif ("phototourism" in spath and
+        any(scene == _simplify(x) for x in PHOTOTOURISM_SCENES)):
+        _give_warning("phototourism", "Phototourism")
+    elif ("llff" in spath and
+        any(scene == _simplify(x) for x in LLFF_SCENES)):
+        _give_warning("llff", "LLFF")
+
+    # Now, we gave all the warnings, we can try to detect and load the dataset.
+    loaders = get_supported_dataset_loaders()
+    loader_results = {}
+    for name in loaders:
+        spec = get_dataset_loader_spec(name)
+        load_fn = _import_type(spec["load_dataset_function"])
+        try:
+            dataset = load_fn(path, **kwargs)
+            loader_results[name] = dataset, None
+        except Exception as e:
+            loader_results[name] = None, e
+    if len(loader_results) == 0:
+        raise DatasetNotFoundError(f"No supported dataset found in path {path}")
+    num_success = sum(1 for _, exc in loader_results.values() if exc is None)
+    if num_success == 0:
+        raise MultiDatasetError({
+            name: str(exc) for name, (_, exc) in loader_results.items() if exc is not None
+        }, f"No supported dataset found in path {path}")
+    elif num_success > 1:
+        # Raise an error about detecting more than one dataset
+        loaders = [name for name, (_, exc) in loader_results.items() if exc is None]
+        raise RuntimeError(f"There are multiple loaders which can load the dataset stored in path: {path}. "
+                           "The loaders are {', '.join(loaders)}. "
+                           "Please specify the loader by adding a nb-info.json file to the dataset directory "
+                           f"with contents '{{\"loader\": \"<loader>\"}}' where '<loader>' is one of the loaders ({', '.join(loaders)}).")
+    else:
+        # Return the correct dataset
+        loader, dataset = next(((k, d) for k, (d, exc) in loader_results.items() if exc is None))
+    return loader, dataset
+
+
+def load_dataset(
+        path: Union[Path, str], 
+        split: str, 
+        features: Optional[FrozenSet[DatasetFeature]] = None,
+        supported_camera_models: Optional[FrozenSet[CameraModel]] = None,
+        load_features: bool = True,
+        **kwargs,
+        ) -> Union[Dataset, UnloadedDataset]:
+    path = str(path)
+    path, _kwargs = experimental_parse_dataset_path(path)
+    _kwargs.update(kwargs)
+    kwargs = _kwargs
+    if features is None:
+        features = frozenset(("color",))
+    kwargs["features"] = features
+    del features
+    # If path is and external path, we download the dataset first
+    if path.startswith("external://"):
+        dataset = path.split("://", 1)[1]
+        path = Path(NB_PREFIX) / "datasets" / dataset
+        if not path.exists():
+            download_dataset("external://"+dataset, path)
+        path = str(path)
+
+    # Try loading info if exists
+    loader = None
+    meta = {}
+    info_fname = "nb-info.json"
+    if (os.path.exists(os.path.join(path, "info.json")) and 
+        not os.path.exists(os.path.join(path, info_fname))):
+        logging.warning("Using 'info.json' instead of 'nb-info.json'. Please update the dataset.")
+        info_fname = "info.json"
+    if os.path.exists(os.path.join(path, info_fname)):
+        logging.info(f"Loading dataset metadata from {os.path.join(path, info_fname)}")
+        with open(os.path.join(path, info_fname), "r") as f:
+            meta = json.load(f)
+            if meta.get("name") is not None and meta.get("id") is None:
+                logging.warning("Using 'name' field as 'id' field in metadata (nerfbaselines version <1.1.0)")
+                meta["id"] = meta["name"]
+        loader = meta.pop("loader", None)
+        loader_kwargs = meta.pop("loader_kwargs", None)
+        if loader is None and loader_kwargs is not None:
+            logging.warning("Ignoring nb-info.json loader_kwargs because loader is not specified")
+            loader_kwargs = None
+        for k, v in (loader_kwargs or {}).items():
+            if k not in kwargs:
+                kwargs[k] = v
+
+    # Add split back to kwargs
+    kwargs["split"] = split
+
+    # If loader is None, try detecting a dataset
+    if loader is None:
+        loader, dataset_instance = _load_unknown_dataset(path, **kwargs)
+    else:
+        # Load the dataset using the specified loader
+        load_fn = _resolve_loader(loader)
+        dataset_instance = load_fn(path, **kwargs)
+
+    name = dataset_instance["metadata"].get("id", None)
+    logging.info(f"Loaded {name or 'unknown'} dataset from path {path} using loader {loader}")
+
+    # Dataset loaded successfully
+    # Now we apply the postprocessing
+    # We update the metadata from nb-info.json
+    dataset_instance["metadata"].update(meta)
+    if split == "train":
+        # For train split, we compute additional metadata
+        dataset_type = dataset_instance["metadata"].get("type", None)
+        viewer_transform, viewer_pose = get_default_viewer_transform(
+            dataset_instance["cameras"].poses, dataset_type)
+        # And we set the viewer transform and initial pose if missing
+        if dataset_instance["metadata"].get("viewer_transform") is None:
+            dataset_instance["metadata"]["viewer_transform"] = viewer_transform
+        if dataset_instance["metadata"].get("viewer_initial_pose") is None:
+            dataset_instance["metadata"]["viewer_initial_pose"] = viewer_pose
+        if "expected_scene_scale" not in  dataset_instance["metadata"]:
+            dataset_instance["metadata"]["expected_scene_scale"] = \
+                get_scene_scale(dataset_instance["cameras"], dataset_type)
+
+    # Set correct eval protocol
+    if name is not None:
+        spec_ = get_dataset_spec(name)
+        if spec_ is not None:
+            eval_protocol = spec_.get("evaluation_protocol", "default")
+            if dataset_instance["metadata"].get("evaluation_protocol", "default") != eval_protocol:
+                raise RuntimeError(f"Evaluation protocol mismatch: {dataset_instance['metadata']['evaluation_protocol']} != {eval_protocol}")
+            dataset_instance["metadata"]["evaluation_protocol"] = eval_protocol
+
+    if load_features:
+        return dataset_load_features(dataset_instance, features=kwargs["features"], supported_camera_models=supported_camera_models)
+    return dataset_instance

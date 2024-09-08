@@ -42,6 +42,7 @@ The documentation is organized into several sections with increasing level of de
 :maxdepth: 1
 installation
 quickstart
+using-custom-data
 ```
 
 ```{toctree}
@@ -49,6 +50,7 @@ quickstart
 :caption: Advanced
 backends
 adding-new-methods
+custom-dataset-loader
 ```
 
 ```{toctree}
