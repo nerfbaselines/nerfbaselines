@@ -105,20 +105,11 @@ class MyMethod(Method):
         }
 
     @torch.no_grad()
-    def render(self, cameras, *, embeddings=None, options=None):
+    def render(self, camera, *, options=None):
         # Render the images
-        for camera in cameras:
-            w, h = camera.image_sizes
+        w, h = camera.image_sizes
 
-            # Here we simply render a single color image
-            yield {
-                "color": self.color[None, None, :].expand(h, w, 3).detach().cpu().numpy(),
-            }
-
-    def get_train_embedding(self, index):
-        # In this tutorial we do not support appearance embeddings
-        return None
-
-    def optimize_embeddings(self, dataset, embeddings):
-        # In this tutorial we do not support appearance embeddings
-        raise NotImplementedError()
+        # Here we simply render a single color image
+        yield {
+            "color": self.color[None, None, :].expand(h, w, 3).detach().cpu().numpy(),
+        }
