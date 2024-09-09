@@ -7,12 +7,12 @@ import logging
 import os
 import io
 import base64
-from typing import Optional, Iterable, Sequence, Any
+from typing import Optional, Any
 from pathlib import Path
 import numpy as np
 import functools
 import gc
-from nerfbaselines import Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput
+from nerfbaselines import Method, MethodInfo, ModelInfo, Dataset
 from nerfbaselines import Cameras, camera_model_to_int, RenderOptions, RenderOutput
 try:
     # We need to import torch before jax to load correct CUDA libraries
@@ -578,15 +578,15 @@ class CamP_ZipNeRF(Method):
             with (Path(path) / "config.gin").open("w+") as f:
                 f.write(self._config_str)
 
-    def render(self, cameras: Cameras, *, embeddings=None, options: Optional[RenderOptions] = None) -> Iterable[RenderOutput]:
+    def render(self, camera: Cameras, *, options: Optional[RenderOptions] = None) -> RenderOutput:
         assert self.rngs is not None, "Must call setup_eval before rendering"
         assert self.render_eval_pfn is not None, "Must call setup_eval before rendering"
         del options
         if self.render_eval_pfn is None:
             self._setup_eval()
-        if embeddings is not None:
-            method_name = self.get_method_info()["method_id"]
-            raise NotImplementedError(f"Optimizing embeddings is not supported for method {method_name}")
+
+        cameras = camera.item()[None]
+
         # Test-set evaluation.
         # We reuse the same random number generator from the optimization step
         # here on purpose so that the visualization matches what happened in
@@ -609,73 +609,47 @@ class CamP_ZipNeRF(Method):
             dataparser_transform=self._dataparser_transform,
             verbose=False,
         )
-        cameras = jax.tree_util.tree_map(np_to_jax, test_dataset.cameras)
-        cameras_replicated = flax.jax_utils.replicate(cameras)
+        cams = jax.tree_util.tree_map(np_to_jax, test_dataset.cameras)
+        cams_replicated = flax.jax_utils.replicate(cams)
 
-        for i in range(len(poses)):
-            rays = test_dataset.generate_ray_batch(i).rays
-            rendering = models.render_image(
-                functools.partial(
-                    self.render_eval_pfn,
-                    eval_variables,
-                    1.0,
-                    cameras_replicated,
+        rays = test_dataset.generate_ray_batch(0).rays
+        rendering = models.render_image(
+            functools.partial(
+                self.render_eval_pfn,
+                eval_variables,
+                1.0,
+                cams_replicated,
+            ),
+            rays=rays,
+            rng=self.rngs[0],
+            config=self.config,
+            verbose=False,
+        )
+
+        # TODO: handle rawnerf color space
+        # if config.rawnerf_mode:
+        #     postprocess_fn = test_dataset["metadata"]['postprocess_fn']
+        # else:
+        accumulation = rendering["acc"]
+        eps = np.finfo(accumulation.dtype).eps
+        color = rendering["rgb"]
+        if not self.opaque_background:
+            color = xnp.concatenate(
+                (
+                    # Unmultiply alpha.
+                    xnp.where(accumulation[..., None] > eps, xnp.divide(color, xnp.clip(accumulation[..., None], eps, None)), xnp.zeros_like(rendering["rgb"])),
+                    accumulation[..., None],
                 ),
-                rays=rays,
-                rng=self.rngs[0],
-                config=self.config,
-                verbose=False,
+                -1,
             )
-
-            # TODO: handle rawnerf color space
-            # if config.rawnerf_mode:
-            #     postprocess_fn = test_dataset["metadata"]['postprocess_fn']
-            # else:
-            accumulation = rendering["acc"]
-            eps = np.finfo(accumulation.dtype).eps
-            color = rendering["rgb"]
-            if not self.opaque_background:
-                color = xnp.concatenate(
-                    (
-                        # Unmultiply alpha.
-                        xnp.where(accumulation[..., None] > eps, xnp.divide(color, xnp.clip(accumulation[..., None], eps, None)), xnp.zeros_like(rendering["rgb"])),
-                        accumulation[..., None],
-                    ),
-                    -1,
-                )
-            depth = rendering["distance_mean"]
-            assert len(accumulation.shape) == 2
-            assert len(depth.shape) == 2
-            yield {
-                "color": np.array(color, dtype=np.float32),
-                "depth": np.array(depth, dtype=np.float32),
-                "accumulation": np.array(accumulation, dtype=np.float32),
-            }
-
-    def optimize_embeddings(
-        self, 
-        dataset: Dataset,
-        embeddings: Optional[Sequence[np.ndarray]] = None
-    ) -> Iterable[OptimizeEmbeddingsOutput]:
-        """
-        Optimize embeddings for each image in the dataset.
-
-        Args:
-            dataset: Dataset.
-            embeddings: Optional initial embeddings.
-        """
-        del dataset, embeddings
-        raise NotImplementedError()
-
-    def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
-        """
-        Get the embedding for a training image.
-
-        Args:
-            index: Index of the image.
-        """
-        del index
-        return None
+        depth = rendering["distance_mean"]
+        assert len(accumulation.shape) == 2
+        assert len(depth.shape) == 2
+        return {
+            "color": np.array(color, dtype=np.float32),
+            "depth": np.array(depth, dtype=np.float32),
+            "accumulation": np.array(accumulation, dtype=np.float32),
+        }
 
 
 class CamP(CamP_ZipNeRF):

@@ -1194,11 +1194,9 @@ class ViewerRenderer:
             else:
                 scope = contextlib.nullcontext()
             with scope:
-                outputs = None
-                options: RenderOptions = { "output_type_dtypes": { "color": "uint8" }, }
-                for outputs in self.method.render(camera, embeddings=[embedding] if embedding is not None else None, options=options):
-                    pass
-                assert outputs is not None, "Method did not return any outputs"
+                options: RenderOptions = { "output_type_dtypes": { "color": "uint8" }, 
+                                           "embedding": embedding }
+                outputs = self.method.render(camera, options=options)
             self._cancellation_token = None
             
         except CancelledException:

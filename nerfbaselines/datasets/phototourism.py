@@ -12,7 +12,10 @@ import numpy as np
 import requests
 from tqdm import tqdm
 
-from nerfbaselines import Dataset, EvaluationProtocol, Method, RenderOutput, DatasetNotFoundError
+from nerfbaselines import (
+    Dataset, EvaluationProtocol, Method, 
+    RenderOutput, DatasetNotFoundError, RenderOptions
+)
 from ..utils import image_to_srgb
 from ._common import dataset_index_select
 from .colmap import load_colmap_dataset
@@ -213,31 +216,38 @@ class NerfWEvaluationProtocol(EvaluationProtocol):
     def get_name(self):
         return "nerfw"
 
-    def render(self, method: Method, dataset: Dataset, *, options=None) -> Iterable[RenderOutput]:
+    def render(self, method: Method, dataset: Dataset, *, options=None) -> RenderOutput:
+        dataset["cameras"].item()  # Assert single camera
         optimization_dataset = horizontal_half_dataset(dataset, left=True)
-        optim_iterator = method.optimize_embeddings(optimization_dataset)
-        if optim_iterator is None:
-            # Method does not support optimization
-            for pred in method.render(dataset["cameras"], options=options):
-                yield pred
-            return
+        embedding = (options or {}).get("embedding", None)
+        optim_result = None
+        try:
+            optim_result = method.optimize_embedding(optimization_dataset, embedding=embedding)
+        except NotImplementedError as e:
+            logging.debug(e)
+            method_id = method.get_method_info()["method_id"]
+            logging.warning(f"Method {method_id} does not support camera embedding optimization.")
 
-        for i, optim_result in enumerate(optim_iterator):
-            # Render with the optimzied result
-            for pred in method.render(dataset["cameras"][i:i+1], embeddings=[optim_result["embedding"]], options=options):
-                yield pred
+        if optim_result is not None:
+            embedding = optim_result["embedding"]
 
-    def evaluate(self, predictions: Iterable[RenderOutput], dataset: Dataset) -> Iterable[Dict[str, Union[float, int]]]:
-        for i, prediction in enumerate(predictions):
-            gt = dataset["images"][i]
-            color = prediction["color"]
+        new_options: RenderOptions = {
+            **(options or {}),
+            "embedding": embedding,
+        }
+        return method.render(dataset["cameras"], options=new_options)
 
-            background_color = dataset["metadata"].get("background_color", None)
-            color_srgb = image_to_srgb(color, np.uint8, color_space="srgb", background_color=background_color)
-            gt_srgb = image_to_srgb(gt, np.uint8, color_space="srgb", background_color=background_color)
-            w = gt_srgb.shape[1]
-            metrics = self._compute_metrics(color_srgb[:, (w//2):], gt_srgb[:, (w//2):])
-            yield metrics
+    def evaluate(self, predictions: RenderOutput, dataset: Dataset) -> Dict[str, Union[float, int]]:
+        dataset["cameras"].item()  # Assert single camera
+        gt = dataset["images"][0]
+        color = predictions["color"]
+
+        background_color = dataset["metadata"].get("background_color", None)
+        color_srgb = image_to_srgb(color, np.uint8, color_space="srgb", background_color=background_color)
+        gt_srgb = image_to_srgb(gt, np.uint8, color_space="srgb", background_color=background_color)
+        w = gt_srgb.shape[1]
+        metrics = self._compute_metrics(color_srgb[:, (w//2):], gt_srgb[:, (w//2):])
+        return metrics
 
     def accumulate_metrics(self, metrics: Iterable[Dict[str, Union[float, int]]]) -> Dict[str, Union[float, int]]:
         acc = {}

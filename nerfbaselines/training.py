@@ -300,7 +300,7 @@ def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, st
     rand_number, = struct.unpack("L", hashlib.sha1(str(step).encode("utf8")).digest()[:8])
 
     idx = rand_number % len(dataset["image_paths"])
-    dataset_slice = dataset_index_select(dataset, slice(idx, idx + 1))
+    dataset_slice = dataset_index_select(dataset, [idx])
     images = dataset_slice["images"]
 
     expected_scene_scale: Optional[float] = dataset_slice["metadata"].get("expected_scene_scale")
@@ -309,15 +309,12 @@ def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, st
     # Pseudo-randomly select an image based on the step
     total_rays = 0
     logging.info(f"Rendering single {split} image at step={step}")
-    predictions = None
-    for predictions in evaluation_protocol.render(method, dataset_slice):
-        pass
-    assert predictions is not None, "render failed to compute predictions"
+    predictions = evaluation_protocol.render(method, dataset_slice)
     elapsed = time.perf_counter() - start
 
-    metrics = {}
-    for _metrics in evaluation_protocol.evaluate([predictions], dataset_slice):
-        metrics = cast(Dict[str, Union[str, int, float]], _metrics)
+    _metrics = evaluation_protocol.evaluate(predictions, dataset_slice)
+    metrics = cast(Dict[str, Union[float, int, str]], _metrics)
+    del _metrics
     w, h = dataset_slice["cameras"].image_sizes[0]
     gt = images[0][:h, :w]
     color = predictions["color"]

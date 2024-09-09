@@ -2,7 +2,6 @@ import io
 import base64
 import warnings
 import math
-import dataclasses
 import numpy as np
 import json
 import logging
@@ -10,7 +9,7 @@ import os
 import shlex
 import torch
 from pathlib import Path
-from typing import Any, Dict, Iterable, Sequence, Optional
+from typing import Any, Dict, Optional
 
 try:
     from typing import get_args
@@ -18,7 +17,7 @@ except ImportError:
     from typing_extensions import get_args
 
 from nerfbaselines import (
-    Dataset, OptimizeEmbeddingsOutput, 
+    Dataset,
     RenderOutput, MethodInfo, ModelInfo,
     Cameras, CameraModel, Method
 )
@@ -485,60 +484,31 @@ class TensoRF(Method):
         return output
 
     @torch.no_grad()
-    def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
+    def render(self, camera: Cameras, *, options=None) -> RenderOutput:
         del options
-        if embeddings is not None:
-            method_id = self.get_method_info()["method_id"]
-            raise NotImplementedError(f"Optimizing embeddings is not supported for method {method_id}")
+        camera = camera.item()  # Ensure there is a single camera
         assert self.metadata.get("dataset_metadata") is not None, "Missing dataset_metadata"
         assert self.metadata.get("dataset_transform") is not None, "Missing dataset_transform"
         test_dataset = TensoRFDataset(
             dict(
-                cameras=cameras,
-                image_paths=[f"{i:06d}.png" for i in range(len(cameras))],
+                cameras=camera[None],
+                image_paths=[f"{0:06d}.png"],
                 metadata=self.metadata["dataset_metadata"],
             ),
             transform=self.metadata.get("dataset_transform"),
             is_stack=True,
             dataset_name=self.args.dataset_name,
         )
-        idx = 0
-        for idx, samples in enumerate(test_dataset.all_rays):
-            W, H = cameras.image_sizes[idx]
-            rays = samples.view(-1, samples.shape[-1])
+        samples = next(iter(test_dataset.all_rays))
+        W, H = camera.image_sizes
+        rays = samples.view(-1, samples.shape[-1])
 
-            rgb_map, _, depth_map, _, _ = self.renderer(rays, self.tensorf, chunk=4096, N_samples=-1, ndc_ray=self.args.ndc_ray, white_bg=self.white_bg, device=self.device)
+        rgb_map, _, depth_map, _, _ = self.renderer(rays, self.tensorf, chunk=4096, N_samples=-1, ndc_ray=self.args.ndc_ray, white_bg=self.white_bg, device=self.device)
 
-            rgb_map = rgb_map.clamp(0.0, 1.0)
-            rgb_map, depth_map = rgb_map.reshape(H, W, 3).cpu(), depth_map.reshape(H, W).cpu()
+        rgb_map = rgb_map.clamp(0.0, 1.0)
+        rgb_map, depth_map = rgb_map.reshape(H, W, 3).cpu(), depth_map.reshape(H, W).cpu()
 
-            yield {
-                "color": rgb_map.detach().numpy(),
-                "depth": depth_map.detach().numpy(),
-            }
-
-    def optimize_embeddings(
-        self, 
-        dataset: Dataset,
-        embeddings: Optional[Sequence[np.ndarray]] = None
-    ) -> Iterable[OptimizeEmbeddingsOutput]:
-        """
-        Optimize embeddings for each image in the dataset.
-
-        Args:
-            dataset: Dataset.
-            embeddings: Optional initial embeddings.
-        """
-        del dataset, embeddings
-        raise NotImplementedError()
-
-    def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
-        """
-        Get the embedding for a training image.
-
-        Args:
-            index: Index of the image.
-        """
-        del index
-        return None
-
+        return {
+            "color": rgb_map.detach().numpy(),
+            "depth": depth_map.detach().numpy(),
+        }

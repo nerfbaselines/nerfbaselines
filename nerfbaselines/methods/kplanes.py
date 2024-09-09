@@ -17,7 +17,7 @@ import logging
 import os
 import pprint
 from contextlib import contextmanager
-from typing import Optional, Iterable, Sequence
+from typing import Optional
 import numpy as np
 import torch
 import torch.utils.data
@@ -643,42 +643,44 @@ class KPlanes(Method):
         else:
             raise NotImplementedError("Only phototourism, nerfsynthetic datasets are supported")
 
-    def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
-        del options
-        assert np.all(cameras.camera_models == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
+    def render(self, camera: Cameras, *, options=None) -> RenderOutput:
+        camera = camera.item()
+        assert np.all(camera.camera_models == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
 
-        def load_embeddings(i, indices):
-            if embeddings is None:
+        def load_embedding(indices):
+            _embnp = (options or {}).get("embedding")
+            if _embnp is None:
                 # Fix bug in kplanes
                 embed = self.trainer.model.field.appearance_embedding
                 embed = old_appearance_embedding.weight.mean(0)
             else:
-                embed = torch.from_numpy(embeddings[i])
+                embed = torch.from_numpy(_embnp)
             embed = embed.to(self.trainer.model.field.appearance_embedding.weight.device)
             return embed.view(*([1] * len(indices.shape)), -1).expand(*indices.shape, -1)
 
         with torch.no_grad():
-            for i, data in enumerate(self._get_eval_data(cameras)):
-                old_train = self.trainer.model.training
-                old_test_appearance_embedding = getattr(self.trainer.model.field, 'test_appearance_embedding', None)
-                old_appearance_embedding = self.trainer.model.field.appearance_embedding
-                
-                try:
-                    self.trainer.model.eval()
-                    if self.trainer.model.field.use_appearance_embedding:
-                        self.trainer.model.field.test_appearance_embedding = LambdaModule(lambda indices: load_embeddings(i, indices))
-                    out = self.trainer.eval_step(data)
-                finally:
-                    self.trainer.model.train(old_train)
-                    if hasattr(self.trainer.model.field, 'test_appearance_embedding'):
-                        del self.trainer.model.field.test_appearance_embedding
-                    if old_test_appearance_embedding is not None:
-                        self.trainer.model.field.test_appearance_embedding = old_test_appearance_embedding
-                w, h = cameras.image_sizes[i]
-                yield {
-                    "color": out["rgb"].view(h, w, -1).cpu().numpy(),
-                    "depth": out["depth"].view(h, w).cpu().numpy(),
-                }
+            data = next(self._get_eval_data(camera[None]))
+
+            old_train = self.trainer.model.training
+            old_test_appearance_embedding = getattr(self.trainer.model.field, 'test_appearance_embedding', None)
+            old_appearance_embedding = self.trainer.model.field.appearance_embedding
+            
+            try:
+                self.trainer.model.eval()
+                if self.trainer.model.field.use_appearance_embedding:
+                    self.trainer.model.field.test_appearance_embedding = LambdaModule(lambda indices: load_embedding(indices))
+                out = self.trainer.eval_step(data)
+            finally:
+                self.trainer.model.train(old_train)
+                if hasattr(self.trainer.model.field, 'test_appearance_embedding'):
+                    del self.trainer.model.field.test_appearance_embedding
+                if old_test_appearance_embedding is not None:
+                    self.trainer.model.field.test_appearance_embedding = old_test_appearance_embedding
+            w, h = camera.image_sizes
+            return {
+                "color": out["rgb"].view(h, w, -1).cpu().numpy(),
+                "depth": out["depth"].view(h, w).cpu().numpy(),
+            }
 
     def save(self, path: str):
         os.makedirs(path, exist_ok=True)
@@ -694,17 +696,13 @@ class KPlanes(Method):
             with open(fname + ".sha256", "w", encoding="utf8") as f:
                 f.write(sha)
 
-    def optimize_embeddings(
-        self, 
-        dataset: Dataset,
-        embeddings: Optional[Sequence[np.ndarray]] = None
-    ) -> Iterable[OptimizeEmbeddingsOutput]:
+    def optimize_embedding(self, dataset: Dataset, *, embedding: Optional[np.ndarray] = None) -> OptimizeEmbeddingsOutput:
         """
-        Optimize embeddings for each image in the dataset.
+        Optimize embedding of a single image (passed as dataset).
 
         Args:
-            dataset: Dataset.
-            embeddings: Optional initial embeddings.
+            dataset: Dataset (containing single image).
+            embedding: Optional initial embedding.
         """
         old_test_appearance_embedding = getattr(self.trainer.model.field, 'test_appearance_embedding', None)
         param_trainable = {}
@@ -713,7 +711,7 @@ class KPlanes(Method):
         is_train = self.trainer.model.training
         old_add_scalar = self.trainer.writer.add_scalar
         try:
-          # 1. Initialize test appearance code
+            # 1. Initialize test appearance code
             tst_embedding = torch.nn.Embedding(
                 1, self.trainer.model.field.appearance_embedding_dim
             ).to(self.trainer.device)
@@ -735,40 +733,30 @@ class KPlanes(Method):
             self.trainer.writer.add_scalar = add_scalar
 
             # 3. Optimize
-            cameras = dataset["cameras"]
-            for img_idx in range(len(cameras)):
-                data = next(self._get_eval_data(cameras[img_idx:img_idx+1]))
-                imgs_left = torch.from_numpy(convert_image_dtype(dataset["images"][img_idx], np.float32))
-                data["imgs_left"] = imgs_left.view(-1, imgs_left.shape[-1])
-                with torch.autograd.no_grad():
-                    if embeddings is not None:
-                        tst_embedding.weight.data.copy_(torch.from_numpy(embeddings[img_idx])[None])
-                    else:
-                        tst_embedding.weight.data.copy_(
-                            self.trainer.model.field.appearance_embedding.weight
-                                .detach()
-                                .mean(dim=0, keepdim=True)
-                        )
+            camera = dataset["cameras"].item()
+            data = next(self._get_eval_data(camera[None]))
+            imgs_left = torch.from_numpy(convert_image_dtype(dataset["images"][0], np.float32))
+            data["imgs_left"] = imgs_left.view(-1, imgs_left.shape[-1])
+            with torch.autograd.no_grad():
+                if embedding is not None:
+                    tst_embedding.weight.data.copy_(torch.from_numpy(embedding)[None])
+                else:
+                    tst_embedding.weight.data.copy_(
+                        self.trainer.model.field.appearance_embedding.weight
+                            .detach()
+                            .mean(dim=0, keepdim=True)
+                    )
 
-                # Patch to grab losses
-                losses.clear()
-
-                # Optimize
-                self.trainer.optimize_appearance_step(data, 0)
-                appearance_embedding = tst_embedding.weight.data.cpu().numpy().copy()
-
-                # Render
-                render_output = None
-                for render_output in self.render(cameras[img_idx:img_idx+1], embeddings=[appearance_embedding]):
-                    pass
-                assert render_output is not None
-                yield {
-                    "embedding": appearance_embedding,
-                    "render_output": render_output,
-                    "metrics": {
-                        "loss": losses.copy(),
-                    }
+            # Optimize
+            self.trainer.optimize_appearance_step(data, 0)
+            appearance_embedding = tst_embedding.weight.data.cpu().numpy().copy()
+            return {
+                "embedding": appearance_embedding,
+                "render_output": None,
+                "metrics": {
+                    "loss": losses.copy(),
                 }
+            }
 
         finally:
             self.trainer.model.field.test_appearance_embedding.requires_grad_(False)
@@ -798,4 +786,3 @@ class KPlanes(Method):
         except Exception as e:
             logging.error(f"Failed to get embedding for image {index}: {e}")
             return None
-

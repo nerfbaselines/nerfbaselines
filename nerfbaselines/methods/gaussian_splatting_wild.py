@@ -17,7 +17,7 @@ import warnings
 import itertools
 import logging
 import copy
-from typing import Optional, Iterable, Sequence
+from typing import Optional
 import os
 import tempfile
 import numpy as np
@@ -506,62 +506,56 @@ class GaussianSplattingWild(Method):
                     image_names_sha=self._train_dataset_link[1],
                 ), file)
 
-    def render(self, cameras: Cameras, *, embeddings=None, options=None, _gt_images=None, _store_cache=False) -> Iterable[RenderOutput]:
-        del options
-        assert np.all(cameras.camera_models == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
-        sizes = cameras.image_sizes
-        poses = cameras.poses
-        intrinsics = cameras.intrinsics
+    def render(self, camera: Cameras, *, options=None, _gt_image=None, _store_cache=False) -> RenderOutput:
+        camera = camera.item()
+        assert np.all(camera.camera_models == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
 
         with torch.no_grad():
-            for i, pose in enumerate(poses):
-                viewpoint_cam = _load_caminfo(i, pose, intrinsics[i], f"{i:06d}.png", 
-                                              sizes[i], 
-                                              image=Image.fromarray(_gt_images[i]) if _gt_images is not None else None,
-                                              scale_coords=self.dataset.scale_coords)
-                viewpoint = loadCam(self.dataset, i, viewpoint_cam, 1.0)
-                emb = embeddings[i] if embeddings is not None and embeddings[i] is not None else self._default_embedding
+            viewpoint_cam = _load_caminfo(0, 
+                                          camera.poses, 
+                                          camera.intrinsics, 
+                                          f"{0:06d}.png", 
+                                          camera.image_sizes, 
+                                          image=Image.fromarray(_gt_image) if _gt_image is not None else None,
+                                          scale_coords=self.dataset.scale_coords)
+            viewpoint = loadCam(self.dataset, 0, viewpoint_cam, 1.0)
+            emb = (options or {}).get("embedding", None)
+            if emb is None:
+                emb = self._default_embedding
 
-                use_cache = False
-                if emb is not None and not _store_cache:
-                    num_gaussians = self.gaussians._xyz.shape[0]
-                    self.gaussians.color_net.cache_outd = torch.tensor(emb, dtype=torch.float32, device="cuda").view(num_gaussians, -1)
-                    use_cache = True
-                if use_cache:
-                    # Bug in the current code where this attribute is not set
-                    self.gaussians._opacity_dealed = self.gaussians._opacity
-                rendering = render(viewpoint, self.gaussians, self.pipe, self.background, use_cache=use_cache, store_cache=_store_cache)
-                color = torch.clamp(rendering["render"], 0.0, 1.0).detach().permute(1, 2, 0).cpu().numpy()
-                yield {
-                    "color": color,
-                }
+            use_cache = False
+            if emb is not None and not _store_cache:
+                num_gaussians = self.gaussians._xyz.shape[0]
+                self.gaussians.color_net.cache_outd = torch.tensor(emb, dtype=torch.float32, device="cuda").view(num_gaussians, -1)
+                use_cache = True
+            if use_cache:
+                # Bug in the current code where this attribute is not set
+                self.gaussians._opacity_dealed = self.gaussians._opacity
+            rendering = render(viewpoint, self.gaussians, self.pipe, self.background, use_cache=use_cache, store_cache=_store_cache)
+            color = torch.clamp(rendering["render"], 0.0, 1.0).detach().permute(1, 2, 0).cpu().numpy()
+            return {
+                "color": color,
+            }
 
-    def optimize_embeddings(
-        self, 
-        dataset: Dataset,
-        embeddings: Optional[Sequence[np.ndarray]] = None
-    ) -> Iterable[OptimizeEmbeddingsOutput]:
+    def optimize_embedding(self, dataset: Dataset, *, embedding: Optional[np.ndarray] = None) -> OptimizeEmbeddingsOutput:
         """
-        Optimize embeddings for each image in the dataset.
+        Optimize embeddings on a single image (passed as a dataset).
 
         Args:
-            dataset: Dataset.
-            embeddings: Optional initial embeddings.
+            dataset: Dataset (single image).
+            embedding: Optional initial embedding.
         """
-        for i in range(len(dataset["cameras"].poses)):
-            emb = None
-            if embeddings is not None and embeddings[i] is not None:
-                emb = embeddings[i]
-            else:
-                for _ in self.render(dataset["cameras"][i:i+1], embeddings=embeddings, _gt_images=dataset["images"][i:i+1], _store_cache=True):
-                    pass
-                emb = self.gaussians.color_net.cache_outd.detach().cpu().numpy().reshape(-1)
-            assert emb is not None, "Embedding is None"
-            yield {
-                "embedding": emb,
-                "metrics": {},
-                "render_output": {},
-            }
+        camera = dataset["cameras"].item()
+        if embedding is None:
+            for _ in self.render(camera, _gt_image=dataset["images"][0], _store_cache=True):
+                pass
+            embedding = self.gaussians.color_net.cache_outd.detach().cpu().numpy().reshape(-1)
+        assert embedding is not None  # Make pyright happy
+        return {
+            "embedding": embedding,
+            "render_output": None,
+            "metrics": {},
+        }
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
         """
@@ -575,6 +569,6 @@ class GaussianSplattingWild(Method):
             raise NotImplementedError("Method supports optimizing embeddings, but train dataset is required to infer the embeddings.")
 
         i = index
-        for _ in self.render(train_dataset["cameras"][i:i+1], embeddings=None, _gt_images=train_dataset["images"][i:i+1], _store_cache=True):
+        for _ in self.render(train_dataset["cameras"][i], _gt_image=train_dataset["images"][i], _store_cache=True):
             pass
         return self.gaussians.color_net.cache_outd.detach().cpu().numpy().reshape(-1)

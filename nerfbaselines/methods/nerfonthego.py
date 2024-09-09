@@ -453,10 +453,10 @@ class NeRFOnthego(Method):
             with (Path(path) / "config.gin").open("w+") as f:
                 f.write(self._config_str)
 
-    def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
+    def render(self, camera: Cameras, *, options=None) -> RenderOutput:
         del options
-        if embeddings is not None:
-            raise NotImplementedError(f"Optimizing embeddings is not supported for method {self.get_method_info()['name']}")
+        camera = camera.item()
+        cameras = camera[None]
         # Test-set evaluation.
         # We reuse the same random number generator from the optimization step
         # here on purpose so that the visualization matches what happened in
@@ -477,42 +477,17 @@ class NeRFOnthego(Method):
             dataparser_transform=self._dataparser_transform,
         )
 
-        for test_case in test_dataset:
-            rendering = models.render_image(functools.partial(self.render_eval_pfn, eval_variables, self.train_frac), test_case.rays, None, self.config, verbose=False)
+        test_case = next(iter(test_dataset))
+        rendering = models.render_image(functools.partial(self.render_eval_pfn, eval_variables, self.train_frac), test_case.rays, None, self.config, verbose=False)
 
-            accumulation = rendering["acc"]
-            color = rendering["rgb"]
-            depth = np.array(rendering["distance_mean"], dtype=np.float32)
-            assert len(accumulation.shape) == 2
-            assert len(depth.shape) == 2
-            yield cast(RenderOutput, {
-                "color": np.array(color, dtype=np.float32),
-                "depth": np.array(depth, dtype=np.float32),
-                "accumulation": np.array(accumulation, dtype=np.float32),
-            })
-
-    def optimize_embeddings(
-        self, 
-        dataset: Dataset,
-        embeddings: Optional[Sequence[np.ndarray]] = None
-    ) -> Iterable[OptimizeEmbeddingsOutput]:
-        """
-        Optimize embeddings for each image in the dataset.
-
-        Args:
-            dataset: Dataset.
-            embeddings: Optional initial embeddings.
-        """
-        del dataset, embeddings
-        raise NotImplementedError()
-
-    def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
-        """
-        Get the embedding for a training image.
-
-        Args:
-            index: Index of the image.
-        """
-        del index
-        return None
+        accumulation = rendering["acc"]
+        color = rendering["rgb"]
+        depth = np.array(rendering["distance_mean"], dtype=np.float32)
+        assert len(accumulation.shape) == 2
+        assert len(depth.shape) == 2
+        return cast(RenderOutput, {
+            "color": np.array(color, dtype=np.float32),
+            "depth": np.array(depth, dtype=np.float32),
+            "accumulation": np.array(accumulation, dtype=np.float32),
+        })
 

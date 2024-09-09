@@ -368,50 +368,39 @@ class ColmapMVS(Method):
             for f in os.listdir(self._model_path):
                 shutil.copy(os.path.join(self._model_path, f), os.path.join(path, f))
 
-    def render(self, 
-               cameras: Cameras, *, 
-               embeddings=None, 
-               options: Optional[RenderOptions] = None):
+    def render(self, camera: Cameras, *, options: Optional[RenderOptions] = None):
         from pyrender import RenderFlags  # type: ignore
-        del embeddings, options
+        del options
         assert self._platform is not None, "Method is already destroyed"
         assert self._renderer is not None, "Method is already destroyed"
         flags = RenderFlags.OFFSCREEN | RenderFlags.FLAT | RenderFlags.RGBA
         assert self._platform.supports_framebuffers(), "Platform does not support framebuffers"
         self._platform.make_current()
+        cam = camera.item()
         try:
-            for cam in cameras:
-                pose = _pad_poses(cam.poses).copy()
-                # OpenCV to OpenGL coordinate system conversion
-                pose[:, 1:3] *= -1
-                self._camera.matrix = pose
-                fx, fy, cx, cy = cam.intrinsics
-                w, h = cam.image_sizes
-                main_cam_node = self._scene.main_camera_node
-                assert main_cam_node is not None, "Main camera node is missing"
-                main_cam = main_cam_node.camera
-                assert main_cam is not None, "Main camera is missing"
-                main_cam.fx, main_cam.fy, main_cam.cx, main_cam.cy = fx, fy, cx, cy
-                self._renderer.viewport_width, self._renderer.viewport_height = w, h
-                out = self._renderer.render(self._scene, flags)
-                assert out is not None, "Rendering failed"
-                color, depth = out
-                if cam.nears_fars is not None:
-                    main_cam.znear, main_cam.zfar = cam.nears_fars
-                yield {
-                    "color": color,
-                    "depth": depth,
-                }
+            pose = _pad_poses(cam.poses).copy()
+            # OpenCV to OpenGL coordinate system conversion
+            pose[:, 1:3] *= -1
+            self._camera.matrix = pose
+            fx, fy, cx, cy = cam.intrinsics
+            w, h = cam.image_sizes
+            main_cam_node = self._scene.main_camera_node
+            assert main_cam_node is not None, "Main camera node is missing"
+            main_cam = main_cam_node.camera
+            assert main_cam is not None, "Main camera is missing"
+            main_cam.fx, main_cam.fy, main_cam.cx, main_cam.cy = fx, fy, cx, cy
+            self._renderer.viewport_width, self._renderer.viewport_height = w, h
+            out = self._renderer.render(self._scene, flags)
+            assert out is not None, "Rendering failed"
+            color, depth = out
+            if cam.nears_fars is not None:
+                main_cam.znear, main_cam.zfar = cam.nears_fars
+            return {
+                "color": color,
+                "depth": depth,
+            }
         finally:
             self._platform.make_uncurrent()
-
-    def get_train_embedding(self, *args, **kwargs):
-        del args, kwargs
-        raise NotImplementedError()
-
-    def optimize_embeddings(self, *args, **kwargs):
-        del args, kwargs
-        raise NotImplementedError()
 
     def close(self):
         if self._platform is not None:

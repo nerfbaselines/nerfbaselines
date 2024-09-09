@@ -40,19 +40,19 @@ class FakeMethod(MagicMock):
     def get_info(self):
         return self.get_method_info()
 
-    def render(self, cameras, embeddings=None, options=None):
-        del embeddings, options
+    def render(self, camera, options=None):
+        del options
+        camera = camera.item()
         def get_shape(w, h, output):
             output_type = output.get("type", output["name"]) if isinstance(output, dict) else output
             if output_type == "color":
                 return (h, w, 3)
             else:
                 return (h, w)
-        for c in cameras:
-            w, h = c.image_sizes
-            yield {
-                (k["name"] if isinstance(k, dict) else k): np.zeros(get_shape(w, h, k)) for k in self.get_info()["supported_outputs"]
-            }
+        w, h = camera.image_sizes
+        return {
+            (k["name"] if isinstance(k, dict) else k): np.zeros(get_shape(w, h, k)) for k in self.get_info()["supported_outputs"]
+        }
 
 
 def _mock_cameras(num_cameras=2):

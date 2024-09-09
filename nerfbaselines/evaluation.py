@@ -42,10 +42,11 @@ from .io import (
     get_predictions_sha,
     get_method_sha,
     save_evaluation_results,
-    save_predictions,
+    _save_predictions_iterate,
     save_image,
     read_image, 
 )
+from .datasets import dataset_index_select
 from . import metrics
 from . import cameras as _cameras
 try:
@@ -181,9 +182,11 @@ def evaluate(predictions: str,
 
             # Evaluate the prediction
             with tqdm(desc=description, dynamic_ncols=True, total=len(relpaths)) as progress:
-                def collect_metrics_lists(iterable: Iterable[Dict[str, T]]) -> Iterable[Dict[str, T]]:
-                    for data in iterable:
-                        for k, v in data.items():
+                def collect_metrics_lists():
+                    for i, pred in enumerate(read_predictions()):
+                        dataset_slice = dataset_index_select(dataset, [i])
+                        metrics = evaluation_protocol.evaluate(pred, dataset_slice)
+                        for k, v in metrics.items():
                             if k not in metrics_lists:
                                 metrics_lists[k] = []
                             metrics_lists[k].append(v)
@@ -191,11 +194,10 @@ def evaluate(predictions: str,
                         if "psnr" in metrics_lists:
                             psnr_val = np.mean(metrics_lists["psnr"][-1])
                             progress.set_postfix(psnr=f"{psnr_val:.4f}")
-                        yield data
+                        yield metrics
 
-                metrics = evaluation_protocol.accumulate_metrics(
-                    collect_metrics_lists(evaluation_protocol.evaluate(read_predictions(), dataset))
-                )
+                metrics = evaluation_protocol.accumulate_metrics(collect_metrics_lists())
+
 
         predictions_sha, ground_truth_sha = get_predictions_sha(str(predictions_path))
 
@@ -220,26 +222,27 @@ class DefaultEvaluationProtocol(EvaluationProtocol):
     def __init__(self):
         pass
 
-    def render(self, method: Method, dataset: Dataset, *, options=None) -> Iterable[RenderOutput]:
+    def render(self, method: Method, dataset: Dataset, *, options=None) -> RenderOutput:
+        dataset["cameras"].item()  # Assert there is only one camera
         info = method.get_info()
         supported_camera_models = info.get("supported_camera_models", frozenset(("pinhole",)))
         render = with_supported_camera_models(supported_camera_models)(method.render)
-        yield from render(dataset["cameras"], options=options)
+        return render(dataset["cameras"].item(), options=options)
 
     def get_name(self):
         return self._name
 
-    def evaluate(self, predictions: Iterable[RenderOutput], dataset: Dataset) -> Iterable[Dict[str, Union[float, int]]]:
+    def evaluate(self, predictions: RenderOutput, dataset: Dataset) -> Dict[str, Union[float, int]]:
+        assert len(dataset["images"]) == 1, "There must be exactly one image in the dataset"
         background_color = dataset["metadata"].get("background_color")
         color_space = dataset["metadata"]["color_space"]
-        for i, prediction in enumerate(predictions):
-            pred = prediction["color"]
-            gt = dataset["images"][i]
-            pred = image_to_srgb(pred, np.uint8, color_space=color_space, background_color=background_color)
-            gt = image_to_srgb(gt, np.uint8, color_space=color_space, background_color=background_color)
-            pred_f = convert_image_dtype(pred, np.float32)
-            gt_f = convert_image_dtype(gt, np.float32)
-            yield compute_metrics(pred_f[None], gt_f[None], run_lpips_vgg=self._lpips_vgg, reduce=True)
+        pred = predictions["color"]
+        gt = dataset["images"][0]
+        pred = image_to_srgb(pred, np.uint8, color_space=color_space, background_color=background_color)
+        gt = image_to_srgb(gt, np.uint8, color_space=color_space, background_color=background_color)
+        pred_f = convert_image_dtype(pred, np.float32)
+        gt_f = convert_image_dtype(gt, np.float32)
+        return compute_metrics(pred_f[None], gt_f[None], run_lpips_vgg=self._lpips_vgg, reduce=True)
 
     def accumulate_metrics(self, metrics: Iterable[Dict[str, Union[float, int]]]) -> Dict[str, Union[float, int]]:
         acc = {}
@@ -255,7 +258,7 @@ class NerfEvaluationProtocol(DefaultEvaluationProtocol):
     _lpips_vgg = True
 
 
-TRender = TypeVar("TRender", bound=typing.Callable[..., Iterable[RenderOutput]])
+TRender = TypeVar("TRender", bound=typing.Callable[..., RenderOutput])
 
 
 def with_supported_camera_models(supported_camera_models):
@@ -263,26 +266,19 @@ def with_supported_camera_models(supported_camera_models):
 
     def decorator(render: TRender) -> TRender:
         @wraps(render)
-        def _render(cameras: Cameras, *args, **kwargs):
-            assert len(cameras) > 0, "No cameras"
-            original_cameras = cameras
-            needs_distort = []
-            undistorted_cameras_list: List[Cameras] = []
-            for cam in cameras:
-                if cam.camera_models.item() not in supported_cam_models:
-                    needs_distort.append(True)
-                    undistorted_cameras_list.append(_cameras.undistort_camera(cam)[None])
-                else:
-                    needs_distort.append(False)
-                    undistorted_cameras_list.append(cam[None])
-            undistorted_cameras = undistorted_cameras_list[0].cat(undistorted_cameras_list)
-            for x, distort, cam, ucam in zip(render(undistorted_cameras, *args, **kwargs), needs_distort, original_cameras, undistorted_cameras):
-                if distort:
-                    x = cast(RenderOutput, 
-                             {k: _cameras.warp_image_between_cameras(ucam, cam, cast(np.ndarray, v)) for k, v in x.items()})
-                yield x
-        return cast(TRender, _render)
+        def _render(camera: Cameras, *args, **kwargs):
+            cam = camera.item()  # Assert there is only one camera
+            original_camera = None
+            if cam.camera_models.item() not in supported_cam_models:
+                original_camera = cam
+                cam = _cameras.undistort_camera(cam)
 
+            out = render(cam, *args, **kwargs)
+            if original_camera is not None:
+                out = cast(RenderOutput, {
+                    k: _cameras.warp_image_between_cameras(cam, original_camera, cast(np.ndarray, v)) for k, v in out.items()})
+            return out
+        return cast(TRender, _render)
     return decorator
 
 
@@ -299,7 +295,7 @@ def render_all_images(
     logging.info(f"Rendering images with evaluation protocol {evaluation_protocol.get_name()}")
     background_color =  dataset["metadata"].get("background_color", None)
     if background_color is not None:
-        background_color = convert_image_dtype(background_color, np.uint8)
+        background_color = convert_image_dtype(np.array(background_color), np.uint8)
     if nb_info is None:
         nb_info = {}
     else:
@@ -316,11 +312,15 @@ def render_all_images(
     nb_info["checkpoint_sha256"] = get_method_sha(method)
     nb_info["evaluation_protocol"] = evaluation_protocol.get_name()
 
+    def _render_all():
+        for i in range(len(dataset["cameras"])):
+            yield evaluation_protocol.render(method, dataset_index_select(dataset, [i]))
+
     with tqdm(desc=description, total=len(dataset["image_paths"]), dynamic_ncols=True) as progress:
-        for val in save_predictions(output,
-                                    evaluation_protocol.render(method, dataset),
-                                    dataset=dataset,
-                                    nb_info=nb_info):
+        for val in _save_predictions_iterate(output,
+                                             _render_all(),
+                                             dataset=dataset,
+                                             nb_info=nb_info):
             progress.update(1)
             yield val
 
@@ -351,9 +351,12 @@ def render_frames(
             raise ValueError(f"Output type {output_name} not supported by method. Supported types: {list(output_types_map.keys())}")
 
     def _predict_all(allow_transparency=True):
-        options: RenderOptions = {"output_type_dtypes": {"color": "uint8"}}
-        predictions = render(cameras, embeddings=embeddings, options=options)
-        for i, pred in enumerate(tqdm(predictions, desc=description, total=len(cameras), dynamic_ncols=True)):
+        for i in tqdm(range(len(cameras)), desc=description, total=len(cameras), dynamic_ncols=True):
+            options: RenderOptions = {
+                "output_type_dtypes": {"color": "uint8"},
+                "embedding": (embeddings[i] if embeddings is not None else None),
+            }
+            pred = render(cameras[i], options=options)
             out = {}
             for output_name in output_names:
                 output_type = output_types_map[output_name]

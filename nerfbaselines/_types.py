@@ -374,7 +374,7 @@ RenderOutput = Dict[str, np.ndarray]
 
 class OptimizeEmbeddingsOutput(TypedDict):
     embedding: np.ndarray
-    render_output: RenderOutput
+    render_output: Optional[RenderOutput]
     metrics: NotRequired[Dict[str, Sequence[float]]]
 
 
@@ -404,6 +404,7 @@ class ModelInfo(TypedDict, total=False):
 
 
 class RenderOptions(TypedDict, total=False):
+    embedding: Optional[np.ndarray]
     outputs: Tuple[str, ...]
     output_type_dtypes: Dict[str, str]
 
@@ -438,7 +439,6 @@ class Method(Protocol):
         """
         raise NotImplementedError()
 
-    @abstractmethod
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
         """
         Get the embedding for the given image index.
@@ -451,29 +451,28 @@ class Method(Protocol):
         """
         return None
 
-    @abstractmethod
-    def optimize_embeddings(
-        self, 
-        dataset: Dataset,
-        embeddings: Optional[Sequence[np.ndarray]] = None
-    ) -> Iterable[OptimizeEmbeddingsOutput]:
+    def optimize_embedding(self, 
+                           dataset: Dataset, *,
+                           embedding: Optional[np.ndarray] = None) -> OptimizeEmbeddingsOutput:
         """
-        Optimize embeddings for each image in the dataset.
+        Optimize embedding for a single image (passed as a dataset with a single image).
 
         Args:
-            dataset: Dataset.
-            embeddings: Optional initial embeddings.
+            dataset: A dataset with a single image.
+            embeddings: Optional initial embedding.
         """
         raise NotImplementedError()
 
     @abstractmethod
-    def render(self, cameras: Cameras, *, embeddings: Optional[Sequence[np.ndarray]] = None, options: Optional[RenderOptions] = None) -> Iterable[RenderOutput]:  # [h w c]
+    def render(self, 
+               camera: Cameras, *, 
+               options: Optional[RenderOptions] = None) -> RenderOutput:  # [h w c]
         """
-        Render images.
+        Render single image.
 
         Args:
-            cameras: Cameras.
-            embeddings: Optional image embeddings.
+            camera: Camera from which the scene is to be rendered.
+            options: Optional rendering options.
         """
         raise NotImplementedError()
 
@@ -503,10 +502,10 @@ class EvaluationProtocol(Protocol):
     def get_name(self) -> str:
         ...
         
-    def render(self, method: Method, dataset: Dataset, *, options: Optional[RenderOptions] = None) -> Iterable[RenderOutput]:
+    def render(self, method: Method, dataset: Dataset, *, options: Optional[RenderOptions] = None) -> RenderOutput:
         ...
 
-    def evaluate(self, predictions: Iterable[RenderOutput], dataset: Dataset) -> Iterable[Dict[str, Union[float, int]]]:
+    def evaluate(self, predictions: RenderOutput, dataset: Dataset) -> Dict[str, Union[float, int]]:
         ...
 
     def accumulate_metrics(self, metrics: Iterable[Dict[str, Union[float, int]]]) -> Dict[str, Union[float, int]]:
