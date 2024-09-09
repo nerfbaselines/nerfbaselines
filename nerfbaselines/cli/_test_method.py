@@ -328,11 +328,12 @@ def main(method_name: str,
                     print("Loaded model info: \n", pprint.pformat(model2_info))
                     assert model2_info.get("loaded_step", None) == steps, f"Loaded step is not correct {model2_info.get('loaded_step')} != {steps}"
                     mark_success("Loading from checkpoint (without train dataset) passes")
-                    model2.save(os.path.join(tmpdir, "ckpt2"))
-                    del model2_info
                 except Exception:
                     traceback.print_exc()
                     mark_error("Loading from checkpoint (without train dataset) fails")
+
+                model2.save(os.path.join(tmpdir, "ckpt2"))
+                del model2_info
 
                 # Compare the checkpoints
                 if not os.path.exists(os.path.join(tmpdir, "ckpt2")):
