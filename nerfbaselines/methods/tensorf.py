@@ -152,7 +152,6 @@ class TensoRFDataset:
     def _setup(self, dataset: Dataset):
         self.all_rays = []
         self.all_rgbs = []
-        self.reso_mask = None
 
         for i, cam in enumerate(dataset["cameras"]):
             if dataset["metadata"].get("type") == "forward-facing":
@@ -209,6 +208,7 @@ class TensoRF(Method):
         self.checkpoint = checkpoint
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.renderer = OctreeRender_trilinear_fast
+        self.reso_mask = None
 
         self.metadata = {}
         self._arg_list = ()
