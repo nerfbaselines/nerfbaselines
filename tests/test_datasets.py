@@ -1,3 +1,4 @@
+import numpy as np
 import json
 import os
 from unittest import mock
@@ -71,6 +72,7 @@ def test_blender_dataset(tmp_path):
     assert test_dataset["metadata"].get("evaluation_protocol") == "nerf"
     test_images = [os.path.relpath(x, test_dataset["image_paths_root"]) for x in test_dataset["image_paths"][:5]]
     assert test_images == ['test/r_0.png', 'test/r_1.png', 'test/r_2.png', 'test/r_3.png', 'test/r_4.png']
+    assert test_dataset["images"][0].shape == (800, 800, 4)
 
 
 @pytest.mark.dataset("mipnerf360")
@@ -83,6 +85,7 @@ def test_mipnerf360_dataset(tmp_path):
     assert test_dataset["metadata"].get("evaluation_protocol") == "nerf"
     test_images = [os.path.relpath(x, test_dataset["image_paths_root"]) for x in test_dataset["image_paths"][:5]]
     assert test_images == ['_DSC9040.JPG', '_DSC9048.JPG', '_DSC9056.JPG', '_DSC9064.JPG', '_DSC9072.JPG']
+    assert test_dataset["images"][0].shape == (828, 1256, 3)
 
 
 @pytest.mark.dataset("llff")
@@ -95,6 +98,7 @@ def test_llff_dataset(tmp_path):
     assert test_dataset["metadata"].get("evaluation_protocol") == "nerf"
     test_images = [os.path.relpath(x, test_dataset["image_paths_root"]) for x in test_dataset["image_paths"][:5]]
     assert test_images == ['images_4/image000.png', 'images_4/image008.png', 'images_4/image016.png']
+    assert test_dataset["images"][0].shape == (756, 1008, 3)
 
 
 @pytest.mark.dataset("phototourism")
@@ -107,7 +111,7 @@ def test_phototourism_dataset(tmp_path):
     assert test_images == ['25927611_9367586008.jpg', '25422767_2496685776.jpg', 
                            '24887636_5651358818.jpg', '24540065_12909555815.jpg', 
                            '24454809_14006921991.jpg']
-
+    assert test_dataset["images"][0].shape == (1020, 680, 3)
 
 
 @pytest.mark.dataset("tanksandtemples")
@@ -119,6 +123,7 @@ def test_tanksandtemples_dataset(tmp_path):
     test_images = [os.path.relpath(x, test_dataset["image_paths_root"]) for x in test_dataset["image_paths"][:5]]
     assert test_images == ['000001.jpg', '000009.jpg',
                            '000017.jpg', '000025.jpg', '000033.jpg']
+    assert test_dataset["images"][0].shape == (543, 979, 3)
 
 
 @pytest.mark.dataset("seathru-nerf")
@@ -131,6 +136,7 @@ def test_seathru_nerf_dataset(tmp_path):
     assert test_dataset["metadata"].get("evaluation_protocol") == "default"
     test_images = [os.path.relpath(x, test_dataset["image_paths_root"]) for x in test_dataset["image_paths"][:5]]
     assert test_images == ['MTN_1288.png', 'MTN_1296.png', 'MTN_1304.png']
+    assert test_dataset["images"][0].shape == (1182, 1776, 3)
 
 
 @pytest.mark.dataset("nerfstudio")
@@ -141,6 +147,46 @@ def test_nerfstudio_dataset(tmp_path):
     assert test_dataset["metadata"].get("evaluation_protocol") == "default"
     test_images = [os.path.relpath(x, test_dataset["image_paths_root"]) for x in test_dataset["image_paths"][:5]]
     assert test_images == ["frame_00011.png", "frame_00021.png", "frame_00031.png", "frame_00041.png", "frame_00051.png"]
+    assert test_dataset["images"][0].shape == (540, 960, 3)
+
+
+def test_phototourism_evaluation_protocol(tmp_path):
+    from nerfbaselines import new_cameras, new_dataset
+    from nerfbaselines.evaluation import render_all_images
+
+    method = mock.MagicMock()
+    method.render.return_value = {
+        "color": np.zeros((50, 60, 3), dtype=np.uint8),
+    }
+    method.optimize_embedding.return_value = {
+        "embedding": np.zeros(12, dtype=np.float32),
+    }
+
+    list(render_all_images(method, new_dataset(
+        images=[np.zeros((50, 60, 3), dtype=np.uint8) for _ in range(2)],
+        image_paths=[str(tmp_path / f"image_{i}.png") for i in range(2)],
+        cameras=new_cameras(
+            poses=np.eye(4)[None, ...].repeat(2, axis=0)[..., :3, :4],
+            intrinsics=np.array([[50, 50, 30, 25], [50, 50, 30, 25]], dtype=np.float32),
+            camera_models=np.array([0, 0], dtype=np.int32),
+            image_sizes=np.array([[60, 50], [60, 50]], dtype=np.int32),
+        ),
+        metadata={
+            "evaluation_protocol": "nerfw",
+        }
+    ), output=str(tmp_path / "output")))
+    assert method.render.call_count == 2
+    args, kwargs = method.render.call_args
+    assert len(args) == 1
+    args[0].item()  # Assert single camera
+    assert kwargs.get("options") is not None
+    assert kwargs["options"].get("embedding") is not None
+    assert kwargs["options"]["embedding"].shape == (12,)
+
+    assert method.optimize_embedding.call_count == 2
+    args, kwargs = method.optimize_embedding.call_args
+    assert len(args) == 1
+    assert kwargs["embedding"] is None
 
 
 def test_all_dataset_tested():
