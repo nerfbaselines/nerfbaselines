@@ -17,7 +17,7 @@ import logging
 import numpy as np
 from argparse import ArgumentParser
 from functools import partial
-from typing import Optional, Iterable, Sequence, Any
+from typing import Optional, Any
 from nerfbaselines import (
     Method, Dataset, Cameras, RenderOutput,
     OptimizeEmbeddingsOutput, 
@@ -621,29 +621,29 @@ class NeRFWReimpl(Method):
                     p.requires_grad = r
 
     @torch.no_grad()
-    def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
-        del options
+    def render(self, camera: Cameras, *, options=None) -> RenderOutput:
+        camera = camera.item()  # Ensure it is a single camera
         model = self._model
         device = next(iter(model.parameters())).device
         assert device.type == "cuda", "Model is not on GPU"
-        for i in range(len(cameras)):
-            rays = self.camera_transformer.get_rays(cameras[i:i+1]).to(device) # (H*W, 8)
-            ts = torch.zeros((len(rays),), dtype=torch.long, device=device)
 
-            embedding = embeddings[i] if embeddings is not None else None
-            na = self.hparams.N_a
-            embedding_a, embedding_t = (embedding[..., :na], embedding[..., na:]) if embedding is not None else (None, None)
-            with self._with_eval_embedding(embedding_a, embedding_t) as model:
-                results = model(rays, ts, output_device=torch.device("cpu"))
+        rays = self.camera_transformer.get_rays(camera[None]).to(device) # (H*W, 8)
+        ts = torch.zeros((len(rays),), dtype=torch.long, device=device)
 
-            typ = 'fine' if 'rgb_fine' in results else 'coarse'
-            W, H = cameras.image_sizes[i]
-            img = results[f'rgb_{typ}'].view(H, W, 3) # (3, H, W)
-            depth = results[f'depth_{typ}'].view(H, W) # (3, H, W)
-            yield {
-                "color": img.detach().cpu().numpy(),
-                "depth": depth.detach().cpu().numpy(),
-            }
+        embedding = (options or {}).get("embedding", None)
+        na = self.hparams.N_a
+        embedding_a, embedding_t = (embedding[..., :na], embedding[..., na:]) if embedding is not None else (None, None)
+        with self._with_eval_embedding(embedding_a, embedding_t) as model:
+            results = model(rays, ts, output_device=torch.device("cpu"))
+
+        typ = 'fine' if 'rgb_fine' in results else 'coarse'
+        W, H = camera.image_sizes
+        img = results[f'rgb_{typ}'].view(H, W, 3) # (3, H, W)
+        depth = results[f'depth_{typ}'].view(H, W) # (3, H, W)
+        return {
+            "color": img.detach().cpu().numpy(),
+            "depth": depth.detach().cpu().numpy(),
+        }
 
     @property
     def _is_rank0(self):
@@ -698,84 +698,67 @@ class NeRFWReimpl(Method):
         if self.hparams.encode_a:
             return self._model.embedding_a.weight.data.mean(0).cpu().numpy()
 
-    def optimize_embeddings(
-        self, 
-        dataset: Dataset,
-        embeddings: Optional[Sequence[np.ndarray]] = None
-    ) -> Iterable[OptimizeEmbeddingsOutput]:
-        """
-        Optimize embeddings for each image in the dataset.
-
-        Args:
-            dataset: Dataset.
-            embeddings: Optional initial embeddings.
-        """
+    def optimize_embedding(self, dataset: Dataset, *, embedding: Optional[np.ndarray] = None) -> OptimizeEmbeddingsOutput:
         torch.cuda.empty_cache()
-        cameras = dataset["cameras"]
+        camera = dataset["cameras"].item()  # Ensure it is a single camera
         model = self._model
         device = next(iter(model.parameters())).device
         assert device.type == "cuda", "Model is not on GPU"
-        for i in range(len(dataset["cameras"])):
-            embedding = embeddings[i] if embeddings is not None else None
-            # TODO: nondefault embedding
-            if embedding is not None:
-                embedding_th = torch.from_numpy(embedding).to(device=device)
-                embedding_a = embedding_th[..., :self.hparams.N_a]
-                embedding_t = embedding_th[..., self.hparams.N_a:]
-            else:
-                embedding_a = self._model.embedding_a.weight.mean(0)
-                embedding_t = self._model.embedding_t.weight.mean(0)
 
-            param_a = torch.nn.Parameter(embedding_a.clone().detach().to(device=device).requires_grad_(True), requires_grad=True)
-            param_t = torch.nn.Parameter(embedding_t.clone().detach().to(device=device).requires_grad_(True), requires_grad=True)
-            params = [param_a, param_t] if self.hparams.appearance_optim_finetune_tau else [param_a]
-            optim = torch.optim.Adam(params, lr=self.hparams.appearance_optim_lr)
-            num_steps = self.hparams.appearance_optim_steps
-            lr_sched = torch.optim.lr_scheduler.StepLR(optim, step_size=num_steps//3, gamma=0.1)
-            mses = []
-            psnrs = []
-            all_rays = self.camera_transformer.get_rays(cameras[i:i+1]) # (H*W, 8)
-            w, h = cameras.image_sizes[i]
-            img_data = dataset["images"][i]
-            all_rgbs = torch.from_numpy(convert_image_dtype(img_data[:h, :w], np.float32).reshape(-1, img_data.shape[-1])) # (H*W, 3)
-            assert all_rays.size(0) == all_rgbs.size(0), f"Rays and images size mismatch {all_rays.size(0)} != {all_rgbs.size(0)}"
-            with self._with_eval_embedding(param_a, param_t) as model, \
-                 tqdm.tqdm(total=num_steps, desc=f"Optimizing image embedding [{i}/{len(cameras)}]") as pbar:
-                for _ in range(num_steps):
-                    optim.zero_grad()
-                    local_indices = torch.randperm(len(all_rays))[:self.hparams.batch_size]
-                    rays = all_rays[local_indices].to(device)
-                    rgbs = all_rgbs[local_indices].to(device)
-                    ts = torch.zeros((len(rays),), dtype=torch.long, device=device)
+        # TODO: nondefault embedding
+        if embedding is not None:
+            embedding_th = torch.from_numpy(embedding).to(device=device)
+            embedding_a = embedding_th[..., :self.hparams.N_a]
+            embedding_t = embedding_th[..., self.hparams.N_a:]
+        else:
+            embedding_a = self._model.embedding_a.weight.mean(0)
+            embedding_t = self._model.embedding_t.weight.mean(0)
 
-                    results = model(rays, ts)
-                    typ = 'fine' if 'rgb_fine' in results else 'coarse'
-                    img = results[f'rgb_{typ}']
-                    mse = torch.nn.functional.mse_loss(img, rgbs).mean()
-                    mse.backward()
-                    assert param_a.grad is not None and torch.isfinite(param_a.grad).all()
-                    assert param_t.grad is not None and torch.isfinite(param_t.grad).all()
-                    optim.step()
-                    lr_sched.step()
-                    mses.append(mse.item())
-                    psnrs.append(10 * math.log10(1 / mse.item()))
-                    pbar.set_postfix({"mse": f"{mse.item():.4f}", "psnr": f"{psnrs[-1]:.3f}"})
-                    pbar.update()
+        param_a = torch.nn.Parameter(embedding_a.clone().detach().to(device=device).requires_grad_(True), requires_grad=True)
+        param_t = torch.nn.Parameter(embedding_t.clone().detach().to(device=device).requires_grad_(True), requires_grad=True)
+        params = [param_a, param_t] if self.hparams.appearance_optim_finetune_tau else [param_a]
+        optim = torch.optim.Adam(params, lr=self.hparams.appearance_optim_lr)
+        num_steps = self.hparams.appearance_optim_steps
+        lr_sched = torch.optim.lr_scheduler.StepLR(optim, step_size=num_steps//3, gamma=0.1)
+        mses = []
+        psnrs = []
+        all_rays = self.camera_transformer.get_rays(camera[None]) # (H*W, 8)
+        w, h = camera.image_sizes
+        img_data = dataset["images"][0]
+        all_rgbs = torch.from_numpy(convert_image_dtype(img_data[:h, :w], np.float32).reshape(-1, img_data.shape[-1])) # (H*W, 3)
+        assert all_rays.size(0) == all_rgbs.size(0), f"Rays and images size mismatch {all_rays.size(0)} != {all_rgbs.size(0)}"
+        with self._with_eval_embedding(param_a, param_t) as model, \
+             tqdm.tqdm(total=num_steps, desc=f"Optimizing image embedding") as pbar:
+            for _ in range(num_steps):
+                optim.zero_grad()
+                local_indices = torch.randperm(len(all_rays))[:self.hparams.batch_size]
+                rays = all_rays[local_indices].to(device)
+                rgbs = all_rgbs[local_indices].to(device)
+                ts = torch.zeros((len(rays),), dtype=torch.long, device=device)
 
-            render_output = None
-            appearance_embedding = np.concatenate((param_a.detach().cpu().numpy(), param_t.detach().cpu().numpy()), -1)
-            for render_output in self.render(cameras[i:i+1], embeddings=([appearance_embedding] if appearance_embedding is not None else None)):
-                pass
-            assert render_output is not None
-            yield {
-                "embedding": appearance_embedding,
-                "render_output": render_output,
-                "metrics": {
-                    "psnr": psnrs,
-                    "mse": mses,
-                    "loss": mses,
-                }
+                results = model(rays, ts)
+                typ = 'fine' if 'rgb_fine' in results else 'coarse'
+                img = results[f'rgb_{typ}']
+                mse = torch.nn.functional.mse_loss(img, rgbs).mean()
+                mse.backward()
+                assert param_a.grad is not None and torch.isfinite(param_a.grad).all()
+                assert param_t.grad is not None and torch.isfinite(param_t.grad).all()
+                optim.step()
+                lr_sched.step()
+                mses.append(mse.item())
+                psnrs.append(10 * math.log10(1 / mse.item()))
+                pbar.set_postfix({"mse": f"{mse.item():.4f}", "psnr": f"{psnrs[-1]:.3f}"})
+                pbar.update()
+
+        appearance_embedding = np.concatenate((param_a.detach().cpu().numpy(), param_t.detach().cpu().numpy()), -1)
+        return {
+            "embedding": appearance_embedding,
+            "metrics": {
+                "psnr": psnrs,
+                "mse": mses,
+                "loss": mses,
             }
+        }
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
         """

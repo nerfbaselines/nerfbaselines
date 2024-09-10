@@ -22,7 +22,7 @@ Let's start by adding a file `my_method.py`. We now need to implement the {class
 ```python
 from nerfbaselines import Method
 
-class MyMethod(Method, torch.nn.Module):
+class MyMethod(Method):
     def __init__(self, *, checkpoint=None, train_dataset=None, config_overrides=None):
         ...
 
@@ -33,16 +33,8 @@ class MyMethod(Method, torch.nn.Module):
     def get_info(self) -> ModelInfo:
         ...
 
-    def get_train_embedding(self, *args, **kwargs):
-        # In this tutorial we do not support appearance embeddings
-        return None
-
-    def optimize_embeddings(self, *args, **kwargs):
-        # In this tutorial we do not support appearance embeddings
-        raise NotImplementedError()
-
     @torch.no_grad()
-    def render(self, cameras, *, embeddings=None, options=None):
+    def render(self, camera, *, options=None):
         ...
 
     def train_iteration(self, step: int) -> Dict[str, float]:
@@ -54,7 +46,7 @@ class MyMethod(Method, torch.nn.Module):
 
 In this tutorial, we will implement a simple method that optimizes a single color to be rendered.
 We will use PyTorch to demonstrate how pytorch-based methods can be integrated.
-Let's start by adding the necessary imports and implementing the {method}`__init__ <nerfbaselines.Method.__init__>` method.
+Let's start by adding the necessary imports and implementing the {class}`__init__ <nerfbaselines.Method.__init__>` method.
 The `__init__` method can be called in two ways. Either with `train_dataset` provided (for training) or without it (for inference).
 In either case, `checkpoint` can be provided to load the model from the checkpoint.
 There is also an optional `config_overrides` parameter which can be used to override the default hyperparameters.
@@ -180,18 +172,17 @@ can be implemented.
         }
 ```
 
-Finally, we implement the {meth}`render <nerfbaselines.Method.render>` method which will render the images using the provided cameras.
+Finally, we implement the {meth}`render <nerfbaselines.Method.render>` method which will render the image using the provided camera.
 ```python
     @torch.no_grad()
-    def render(self, cameras, *, embeddings=None, options=None):
+    def render(self, camera, *, options=None):
         # Render the images
-        for camera in cameras:
-            w, h = camera.image_sizes
+        w, h = camera.image_sizes
 
-            # Here we simply render a single color image
-            yield {
-                "color": self.color[None, None, :].expand(h, w, 3).detach().cpu().numpy(),
-            }
+        # Here we simply render a single color image
+        yield {
+            "color": self.color[None, None, :].expand(h, w, 3).detach().cpu().numpy(),
+        }
 ```
 
 Now we have successfully implemented a simple method that optimizes a single color to be rendered.

@@ -5,14 +5,14 @@ import warnings
 import shlex
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, Sequence, Optional
+from typing import Any, Dict, Optional
 from argparse import ArgumentParser
 import tempfile
 import logging
 import numpy as np
 
 from nerfbaselines import (
-    Dataset, OptimizeEmbeddingsOutput, RenderOutput, MethodInfo, ModelInfo,
+    Dataset, RenderOutput, MethodInfo, ModelInfo,
     Cameras, CameraModel, Method,
 )
 from nerfbaselines import cameras as _cameras
@@ -474,50 +474,21 @@ class NeRF(Method):
             out["mse0"] = img_loss0.numpy().item()
         return out
 
-    def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
+    def render(self, camera: Cameras, *, options=None) -> RenderOutput:
         del options
-        if embeddings is not None:
-            method_id = self.get_method_info()["method_id"]
-            raise NotImplementedError(f"Optimizing embeddings is not supported for method {method_id}")
-        cameras, _ = transform_cameras(self.args, cameras, self.transform_args)
-        for idx in range(len(cameras.poses)):
-            W, H = cameras.image_sizes[idx]
-            # TODO: handle fx != fy
-            focal = cameras.intrinsics[idx, 0]
-            batch_rays = get_rays(cameras[idx:idx+1])
-            rays_o, rays_d = batch_rays[:, 0], batch_rays[:, 1]
-            rgb, disp, acc, extras = render(
-                H, W, focal, chunk=self.args.chunk, rays=(rays_o, rays_d), **self.render_kwargs_test)
-            del disp
-            rgb = np.clip(rgb.numpy(), 0.0, 1.0)
-            yield {
-                "color": rgb.reshape(H, W, 3),
-                "accumulation": acc.numpy().reshape(H, W),
-                "depth": extras["depth"].numpy().reshape(H, W)
-            }
-
-    def optimize_embeddings(
-        self, 
-        dataset: Dataset,
-        embeddings: Optional[Sequence[np.ndarray]] = None
-    ) -> Iterable[OptimizeEmbeddingsOutput]:
-        """
-        Optimize embeddings for each image in the dataset.
-
-        Args:
-            dataset: Dataset.
-            embeddings: Optional initial embeddings.
-        """
-        del dataset, embeddings
-        raise NotImplementedError()
-
-    def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
-        """
-        Get the embedding for a training image.
-
-        Args:
-            index: Index of the image.
-        """
-        del index
-        return None
-
+        camera = camera.item()
+        cameras, _ = transform_cameras(self.args, camera[None], self.transform_args)
+        W, H = cameras.image_sizes[0]
+        # TODO: handle fx != fy
+        focal = cameras.intrinsics[0, 0]
+        batch_rays = get_rays(cameras[:1])
+        rays_o, rays_d = batch_rays[:, 0], batch_rays[:, 1]
+        rgb, disp, acc, extras = render(
+            H, W, focal, chunk=self.args.chunk, rays=(rays_o, rays_d), **self.render_kwargs_test)
+        del disp
+        rgb = np.clip(rgb.numpy(), 0.0, 1.0)
+        return {
+            "color": rgb.reshape(H, W, 3),
+            "accumulation": acc.numpy().reshape(H, W),
+            "depth": extras["depth"].numpy().reshape(H, W)
+        }

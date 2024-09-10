@@ -16,11 +16,11 @@ from dataclasses import fields
 from pathlib import Path
 import copy
 import tempfile
-from typing import Iterable, Optional, TypeVar, Sequence, Union
+from typing import Optional, TypeVar, Union
 from typing_extensions import Literal, get_origin, get_args
 import numpy as np
 from nerfbaselines import (
-    Method, OptimizeEmbeddingsOutput, MethodInfo, ModelInfo,
+    Method, MethodInfo, ModelInfo,
     Dataset, RenderOutput,
     Cameras, camera_model_from_int,
 )
@@ -483,11 +483,10 @@ class NerfStudio(Method):
         )
 
     @torch.no_grad()
-    def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
+    def render(self, camera: Cameras, *, options=None) -> RenderOutput:
         del options
-        if embeddings is not None:
-            method_id = self.get_method_info()["method_id"]
-            raise NotImplementedError(f"Optimizing embeddings is not supported for method {method_id}")
+        camera = camera.item()
+        cameras = camera[None]
         poses = cameras.poses.copy()
 
         # Convert from Opencv to OpenGL coordinate system
@@ -518,21 +517,22 @@ class NerfStudio(Method):
         ).to(self._trainer.pipeline.device)
         self._trainer.pipeline.eval()
         global_i = 0
-        for i in range(len(poses)):
-            ray_bundle = ns_cameras.generate_rays(camera_indices=i, keep_shape=True)
-            get_outputs = self._trainer.pipeline.model.get_outputs_for_camera_ray_bundle
-            outputs = get_outputs(ray_bundle)
-            global_i += int(sizes[i].prod(-1))
-            color = self._trainer.pipeline.model.get_rgba_image(outputs)
-            color = color.detach().cpu().numpy()
-            out = {
-                "color": color,
-                "accumulation": outputs["accumulation"].detach().cpu().numpy(),
-            }
-            if "depth" in outputs:
-                out["depth"] = outputs["depth"].view(*outputs["depth"].shape[:2]).detach().cpu().numpy()
-            yield out
-        self._trainer.pipeline.train()
+
+        assert len(poses) == 1
+        i = 0
+        ray_bundle = ns_cameras.generate_rays(camera_indices=i, keep_shape=True)
+        get_outputs = self._trainer.pipeline.model.get_outputs_for_camera_ray_bundle
+        outputs = get_outputs(ray_bundle)
+        global_i += int(sizes[i].prod(-1))
+        color = self._trainer.pipeline.model.get_rgba_image(outputs)
+        color = color.detach().cpu().numpy()
+        out = {
+            "color": color,
+            "accumulation": outputs["accumulation"].detach().cpu().numpy(),
+        }
+        if "depth" in outputs:
+            out["depth"] = outputs["depth"].view(*outputs["depth"].shape[:2]).detach().cpu().numpy()
+        return out
 
     def _patch_dataparser(self, dataparser_cls, *, train_dataset, dataparser_transforms, dataparser_scale, config):
         del dataparser_cls
@@ -764,29 +764,3 @@ class NerfStudio(Method):
         if self._tmpdir is not None:
             self._tmpdir.cleanup()
             self._tmpdir = None
-
-    def optimize_embeddings(
-        self, 
-        dataset: Dataset,
-        embeddings: Optional[Sequence[np.ndarray]] = None
-    ) -> Iterable[OptimizeEmbeddingsOutput]:
-        """
-        Optimize embeddings for each image in the dataset.
-
-        Args:
-            dataset: Dataset.
-            embeddings: Optional initial embeddings.
-        """
-        del dataset, embeddings
-        raise NotImplementedError()
-
-    def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
-        """
-        Get the embedding for a training image.
-
-        Args:
-            index: Index of the image.
-        """
-        del index
-        return None
-

@@ -18,6 +18,7 @@ from nerfbaselines import (
     MethodSpec,
     Method,
     Dataset,
+    RenderOutput,
 )
 from nerfbaselines.datasets import load_dataset, dataset_index_select
 from nerfbaselines.logging import TensorboardLogger
@@ -99,16 +100,16 @@ def _validate_public_checkpoint(method_cls: Type[Method],
         logging.info("Stored metrics may be in incorrect order (older version of nerfbaselines), computing GT metrics from scratch.")
         # For older versions, raw_metrics were unsorted 
         # so we recompute metrics from scratch.
-        def read_gt_predictions():
-            # Load the prediction
-            for impath in test_dataset["image_paths"]:
-                relpath = os.path.relpath(impath, test_dataset["image_paths_root"])
-                relpath = os.path.splitext(relpath)[0] + ".png"
-                yield {
-                    "color": read_image(os.path.join(checkpoint, "predictions", "color", relpath))
-                }
-
-        gt_metrics = list(eval_protocol.evaluate(read_gt_predictions(), test_dataset))
+        gt_metrics = []
+        for i in range(len(test_dataset["cameras"])):
+            impath = test_dataset["image_paths"][i]
+            relpath = os.path.relpath(impath, test_dataset["image_paths_root"])
+            relpath = os.path.splitext(relpath)[0] + ".png"
+            pred: RenderOutput = {
+                "color": read_image(os.path.join(checkpoint, "predictions", "color", relpath))
+            }
+            gt_metrics.append(
+                eval_protocol.evaluate(pred, dataset_index_select(test_dataset, [i])))
         return np.array([x["psnr"] for x in gt_metrics], dtype=np.float32)
 
     # Get checkpoint path
@@ -137,8 +138,11 @@ def _validate_public_checkpoint(method_cls: Type[Method],
         method = method_cls(checkpoint=artifact_path + os.path.sep + "checkpoint")
 
         # Validate if the results match
-        render_output = list(eval_protocol.render(method, test_dataset))
-        metrics = list(eval_protocol.evaluate(render_output, test_dataset))
+        test_dataset_slices = [
+            dataset_index_select(test_dataset, [i]) 
+            for i in range(len(test_dataset["cameras"]))]
+        render_output = [eval_protocol.render(method, d) for d in test_dataset_slices]
+        metrics = list(map(eval_protocol.evaluate, render_output, test_dataset_slices))
         pred_psnrs = np.array([met["psnr"] for met in metrics], np.float32)
 
         if np.max(np.abs(gt_psnrs - pred_psnrs)) > 3.0:
@@ -280,6 +284,7 @@ def main(method_name: str,
             model_info = model.get_info()
             logging.info("Method info: " + pprint.pformat(model_info))
             mark_success("Model initialized")
+            steps = min(steps, model_info.get("num_iterations", steps))
             del model_info
 
             # Test running the training
@@ -301,9 +306,7 @@ def main(method_name: str,
                          split="test", nb_info=nb_info, output=tmpdir_logger)
                 mark_success("Eval all passes")
 
-            render_out = None
-            for render_out in model.render(test_dataset["cameras"][:1]):
-                pass
+            render_out = model.render(test_dataset["cameras"][0])
             assert render_out is not None, "Render output is None" 
             logging.info("Render output: " + pprint.pformat({
                 k: getattr(v, "shape", None)
@@ -328,12 +331,13 @@ def main(method_name: str,
                     print("Loaded model info: \n", pprint.pformat(model2_info))
                     assert model2_info.get("loaded_step", None) == steps, f"Loaded step is not correct {model2_info.get('loaded_step')} != {steps}"
                     mark_success("Loading from checkpoint (without train dataset) passes")
+                    del model2_info
                 except Exception:
                     traceback.print_exc()
                     mark_error("Loading from checkpoint (without train dataset) fails")
 
-                model2.save(os.path.join(tmpdir, "ckpt2"))
-                del model2_info
+                if model2 is not None:
+                    model2.save(os.path.join(tmpdir, "ckpt2"))
 
                 # Compare the checkpoints
                 if not os.path.exists(os.path.join(tmpdir, "ckpt2")):
@@ -347,9 +351,7 @@ def main(method_name: str,
                         mark_success("Resaving method yields same checkpoint")
 
                 def test_render(model2, post):
-                    render2_out = None
-                    for render2_out in model2.render(test_dataset["cameras"][:1]):
-                        pass
+                    render2_out = model2.render(test_dataset["cameras"][0])
                     assert render2_out is not None, "Render output is None"
                     logging.info("Render loaded model output: \n" + pprint.pformat({
                         k: getattr(v, "shape", v)
@@ -413,13 +415,13 @@ def main(method_name: str,
                 output=output,
                 save_iters=Indices([]),
                 eval_all_iters=Indices([-1]),
-                eval_few_iters=Indices([2]),
+                eval_few_iters=Indices([min(2, steps)]),
                 logger=build_logger(frozenset(("tensorboard",))),
                 generate_output_artifact=True,
                 config_overrides=_config_overrides,
                 applied_presets=frozenset(_presets))
             if fast:
-                trainer.num_iterations = max(10, steps)
+                trainer.num_iterations = steps
                 # Fix total for indices
                 for v in vars(trainer).values():
                     if isinstance(v, Indices):

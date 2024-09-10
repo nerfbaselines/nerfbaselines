@@ -27,15 +27,13 @@ def _wrap_method_class(method_class: Type[Method], spec: MethodSpec):
 
         @functools.wraps(render)
         def __render(self, *args, options=None, **kwargs):
+            out = render(self, *args, options=options, **kwargs)
             nonlocal output_types
             if output_types is None:
                 output_types = {
                     (v if isinstance(v, str) else v["name"]): (v if isinstance(v, str) else v.get("type", v["name"]))
                     for v in self.get_info().get("supported_outputs", {})}
-            for out in render(self, *args, **kwargs):
-                if not isinstance(out, dict):
-                    yield out
-                    continue
+            if isinstance(out, dict):
                 for k, v in out.items():
                     output_type = output_types.get(k, k)
                     if options is not None and options.get("output_type_dtypes") is not None:
@@ -43,7 +41,7 @@ def _wrap_method_class(method_class: Type[Method], spec: MethodSpec):
                         if dtype is not None:
                             v = convert_image_dtype(v, dtype)
                             out[k] = v
-                yield out
+            return out
         try:
             __render.__name__ = render.__name__  # type: ignore
         except AttributeError:

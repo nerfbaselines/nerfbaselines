@@ -13,10 +13,6 @@ class _TestMethod(Method):
     def __init__(self):
         self.test = self._test
 
-    def optimize_embeddings(self, *args, **kwargs):
-        del args, kwargs
-        raise NotImplementedError()
-
     @classmethod
     def get_method_info(cls):
         info: MethodInfo = {
@@ -32,25 +28,22 @@ class _TestMethod(Method):
         }
         return info
 
-    def render(self, cameras, **kwargs):
-        del kwargs
-        for _ in cameras:
-            yield {
-                "color": np.zeros((23, 30, 3), dtype=np.float32),
-                "depth": np.zeros((23, 30), dtype=np.float32),
-                "anoutput": np.zeros((23, 30), dtype=np.float32),
-                "anoutput2": np.zeros((23, 30), dtype=np.float32),
-            }
+    def render(self, camera, **kwargs):
+        del camera, kwargs
+        return {
+            "color": np.zeros((23, 30, 3), dtype=np.float32),
+            "depth": np.zeros((23, 30), dtype=np.float32),
+            "anoutput": np.zeros((23, 30), dtype=np.float32),
+            "anoutput2": np.zeros((23, 30), dtype=np.float32),
+        }
 
     def train_iteration(self, *args, **kwargs):
+        del args, kwargs
         raise NotImplementedError()
 
     def save(self, *args, **kwargs):
+        del args, kwargs
         raise NotImplementedError()
-
-    def get_train_embedding(self, *args, **kwargs):
-        raise NotImplementedError()
-
 
 
 def test_registry_build_method():
@@ -240,7 +233,8 @@ def test_method_autocast_render():
             camera_models=np.zeros(2, dtype=np.int32),
             distortion_parameters=np.zeros((2, 6)),
         )
-        for out in method.render(cameras):
+        for camera in cameras:
+            out = method.render(camera)
             assert out["color"].dtype == np.float32
             assert out["depth"].dtype == np.float32
             assert out["anoutput"].dtype == np.float32
@@ -253,7 +247,8 @@ def test_method_autocast_render():
         assert num_called == 2
 
         num_called = 0
-        for out in method.render(cameras, options={"output_type_dtypes": {"color": "uint8"}}):
+        for camera in cameras:
+            out = method.render(camera, options={"output_type_dtypes": {"color": "uint8"}})
             assert out["color"].dtype == np.uint8
             assert out["depth"].dtype == np.float32
             assert out["anoutput"].dtype == np.uint8

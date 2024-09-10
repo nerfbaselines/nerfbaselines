@@ -3,6 +3,7 @@ import struct
 import base64
 import hashlib
 import json
+from contextlib import ExitStack
 from datetime import datetime
 import numpy as np
 import time
@@ -547,14 +548,59 @@ def save_evaluation_results(file,
         return out
 
 
-def save_predictions(output: str, predictions: Iterable[RenderOutput], dataset: Dataset, *, nb_info=None) -> Iterable[RenderOutput]:
+def _save_predictions_iterate(output: str, predictions: Iterable[RenderOutput], dataset: Dataset, *, nb_info=None):
     background_color =  dataset["metadata"].get("background_color", None)
     assert background_color is None or background_color.dtype == np.uint8, "background_color must be None or uint8"
-    color_space = dataset["metadata"]["color_space"]
+    color_space = dataset["metadata"].get("color_space", "srgb")
     expected_scene_scale = dataset["metadata"].get("expected_scene_scale")
     allow_transparency = True
 
-    def _predict_all(open_fn) -> Iterable[RenderOutput]:
+    with ExitStack() as stack:
+        if str(output).endswith(".tar.gz"):
+            tar = stack.enter_context(tarfile.open(output, "w:gz"))
+
+            @contextlib.contextmanager
+            def open_fn_tar(path):
+                rel_path = path
+                path = os.path.join(output, path)
+                tarinfo = tarfile.TarInfo(name=rel_path)
+                tarinfo.mtime = int(time.time())
+                with io.BytesIO() as f:
+                    f.name = path
+                    yield f
+                    tarinfo.size = f.tell()
+                    f.seek(0)
+                    tar.addfile(tarinfo=tarinfo, fileobj=f)
+            open_fn = open_fn_tar
+        else:
+            def open_fn_fs(path):
+                path = os.path.join(output, path)
+                Path(path).parent.mkdir(parents=True, exist_ok=True)
+                return open(path, "wb")
+
+            open_fn = open_fn_fs
+
+        # Write metadata
+        from pprint import pprint
+        pprint(nb_info)
+        with open_fn("info.json") as fp:
+            _background_color = background_color
+            if isinstance(_background_color, np.ndarray):
+                _background_color = _background_color.tolist()
+            fp.write(
+                json.dumps(
+                    serialize_nb_info(
+                        {
+                            **(nb_info or {}),
+                            "render_version": __version__,
+                            "render_datetime": datetime.utcnow().isoformat(timespec="seconds"),
+                            "render_dataset_metadata": dataset["metadata"],
+                        }),
+                    indent=2,
+                ).encode("utf-8")
+            )
+
+
         for i, (pred, (w, h)) in enumerate(zip(predictions, _assert_not_none(dataset["cameras"].image_sizes))):
             gt_image = image_to_srgb(dataset["images"][i][:h, :w], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
             pred_image = image_to_srgb(pred["color"], np.uint8, color_space=color_space, allow_alpha=allow_transparency, background_color=background_color)
@@ -587,53 +633,10 @@ def save_predictions(output: str, predictions: Iterable[RenderOutput], dataset: 
                     save_image(f, pred["color"])
             yield pred
 
-    def write_metadata(open_fn):
-        from pprint import pprint
-        pprint(nb_info)
-        with open_fn("info.json") as fp:
-            background_color = dataset["metadata"].get("background_color", None)
-            if isinstance(background_color, np.ndarray):
-                background_color = background_color.tolist()
-            fp.write(
-                json.dumps(
-                    serialize_nb_info(
-                        {
-                            **(nb_info or {}),
-                            "render_version": __version__,
-                            "render_datetime": datetime.utcnow().isoformat(timespec="seconds"),
-                            "render_dataset_metadata": dataset["metadata"],
-                        }),
-                    indent=2,
-                ).encode("utf-8")
-            )
 
-    if str(output).endswith(".tar.gz"):
-        with tarfile.open(output, "w:gz") as tar:
-
-            @contextlib.contextmanager
-            def open_fn_tar(path):
-                rel_path = path
-                path = os.path.join(output, path)
-                tarinfo = tarfile.TarInfo(name=rel_path)
-                tarinfo.mtime = int(time.time())
-                with io.BytesIO() as f:
-                    f.name = path
-                    yield f
-                    tarinfo.size = f.tell()
-                    f.seek(0)
-                    tar.addfile(tarinfo=tarinfo, fileobj=f)
-
-            write_metadata(open_fn_tar)
-            yield from _predict_all(open_fn_tar)
-    else:
-
-        def open_fn_fs(path):
-            path = os.path.join(output, path)
-            Path(path).parent.mkdir(parents=True, exist_ok=True)
-            return open(path, "wb")
-
-        write_metadata(open_fn_fs)
-        yield from _predict_all(open_fn_fs)
+def save_predictions(output: str, predictions: Iterable[RenderOutput], dataset: Dataset, *, nb_info=None):
+    for _ in _save_predictions_iterate(output, predictions, dataset, nb_info=nb_info):
+        pass
 
 
 def save_output_artifact(model_path: Union[str, Path], predictions_path: Union[str, Path], metrics_path: Union[str, Path], tensorboard_path: Union[str, Path], output_path: Union[str, Path], validate: bool = True):
@@ -804,5 +807,3 @@ def save_depth(file: Union[BinaryIO, str, Path], tensor: np.ndarray):
     assert str(path).endswith(".bin")
     file.write(struct.pack("ii", tensor.shape[0], tensor.shape[1]))
     file.write(tensor.astype(np.float16).tobytes())
-
-

@@ -1,7 +1,7 @@
 import sys
 import shutil
 import json
-from typing import Iterable, cast
+from typing import cast
 from pathlib import Path
 import os
 import numpy as np
@@ -79,20 +79,14 @@ class _TestMethod(Method):
             "num_iterations": 13,
         }
 
-    def optimize_embeddings(self, *args, **kwargs):
-        del args, kwargs
-        raise NotImplementedError()
-
-    def render(self, cameras: Cameras, *, embeddings=None, **kwargs) -> Iterable[RenderOutput]:
-        del kwargs
-        assert embeddings is None
+    def render(self, camera: Cameras, *, options=None) -> RenderOutput:
+        del options
         _TestMethod._render_call_step.append(_TestMethod._last_step)
-        for i in range(len(cameras)):
-            cam = cameras[i]
-            assert cam.image_sizes is not None
-            yield {
-                "color": np.zeros([cam.image_sizes[1], cam.image_sizes[0], 3], dtype=np.float32),
-            }
+        cam = camera.item()
+        assert cam.image_sizes is not None
+        return {
+            "color": np.zeros([cam.image_sizes[1], cam.image_sizes[0], 3], dtype=np.float32),
+        }
 
     def train_iteration(self, step: int) -> dict:
         _TestMethod._last_step = step
@@ -100,10 +94,6 @@ class _TestMethod(Method):
 
     def save(self, path: str):
         self._save_paths.append(path)
-
-    def get_train_embedding(self, *args, **kwargs):
-        del args, kwargs
-        raise NotImplementedError()
 
 
 
@@ -156,7 +146,7 @@ def test_train_command(mock_extras, tmp_path, wandb_init_run, vis):
         registry["_test"] = spec
 
         # train_command.callback(method, checkpoint, data, output, verbose, backend, eval_single_iters, eval_all_iters, logger="none")
-        make_dataset(tmp_path / "data")
+        make_dataset(tmp_path / "data", num_images=10)
         (tmp_path / "output").mkdir()
         assert train_command.callback is not None
         train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), logger=vis)
@@ -167,7 +157,7 @@ def test_train_command(mock_extras, tmp_path, wandb_init_run, vis):
         assert _TestMethod._last_step == 12
         assert _TestMethod._setup_train_dataset is not None
         assert (tmp_path / "output" / "checkpoint-13").exists()
-        assert _TestMethod._render_call_step == [4, 4, 9, 9, 12]
+        assert _TestMethod._render_call_step == [4, 4, 9, 9, 12, 12]
 
         wandb_init_mock: mock.Mock = cast(mock.Mock, wandb.init)
         wandb_mock: mock.Mock = cast(mock.Mock, wandb.run)
@@ -245,7 +235,7 @@ def test_train_command_extras(tmp_path):
         registry["_test"] = spec
 
         # train_command.callback(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters)
-        make_dataset(tmp_path / "data")
+        make_dataset(tmp_path / "data", num_images=10)
         (tmp_path / "output").mkdir()
         train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), logger="tensorboard")
 
@@ -319,11 +309,11 @@ def test_train_command_undistort(tmp_path, wandb_init_run, mock_extras):
             assert all(train_dataset["cameras"].camera_models == 0)
             super().__init__(*args, train_dataset=train_dataset, **kwargs)
 
-        def render(self, cameras, *args, **kwargs):
+        def render(self, camera, *args, **kwargs):
             nonlocal render_was_called
             render_was_called = True
-            assert all(cameras.camera_models == 0)
-            return super().render(cameras, *args, **kwargs)
+            assert camera.camera_models == 0, "Camera should be undistorted"
+            return super().render(camera, *args, **kwargs)
 
     test_train_command_undistort._TestMethod = _Method  # type: ignore
 
@@ -342,7 +332,7 @@ def test_train_command_undistort(tmp_path, wandb_init_run, mock_extras):
         registry["_test"] = spec
 
         # train_command.callback(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters)
-        make_dataset(tmp_path / "data")
+        make_dataset(tmp_path / "data", num_images=10)
         (tmp_path / "output").mkdir()
         train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(9), Indices([1]), Indices([]), logger="none")
         assert render_was_called
@@ -379,7 +369,7 @@ def test_render_command(tmp_path, output_type):
         }
         registry["_test"] = spec
 
-        make_dataset(tmp_path / "data")
+        make_dataset(tmp_path / "data", num_images=10)
         (tmp_path / "output").mkdir()
         # Generate checkpoint
         assert train_command.callback is not None

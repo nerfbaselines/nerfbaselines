@@ -16,7 +16,7 @@ import random
 import shlex
 import logging
 import copy
-from typing import Optional, Iterable, Sequence
+from typing import Optional
 import os
 import tempfile
 import numpy as np
@@ -30,7 +30,6 @@ import torch
 from nerfbaselines import (
     Method, 
     MethodInfo, 
-    OptimizeEmbeddingsOutput, 
     RenderOutput, 
     ModelInfo,
     Cameras, 
@@ -364,53 +363,51 @@ class GaussianOpacityFields(Method):
             finally:
                 sceneLoadTypeCallbacks["Colmap"] = backup
 
-    def render(self, cameras: Cameras, *, embeddings=None, options=None) -> Iterable[RenderOutput]:
-        del options
-        assert np.all(cameras.camera_models == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
-        sizes = cameras.image_sizes
-        poses = cameras.poses
-        intrinsics = cameras.intrinsics
+    def render(self, camera: Cameras, *, options=None) -> RenderOutput:
+        camera = camera.item()
+        assert np.all(camera.camera_models == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
 
         with torch.no_grad():
-            for i, pose in enumerate(poses):
-                viewpoint_cam = _load_caminfo(i, pose, intrinsics[i], f"{i:06d}.png", sizes[i], scale_coords=self.dataset.scale_coords)
-                viewpoint = loadCam(self.dataset, i, viewpoint_cam, 1.0)
+            viewpoint_cam = _load_caminfo(0, camera.poses, camera.intrinsics, f"{0:06d}.png", camera.image_sizes, scale_coords=self.dataset.scale_coords)
+            viewpoint = loadCam(self.dataset, 0, viewpoint_cam, 1.0)
 
-                rendering = render(viewpoint, self.gaussians, self.pipe, self.background, kernel_size=self.dataset.kernel_size)["render"]
-                image = rendering[:3, :, :]
-                embedding = torch.from_numpy(embeddings[i]).to(device="cuda") if embeddings is not None else None
-                if self.dataset.use_decoupled_appearance and embedding is not None:
-                    max_idx = self.gaussians._appearance_embeddings.shape[0] - 1
-                    oldemb = self.gaussians._appearance_embeddings[max_idx]
-                    self.gaussians._appearance_embeddings.data[max_idx] = embedding
-                    image = L1_loss_appearance(image, viewpoint.original_image.cuda(), self.gaussians, max_idx, return_transformed_image=True)
-                    self.gaussians._appearance_embeddings.data[max_idx] = oldemb
+            rendering = render(viewpoint, self.gaussians, self.pipe, self.background, kernel_size=self.dataset.kernel_size)["render"]
+            image = rendering[:3, :, :]
+            embedding_np = (options or {}).get("embedding", None)
+            embedding = torch.from_numpy(embedding_np).to(device="cuda") if embedding_np is not None else None
+            del embedding_np
+            if self.dataset.use_decoupled_appearance and embedding is not None:
+                max_idx = self.gaussians._appearance_embeddings.shape[0] - 1
+                oldemb = self.gaussians._appearance_embeddings[max_idx]
+                self.gaussians._appearance_embeddings.data[max_idx] = embedding
+                image = L1_loss_appearance(image, viewpoint.original_image.cuda(), self.gaussians, max_idx, return_transformed_image=True)
+                self.gaussians._appearance_embeddings.data[max_idx] = oldemb
 
-                normal = rendering[3:6, :, :]
-                normal = torch.nn.functional.normalize(normal, p=2, dim=0)
+            normal = rendering[3:6, :, :]
+            normal = torch.nn.functional.normalize(normal, p=2, dim=0)
 
-                # transform to world space
-                c2w = (viewpoint.world_view_transform.T).inverse()
-                normal2 = c2w[:3, :3] @ normal.reshape(3, -1)
-                normal = normal2.reshape(3, *normal.shape[1:])
-                normal = (normal + 1.) / 2.
-                normal = normal.permute(1, 2, 0)
+            # transform to world space
+            c2w = (viewpoint.world_view_transform.T).inverse()
+            normal2 = c2w[:3, :3] @ normal.reshape(3, -1)
+            normal = normal2.reshape(3, *normal.shape[1:])
+            normal = (normal + 1.) / 2.
+            normal = normal.permute(1, 2, 0)
 
-                depth = rendering[6, :, :]
-                # depth_normal, _ = depth_to_normal(viewpoint, depth[None, ...])
-                # depth_normal = (depth_normal + 1.) / 2.
-                # depth_normal = depth_normal.permute(2, 0, 1)
+            depth = rendering[6, :, :]
+            # depth_normal, _ = depth_to_normal(viewpoint, depth[None, ...])
+            # depth_normal = (depth_normal + 1.) / 2.
+            # depth_normal = depth_normal.permute(2, 0, 1)
 
-                accumlated_alpha = rendering[7, :, :]
-                distortion_map = rendering[8, :, :]
+            accumlated_alpha = rendering[7, :, :]
+            distortion_map = rendering[8, :, :]
 
-                yield {
-                    "color": image.clamp(0, 1).detach().permute(1, 2, 0).cpu().numpy(),
-                    "normal": normal.cpu().numpy(),
-                    "depth": depth.cpu().numpy(),
-                    "accumulation": accumlated_alpha.cpu().numpy(),
-                    "distortion_map": distortion_map.cpu().numpy(),
-                }
+            return {
+                "color": image.clamp(0, 1).detach().permute(1, 2, 0).cpu().numpy(),
+                "normal": normal.cpu().numpy(),
+                "depth": depth.cpu().numpy(),
+                "accumulation": accumlated_alpha.cpu().numpy(),
+                "distortion_map": distortion_map.cpu().numpy(),
+            }
 
     def train_iteration(self, step):
         assert self.trainCameras is not None, "Method not initialized with training dataset"
@@ -539,31 +536,3 @@ class GaussianOpacityFields(Method):
         torch.save((self.gaussians.capture(), self.gaussians.filter_3D, self.step), str(path) + f"/chkpnt-{self.step}.pth")
         with open(str(path) + "/args.txt", "w", encoding="utf8") as f:
             f.write(" ".join(shlex.quote(x) for x in self._args_list))
-
-    def optimize_embeddings(
-        self, 
-        dataset: Dataset,
-        embeddings: Optional[Sequence[np.ndarray]] = None
-    ) -> Iterable[OptimizeEmbeddingsOutput]:
-        """
-        Optimize embeddings for each image in the dataset.
-
-        Args:
-            dataset: Dataset.
-            embeddings: Optional initial embeddings.
-        """
-        del dataset, embeddings
-        method_id = self.get_method_info()["method_id"]
-        raise NotImplementedError(f"Optimizing embeddings is not supported for method {method_id} at the moment.")
-
-    def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
-        """
-        Get the embedding for a training image.
-
-        Args:
-            index: Index of the image.
-        """
-        if self.opt.use_decoupled_appearance:
-            return self.gaussians.get_appearance_embedding(index).detach().cpu().numpy()
-        return None
-

@@ -3,14 +3,14 @@ import json
 import warnings
 import os
 import io
-from typing import Optional, Iterable, Sequence, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 from pathlib import Path
 import base64
 import functools
 import gc
 import numpy as np
 from nerfbaselines import (
-    Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput,
+    Method, MethodInfo, ModelInfo, Dataset,
     Cameras, camera_model_to_int
 )
 
@@ -670,25 +670,22 @@ class SeaThruNeRF(Method):
             with (Path(path) / "config.gin").open("w+") as f:
                 f.write(self._config_str or "")
 
-    def render(self, cameras: Cameras, *, embeddings=None, options=None):
+    def render(self, camera: Cameras, *, options=None):
         del options
-        if embeddings is not None:
-            method_id = self.get_method_info()["method_id"]
-            raise NotImplementedError(f"Optimizing embeddings is not supported for method {method_id}")
+        camera = camera.item()  # Ensure single camera
+
         # Test-set evaluation.
         # We reuse the same random number generator from the optimization step
         # here on purpose so that the visualization matches what happened in
         # training.
-        sizes = cameras.image_sizes
-        poses = cameras.poses
         eval_variables = flax.jax_utils.unreplicate(self.state).params
-        mwidth, mheight = sizes.max(0)
         assert self._dataparser_transform is not None
+        w, h = camera.image_sizes
         test_dataset = NBDataset(
             dict(
-                cameras=cameras,
-                image_paths=[f"{i:06d}.png" for i in range(len(poses))],
-                images=np.zeros((len(sizes), mheight, mwidth), dtype=np.uint8),
+                cameras=camera[None],
+                image_paths=["{0:06d}.png"],
+                images=np.zeros((1, h, w), dtype=np.uint8),
             ),
             self.config,
             eval=True,
@@ -696,41 +693,15 @@ class SeaThruNeRF(Method):
             pixtocam_ndc=self._pixtocam_ndc,
         )
 
-        for test_case in test_dataset:
-            rendering = models.render_image(
-                functools.partial(self.render_eval_pfn, eval_variables, self.train_frac), test_case.rays, self.rngs[0], self.config, verbose=False)
-            out = {
-                "color": np.array(rendering["rgb"], dtype=np.float32),
-                "accumulation": np.array(rendering["acc"], dtype=np.float32),
-                "depth": np.array(rendering["distance_median"], dtype=np.float32),
-                "depth_mean": np.array(rendering["distance_mean"], dtype=np.float32),
-                "color_clean": np.array(rendering["direct"], dtype=np.float32),
-                "color_backscatter": np.array(rendering["bs"], dtype=np.float32),
-            }
-            yield out
-
-    def optimize_embeddings(
-        self, 
-        dataset: Dataset,
-        embeddings: Optional[Sequence[np.ndarray]] = None
-    ) -> Iterable[OptimizeEmbeddingsOutput]:
-        """
-        Optimize embeddings for each image in the dataset.
-
-        Args:
-            dataset: Dataset.
-            embeddings: Optional initial embeddings.
-        """
-        del dataset, embeddings
-        raise NotImplementedError()
-
-    def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
-        """
-        Get the embedding for a training image.
-
-        Args:
-            index: Index of the image.
-        """
-        del index
-        return None
-
+        test_case = next(iter(test_dataset))
+        rendering = models.render_image(
+            functools.partial(self.render_eval_pfn, eval_variables, self.train_frac), test_case.rays, self.rngs[0], self.config, verbose=False)
+        out = {
+            "color": np.array(rendering["rgb"], dtype=np.float32),
+            "accumulation": np.array(rendering["acc"], dtype=np.float32),
+            "depth": np.array(rendering["distance_median"], dtype=np.float32),
+            "depth_mean": np.array(rendering["distance_mean"], dtype=np.float32),
+            "color_clean": np.array(rendering["direct"], dtype=np.float32),
+            "color_backscatter": np.array(rendering["bs"], dtype=np.float32),
+        }
+        return out

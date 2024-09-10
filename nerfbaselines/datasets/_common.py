@@ -450,26 +450,24 @@ class MultiDatasetError(DatasetNotFoundError):
         logging.error(message)
 
 
-def dataset_index_select(dataset: TDataset, i: Union[slice, int, list, np.ndarray]) -> TDataset:
-    assert isinstance(i, (slice, int, list, np.ndarray))
+def dataset_index_select(dataset: TDataset, i: Union[slice, list, np.ndarray]) -> TDataset:
+    assert isinstance(i, (slice, list, np.ndarray))
     dataset_len = len(dataset["image_paths"])
+    if isinstance(i, np.ndarray):
+        is_bool_mask = (i.shape == (dataset_len,) and i.dtype == bool)
+        is_int_indices = (i.ndim == 1 and np.issubdtype(i.dtype, np.integer))
+        if not is_bool_mask and not is_int_indices:
+            raise ValueError("Expected boolean mask or integer indices")
 
     def index(key, obj):
         if obj is None:
             return None
         if key == "cameras":
-            if len(obj) == 1:
-                return obj if isinstance(i, int) else obj
             return obj[i]
         if isinstance(obj, np.ndarray):
-            if obj.shape[0] == 1:
-                return obj[0] if isinstance(i, int) else obj
-            obj = obj[i]
-            return obj
+            return obj[i]
         if isinstance(obj, list):
             indices = np.arange(dataset_len)[i]
-            if indices.ndim == 0:
-                return obj[indices]
             return [obj[i] for i in indices]
         raise ValueError(f"Cannot index object of type {type(obj)} at key {key}")
 
