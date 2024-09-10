@@ -121,8 +121,8 @@ def fix_checkpoint(checkpoint_path, new_checkpoint, load_train_dataset_fn, backe
 
                 # Test if we can render
                 logging.info("Rendering a testing image")
-                out = list(method_new.render(train_dataset["cameras"][:1]))
-                assert len(out) == 1, f"Rendering failed: {out}"
+                out = method_new.render(train_dataset["cameras"][0])
+                assert isinstance(out, dict)
         except Exception as e:
             if os.path.isfile(new_checkpoint):
                 os.remove(new_checkpoint)
