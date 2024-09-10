@@ -553,8 +553,6 @@ class GaussianSplattingWild(Method):
         assert embedding is not None  # Make pyright happy
         return {
             "embedding": embedding,
-            "render_output": None,
-            "metrics": {},
         }
 
     def get_train_embedding(self, index: int) -> Optional[np.ndarray]:

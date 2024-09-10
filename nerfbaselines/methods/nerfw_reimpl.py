@@ -17,7 +17,7 @@ import logging
 import numpy as np
 from argparse import ArgumentParser
 from functools import partial
-from typing import Optional, Iterable, Any
+from typing import Optional, Any
 from nerfbaselines import (
     Method, Dataset, Cameras, RenderOutput,
     OptimizeEmbeddingsOutput, 
@@ -700,7 +700,7 @@ class NeRFWReimpl(Method):
 
     def optimize_embedding(self, dataset: Dataset, *, embedding: Optional[np.ndarray] = None) -> OptimizeEmbeddingsOutput:
         torch.cuda.empty_cache()
-        cameras = dataset["cameras"]
+        camera = dataset["cameras"].item()  # Ensure it is a single camera
         model = self._model
         device = next(iter(model.parameters())).device
         assert device.type == "cuda", "Model is not on GPU"
@@ -722,13 +722,13 @@ class NeRFWReimpl(Method):
         lr_sched = torch.optim.lr_scheduler.StepLR(optim, step_size=num_steps//3, gamma=0.1)
         mses = []
         psnrs = []
-        all_rays = self.camera_transformer.get_rays(cameras[i:i+1]) # (H*W, 8)
-        w, h = cameras.image_sizes[i]
-        img_data = dataset["images"][i]
+        all_rays = self.camera_transformer.get_rays(camera[None]) # (H*W, 8)
+        w, h = camera.image_sizes
+        img_data = dataset["images"][0]
         all_rgbs = torch.from_numpy(convert_image_dtype(img_data[:h, :w], np.float32).reshape(-1, img_data.shape[-1])) # (H*W, 3)
         assert all_rays.size(0) == all_rgbs.size(0), f"Rays and images size mismatch {all_rays.size(0)} != {all_rgbs.size(0)}"
         with self._with_eval_embedding(param_a, param_t) as model, \
-             tqdm.tqdm(total=num_steps, desc=f"Optimizing image embedding [{i}/{len(cameras)}]") as pbar:
+             tqdm.tqdm(total=num_steps, desc=f"Optimizing image embedding") as pbar:
             for _ in range(num_steps):
                 optim.zero_grad()
                 local_indices = torch.randperm(len(all_rays))[:self.hparams.batch_size]
@@ -753,7 +753,6 @@ class NeRFWReimpl(Method):
         appearance_embedding = np.concatenate((param_a.detach().cpu().numpy(), param_t.detach().cpu().numpy()), -1)
         return {
             "embedding": appearance_embedding,
-            "render_output": None,
             "metrics": {
                 "psnr": psnrs,
                 "mse": mses,

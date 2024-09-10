@@ -1,7 +1,7 @@
 import json
 import warnings
 import os
-from typing import Optional, Iterable, Sequence
+from typing import Optional
 from pathlib import Path
 import io
 import base64
@@ -9,7 +9,7 @@ import numpy as np
 import functools
 import gc
 from nerfbaselines import (
-    Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput,
+    Method, MethodInfo, ModelInfo, Dataset,
     Cameras, camera_model_to_int,
 )
 

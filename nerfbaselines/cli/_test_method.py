@@ -284,6 +284,7 @@ def main(method_name: str,
             model_info = model.get_info()
             logging.info("Method info: " + pprint.pformat(model_info))
             mark_success("Model initialized")
+            steps = min(steps, model_info.get("num_iterations", steps))
             del model_info
 
             # Test running the training
@@ -350,9 +351,7 @@ def main(method_name: str,
                         mark_success("Resaving method yields same checkpoint")
 
                 def test_render(model2, post):
-                    render2_out = None
-                    for render2_out in model2.render(test_dataset["cameras"][:1]):
-                        pass
+                    render2_out = model2.render(test_dataset["cameras"][0])
                     assert render2_out is not None, "Render output is None"
                     logging.info("Render loaded model output: \n" + pprint.pformat({
                         k: getattr(v, "shape", v)
@@ -416,13 +415,13 @@ def main(method_name: str,
                 output=output,
                 save_iters=Indices([]),
                 eval_all_iters=Indices([-1]),
-                eval_few_iters=Indices([2]),
+                eval_few_iters=Indices([min(2, steps)]),
                 logger=build_logger(frozenset(("tensorboard",))),
                 generate_output_artifact=True,
                 config_overrides=_config_overrides,
                 applied_presets=frozenset(_presets))
             if fast:
-                trainer.num_iterations = max(10, steps)
+                trainer.num_iterations = steps
                 # Fix total for indices
                 for v in vars(trainer).values():
                     if isinstance(v, Indices):

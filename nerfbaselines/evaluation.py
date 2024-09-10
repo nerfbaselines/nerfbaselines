@@ -302,7 +302,7 @@ def render_all_images(
         nb_info = nb_info.copy()
         dataset_colorspace = dataset["metadata"].get("color_space", "srgb")
         assert dataset_colorspace == nb_info.get("color_space", "srgb"), \
-            f"Dataset color space {dataset_colorspace} != method color space {nb_info['color_space']}"
+            f"Dataset color space {dataset_colorspace} != method color space {nb_info.get('color_space')}"
         if "dataset_background_color" in nb_info:
             info_background_color = nb_info.get("dataset_background_color")
             if info_background_color is not None:
@@ -316,7 +316,7 @@ def render_all_images(
         for i in range(len(dataset["cameras"])):
             yield evaluation_protocol.render(method, dataset_index_select(dataset, [i]))
 
-    with tqdm(desc=description, total=len(dataset["image_paths"]), dynamic_ncols=True) as progress:
+    with tqdm(desc=description, total=len(dataset["cameras"]), dynamic_ncols=True) as progress:
         for val in _save_predictions_iterate(output,
                                              _render_all(),
                                              dataset=dataset,

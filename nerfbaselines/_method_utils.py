@@ -27,12 +27,12 @@ def _wrap_method_class(method_class: Type[Method], spec: MethodSpec):
 
         @functools.wraps(render)
         def __render(self, *args, options=None, **kwargs):
+            out = render(self, *args, options=options, **kwargs)
             nonlocal output_types
             if output_types is None:
                 output_types = {
                     (v if isinstance(v, str) else v["name"]): (v if isinstance(v, str) else v.get("type", v["name"]))
                     for v in self.get_info().get("supported_outputs", {})}
-            out = render(self, *args, **kwargs)
             if isinstance(out, dict):
                 for k, v in out.items():
                     output_type = output_types.get(k, k)

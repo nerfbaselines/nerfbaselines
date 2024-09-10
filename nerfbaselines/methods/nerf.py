@@ -5,14 +5,14 @@ import warnings
 import shlex
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, Sequence, Optional
+from typing import Any, Dict, Optional
 from argparse import ArgumentParser
 import tempfile
 import logging
 import numpy as np
 
 from nerfbaselines import (
-    Dataset, OptimizeEmbeddingsOutput, RenderOutput, MethodInfo, ModelInfo,
+    Dataset, RenderOutput, MethodInfo, ModelInfo,
     Cameras, CameraModel, Method,
 )
 from nerfbaselines import cameras as _cameras

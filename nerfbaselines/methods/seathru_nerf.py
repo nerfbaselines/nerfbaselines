@@ -3,14 +3,14 @@ import json
 import warnings
 import os
 import io
-from typing import Optional, Iterable, Sequence, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 from pathlib import Path
 import base64
 import functools
 import gc
 import numpy as np
 from nerfbaselines import (
-    Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingsOutput,
+    Method, MethodInfo, ModelInfo, Dataset,
     Cameras, camera_model_to_int
 )
 

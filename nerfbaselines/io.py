@@ -551,7 +551,7 @@ def save_evaluation_results(file,
 def _save_predictions_iterate(output: str, predictions: Iterable[RenderOutput], dataset: Dataset, *, nb_info=None):
     background_color =  dataset["metadata"].get("background_color", None)
     assert background_color is None or background_color.dtype == np.uint8, "background_color must be None or uint8"
-    color_space = dataset["metadata"]["color_space"]
+    color_space = dataset["metadata"].get("color_space", "srgb")
     expected_scene_scale = dataset["metadata"].get("expected_scene_scale")
     allow_transparency = True
 

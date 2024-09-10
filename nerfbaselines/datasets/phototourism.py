@@ -223,13 +223,11 @@ class NerfWEvaluationProtocol(EvaluationProtocol):
         optim_result = None
         try:
             optim_result = method.optimize_embedding(optimization_dataset, embedding=embedding)
+            embedding = optim_result["embedding"]
         except NotImplementedError as e:
             logging.debug(e)
             method_id = method.get_method_info()["method_id"]
             logging.warning(f"Method {method_id} does not support camera embedding optimization.")
-
-        if optim_result is not None:
-            embedding = optim_result["embedding"]
 
         new_options: RenderOptions = {
             **(options or {}),
@@ -238,7 +236,7 @@ class NerfWEvaluationProtocol(EvaluationProtocol):
         return method.render(dataset["cameras"], options=new_options)
 
     def evaluate(self, predictions: RenderOutput, dataset: Dataset) -> Dict[str, Union[float, int]]:
-        dataset["cameras"].item()  # Assert single camera
+        assert len(dataset["images"]) == 1, "EvaluationProtocol.evaluate must be run on individual samples (a dataset with a single image)"
         gt = dataset["images"][0]
         color = predictions["color"]
 

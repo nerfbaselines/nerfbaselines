@@ -16,7 +16,7 @@ import random
 import shlex
 import logging
 import copy
-from typing import Optional, Iterable, Sequence
+from typing import Optional
 import os
 import tempfile
 import numpy as np
@@ -30,7 +30,6 @@ import torch
 from nerfbaselines import (
     Method, 
     MethodInfo, 
-    OptimizeEmbeddingsOutput, 
     RenderOutput, 
     ModelInfo,
     Cameras, 

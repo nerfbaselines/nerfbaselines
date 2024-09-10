@@ -752,7 +752,6 @@ class KPlanes(Method):
             appearance_embedding = tst_embedding.weight.data.cpu().numpy().copy()
             return {
                 "embedding": appearance_embedding,
-                "render_output": None,
                 "metrics": {
                     "loss": losses.copy(),
                 }

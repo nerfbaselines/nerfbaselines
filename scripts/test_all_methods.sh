@@ -102,6 +102,9 @@ test_method tensorf $llff
 test_method tetra-nerf $mipnerf360
 test_method tetra-nerf $blender
 
+test_method water-splatting $seathru_nerf
+
+test_method wild-gaussians $mipnerf360
 test_method wild-gaussians $phototourism
 
 

@@ -373,8 +373,8 @@ RenderOutput = Dict[str, np.ndarray]
 
 
 class OptimizeEmbeddingsOutput(TypedDict):
-    embedding: np.ndarray
-    render_output: Optional[RenderOutput]
+    embedding: Required[np.ndarray]
+    render_output: NotRequired[RenderOutput]
     metrics: NotRequired[Dict[str, Sequence[float]]]
 
 

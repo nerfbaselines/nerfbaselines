@@ -337,6 +337,7 @@ class InstantNGP(Method):
             "snap_to_pixel_centers": self.testbed.snap_to_pixel_centers,
             "render_min_transmittance": self.testbed.nerf.render_min_transmittance,
         }
+        self._current_mode = True
 
     def _set_overrides(self):
         import pyngp as ngp  # type: ignore
@@ -491,8 +492,8 @@ class InstantNGP(Method):
 
     def train_iteration(self, step: int):
         assert self._tempdir is not None, "Tempdir is not set"
-        assert self.testbed.shall_train, "Training is disabled"
         self._set_mode_and_data(training=True)
+        assert self.testbed.shall_train, "Training is disabled"
         current_frame = self.testbed.training_step
         if step < self.n_steps:
             deadline = 100
