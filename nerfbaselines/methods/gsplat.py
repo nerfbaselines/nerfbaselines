@@ -95,6 +95,7 @@ class gs_Parser:
             self.dataset = None
             return
 
+        assert dataset is not None, "Dataset must be provided"
         self.num_train_images = len(dataset.get("images"))
 
         # Optional normalize
@@ -205,6 +206,7 @@ class gs_Dataset:
 # Extract code dynamically
 def _build_simple_trainer_module():
     module_spec = importlib.util.find_spec("simple_trainer", __package__)
+    assert module_spec is not None and module_spec.origin is not None, "Failed to find simple_trainer module"
     with open(module_spec.origin, "r") as f:
         simple_trainer_ast = ast.parse(f.read())
 
@@ -226,7 +228,9 @@ def _build_simple_trainer_module():
     # simple_trainer_ast.body.remove(next(x for x in simple_trainer_ast.body if ast.unparse(x) == "import nerfview"))
 
     runner_ast = next(x for x in simple_trainer_ast.body if getattr(x, "name", None) == "Runner")
+    assert isinstance(runner_ast, ast.ClassDef)
     runner_train_ast = next(x for x in runner_ast.body if getattr(x, "name", None) == "train")
+    assert isinstance(runner_train_ast, ast.FunctionDef)
     runner_train_ast.name = "setup_train"
     # Training loop
     assert isinstance(runner_train_ast.body[-1], ast.For)
@@ -257,11 +261,11 @@ schedulers=self.schedulers
     if cfg.depth_loss:
         out["depthloss"] = depthloss.item()
     return out
-""").body[0].body)
+""").body[0].body)  # type: ignore
     runner_train_ast.body = init_train_body
     runner_ast.body.append(ast.FunctionDef(lineno=0, col_offset=0,
         name="train_iteration",
-        args=ast.arguments(
+        args=ast.arguments(  # type: ignore
             args=[
                 ast.arg(arg="self", annotation=None, lineno=0, col_offset=0),
                 ast.arg(arg="step", annotation=None, lineno=0, col_offset=0),
@@ -279,7 +283,7 @@ schedulers=self.schedulers
     save_step_body[-1].value.args[1].values[0].value = ast.Name(id="path", ctx=ast.Load(), lineno=0, col_offset=0)
     runner_ast.body.append(ast.FunctionDef(lineno=0, col_offset=0,
         name="save",
-        args=ast.arguments(
+        args=ast.arguments(  # type: ignore
             args=[
                 ast.arg(arg="self", annotation=None, lineno=0, col_offset=0),
                 ast.arg(arg="step", annotation=None, lineno=0, col_offset=0),
@@ -293,6 +297,7 @@ schedulers=self.schedulers
 
     # Init method
     init_method = next(x for x in runner_ast.body if getattr(x, "name", None) == "__init__")
+    assert isinstance(init_method, ast.FunctionDef)
     init_method.body = init_method.body[:6] + init_method.body[14:-2]  # Remove unused code
     init_method.args.args.append(ast.arg(arg="Parser", annotation=None, lineno=0, col_offset=0))
     init_method.args.args.append(ast.arg(arg="Dataset", annotation=None, lineno=0, col_offset=0))

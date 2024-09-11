@@ -42,9 +42,9 @@ fi
     },
     "metadata": {
         "name": "gsplat",
-        "description": "",
-        "paper_title": """gsplat is an open-source library for CUDA accelerated rasterization of gaussians with python bindings. \
+        "description": """gsplat is an open-source library for CUDA accelerated rasterization of gaussians with python bindings. \
 It is inspired by the 3DGS paper, but it is faster, more memory efficient, and with a growing list of new features.""",
+        "paper_title": "Mathematical Supplement for the gsplat Library",
         "paper_authors": [ "Vickie Ye", "Angjoo Kanazawa" ],
         "paper_link": "https://arxiv.org/pdf/2312.02121.pdf",
         "link": "https://docs.gsplat.studio/main/",
