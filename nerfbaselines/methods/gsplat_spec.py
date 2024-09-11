@@ -51,7 +51,14 @@ It is inspired by the 3DGS paper, but it is faster, more memory efficient, and w
         "licenses": [{"name": "Apache 2.0", "url": "https://raw.githubusercontent.com/nerfstudio-project/gsplat/main/LICENSE"}],
     },
     "presets": {
-        "blender": { "@apply": [{"dataset": "blender"}], "init_type": "random", },
+        "blender": { 
+            "@apply": [{"dataset": "blender"}], 
+            "init_type": "random", 
+        },
+        "phototourism": { "@apply": [{"dataset": "phototourism"}], 
+            "app_opt": True,  # Enable appearance optimization
+            "steps_scaler": 3.333334,  # 100k steps
+        },
     },
     "implementation_status": {
         "mipnerf360": "working",

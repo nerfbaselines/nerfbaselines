@@ -13,11 +13,12 @@ import ast
 import importlib.util
 from typing import cast, Optional
 from nerfbaselines import Method, MethodInfo, ModelInfo, Dataset
-from nerfbaselines.utils import pad_poses
+from nerfbaselines.utils import pad_poses, image_to_srgb, convert_image_dtype
 from typing import Optional, Union
 from typing_extensions import Literal, get_origin, get_args
 
 import torch  # type: ignore
+from torch.nn import functional as F  # type: ignore
 
 
 def numpy_to_base64(array: np.ndarray) -> str:
@@ -153,13 +154,25 @@ class gs_Dataset:
         self.split = split
         self.patch_size = patch_size
         self.load_depths = load_depths
+        self.dataset = self.preprocess_images(parser.dataset)
 
     def __len__(self):
         return self.parser.num_train_images
 
+    @staticmethod
+    def preprocess_images(dataset):
+        if dataset is None:
+            return dataset
+        background_color = dataset["metadata"].get("background_color", None)
+        dataset = dataset.copy()
+        dataset["images"] = [image_to_srgb(image, 
+                                           background_color=background_color, 
+                                           dtype=np.uint8) for image in dataset["images"]]
+        return dataset
+
     def __getitem__(self, idx):
-        dataset = self.parser.dataset
-        image = dataset["images"][idx][..., :3]
+        dataset = self.dataset
+        image = dataset["images"][idx]
         fx, fy, cx, cy = dataset["cameras"][idx].intrinsics
         K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
         camtoworlds = pad_poses(dataset["cameras"][idx].poses)
@@ -227,6 +240,20 @@ def _build_simple_trainer_module():
     simple_trainer_ast.body.remove(next(x for x in simple_trainer_ast.body if ast.unparse(x) == "import viser"))
     # simple_trainer_ast.body.remove(next(x for x in simple_trainer_ast.body if ast.unparse(x) == "import nerfview"))
 
+    # Update config
+    config_ast = next(x for x in simple_trainer_ast.body if getattr(x, "name", None) == "Config")
+    assert isinstance(config_ast, ast.ClassDef)
+    config_ast.body.insert(-1, ast.AnnAssign(
+        target=ast.Name(id="app_test_opt_steps", ctx=ast.Store(), lineno=0, col_offset=0),
+        annotation=ast.Name(id="int", ctx=ast.Load(), lineno=0, col_offset=0),
+        value=ast.Constant(value=128, kind=None, lineno=0, col_offset=0), 
+        simple=True, col_offset=0, lineno=0))
+    config_ast.body.insert(-1, ast.AnnAssign(
+        target=ast.Name(id="app_test_opt_lr", ctx=ast.Store(), lineno=0, col_offset=0),
+        annotation=ast.Name(id="float", ctx=ast.Load(), lineno=0, col_offset=0),
+        value=ast.Constant(value=0.1, kind=None, lineno=0, col_offset=0), 
+        simple=True, col_offset=0, lineno=0))
+
     runner_ast = next(x for x in simple_trainer_ast.body if getattr(x, "name", None) == "Runner")
     assert isinstance(runner_ast, ast.ClassDef)
     runner_train_ast = next(x for x in runner_ast.body if getattr(x, "name", None) == "train")
@@ -257,7 +284,7 @@ schedulers=self.schedulers
     iter_step_body.pop(next(i for i, step in enumerate(iter_step_body) if ast.unparse(step) == "pbar.set_description(desc)"))
     iter_step_body.extend(ast.parse("""def _():
     self.trainloader_iter=trainloader_iter
-    out={"loss": loss.item(), "l1": l1loss.item(), "ssim": ssimloss.item(), "num_gaussians": len(self.splats["means"])}
+    out={"loss": loss.item(), "l1loss": l1loss.item(), "ssim": ssimloss.item(), "num_gaussians": len(self.splats["means"])}
     if cfg.depth_loss:
         out["depthloss"] = depthloss.item()
     return out
@@ -279,6 +306,7 @@ schedulers=self.schedulers
     # Save method
     save_step_body = save_step.body[4:]  # Strip saving stats
     save_step_body.insert(0, ast.parse("cfg=self.cfg").body[0])
+    save_step_body.insert(0, ast.parse("world_size=self.world_size").body[0])
     # Change saving location
     save_step_body[-1].value.args[1].values[0].value = ast.Name(id="path", ctx=ast.Load(), lineno=0, col_offset=0)
     runner_ast.body.append(ast.FunctionDef(lineno=0, col_offset=0,
@@ -386,7 +414,7 @@ class GSplat(Method):
             method_id="",  # Will be filled in by the registry
             required_features=frozenset(("points3D_xyz", "points3D_rgb", "color", "images_points3D_indices")),
             supported_camera_models=frozenset(("pinhole",)),
-            supported_outputs=("color",),
+            supported_outputs=("color", "depth", "accumulation"),
         )
 
     def get_info(self):
@@ -420,20 +448,21 @@ class GSplat(Method):
         try:
             was_called = False
             if self.cfg.app_opt:
-                embeds_module = self.runner.app_module.embed
-                def _embed(*args, **kwargs):
-                    del args, kwargs
-                    nonlocal was_called
-                    was_called = True
-                    return embedding[None]
-                self.runner.app_module.embed = _embed
+                embeds_module = self.runner.app_module.embeds
+                class _embed(torch.nn.Module):
+                    def forward(*args, **kwargs):
+                        del args, kwargs
+                        nonlocal was_called
+                        was_called = True
+                        return embedding[None]
+                self.runner.app_module.embeds = _embed()
             yield None
             if self.cfg.app_opt:
                 assert was_called, "Failed to patch appearance embedding"
         finally:
             # Return embeds back
             if embeds_module is not None:
-                self.runner.app_module.embed = embeds_module
+                self.runner.app_module.embeds = embeds_module
 
     @torch.no_grad()
     def render(self, camera, *, options=None):
@@ -441,8 +470,6 @@ class GSplat(Method):
         from datasets.normalize import transform_cameras  # type: ignore
         cfg = self.cfg
         device = self.runner.device
-        # TODO: apply transform
-        print(camera.poses.shape)
         camtoworlds_np = transform_cameras(self.runner.parser.transform, pad_poses(camera.poses[None]))
         camtoworlds = torch.from_numpy(camtoworlds_np).float().to(device)
         fx, fy, cx, cy = camera.intrinsics
@@ -452,8 +479,9 @@ class GSplat(Method):
         # Patch appearance
         embedding_np = (options or {}).get("embedding")
         embedding = torch.from_numpy(embedding_np).to(self.runner.device) if embedding_np is not None else None
+        outputs = (options or {}).get("outputs") or ()
         with self._patch_embedding(embedding):
-            colors, _, _ = self.runner.rasterize_splats(
+            colors, accumulation, _ = self.runner.rasterize_splats(
                 camtoworlds=camtoworlds,
                 Ks=Ks[None],
                 width=width,
@@ -461,11 +489,16 @@ class GSplat(Method):
                 sh_degree=cfg.sh_degree,
                 near_plane=cfg.near_plane,
                 far_plane=cfg.far_plane,
-                image_ids=object()
+                image_ids=object() if embedding is not None else None,
+                render_mode="RGB+ED" if "depth" in outputs else "RGB",
             )  # [1, H, W, 3]
-        return {
-            "color": torch.clamp(colors.squeeze(0), 0.0, 1.0).detach().cpu().numpy(),
+        out = {
+            "color": torch.clamp(colors.squeeze(0)[..., :3], 0.0, 1.0).detach().cpu().numpy(),
+            "accumulation": accumulation.squeeze(0).squeeze(-1).detach().cpu().numpy(),
         }
+        if colors.shape[-1] > 3:
+            out["depth"] = colors.squeeze(0)[..., 3].detach().cpu().numpy()
+        return out
 
     def get_train_embedding(self, index):
         if not self.cfg.app_opt:
@@ -473,4 +506,68 @@ class GSplat(Method):
         return self.runner.app_module.embeds.weight[index].detach().cpu().numpy()
 
     def optimize_embedding(self, dataset: Dataset, *, embedding=None):
-        raise NotImplementedError()
+        if not self.cfg.app_opt:
+            raise NotImplementedError("Appearance optimization is not enabled, add --set app_opt=True to the command line.")
+        assert len(dataset["images"]) == 1, "Only single image optimization is supported"
+        camera = dataset["cameras"].item()
+        from datasets.normalize import transform_cameras  # type: ignore
+        cfg = self.cfg
+        device = self.runner.device
+        camtoworlds_np = transform_cameras(self.runner.parser.transform, pad_poses(camera.poses[None]))
+        camtoworlds = torch.from_numpy(camtoworlds_np).float().to(device)
+        fx, fy, cx, cy = camera.intrinsics
+        Ks = torch.from_numpy(np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])).float().to(device)
+        width, height = camera.image_sizes
+        dataset = gs_Dataset.preprocess_images(dataset)
+        pixels = torch.from_numpy(dataset["images"][0]).float().to(device)[None]
+        # Extend gsplat, handle sampling masks
+        sampling_masks = None
+        if dataset.get("sampling_masks") is not None:
+            sampling_masks = torch.from_numpy(convert_image_dtype(dataset["sampling_masks"][0], np.float32)).to(device)[None]
+
+        # Patch appearance
+        if embedding is not None:
+            embedding_th = torch.from_numpy(embedding).to(self.runner.device)
+        else:
+            embedding_th = torch.zeros_like(self.runner.app_module.embeds.weight[0])
+        embedding_th = torch.nn.Parameter(embedding_th.requires_grad_())
+        optimizer = torch.optim.Adam([embedding_th], lr=self.cfg.app_test_opt_lr)
+        l1losses = []
+        ssimlosses = []
+        losses = []
+        with torch.enable_grad(), self._patch_embedding(embedding_th):
+            for _ in range(self.cfg.app_test_opt_steps):
+                colors, _, _ = self.runner.rasterize_splats(
+                    camtoworlds=camtoworlds,
+                    Ks=Ks[None],
+                    width=width,
+                    height=height,
+                    sh_degree=cfg.sh_degree,
+                    near_plane=cfg.near_plane,
+                    far_plane=cfg.far_plane,
+                    image_ids=object()
+                )  # [1, H, W, 3]
+
+                # Scale colors grad by sampling masks
+                if sampling_masks is not None:
+                    colors = colors * sampling_masks + colors.detach() * (1.0 - sampling_masks)
+
+                l1loss = F.l1_loss(colors, pixels)
+                ssimloss = 1.0 - self.runner.ssim(
+                    pixels.permute(0, 3, 1, 2), colors.permute(0, 3, 1, 2)
+                )
+                loss = l1loss * (1.0 - cfg.ssim_lambda) + ssimloss * cfg.ssim_lambda
+                l1losses.append(l1loss.item())
+                ssimlosses.append(ssimloss.item())
+                losses.append(loss.item())
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+        return {
+            "metrics": {
+                "loss": losses,
+                "l1loss": l1losses,
+                "ssim": ssimlosses,
+            },
+            "embedding": embedding_th.detach().cpu().numpy(),
+        }
