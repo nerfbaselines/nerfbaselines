@@ -87,8 +87,10 @@ class gs_Parser:
         if state is not None:
             self.transform = numpy_from_base64(state["transform_base64"])
             self.scene_scale = state["scene_scale"]
-            self.points = np.zeros((state["num_points"], 3), dtype=np.float32)
-            self.points_rgb = np.zeros((state["num_points"], 3), dtype=np.uint8)
+            self.points = self.points_rgb = None
+            if state["num_points"] is not None:
+                self.points = np.zeros((state["num_points"], 3), dtype=np.float32)
+                self.points_rgb = np.zeros((state["num_points"], 3), dtype=np.uint8)
             self.num_train_images = state["num_train_images"]
             self.dataset = None
             return
@@ -102,15 +104,16 @@ class gs_Parser:
         if normalize:
             points = dataset.get("points3D_xyz")
             camtoworlds = pad_poses(dataset.get("cameras").poses)
-            T1 = similarity_from_cameras(camtoworlds)
+            transform = T1 = similarity_from_cameras(camtoworlds)
             camtoworlds = transform_cameras(T1, camtoworlds)
-            points = transform_points(T1, points)
+            if points is not None:
+                points = transform_points(T1, points)
 
-            T2 = align_principle_axes(points)
-            camtoworlds = transform_cameras(T2, camtoworlds)
-            points = transform_points(T2, points)
+                T2 = align_principle_axes(points)
+                camtoworlds = transform_cameras(T2, camtoworlds)
+                points = transform_points(T2, points)
 
-            transform = cast(np.ndarray, T2 @ T1)
+                transform = cast(np.ndarray, T2 @ T1)
 
             # Apply transform to the dataset
             dataset = dataset.copy()
@@ -133,7 +136,7 @@ class gs_Parser:
     def export(self):
         return {
             "scene_scale": self.scene_scale,
-            "num_points": len(self.points),
+            "num_points": len(self.points) if self.points is not None else None,
             "transform": self.transform.tolist(),
             "transform_base64": numpy_to_base64(self.transform),
             "num_train_images": self.num_train_images,
