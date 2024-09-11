@@ -145,6 +145,7 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 | Tetra-NeRF                | 🥈 silver | ❔        | 🥈 silver    | ❔         | ❔            | ❔           | ❔                |
 | WildGaussians             | ❔        | ❔        | ❔           | ❔         | 🥇 gold       | ❔           | ❔                |
 | Zip-NeRF                  | 🥇 gold   | ❌        | 🥇 gold      | 🥇 gold    | ❔            | ❔           | ❔                |
+| gsplat                    | 🥇 gold   | ❔        | 🥇 gold      | ❔         | ❔            | ❔           | 🥇 gold           |
 
 
 
@@ -177,11 +178,13 @@ For the currently implemented methods, the following licenses apply:
 - Mip-Splatting: [custom, research only](https://raw.githubusercontent.com/autonomousvision/mip-splatting/main/LICENSE.md)
 - NeRF-W (reimplementation): [MIT](https://raw.githubusercontent.com/kwea123/nerf_pl/master/LICENSE)
 - NeRF: [MIT](https://github.com/bmild/nerf/blob/master/LICENSE)
+- NerfStudio: [Apache 2.0](https://raw.githubusercontent.com/nerfstudio-project/nerfstudio/main/LICENSE)
 - SeaThru-NeRF: [Apache 2.0](https://raw.githubusercontent.com/deborahLevy130/seathru_NeRF/master/LICENSE)
 - TensoRF: [MIT](https://github.com/apchenstu/TensoRF/blob/main/LICENSE)
 - Tetra-NeRF: [MIT](https://raw.githubusercontent.com/jkulhanek/tetra-nerf/master/LICENSE)
 - WildGaussians: [MIT](https://raw.githubusercontent.com/jkulhanek/wild-gaussians/main/LICENSE), [custom, research only](https://raw.githubusercontent.com/graphdeco-inria/gaussian-splatting/main/LICENSE.md)
 - Zip-NeRF: [Apache 2.0](https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE)
+- gsplat: [Apache 2.0](https://raw.githubusercontent.com/nerfstudio-project/gsplat/main/LICENSE)
 
 
 ## Acknowledgements

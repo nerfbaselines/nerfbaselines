@@ -531,6 +531,8 @@ def main(method_name: str,
                 }))
                 match = True
                 for k, v in paper_results.items():
+                    if "note" in k:
+                        continue
                     assert k in metrics
                     tolerance = 0.2
                     if k == "ssim":

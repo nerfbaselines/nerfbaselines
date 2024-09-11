@@ -72,6 +72,7 @@ fi
         "paper_link": "https://arxiv.org/pdf/2302.04264.pdf",
         "paper_results": _nerfacto_paper_results,
         "link": "https://docs.nerf.studio/",
+        "licenses": [{"name": "Apache 2.0", "url": "https://raw.githubusercontent.com/nerfstudio-project/nerfstudio/main/LICENSE"}],
     },
     "presets": {
         "blender": {
