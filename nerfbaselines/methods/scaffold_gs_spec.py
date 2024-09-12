@@ -40,14 +40,14 @@ fi
 """,
     },
     "metadata": {
-        "name": "Gaussian Splatting",
-        "description": """Official Gaussian Splatting implementation extended to support distorted camera models. It is fast to train (1 hous) and render (200 FPS).""",
-        "paper_title": "3D Gaussian Splatting for Real-Time Radiance Field Rendering",
-        "paper_authors": ["Bernhard Kerbl", "Georgios Kopanas", "Thomas Leimkühler", "George Drettakis"],
-        "paper_link": "https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/3d_gaussian_splatting_low.pdf",
+        "name": "Scaffold-GS",
+        "description": """Scaffold-GS uses anchor points to distribute local 3D Gaussians, and predicts their attributes on-the-fly based on viewing direction and distance within the view frustum. In NerfBaselines, we fixed bug with cx,cy, added appearance embedding optimization, and added support for sampling masks.""",
+        "paper_title": "Scaffold-GS: Structured 3D Gaussians for View-Adaptive Rendering",
+        "paper_authors": ["Tao Lu", "Mulin Yu", "Linning Xu", "Yuanbo Xiangli", "Limin Wang" , "Dahua Lin" "Bo Dai"],
+        "paper_link": "https://arxiv.org/pdf/2312.00109.pdf",
         "paper_results": {},
-        "link": "https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/",
-        "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/graphdeco-inria/gaussian-splatting/main/LICENSE.md"}],
+        "link": "https://city-super.github.io/scaffold-gs/",
+        "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/city-super/Scaffold-GS/main/LICENSE.md"}],
     },
     "presets": {
         "blender": { 
@@ -71,6 +71,27 @@ fi
             "update_init_factor": 16,
             "appearance_dim": 0,
             "ratio": 1,
+        },
+        "phototourism": {
+            "@apply": [{"dataset": "phototourism"}], 
+            "voxel_size": 0,
+            "update_init_factor": 16,
+            "appearance_dim": 32,
+            "ratio": 1,
+
+            # Make model larger
+            "iterations": 100_000,  # 100k iterations
+            "appearance_lr_max_steps": 100_000,  # 100k steps
+            "position_lr_max_steps": 100_000,  # 100k steps
+            "offset_lr_max_steps": 100_000,  # 100k steps
+            "mlp_opacity_lr_max_steps": 100_000,  # 100k steps
+            "mlp_cov_lr_max_steps": 100_000,  # 100k steps
+            "mlp_color_lr_max_steps": 100_000,  # 100k steps
+            "mlp_featurebank_lr_max_steps": 100_000,  # 100k steps
+            "start_stat": 1500,
+            "update_from": 4500,
+            "update_interval": 300,
+            "update_until": 50_000,
         },
     },
     "implementation_status": {
