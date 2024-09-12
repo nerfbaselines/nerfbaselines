@@ -25,13 +25,13 @@ from argparse import ArgumentParser
 import shlex
 import logging
 import copy
-from typing import Optional, Iterable
+from typing import Optional
 import os
 import tempfile
 import numpy as np
 from PIL import Image
 from nerfbaselines import (
-    Method, MethodInfo, ModelInfo, OptimizeEmbeddingsOutput, 
+    Method, MethodInfo, ModelInfo, OptimizeEmbeddingOutput, 
     RenderOutput, Cameras, camera_model_to_int, Dataset
 )
 from nerfbaselines.utils import convert_image_dtype
@@ -497,7 +497,7 @@ class ScaffoldGS(Method):
                 with open(os.path.join(path, "point_cloud", f"iteration_{self.step}", file + ".sha256"), "w") as f:
                     f.write(hashlib.sha256(b"").hexdigest())
 
-    def optimize_embedding(self, dataset: Dataset, *, embedding: Optional[np.ndarray] = None) -> OptimizeEmbeddingsOutput:
+    def optimize_embedding(self, dataset: Dataset, *, embedding: Optional[np.ndarray] = None) -> OptimizeEmbeddingOutput:
         """
         Optimize embeddings for each image in the dataset.
 
@@ -516,7 +516,7 @@ class ScaffoldGS(Method):
         else:
             # Get default embedding
             self.gaussians._temp_appearance = None
-            embedding_th = self.gaussians.get_appearance.embedding.weight.detach().mean(0).clone()
+            embedding_th = self.gaussians.get_appearance.embedding.weight.detach().mean(0).clone()  # type: ignore
 
         with torch.enable_grad():
             losses, psnrs, mses = [], [], []
@@ -546,12 +546,8 @@ class ScaffoldGS(Method):
                 psnrs.append(20 * math.log10(1.0) - 10 * torch.log10(mse).detach().cpu().item())
 
             self.gaussians._temp_appearance = None
-            color = torch.clamp(image, 0.0, 1.0).detach().permute(1, 2, 0).cpu().numpy()
             return {
                 "embedding": embedding_param.detach().cpu().numpy(),
-                "render_output": {
-                    "color": color,
-                },
                 "metrics": {
                     "psnr": psnrs,
                     "mse": mses,

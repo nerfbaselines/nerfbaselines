@@ -80,7 +80,8 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 | Method                                                                                   |       PSNR |      SSIM | LPIPS (VGG) |        Time | GPU mem. |
 |:-----------------------------------------------------------------------------------------|-----------:|----------:|------------:|------------:|---------:|
 | [Zip-NeRF](https://jkulhanek.com/nerfbaselines/m-zipnerf)                                | **28.553** | **0.829** |   **0.218** |  5h 30m 20s |  26.8 GB |
-| [Mip-NeRF 360](https://jkulhanek.com/nerfbaselines/m-mipnerf360)                         |   *27.681* |     0.792 |       0.272 | 30h 14m 36s |  33.6 GB |
+| [Scaffold-GS](https://jkulhanek.com/nerfbaselines/m-scaffold-gs)                         |   *27.714* |     0.813 |       0.262 |     23m 28s |   8.7 GB |
+| [Mip-NeRF 360](https://jkulhanek.com/nerfbaselines/m-mipnerf360)                         |     27.681 |     0.792 |       0.272 | 30h 14m 36s |  33.6 GB |
 | [Mip-Splatting](https://jkulhanek.com/nerfbaselines/m-mip-splatting)                     |     27.492 |     0.815 |       0.258 |     25m 37s |  11.0 GB |
 | [Gaussian Splatting](https://jkulhanek.com/nerfbaselines/m-gaussian-splatting)           |     27.434 |     0.814 |       0.257 |     23m 25s |  11.1 GB |
 | [Gaussian Opacity Fields](https://jkulhanek.com/nerfbaselines/m-gaussian-opacity-fields) |     27.421 |   *0.826* |     *0.234* |   1h 3m 54s |  28.4 GB |
@@ -101,6 +102,7 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 | [Mip-Splatting](https://jkulhanek.com/nerfbaselines/m-mip-splatting)                     |     33.330 |     0.969 |       0.039 |      6m 49s |   2.7 GB |
 | [Gaussian Splatting](https://jkulhanek.com/nerfbaselines/m-gaussian-splatting)           |     33.308 |     0.969 |     *0.037* |     *6m 6s* |   3.1 GB |
 | [TensoRF](https://jkulhanek.com/nerfbaselines/m-tensorf)                                 |     33.172 |     0.963 |       0.051 |     10m 47s |  16.4 GB |
+| [Scaffold-GS](https://jkulhanek.com/nerfbaselines/m-scaffold-gs)                         |     33.080 |     0.966 |       0.048 |       7m 4s |   3.7 GB |
 | [K-Planes](https://jkulhanek.com/nerfbaselines/m-kplanes)                                |     32.265 |     0.961 |       0.062 |     23m 58s |   4.6 GB |
 | [Instant NGP](https://jkulhanek.com/nerfbaselines/m-instant-ngp)                         |     32.198 |     0.959 |       0.055 |  **2m 23s** | *2.6 GB* |
 | [Tetra-NeRF](https://jkulhanek.com/nerfbaselines/m-tetra-nerf)                           |     31.951 |     0.957 |       0.056 |  6h 53m 20s |  29.6 GB |
@@ -142,6 +144,7 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 | NeRF On-the-go            | ❔        | ❔        | ❔           | ❔         | ❔            | ❔           | ❔                |
 | NeRF-W (reimplementation) | ❔        | ❔        | ❔           | ❔         | 🥇 gold       | ❔           | ❔                |
 | NerfStudio                | 🥇 gold   | ❔        | 🥇 gold      | ❔         | ❔            | ❔           | 🥇 gold           |
+| Scaffold-GS               | 🥇 gold   | ❔        | 🥇 gold      | ❔         | ❔            | 🥇 gold      | 🥇 gold           |
 | SeaThru-NeRF              | ❔        | ❔        | ❔           | ❔         | ❔            | 🥇 gold      | ❔                |
 | TensoRF                   | 🥇 gold   | 🥇 gold   | ❌           | ❔         | ❔            | ❔           | ❔                |
 | Tetra-NeRF                | 🥈 silver | ❔        | 🥈 silver    | ❔         | ❔            | ❔           | ❔                |
@@ -181,6 +184,7 @@ For the currently implemented methods, the following licenses apply:
 - NeRF-W (reimplementation): [MIT](https://raw.githubusercontent.com/kwea123/nerf_pl/master/LICENSE)
 - NeRF: [MIT](https://github.com/bmild/nerf/blob/master/LICENSE)
 - NerfStudio: [Apache 2.0](https://raw.githubusercontent.com/nerfstudio-project/nerfstudio/main/LICENSE)
+- Scaffold-GS: [custom, research only](https://raw.githubusercontent.com/city-super/Scaffold-GS/main/LICENSE.md)
 - SeaThru-NeRF: [Apache 2.0](https://raw.githubusercontent.com/deborahLevy130/seathru_NeRF/master/LICENSE)
 - TensoRF: [MIT](https://github.com/apchenstu/TensoRF/blob/main/LICENSE)
 - Tetra-NeRF: [MIT](https://raw.githubusercontent.com/jkulhanek/tetra-nerf/master/LICENSE)

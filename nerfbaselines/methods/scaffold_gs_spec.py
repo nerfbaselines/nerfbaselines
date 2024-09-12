@@ -2,6 +2,37 @@ import os
 from nerfbaselines import register, MethodSpec
 
 
+# Blender scenes: Mic Chair Ship Materials Lego Drums Ficus Hotdog
+# Blender PSNRs: 37.25 35.28 31.17 30.65 35.69 26.44 35.21 37.73
+# Mipnerf360 scenes: bicycle garden stump room counter kitchen bonsai
+# Mipnerf360 PSNRs: 24.50 27.17 26.27 31.93 29.34 31.30 32.70
+# Mipnerf360 SSIMs: 0.705 0.842 0.784 0.925 0.914 0.928 0.946
+# Mipnerf360 LPIPs: 0.306 0.146 0.284 0.202 0.191 0.126 0.185
+# TanksAndTemples scenes: truck train
+# TanksAndTemples PSNRs: 25.77 22.15
+# TanksAndTemples SSIMs: 0.883 0.822
+# TanksAndTemples LPIPs: 0.147 0.206
+_paper_results = {
+    "blender/mic": {"psnr": 37.25},
+    "blender/chair": {"psnr": 35.28},
+    "blender/ship": {"psnr": 31.17},
+    "blender/materials": {"psnr": 30.65},
+    "blender/lego": {"psnr": 35.69},
+    "blender/drums": {"psnr": 26.44},
+    "blender/ficus": {"psnr": 35.21},
+    "blender/hotdog": {"psnr": 37.73},
+    "mipnerf360/bicycle": {"psnr": 24.50, "ssim": 0.705, "lpips": 0.306},
+    "mipnerf360/garden": {"psnr": 27.17, "ssim": 0.842, "lpips": 0.146},
+    "mipnerf360/stump": {"psnr": 26.27, "ssim": 0.784, "lpips": 0.284},
+    "mipnerf360/room": {"psnr": 31.93, "ssim": 0.925, "lpips": 0.202},
+    "mipnerf360/counter": {"psnr": 29.34, "ssim": 0.914, "lpips": 0.191},
+    "mipnerf360/kitchen": {"psnr": 31.30, "ssim": 0.928, "lpips": 0.126},
+    "mipnerf360/bonsai": {"psnr": 32.70, "ssim": 0.946, "lpips": 0.185},
+    "tanksandtemples/truck": {"psnr": 25.77, "ssim": 0.883, "lpips": 0.147},
+    "tanksandtemples/train": {"psnr": 22.15, "ssim": 0.822, "lpips": 0.206},
+}
+
+
 ScaffoldGSSpec: MethodSpec = {
     "id": "scaffold-gs",
     "method_class": ".scaffold_gs:ScaffoldGS",
@@ -45,7 +76,7 @@ fi
         "paper_title": "Scaffold-GS: Structured 3D Gaussians for View-Adaptive Rendering",
         "paper_authors": ["Tao Lu", "Mulin Yu", "Linning Xu", "Yuanbo Xiangli", "Limin Wang" , "Dahua Lin" "Bo Dai"],
         "paper_link": "https://arxiv.org/pdf/2312.00109.pdf",
-        "paper_results": {},
+        "paper_results": _paper_results,
         "link": "https://city-super.github.io/scaffold-gs/",
         "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/city-super/Scaffold-GS/main/LICENSE.md"}],
     },
