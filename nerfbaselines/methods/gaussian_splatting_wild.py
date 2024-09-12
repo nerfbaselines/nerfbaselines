@@ -24,7 +24,7 @@ import numpy as np
 from PIL import Image
 from nerfbaselines import (
     Method, MethodInfo, ModelInfo, 
-    OptimizeEmbeddingsOutput, RenderOutput,
+    OptimizeEmbeddingOutput, RenderOutput,
     Cameras, camera_model_to_int, Dataset,
 )
 from nerfbaselines.utils import convert_image_dtype
@@ -537,7 +537,7 @@ class GaussianSplattingWild(Method):
                 "color": color,
             }
 
-    def optimize_embedding(self, dataset: Dataset, *, embedding: Optional[np.ndarray] = None) -> OptimizeEmbeddingsOutput:
+    def optimize_embedding(self, dataset: Dataset, *, embedding: Optional[np.ndarray] = None) -> OptimizeEmbeddingOutput:
         """
         Optimize embeddings on a single image (passed as a dataset).
 

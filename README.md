@@ -84,6 +84,7 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 | [Mip-Splatting](https://jkulhanek.com/nerfbaselines/m-mip-splatting)                     |     27.492 |     0.815 |       0.258 |     25m 37s |  11.0 GB |
 | [Gaussian Splatting](https://jkulhanek.com/nerfbaselines/m-gaussian-splatting)           |     27.434 |     0.814 |       0.257 |     23m 25s |  11.1 GB |
 | [Gaussian Opacity Fields](https://jkulhanek.com/nerfbaselines/m-gaussian-opacity-fields) |     27.421 |   *0.826* |     *0.234* |   1h 3m 54s |  28.4 GB |
+| [gsplat](https://jkulhanek.com/nerfbaselines/m-gsplat)                                   |     27.412 |     0.815 |       0.256 |     29m 19s |   8.3 GB |
 | [NerfStudio](https://jkulhanek.com/nerfbaselines/m-nerfacto)                             |     26.388 |     0.731 |       0.343 |   *19m 30s* | *5.9 GB* |
 | [Instant NGP](https://jkulhanek.com/nerfbaselines/m-instant-ngp)                         |     25.507 |     0.684 |       0.398 |  **3m 54s** |   7.8 GB |
 | [COLMAP](https://jkulhanek.com/nerfbaselines/m-colmap)                                   |     16.670 |     0.445 |       0.590 |  2h 52m 55s | **0 MB** |
@@ -103,6 +104,7 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 | [K-Planes](https://jkulhanek.com/nerfbaselines/m-kplanes)                                |     32.265 |     0.961 |       0.062 |     23m 58s |   4.6 GB |
 | [Instant NGP](https://jkulhanek.com/nerfbaselines/m-instant-ngp)                         |     32.198 |     0.959 |       0.055 |  **2m 23s** | *2.6 GB* |
 | [Tetra-NeRF](https://jkulhanek.com/nerfbaselines/m-tetra-nerf)                           |     31.951 |     0.957 |       0.056 |  6h 53m 20s |  29.6 GB |
+| [gsplat](https://jkulhanek.com/nerfbaselines/m-gsplat)                                   |     31.471 |     0.966 |       0.054 |     14m 45s |   2.8 GB |
 | [Mip-NeRF 360](https://jkulhanek.com/nerfbaselines/m-mipnerf360)                         |     30.345 |     0.951 |       0.060 |  3h 29m 39s | 114.8 GB |
 | [NerfStudio](https://jkulhanek.com/nerfbaselines/m-nerfacto)                             |     29.191 |     0.941 |       0.095 |      9m 38s |   3.6 GB |
 | [NeRF](https://jkulhanek.com/nerfbaselines/m-nerf)                                       |     28.723 |     0.936 |       0.092 | 23h 26m 30s |  10.2 GB |
@@ -145,6 +147,7 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 | Tetra-NeRF                | 🥈 silver | ❔        | 🥈 silver    | ❔         | ❔            | ❔           | ❔                |
 | WildGaussians             | ❔        | ❔        | ❔           | ❔         | 🥇 gold       | ❔           | ❔                |
 | Zip-NeRF                  | 🥇 gold   | ❌        | 🥇 gold      | 🥇 gold    | ❔            | ❔           | ❔                |
+| gsplat                    | 🥇 gold   | ❔        | 🥇 gold      | ❔         | 🥇 gold       | ❔           | 🥇 gold           |
 
 
 
@@ -177,11 +180,13 @@ For the currently implemented methods, the following licenses apply:
 - Mip-Splatting: [custom, research only](https://raw.githubusercontent.com/autonomousvision/mip-splatting/main/LICENSE.md)
 - NeRF-W (reimplementation): [MIT](https://raw.githubusercontent.com/kwea123/nerf_pl/master/LICENSE)
 - NeRF: [MIT](https://github.com/bmild/nerf/blob/master/LICENSE)
+- NerfStudio: [Apache 2.0](https://raw.githubusercontent.com/nerfstudio-project/nerfstudio/main/LICENSE)
 - SeaThru-NeRF: [Apache 2.0](https://raw.githubusercontent.com/deborahLevy130/seathru_NeRF/master/LICENSE)
 - TensoRF: [MIT](https://github.com/apchenstu/TensoRF/blob/main/LICENSE)
 - Tetra-NeRF: [MIT](https://raw.githubusercontent.com/jkulhanek/tetra-nerf/master/LICENSE)
 - WildGaussians: [MIT](https://raw.githubusercontent.com/jkulhanek/wild-gaussians/main/LICENSE), [custom, research only](https://raw.githubusercontent.com/graphdeco-inria/gaussian-splatting/main/LICENSE.md)
 - Zip-NeRF: [Apache 2.0](https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE)
+- gsplat: [Apache 2.0](https://raw.githubusercontent.com/nerfstudio-project/gsplat/main/LICENSE)
 
 
 ## Acknowledgements

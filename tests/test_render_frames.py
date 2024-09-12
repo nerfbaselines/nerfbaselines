@@ -89,7 +89,7 @@ def _test_render_trajectory_command(tmp_path, out, *args):
         import json
         json.dump(_mock_trajectory(num_cams), f)
     
-    command = [x.replace("{tmp_path}", str(tmp_path)).replace("{out}", out) for x in "nerfbaselines render-trajectory --checkpoint {tmp_path}/test-checkpoint --trajectory {tmp_path}/trajectory.json --output {tmp_path}/{out}".split()]
+    command = [x.replace("{tmp_path}", str(tmp_path)).replace("{out}", out) for x in "nerfbaselines render-trajectory --checkpoint {tmp_path}/test-checkpoint --trajectory {tmp_path}/trajectory.json --output {tmp_path}/{out} --backend python".split()]
     # Patch sys.argv
     test_registry = {"test-method": {
         "id": "test-method",

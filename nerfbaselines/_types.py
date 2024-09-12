@@ -372,7 +372,7 @@ RenderOutput = Dict[str, np.ndarray]
 # accumulation: np.ndarray  # [h w]
 
 
-class OptimizeEmbeddingsOutput(TypedDict):
+class OptimizeEmbeddingOutput(TypedDict):
     embedding: Required[np.ndarray]
     render_output: NotRequired[RenderOutput]
     metrics: NotRequired[Dict[str, Sequence[float]]]
@@ -453,7 +453,7 @@ class Method(Protocol):
 
     def optimize_embedding(self, 
                            dataset: Dataset, *,
-                           embedding: Optional[np.ndarray] = None) -> OptimizeEmbeddingsOutput:
+                           embedding: Optional[np.ndarray] = None) -> OptimizeEmbeddingOutput:
         """
         Optimize embedding for a single image (passed as a dataset with a single image).
 

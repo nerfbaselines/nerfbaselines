@@ -5,7 +5,7 @@ from ._types import (
     RenderOutput as RenderOutput,
     RenderOutputType as RenderOutputType,
     RenderOptions as RenderOptions,
-    OptimizeEmbeddingsOutput as OptimizeEmbeddingsOutput,
+    OptimizeEmbeddingOutput as OptimizeEmbeddingOutput,
     Cameras as Cameras,
     ColorSpace as ColorSpace,
     CameraModel as CameraModel,
