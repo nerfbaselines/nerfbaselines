@@ -369,6 +369,12 @@ schedulers=self.schedulers
     renders = renders * sampling_mask + renders.detach() * (1 - sampling_mask)
     alphas = alphas * sampling_mask + alphas.detach() * (1 - sampling_mask)
 """).body[0])
+    
+    bkgd_blend_step_idx = next(i for i, step in enumerate(iter_step_body) if ast.unparse(step).startswith("if cfg.random_bkgd:"))
+    iter_step_body.insert(bkgd_blend_step_idx + 1, ast.parse("""if not cfg.random_bkgd and cfg.background_color is not None:
+    bkgd = torch.tensor(cfg.background_color, dtype=colors.dtype, device=self.device).view(1, 1, 1, 3)
+    colors = colors + bkgd * (1.0 - alphas)
+""").body[0])
 
     iter_step_body.extend(ast.parse("""def _():
     self.trainloader_iter=trainloader_iter
@@ -616,7 +622,7 @@ class GSplat(Method):
         Ks = torch.from_numpy(np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])).float().to(device)
         width, height = camera.image_sizes
         dataset = gs_Dataset.preprocess_images(dataset)
-        pixels = torch.from_numpy(dataset["images"][0]).float().to(device)[None]
+        pixels = torch.from_numpy(dataset["images"][0]).float().to(device)[None].div(255.)
         # Extend gsplat, handle sampling masks
         sampling_masks = None
         _dataset_sampling_masks = dataset.get("sampling_masks")
