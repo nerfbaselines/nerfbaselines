@@ -23,7 +23,7 @@ import torch
 import torch.utils.data
 from functools import partial
 from nerfbaselines import (
-    Dataset, RenderOutput, OptimizeEmbeddingsOutput,
+    Dataset, RenderOutput, OptimizeEmbeddingOutput,
     Method, MethodInfo, ModelInfo, Cameras, camera_model_to_int,
 )
 from nerfbaselines.utils import convert_image_dtype
@@ -696,7 +696,7 @@ class KPlanes(Method):
             with open(fname + ".sha256", "w", encoding="utf8") as f:
                 f.write(sha)
 
-    def optimize_embedding(self, dataset: Dataset, *, embedding: Optional[np.ndarray] = None) -> OptimizeEmbeddingsOutput:
+    def optimize_embedding(self, dataset: Dataset, *, embedding: Optional[np.ndarray] = None) -> OptimizeEmbeddingOutput:
         """
         Optimize embedding of a single image (passed as dataset).
 

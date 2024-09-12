@@ -1,3 +1,4 @@
+import pprint
 import dataclasses
 import json
 import io
@@ -11,8 +12,8 @@ import argparse
 import os
 import ast
 import importlib.util
-from typing import cast, Optional
-from nerfbaselines import Method, MethodInfo, ModelInfo, Dataset
+from typing import cast, Optional, List
+from nerfbaselines import Method, MethodInfo, ModelInfo, Dataset, OptimizeEmbeddingOutput
 from nerfbaselines.utils import pad_poses, image_to_srgb, convert_image_dtype
 from typing import Optional, Union
 from typing_extensions import Literal, get_origin, get_args
@@ -45,14 +46,26 @@ def cast_value(tp, value):
             except TypeError:
                 pass
         raise TypeError(f"Value {value} is not in {get_args(tp)}")
-            
+    if origin is tuple:
+        # NOTE: not supporting ellipsis
+        if Ellipsis in get_args(tp):
+            raise TypeError("Ellipsis not supported")
+        if isinstance(value, str):
+            value = value.split(",")
+        if len(get_args(tp)) != len(value):
+            raise TypeError(f"Length of value {value} is not equal to {tp}")
+        return tuple(cast_value(t, v) for t, v in zip(get_args(tp), value))
     if origin is Union:
         for t in get_args(tp):
             try:
                 return cast_value(t, value)
             except ValueError:
+                import traceback
+                traceback.print_exc()
                 pass
             except TypeError:
+                import traceback
+                traceback.print_exc()
                 pass
         raise TypeError(f"Value {value} is not in {tp}")
     if tp is type(None):
@@ -72,6 +85,60 @@ def cast_value(tp, value):
     if isinstance(value, tp):
         return value
     raise TypeError(f"Cannot cast value {value} to type {tp}")
+
+
+def flatten_hparams(hparams, *, separator: str = "/", _prefix: str = ""):
+    def format_value(v, only_simple_types=True):
+        if isinstance(v, (str, float, int, bool, bytes, type(None))):
+            return v
+        if torch.is_tensor(v) or isinstance(v, np.ndarray):
+            return format_value(v.tolist(), only_simple_types=only_simple_types)
+        if isinstance(v, (list, tuple)):
+            # If list of simple types, convert to string
+            if not only_simple_types:
+                return type(v)([format_value(x, only_simple_types=False) for x in v])
+            formatted = [format_value(x) for x in v]
+            if all(isinstance(x, (str, float, int, bool, bytes, type(None))) for x in formatted):
+                return ",".join(str(x) for x in formatted)
+            return ",".join(pprint.pformat(x) for x in formatted)
+        if isinstance(v, dict):
+            if not only_simple_types:
+                return {k: format_value(v, only_simple_types=False) for k, v in v.items()}
+            return pprint.pformat(format_value(v, only_simple_types=False))
+        if isinstance(v, type):
+            return v.__module__ + ":" + v.__name__
+        if dataclasses.is_dataclass(v):
+            return format_value({
+                f.name: getattr(v, f.name) for f in dataclasses.fields(v)
+            }, only_simple_types=only_simple_types)
+        if callable(v):
+            return v.__module__ + ":" + v.__name__
+        return repr(v)
+
+    flat = {}
+    if dataclasses.is_dataclass(hparams):
+        hparams = {f.name: getattr(hparams, f.name) for f in dataclasses.fields(hparams)}
+    _blacklist = set((
+        "port",
+        "ckpt",
+        "disable_viewer",
+        "render_traj_path",
+        "data_dir",
+        "result_dir",
+        "lpips_net",
+        "tb_every",
+        "tb_save_image",
+    ))
+    for k, v in hparams.items():
+        if _prefix:
+            k = f"{_prefix}{separator}{k}"
+        if k in _blacklist:
+            continue
+        if isinstance(v, dict) or dataclasses.is_dataclass(v):
+            flat.update(flatten_hparams(v, _prefix=k, separator=separator))
+        else:
+            flat[k] = format_value(v)
+    return flat
 
 
 class gs_Parser:
@@ -176,6 +243,9 @@ class gs_Dataset:
         fx, fy, cx, cy = dataset["cameras"][idx].intrinsics
         K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
         camtoworlds = pad_poses(dataset["cameras"][idx].poses)
+        sampling_mask = None
+        if dataset.get("sampling_masks", None) is not None:
+            sampling_mask = dataset["sampling_masks"][idx]
 
         if self.patch_size is not None:
             # Random crop.
@@ -183,6 +253,8 @@ class gs_Dataset:
             x = np.random.randint(0, max(w - self.patch_size, 1))
             y = np.random.randint(0, max(h - self.patch_size, 1))
             image = image[y : y + self.patch_size, x : x + self.patch_size]
+            if sampling_mask is not None:
+                sampling_mask = sampling_mask[y : y + self.patch_size, x : x + self.patch_size]
             K[0, 2] -= x
             K[1, 2] -= y
 
@@ -192,6 +264,8 @@ class gs_Dataset:
             "image": torch.from_numpy(image).float(),
             "image_id": idx,  # the index of the image in the dataset
         }
+        if sampling_mask is not None:
+            data["sampling_mask"] = torch.from_numpy(convert_image_dtype(sampling_mask, 'float32'))
 
         if self.load_depths:
             # projected points to image plane to get depths
@@ -253,6 +327,11 @@ def _build_simple_trainer_module():
         annotation=ast.Name(id="float", ctx=ast.Load(), lineno=0, col_offset=0),
         value=ast.Constant(value=0.1, kind=None, lineno=0, col_offset=0), 
         simple=True, col_offset=0, lineno=0))
+    config_ast.body.insert(-1, ast.AnnAssign(  # type: ignore
+        target=ast.Name(id="background_color", ctx=ast.Store(), lineno=0, col_offset=0),
+        annotation=ast.parse("Optional[Tuple[float, float, float]]").body[0].value,  # type: ignore
+        value=ast.Constant(value=None, kind=None, lineno=0, col_offset=0), 
+        simple=True, col_offset=0, lineno=0))
 
     runner_ast = next(x for x in simple_trainer_ast.body if getattr(x, "name", None) == "Runner")
     assert isinstance(runner_ast, ast.ClassDef)
@@ -282,6 +361,15 @@ schedulers=self.schedulers
     iter_step_body.pop(-2)  # Remove eval() step
     # Remove pbar.set_description
     iter_step_body.pop(next(i for i, step in enumerate(iter_step_body) if ast.unparse(step) == "pbar.set_description(desc)"))
+
+    # NOTE: extend gsplat to use sampling_masks
+    render_step_idx = next(i for i, step in enumerate(iter_step_body) if ast.unparse(step).startswith("(renders, alphas, info) = self.rasterize_splats"))
+    iter_step_body.insert(render_step_idx + 1, ast.parse("""if data.get("sampling_mask") is not None:
+    sampling_mask = data["sampling_mask"].to(self.device)
+    renders = renders * sampling_mask + renders.detach() * (1 - sampling_mask)
+    alphas = alphas * sampling_mask + alphas.detach() * (1 - sampling_mask)
+""").body[0])
+
     iter_step_body.extend(ast.parse("""def _():
     self.trainloader_iter=trainloader_iter
     out={"loss": loss.item(), "l1loss": l1loss.item(), "ssim": ssimloss.item(), "num_gaussians": len(self.splats["means"])}
@@ -404,6 +492,7 @@ class GSplat(Method):
             setattr(cfg, k, v)
 
         cfg.adjust_steps(cfg.steps_scaler)
+        cfg.steps_scaler = 1.0  # We have already adjusted the steps
         if cfg.pose_opt:
             warnings.warn("Pose optimization is enabled, but it will only by applied to training images. No test-time pose optimization is enabled.")
         return cfg
@@ -420,6 +509,7 @@ class GSplat(Method):
     def get_info(self):
         return ModelInfo(
             **self.get_method_info(),
+            hparams=flatten_hparams(self.cfg),
             num_iterations=self.cfg.max_steps,
             loaded_step=self._loaded_step,
             loaded_checkpoint=self.checkpoint,
@@ -464,6 +554,12 @@ class GSplat(Method):
             if embeds_module is not None:
                 self.runner.app_module.embeds = embeds_module
 
+    def _add_background_color(self, img, accumulation):
+        if self.cfg.background_color is None:
+            return img
+        background_color = torch.tensor(self.cfg.background_color, device=img.device, dtype=torch.float32).view(1, 1, 1, 3)
+        return img + (1.0 - accumulation) * background_color
+
     @torch.no_grad()
     def render(self, camera, *, options=None):
         camera = camera.item()
@@ -492,6 +588,7 @@ class GSplat(Method):
                 image_ids=object() if embedding is not None else None,
                 render_mode="RGB+ED" if "depth" in outputs else "RGB",
             )  # [1, H, W, 3]
+            colors = self._add_background_color(colors, accumulation)
         out = {
             "color": torch.clamp(colors.squeeze(0)[..., :3], 0.0, 1.0).detach().cpu().numpy(),
             "accumulation": accumulation.squeeze(0).squeeze(-1).detach().cpu().numpy(),
@@ -505,7 +602,7 @@ class GSplat(Method):
             return None
         return self.runner.app_module.embeds.weight[index].detach().cpu().numpy()
 
-    def optimize_embedding(self, dataset: Dataset, *, embedding=None):
+    def optimize_embedding(self, dataset: Dataset, *, embedding=None) -> OptimizeEmbeddingOutput:
         if not self.cfg.app_opt:
             raise NotImplementedError("Appearance optimization is not enabled, add --set app_opt=True to the command line.")
         assert len(dataset["images"]) == 1, "Only single image optimization is supported"
@@ -522,8 +619,9 @@ class GSplat(Method):
         pixels = torch.from_numpy(dataset["images"][0]).float().to(device)[None]
         # Extend gsplat, handle sampling masks
         sampling_masks = None
-        if dataset.get("sampling_masks") is not None:
-            sampling_masks = torch.from_numpy(convert_image_dtype(dataset["sampling_masks"][0], np.float32)).to(device)[None]
+        _dataset_sampling_masks = dataset.get("sampling_masks")
+        if _dataset_sampling_masks is not None:
+            sampling_masks = torch.from_numpy(convert_image_dtype(_dataset_sampling_masks[0], np.float32)).to(device)[None]
 
         # Patch appearance
         if embedding is not None:
@@ -532,12 +630,12 @@ class GSplat(Method):
             embedding_th = torch.zeros_like(self.runner.app_module.embeds.weight[0])
         embedding_th = torch.nn.Parameter(embedding_th.requires_grad_())
         optimizer = torch.optim.Adam([embedding_th], lr=self.cfg.app_test_opt_lr)
-        l1losses = []
-        ssimlosses = []
-        losses = []
+        l1losses: List[float] = []
+        ssimlosses: List[float] = []
+        losses: List[float] = []
         with torch.enable_grad(), self._patch_embedding(embedding_th):
             for _ in range(self.cfg.app_test_opt_steps):
-                colors, _, _ = self.runner.rasterize_splats(
+                colors, accumulation, _ = self.runner.rasterize_splats(
                     camtoworlds=camtoworlds,
                     Ks=Ks[None],
                     width=width,
@@ -547,6 +645,7 @@ class GSplat(Method):
                     far_plane=cfg.far_plane,
                     image_ids=object()
                 )  # [1, H, W, 3]
+                colors = self._add_background_color(colors, accumulation)
 
                 # Scale colors grad by sampling masks
                 if sampling_masks is not None:

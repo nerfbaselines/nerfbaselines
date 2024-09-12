@@ -54,6 +54,8 @@ It is inspired by the 3DGS paper, but it is faster, more memory efficient, and w
         "blender": { 
             "@apply": [{"dataset": "blender"}], 
             "init_type": "random", 
+            "background_color": (1.0, 1.0, 1.0),
+            "init_extent": 0.5,
         },
         "phototourism": { "@apply": [{"dataset": "phototourism"}], 
             "app_opt": True,  # Enable appearance optimization

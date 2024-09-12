@@ -20,7 +20,7 @@ from functools import partial
 from typing import Optional, Any
 from nerfbaselines import (
     Method, Dataset, Cameras, RenderOutput,
-    OptimizeEmbeddingsOutput, 
+    OptimizeEmbeddingOutput, 
     ModelInfo, MethodInfo, CameraModel,
 )
 from nerfbaselines.utils import invert_transform, pad_poses, convert_image_dtype
@@ -698,7 +698,7 @@ class NeRFWReimpl(Method):
         if self.hparams.encode_a:
             return self._model.embedding_a.weight.data.mean(0).cpu().numpy()
 
-    def optimize_embedding(self, dataset: Dataset, *, embedding: Optional[np.ndarray] = None) -> OptimizeEmbeddingsOutput:
+    def optimize_embedding(self, dataset: Dataset, *, embedding: Optional[np.ndarray] = None) -> OptimizeEmbeddingOutput:
         torch.cuda.empty_cache()
         camera = dataset["cameras"].item()  # Ensure it is a single camera
         model = self._model
