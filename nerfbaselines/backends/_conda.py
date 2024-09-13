@@ -124,6 +124,9 @@ if ! mkdir {shlex.quote(env_path + ".lock")} 2>/dev/null; then
     if [ ! -e {shlex.quote(env_path + ".ack.txt")} ]; then
         echo "The other process failed to build the environment." >&2
         exit 1
+    else
+        echo "The other process finished building the environment." >&2
+        exit 0
     fi
 fi
 echo $(hostname) > {shlex.quote(env_path + ".lock/nodename")}

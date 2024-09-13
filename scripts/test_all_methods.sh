@@ -94,6 +94,10 @@ test_method nerfacto $blender
 
 test_method nerfw-reimpl $phototourism
 
+test_method scaffold-gs $blender
+test_method scaffold-gs $mipnerf360
+test_method scaffold-gs $phototourism
+
 test_method seathru-nerf $seathru_nerf
 
 test_method tensorf $blender
