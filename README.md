@@ -131,6 +131,7 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 ## Implementation status
 | Method                    | Blender   | LLFF      | Mip-NeRF 360 | Nerfstudio | Photo Tourism | SeaThru-NeRF | Tanks and Temples |
 |:------------------------- |:--------- |:--------- |:------------ |:---------- |:------------- |:------------ |:----------------- |
+| 2D Gaussian Splatting     | 🥇 gold   | ❔        | 🥇 gold      | ❔         | ❔            | 🥇 gold      | 🥇 gold           |
 | COLMAP                    | 🥇 gold   | ❔        | 🥇 gold      | 🥇 gold    | ❔            | ❔           | 🥇 gold           |
 | CamP                      | ❔        | ❔        | ❔           | ❔         | ❔            | ❔           | ❔                |
 | GS-W                      | ❔        | ❔        | ❔           | ❔         | ❔            | ❔           | ❔                |
@@ -172,6 +173,7 @@ If you use this project in your research, please cite the following paper:
 This project is licensed under the [MIT license](https://raw.githubusercontent.com/jkulhanek/nerfbaselines/main/LICENSE)
 Each implemented method is licensed under the license provided by the authors of the method.
 For the currently implemented methods, the following licenses apply:
+- 2D Gaussian Splatting: [custom, research only](https://raw.githubusercontent.com/hbb1/2d-gaussian-splatting/main/LICENSE.md)
 - COLMAP: [BSD](https://colmap.github.io/license.html)
 - CamP: [Apache 2.0](https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE)
 - GS-W: unknown
