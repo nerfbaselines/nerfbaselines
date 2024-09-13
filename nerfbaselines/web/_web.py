@@ -83,11 +83,27 @@ def _get_method_data(data, method: str):
             else None
         )
     } for s in data["scenes"]]
+
+    # Add sorts to scenes
+    for k in metrics:
+        v = [m["scenes"].get(s["id"], {}).get(k["id"], -float("inf")) for s in data["scenes"]]
+        sort = sorted(range(len(v)), key=lambda i: v[i].lower() if isinstance(v[i], str) else v[i])
+        for i, j in enumerate(sort):
+            scenes[j]["sort"] = scenes[j].get("sort", {})
+            scenes[j]["sort"][k["id"]] = i
+    sort = sorted(range(len(scenes)), key=lambda i: scenes[i]["name"].lower())
+    for i, j in enumerate(sort):
+        scenes[j]["sort"] = scenes[j].get("sort", {})
+        scenes[j]["sort"]["name"] = i
     
     average = {
-        mid["id"]: _format_cell(_get_average([m["scenes"].get(s["id"]) or {} for s in data["scenes"]], mid["id"], sign_map.get(mid["id"], 1)), mid["id"])
+        ("_"+mid["id"]):_get_average([m["scenes"].get(s["id"]) or {} for s in data["scenes"]], mid["id"], sign_map.get(mid["id"], 1))
         for mid in metrics
     }
+    average.update({
+        mid["id"]: _format_cell(_get_average([m["scenes"].get(s["id"]) or {} for s in data["scenes"]], mid["id"], sign_map.get(mid["id"], 1)), mid["id"])
+        for mid in metrics
+    })
 
     if "paper_results" in m:
         paper_scenes = {k[len(f"{dataset}/"):]: v for k, v in m["paper_results"].items() if k.startswith(f"{dataset}/")}
@@ -146,6 +162,25 @@ def get_dataset_data(raw_data):
         _get_method_data(data, m["id"])
         for m in data["methods"]
     ]
+
+    # Add sort values to methods
+    sort_metrics = []
+    max_scenes = max(len(m["scenes"]) for m in data["methods"])
+    if data["methods"]:
+        sort_metrics = [k[1:] for k in data["methods"][0]["average"] if k.startswith("_")]
+    sorts = {m: [method["average"].pop("_"+m, -float("inf")) for method in data["methods"]]
+             for m in sort_metrics}
+    sorts["name"] = [m["name"] for m in data["methods"]]
+    for k, v in sorts.items():
+        sort = sorted(range(len(v)), key=lambda i: v[i].lower() if isinstance(v[i], str) else v[i])
+        for j, i in enumerate(sort):
+            data["methods"][i]["sort"] = data["methods"][i].get("sort", {})
+            data["methods"][i]["sort"][k] = j
+
+            if k != "name":
+                # Update scene sorts
+                for s in data["methods"][i]["scenes"]:
+                    s["sort"][k] += max_scenes * j
     return data
 
 

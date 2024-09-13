@@ -77,7 +77,7 @@ function init() {
           dataRanges.push({
             start: j,
             length: 1,
-            value: row.children[columnId].innerText
+            value: row.children[columnId].attributes["data-sort-value"].value
           });
         }
       }
