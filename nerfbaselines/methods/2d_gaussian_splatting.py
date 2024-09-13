@@ -131,6 +131,9 @@ def _convert_dataset_to_scene_info(dataset: Optional[Dataset], white_background:
     if points3D_xyz is None and dataset["metadata"].get("id", None) == "blender":
         pcd = blender_create_pcd()
     else:
+        method_id = "2d-gaussian-splatting"
+        assert points3D_xyz is not None, f"points3D_xyz is required for {method_id}"
+        assert points3D_rgb is not None, f"points3D_rgb is required for {method_id}"
         pcd = BasicPointCloud(points3D_xyz, points3D_rgb/255., np.zeros_like(points3D_xyz))
 
     return SceneInfo(point_cloud=pcd, 

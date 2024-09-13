@@ -4,6 +4,7 @@ import ast
 import sys
 import importlib
 import importlib.abc
+import importlib.util
 
 
 class _MetaFinder(importlib.abc.MetaPathFinder):

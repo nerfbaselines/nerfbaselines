@@ -1,5 +1,6 @@
 import copy
 import ast
+from typing import cast
 from ._common import patch_ast_import
 
 # This file includes several patches to 3DGS codebase
@@ -64,9 +65,9 @@ def _(ast_module: ast.Module):
     assert isinstance(return_ast, ast.Return), "loadCam does not return camera"
     camera = return_ast.value
     assert isinstance(camera, ast.Call), "loadCam does not return camera"
-    camera.keywords.append(ast.keyword(arg="sampling_mask", value=ast.parse("PILtoTorch(cam_info.sampling_mask, (gt_image.size[1], gt_image.size[0])) if cam_info.sampling_mask is not None else None").body[0].value, lineno=0, col_offset=0))
-    camera.keywords.append(ast.keyword(arg="cx", value=ast.parse("cam_info.cx").body[0].value, lineno=0, col_offset=0))
-    camera.keywords.append(ast.keyword(arg="cy", value=ast.parse("cam_info.cy").body[0].value, lineno=0, col_offset=0))
+    camera.keywords.append(ast.keyword(arg="sampling_mask", value=ast.parse("PILtoTorch(cam_info.sampling_mask, (gt_image.size[1], gt_image.size[0])) if cam_info.sampling_mask is not None else None").body[0].value, lineno=0, col_offset=0))  # type: ignore
+    camera.keywords.append(ast.keyword(arg="cx", value=ast.parse("cam_info.cx").body[0].value, lineno=0, col_offset=0))  # type: ignore
+    camera.keywords.append(ast.keyword(arg="cy", value=ast.parse("cam_info.cy").body[0].value, lineno=0, col_offset=0))  # type: ignore
 
 
 # Patch Cameras to include sampling masks and cx, cy
@@ -112,7 +113,7 @@ def _(ast_module: ast.Module):
     cy, 
     self.znear, 
     self.zfar).transpose(0, 1).cuda()
-""").body[0].value
+""").body[0].value  # type: ignore
 
 @patch_ast_import("scene.dataset_readers")
 def _(ast_module: ast.Module):
@@ -124,7 +125,7 @@ def _(ast_module: ast.Module):
     # Add sampling_mask and cx, cy attributes to CameraInfo
     camera_info_ast.body.extend([
         ast.AnnAssign(target=ast.Name(id="sampling_mask", ctx=ast.Store(), lineno=0, col_offset=0), 
-                      annotation=ast.parse("Optional[np.ndarray]").body[0].value, 
+                      annotation=ast.parse("Optional[np.ndarray]").body[0].value,  # type: ignore
                       value=None, simple=1, lineno=0, col_offset=0),
         ast.AnnAssign(target=ast.Name(id="cx", ctx=ast.Store(), lineno=0, col_offset=0), 
                       annotation=ast.Name(id="float", ctx=ast.Load(), lineno=0, col_offset=0),
@@ -174,11 +175,11 @@ def _(ast_module: ast.Module):
 
     # Remove storePly call
     store_ply = body[-1]
-    assert isinstance(store_ply, ast.Expr) and isinstance(store_ply.value, ast.Call) and store_ply.value.func.id == "storePly", "storePly not found in if not os.path.exists(ply_path)"
+    assert isinstance(store_ply, ast.Expr) and isinstance(store_ply.value, ast.Call) and store_ply.value.func.id == "storePly", "storePly not found in if not os.path.exists(ply_path)"  # type: ignore
     body.remove(store_ply)
 
     # Add new function
-    new_function = ast.parse("def blender_create_pcd():\n    pass").body[0]
+    new_function = cast(ast.FunctionDef, ast.parse("def blender_create_pcd():\n    pass").body[0])
     new_function.body = body
     # Add `return pcd`
     new_function.body.append(ast.Return(value=ast.Name(id="pcd", ctx=ast.Load(), lineno=0, col_offset=0), lineno=0, col_offset=0))
@@ -219,15 +220,15 @@ def _(ast_module: ast.Module):
     ast_remove_names(training_ast, train_step_disabled_names)
     # Now, we extract the train iteration code
     train_loop = training_ast.body[-1]
-    assert isinstance(train_loop, ast.For) and train_loop.target.id == "iteration", "Expected for loop in training"
+    assert isinstance(train_loop, ast.For) and train_loop.target.id == "iteration", "Expected for loop in training"  # type: ignore
     train_step = list(train_loop.body)
     # Add return statement to train_step
     train_step.append(ast.Return(value=ast.Dict(
         keys=[ast.Constant(value=name, kind=None, lineno=0, col_offset=0) for name in metrics.keys()], 
-        values=[ast.parse(value).body[0].value for value in metrics.values()], 
+        values=[ast.parse(value).body[0].value for value in metrics.values()],  # type: ignore
         lineno=0, col_offset=0), lineno=0, col_offset=0))
     # Extract render_pkg = ... index
-    render_pkg_idx = next(i for i, x in enumerate(train_step) if isinstance(x, ast.Assign) and x.targets[0].id == "render_pkg")
+    render_pkg_idx = next(i for i, x in enumerate(train_step) if isinstance(x, ast.Assign) and x.targets[0].id == "render_pkg")  # type: ignore
     train_step.insert(render_pkg_idx+1, ast.parse("""
 if viewpoint_cam.sampling_mask is not None:
     sampling_mask = viewpoint_cam.sampling_mask.cuda()
@@ -258,7 +259,7 @@ if viewpoint_cam.sampling_mask is not None:
         train_step_transformer.visit(instruction)
 
     # Define function train_iteration
-    train_iteration = ast.parse("def train_iteration(self, iteration):\n    pass").body[0]
+    train_iteration = cast(ast.FunctionDef, ast.parse("def train_iteration(self, iteration):\n    pass").body[0])
     train_iteration.body = train_step
     # Add `return metrics` where metrics is obtained as {name: eval(name) for name in metrics}
     ast_module.body.append(train_iteration)
