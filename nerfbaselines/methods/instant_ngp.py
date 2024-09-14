@@ -419,7 +419,7 @@ class InstantNGP(Method):
                         if img.shape[2] < 4:
                             img = np.dstack((img, np.ones([img.shape[0], img.shape[1], 4 - img.shape[2]])))
                         with open(str(impath_target), "wb") as f:
-                            f.write(struct.pack("ii", img.shape[0], img.shape[1]))
+                            f.write(struct.pack("<ii", img.shape[0], img.shape[1]))
                             f.write(img.astype(np.float16).tobytes())
                     logging.debug(f"copied {impath_source} to {impath_target}")
                     copied += 1

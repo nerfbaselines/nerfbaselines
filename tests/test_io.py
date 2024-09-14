@@ -5,14 +5,14 @@ def test_open_any(tmp_path):
     from nerfbaselines.io import open_any
 
     # Test nested archives
-    with open_any(tmp_path / "tests/data.zip/obj.tar.gz/test/test.zip/nerf_synthetic/data.txt", "w") as f:
+    with open_any(tmp_path / "tests"/"data.zip"/"obj.tar.gz"/"test"/"test.zip"/"nerf_synthetic"/"data.txt", "w") as f:
         f.write(b"Hello world")
 
-    assert (tmp_path / "tests/data.zip").exists()
-    assert not (tmp_path / "tests/data.zip/obj.tar.gz").exists()
-    assert (tmp_path / "tests/data.zip").is_file()
+    assert (tmp_path / "tests"/"data.zip").exists()
+    assert not (tmp_path / "tests"/"data.zip"/"obj.tar.gz").exists()
+    assert (tmp_path / "tests"/"data.zip").is_file()
 
-    with open_any(tmp_path / "tests/data.zip/obj.tar.gz/test/test.zip/nerf_synthetic/data.txt", "r") as f:
+    with open_any(tmp_path / "tests"/"data.zip"/"obj.tar.gz"/"test"/"test.zip"/"nerf_synthetic"/"data.txt", "r") as f:
         data = f.read().decode("utf-8")
         assert data == "Hello world"
 

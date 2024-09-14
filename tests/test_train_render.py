@@ -132,6 +132,7 @@ def test_train_command(mock_extras, tmp_path, wandb_init_run, vis):
     import wandb
 
     _ns_prefix_backup = os.environ.get("NS_PREFIX", None)
+    cwd = os.getcwd()
     try:
         os.environ["NS_PREFIX"] = str(tmp_path / "prefix")
         spec: MethodSpec = {
@@ -203,6 +204,7 @@ def test_train_command(mock_extras, tmp_path, wandb_init_run, vis):
         assert (tmp_path / "output" / "predictions-13.tar.gz").exists()
         assert (tmp_path / "output" / "results-13.json").exists()
     finally:
+        os.chdir(cwd)
         _TestMethod._reset()
         if _ns_prefix_backup is not None:
             os.environ["NS_PREFIX"] = _ns_prefix_backup
@@ -222,6 +224,7 @@ def test_train_command_extras(tmp_path):
 
     assert train_command.callback is not None
 
+    cwd = os.getcwd()
     try:
         spec: MethodSpec = {
             "id": "_test",
@@ -280,6 +283,7 @@ def test_train_command_extras(tmp_path):
         assert (tmp_path / "output" / "output.zip").exists(), "output artifact should not be generated without extra metrics"
 
     finally:
+        os.chdir(cwd)
         _TestMethod._reset()
         registry.pop("_test", None)
 
@@ -318,6 +322,7 @@ def test_train_command_undistort(tmp_path, wandb_init_run, mock_extras):
     test_train_command_undistort._TestMethod = _Method  # type: ignore
 
     _ns_prefix_backup = os.environ.get("NS_PREFIX", None)
+    cwd = os.getcwd()
     try:
         os.environ["NS_PREFIX"] = str(tmp_path / "prefix")
         spec: MethodSpec = {
@@ -337,6 +342,7 @@ def test_train_command_undistort(tmp_path, wandb_init_run, mock_extras):
         train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), True, "python", Indices.every_iters(9), Indices([1]), Indices([]), logger="none")
         assert render_was_called
     finally:
+        os.chdir(cwd)
         _TestMethod._reset()
         if _ns_prefix_backup is not None:
             os.environ["NS_PREFIX"] = _ns_prefix_backup
@@ -356,6 +362,7 @@ def test_render_command(tmp_path, output_type):
     from nerfbaselines._registry import methods_registry as registry
 
     _ns_prefix_backup = os.environ.get("NS_PREFIX", None)
+    cwd = os.getcwd()
     try:
         os.environ["NS_PREFIX"] = str(tmp_path / "prefix")
         spec: MethodSpec = {
@@ -402,6 +409,7 @@ def test_render_command(tmp_path, output_type):
                 assert tar.getmember("gt-color/2.png").size > 0
 
     finally:
+        os.chdir(cwd)
         _TestMethod._reset()
         if _ns_prefix_backup is not None:
             os.environ["NS_PREFIX"] = _ns_prefix_backup

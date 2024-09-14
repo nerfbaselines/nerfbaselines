@@ -352,7 +352,7 @@ def dataset_load_features(
             assert dataset["metadata"]["color_space"] == "linear"
             with open(p, "rb") as f:
                 data_bytes = f.read()
-                h, w = struct.unpack("ii", data_bytes[:8])
+                h, w = struct.unpack("<II", data_bytes[:8])
                 image = (
                     np.frombuffer(
                         data_bytes, dtype=np.float16, count=h * w * 4, offset=8

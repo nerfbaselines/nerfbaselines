@@ -75,10 +75,10 @@ def open_any(
         return
 
     path = str(path)
-    components = path.split("/")
+    components = path.split(os.path.sep)
     zip_parts = [i for i, c in enumerate(components[:-1]) if c.endswith(".zip")]
     if zip_parts:
-        with open_any("/".join(components[: zip_parts[-1] + 1]), mode=mode) as f:
+        with open_any(os.path.sep.join(components[: zip_parts[-1] + 1]), mode=mode) as f:
             if components[zip_parts[-1]].endswith(".tar.gz"):
                 # Extract from tar.gz
                 rest = "/".join(components[zip_parts[-1] + 1 :])
@@ -87,7 +87,7 @@ def open_any(
                         with _assert_not_none(tar.extractfile(rest)) as f:
                             yield f
                     elif mode == "w":
-                        _, extension = os.path.split(rest)
+                        _, extension = os.path.split(rest.replace("/", os.path.sep))
                         with tempfile.TemporaryFile("wb", suffix=extension) as tmp:
                             yield tmp
                             tmp.flush()
@@ -120,7 +120,7 @@ def open_any(
             total=total_size_in_bytes, unit="iB", unit_scale=True, desc="Downloading"
         )
         name = path.split("/")[-1]
-        with tempfile.TemporaryFile("rb+", suffix=name) as file:
+        with tempfile.TemporaryFile("w+b", suffix=name) as file:
             for data in response.iter_content(block_size):
                 progress_bar.update(len(data))
                 file.write(data)
@@ -131,6 +131,7 @@ def open_any(
                 logging.warning(
                     f"While downloading {path}, {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes."
                 )
+            file = getattr(file, "file", file)  # Fix typeguard on windows
             yield file
         return
 
@@ -147,7 +148,7 @@ def open_any_directory(path: Union[str, Path], mode: OpenMode = "r") -> Iterator
     if "://" not in path:
         path = os.path.abspath(path)
 
-    components = path.split("/")
+    components = path.split(os.path.sep)
     compressed_parts = [
         i
         for i, c in enumerate(components)
@@ -155,7 +156,7 @@ def open_any_directory(path: Union[str, Path], mode: OpenMode = "r") -> Iterator
     ]
     if compressed_parts:
         with open_any(
-            "/".join(components[: compressed_parts[-1] + 1]), mode=mode
+            os.path.sep.join(components[: compressed_parts[-1] + 1]), mode=mode
         ) as f, tempfile.TemporaryDirectory() as tmpdir:
             rest = "/".join(components[compressed_parts[-1] + 1 :])
             if components[compressed_parts[-1]].endswith(".tar.gz"):
@@ -170,11 +171,11 @@ def open_any_directory(path: Union[str, Path], mode: OpenMode = "r") -> Iterator
                                 )
                             else:
                                 tar.extract(member, tmpdir)
-                        yield os.path.join(tmpdir, rest)
+                        yield os.path.join(tmpdir, rest.replace("/", os.path.sep))
                     elif mode == "w":
-                        tmp_path = Path(tmpdir) / rest
+                        tmp_path = Path(tmpdir) / rest.replace("/", os.path.sep)
                         tmp_path.mkdir(parents=True, exist_ok=True)
-                        yield os.path.join(tmpdir, rest)
+                        yield str(tmp_path)
 
                         for root, dirs, files in os.walk(tmp_path):
                             for dir in dirs:
@@ -212,11 +213,11 @@ def open_any_directory(path: Union[str, Path], mode: OpenMode = "r") -> Iterator
                                 mtime = time.mktime(date_time.timetuple())
                                 os.utime(extracted_path, (mtime, mtime))
 
-                        yield os.path.join(tmpdir, rest)
+                        yield os.path.join(tmpdir, rest.replace("/", os.path.sep))
                     elif mode == "w":
-                        tmp_path = Path(tmpdir) / rest
+                        tmp_path = Path(tmpdir) / rest.replace("/", os.path.sep)
                         tmp_path.mkdir(parents=True, exist_ok=True)
-                        yield os.path.join(tmpdir, rest)
+                        yield str(tmp_path)
 
                         for root, dirs, files in os.walk(tmp_path):
                             for dir in dirs:
@@ -434,7 +435,7 @@ def get_predictions_sha(predictions: str, description: str = "hashing prediction
 
 
 def _encode_values(values: List[float]) -> str:
-    return base64.b64encode(b"".join(struct.pack("f", v) for v in values)).decode("ascii")
+    return base64.b64encode(b"".join(struct.pack("<f", v) for v in values)).decode("ascii")
 
 
 def numpy_to_base64(array: np.ndarray) -> str:
@@ -753,7 +754,7 @@ def get_torch_checkpoint_sha(checkpoint_data):
             for v in d:
                 update(v)
         elif isinstance(d, (int, float)):
-            sha.update(struct.pack("f", d))
+            sha.update(struct.pack("<f", d))
         elif isinstance(d, str):
             sha.update(d.encode("utf8"))
         elif d is None:
@@ -772,7 +773,7 @@ def save_image(file: Union[BinaryIO, str, Path], tensor: np.ndarray):
     if str(path).endswith(".bin"):
         if tensor.shape[2] < 4:
             tensor = np.dstack((tensor, np.ones([tensor.shape[0], tensor.shape[1], 4 - tensor.shape[2]])))
-        file.write(struct.pack("ii", tensor.shape[0], tensor.shape[1]))
+        file.write(struct.pack("<ii", tensor.shape[0], tensor.shape[1]))
         file.write(tensor.astype(np.float16).tobytes())
     else:
         from PIL import Image
@@ -788,7 +789,7 @@ def read_image(file: Union[BinaryIO, str, Path]) -> np.ndarray:
             return read_image(f)
     path = Path(file.name)
     if str(path).endswith(".bin"):
-        h, w = struct.unpack("ii", file.read(8))
+        h, w = struct.unpack("<II", file.read(8))
         itemsize = 2
         img = np.frombuffer(file.read(h * w * 4 * itemsize), dtype=np.float16, count=h * w * 4, offset=8).reshape([h, w, 4])
         assert img.itemsize == itemsize
@@ -805,5 +806,5 @@ def save_depth(file: Union[BinaryIO, str, Path], tensor: np.ndarray):
             return save_depth(f, tensor)
     path = Path(file.name)
     assert str(path).endswith(".bin")
-    file.write(struct.pack("ii", tensor.shape[0], tensor.shape[1]))
+    file.write(struct.pack("<ii", tensor.shape[0], tensor.shape[1]))
     file.write(tensor.astype(np.float16).tobytes())

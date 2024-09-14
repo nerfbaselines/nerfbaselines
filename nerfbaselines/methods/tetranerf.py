@@ -75,5 +75,4 @@ class TetraNeRF(NerfStudio):
 
 
 class TetraNeRFLatest(NerfStudio):
-    _require_points3D = True
     _default_nerfstudio_name = "tetra-nerf"

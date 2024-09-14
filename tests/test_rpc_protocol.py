@@ -1,3 +1,4 @@
+import time
 import sys
 import contextlib
 import threading
@@ -16,13 +17,15 @@ def timeout(timeout):
     def decorator(fn):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
-            signal.signal(signal.SIGALRM, _signal_handler)
-            signal.setitimer(signal.ITIMER_REAL, timeout)
+            if not sys.platform.startswith("win"):
+                signal.signal(signal.SIGALRM, _signal_handler)
+                signal.setitimer(signal.ITIMER_REAL, timeout)
             try:
                 return fn(*args, **kwargs)
             finally:
-                signal.setitimer(signal.ITIMER_REAL, 0)
-                signal.signal(signal.SIGALRM, signal.SIG_DFL)
+                if not sys.platform.startswith("win"):
+                    signal.setitimer(signal.ITIMER_REAL, 0)
+                    signal.signal(signal.SIGALRM, signal.SIG_DFL)
         return wrapper
     return decorator
 
@@ -54,10 +57,12 @@ def with_echo_protocol():
                 if data.get("_end"):
                     break
                 if data.get("_action") == "end_after_receive":
+                    time.sleep(0.05)
                     protocol_worker.close()
                     break
                 if data.get("_action") == "end_after_send":
                     protocol_worker.send({})
+                    time.sleep(0.05)
                     protocol_worker.close()
                     break
                 protocol_worker.send(data)
@@ -107,7 +112,7 @@ def test_protocol_shm_pickle_large_message(with_echo_protocol):
     from nerfbaselines.backends.protocol_shm_pickle import SharedMemoryProtocol
     import numpy as np
 
-    with with_echo_protocol(SharedMemoryProtocol(shared_memory_size=100)) as echo_protocol:
+    with with_echo_protocol(SharedMemoryProtocol(shared_memory_size=128)) as echo_protocol:
         dummy_data = np.random.rand(100, 100)
         echo_protocol.send({"data": dummy_data})
         out = echo_protocol.receive()
@@ -119,7 +124,7 @@ def test_protocol_tcp_pickle_large_message(with_echo_protocol):
     from nerfbaselines.backends.protocol_tcp_pickle import TCPPickleProtocol
     import numpy as np
 
-    with with_echo_protocol(TCPPickleProtocol(max_message_size=100)) as echo_protocol:
+    with with_echo_protocol(TCPPickleProtocol(max_message_size=128)) as echo_protocol:
         dummy_data = np.random.rand(100, 100)
         echo_protocol.send({"data": dummy_data})
         out = echo_protocol.receive()

@@ -152,6 +152,7 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python", config
     # train_command.callback(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters)
     (tmp_path / "output").mkdir()
     num_steps = [13]
+    workdir = os.getcwd()
     try:
         train_cmd = train_command.callback
         assert train_cmd is not None
@@ -169,6 +170,9 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python", config
         if is_gpu_error(e):
             pytest.skip("no GPU available")
         raise
+    finally:
+        # Restore working directory
+        os.chdir(workdir)
 
     # Test if model was saved at the end
     assert (tmp_path / "output" / "checkpoint-13").exists()
@@ -209,19 +213,23 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python", config
     # Test can restore checkpoint and continue training
     (tmp_path / "output" / "predictions-13.tar.gz").unlink()
     num_steps[0] = 14
-    with mock.patch.object(Trainer, '__init__', __init__):
-        train_cmd(
-            method_name,
-            tmp_path / "output" / "checkpoint-13",
-            str(dataset_path),
-            str(tmp_path / "output"),
-            False,
-            backend,
-            Indices.every_iters(9), 
-            Indices.every_iters(5),
-            Indices([-1]),
-            logger="none",
-        )
+    cwd = os.getcwd()
+    try:
+        with mock.patch.object(Trainer, '__init__', __init__):
+            train_cmd(
+                method_name,
+                tmp_path / "output" / "checkpoint-13",
+                str(dataset_path),
+                str(tmp_path / "output"),
+                False,
+                backend,
+                Indices.every_iters(9), 
+                Indices.every_iters(5),
+                Indices([-1]),
+                logger="none",
+            )
+    finally:
+        os.chdir(cwd)
     assert (tmp_path / "output" / "checkpoint-14").exists()
     assert (tmp_path / "output" / "predictions-14.tar.gz").exists()
     assert not (tmp_path / "output" / "predictions-13.tar.gz").exists()
