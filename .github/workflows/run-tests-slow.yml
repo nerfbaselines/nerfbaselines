@@ -41,43 +41,6 @@ jobs:
           pip install -e '.[web]'
           nerfbaselines web build --output web-build --base-path "${{ steps.setup-pages.outputs.base_path }}" --docs all
 
-  windows-tests:
-    runs-on: windows-latest
-    name: run-tests-windows
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.12"]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
-      - uses: federicocarboni/setup-ffmpeg@v2
-      - name: Install nerfbaselines
-        run: |
-          pip install --upgrade pip
-          pip install -e ".[dev]"
-      - name: Run pyright, pytests
-        run: |
-          pytest -vrA --require-ffmpeg
-      - name: Test if README results are up to date
-        run: |
-          for dataset in blender mipnerf360 nerfstudio; do
-            results=$(python -m nerfbaselines render-dataset-results --dataset $dataset --method-links results) python -c "import os;assert os.environ['results'] in open('README.md').read(), 'README.md is out of date. Please run \'python -m nerfbaselines render-dataset-results --dataset $dataset --method-links results\' and add the output to README.md file'"
-          done
-      - name: Install dev-extras
-        id: dev-extras
-        run: |
-          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-          pip install 'jax[cpu]'
-          pip install -e ".[extras,dev]"
-          pip install torchmetrics dm_pix
-      - name: Run dev-extras tests
-        run: |
-          pyright
-          pytest -v --run-extras --require-ffmpeg
-        if: ${{ steps.dev-extras.outcome == 'success' }}
   common-tests:
     runs-on: ubuntu-latest
     name: run-tests-common
@@ -115,12 +78,34 @@ jobs:
           pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
           pip install 'jax[cpu]'
           pip install -e ".[extras,dev]"
-          pip install torchmetrics dm_pix
+          pip install torchmetrics==1.4.1 dm_pix
       - name: Run dev-extras tests
         run: |
           pyright
           pytest -v --run-extras --require-ffmpeg
         if: ${{ steps.dev-extras.outcome == 'success' }}
+
+  windows-tests:
+    runs-on: windows-latest
+    name: run-tests-windows
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: federicocarboni/setup-ffmpeg@v2
+      - name: Install nerfbaselines
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Run pyright, pytests
+        run: |
+          pyright
+          pytest -vrA --require-ffmpeg
 
   setup:
     runs-on: ubuntu-latest
