@@ -40,17 +40,17 @@ def deserialize1(message):
 def serialize2(message):
     buffers = []
     serialized = pickle.dumps(message, protocol=5, buffer_callback=lambda buffer: buffers.append(buffer))
-    result = struct.pack("i", len(buffers) + 1)
-    result += struct.pack("i", len(serialized))
+    result = struct.pack("!i", len(buffers) + 1)
+    result += struct.pack("!i", len(serialized))
     for b in buffers:
-        result += struct.pack("i", len(b.raw()))
+        result += struct.pack("!i", len(b.raw()))
     yield result + b''.join([serialized] + buffers)
 
 def deserialize2(message):
     message = next(message)
-    num_buffers, = struct.unpack("i", message[:4])
+    num_buffers, = struct.unpack("!I", message[:4])
     offset = 4*(num_buffers+1)
-    buff_lens = struct.unpack("i"*num_buffers, message[4:offset])
+    buff_lens = struct.unpack("!"+"I"*num_buffers, message[4:offset])
     buffers = []
     for buff_len in buff_lens:
         buffers.append(message[offset:offset + buff_len])
@@ -61,13 +61,13 @@ def deserialize2(message):
 def serialize3(message):
     buffers = []
     serialized = pickle.dumps(message, protocol=5, buffer_callback=lambda buffer: buffers.append(buffer))
-    yield from _limit_message_size(struct.pack("i", len(buffers)) + serialized)
+    yield from _limit_message_size(struct.pack("!i", len(buffers)) + serialized)
     for buffer in buffers:
         yield from _limit_message_size(buffer.raw())
 
 def deserialize3(message):
     header = _collect_message_parts(message)
-    num_buffers, = struct.unpack("i", header[:4])
+    num_buffers, = struct.unpack("!I", header[:4])
     buffers = []
     for _ in range(num_buffers):
         buffers.append(_collect_message_parts(message))
@@ -141,7 +141,7 @@ def test_shared_memory_transport(benchmark, serialize, deserialize, image_dtype)
                         while conn.recv():
                             for i, m in enumerate(serialize(message)):
                                 shm_local.buf[:len(m)] = m
-                                conn.send_bytes(struct.pack("ii", i, len(m)))
+                                conn.send_bytes(struct.pack("!ii", i, len(m)))
                                 conn.recv_bytes()
                 finally:
                     shm_local.close()
@@ -152,7 +152,7 @@ def test_shared_memory_transport(benchmark, serialize, deserialize, image_dtype)
                     client.send(True)
                     def _iter_response():
                         while True:
-                            i, l = struct.unpack("ii", client.recv_bytes())
+                            i, l = struct.unpack("!II", client.recv_bytes())
                             del i
                             m = shm.buf[:l].tobytes()
                             client.send_bytes(b"")
@@ -194,7 +194,7 @@ def test_shm_merge_messages(benchmark, serialize, deserialize, image_dtype):
                         while conn.recv():
                             for i, m in enumerate(serialize(message)):
                                 shm_local.buf[:len(m)] = m
-                                conn.send_bytes(struct.pack("ii", i, len(m)))
+                                conn.send_bytes(struct.pack("!ii", i, len(m)))
                                 conn.recv_bytes()
                 finally:
                     shm_local.close()
@@ -205,7 +205,7 @@ def test_shm_merge_messages(benchmark, serialize, deserialize, image_dtype):
                     client.send(True)
                     def _iter_response():
                         while True:
-                            i, l = struct.unpack("ii", client.recv_bytes())
+                            i, l = struct.unpack("!II", client.recv_bytes())
                             del i
                             m = shm.buf[:l].tobytes()
                             client.send_bytes(b"")

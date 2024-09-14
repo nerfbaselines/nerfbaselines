@@ -1,4 +1,4 @@
-import subprocess
+import shutil
 import re
 from typing import List
 import pytest
@@ -61,7 +61,7 @@ def pytest_collection_modifyitems(config, items: List[pytest.Item]):
                 item.add_marker(pytest.mark.skip(reason="need --run-extras option to run"))
 
     if not config.getoption("--require-ffmpeg"):
-        has_ffmpeg = subprocess.call(["which", "ffmpeg"]) == 0
+        has_ffmpeg = shutil.which("ffmpeg") is not None
         for item in items:
             if "ffmpeg" in item.keywords and not has_ffmpeg:
                 item.add_marker(pytest.mark.skip(reason="need --require-ffmpeg option or ffmpeg installed to run"))

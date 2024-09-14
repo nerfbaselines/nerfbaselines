@@ -110,7 +110,7 @@ def get_torch_checkpoint_sha(checkpoint_data):
             for v in d:
                 update(v)
         elif isinstance(d, (int, float)):
-            sha.update(struct.pack("f", d))
+            sha.update(struct.pack("<f", d))
         elif isinstance(d, str):
             sha.update(d.encode("utf8"))
         elif d is None:

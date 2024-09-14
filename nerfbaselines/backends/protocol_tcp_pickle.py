@@ -22,9 +22,9 @@ def _tcp_generate_authkey():
 
 def _tcp_pickle_recv(connection: Connection):
     header = connection.recv_bytes()
-    num_buffers, flags, max_block_size = struct.unpack("IIQ", header[:16])
+    num_buffers, flags, max_block_size = struct.unpack("!IIQ", header[:16])
     del flags
-    buff_lens = struct.unpack("Q"*num_buffers, header[16:16+8*num_buffers])
+    buff_lens = struct.unpack("!"+"Q"*num_buffers, header[16:16+8*num_buffers])
     buffers: List[bytearray] = []
     for buff_len in buff_lens:
         # Allocate buffer
@@ -51,8 +51,8 @@ def _tcp_pickle_send(connection: Connection, message,
                         if (pickle_use_buffers and pickle_protocol >= 5) 
                         else {})))  # type: ignore
     flags = 0
-    header = struct.pack("IIQ", len(buffers), flags, max_http_message_size)
-    header += struct.pack("Q"*len(buffers), *(len(buff) for buff in buffers))
+    header = struct.pack("!IIQ", len(buffers), flags, max_http_message_size)
+    header += struct.pack("!"+"Q"*len(buffers), *(len(buff) for buff in buffers))
     connection.send_bytes(header)
     for buffer in buffers:
         for i in range(0, len(buffer), max_http_message_size):
@@ -239,12 +239,14 @@ class TCPPickleProtocol:
                         message = self._queue.get()
                     if isinstance(message, Exception):
                         raise message
+            except ConnectionError:
+                raise
+            except (EOFError, BrokenPipeError) as e:
+                raise ConnectionError(str(e)) from e
             except (OSError) as e:
                 if "Bad file descriptor" in str(e):
-                    raise ConnectionError("Connection error") from e
+                    raise ConnectionError(str(e)) from e
                 raise
-            except (EOFError, BrokenPipeError, ConnectionError) as e:
-                raise ConnectionError("Connection error") from e
         return message
 
     def close(self):

@@ -78,16 +78,63 @@ jobs:
           pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
           pip install 'jax[cpu]'
           pip install -e ".[extras,dev]"
-          pip install torchmetrics dm_pix
+          pip install torchmetrics==1.4.1 dm_pix
       - name: Run dev-extras tests
         run: |
           pyright
           pytest -v --run-extras --require-ffmpeg
         if: ${{ steps.dev-extras.outcome == 'success' }}
 
+  windows-tests:
+    runs-on: windows-latest
+    name: run-tests-windows
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: federicocarboni/setup-ffmpeg@v2
+      - name: Install nerfbaselines
+        run: |
+          pip install --upgrade pip
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          pip install torchmetrics==1.4.1 dm_pix 'jax[cpu]'
+          pip install -e ".[dev,extras]"
+      - name: Run pyright, pytests
+        run: |
+          pyright
+          pytest -vrA --require-ffmpeg
+
+  macos-tests:
+    runs-on: macos-latest
+    name: run-tests-macos
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install nerfbaselines
+        run: |
+          pip install --upgrade pip
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          pip install torchmetrics==1.4.1 dm_pix 'jax[cpu]'
+          pip install -e ".[dev,extras]"
+      - name: Run pyright, pytests
+        run: |
+          pyright
+          pytest -vrA
+
   setup:
     runs-on: ubuntu-latest
-    needs: common-tests
+    needs: [common-tests, windows-tests, macos-tests]
     outputs:
       conda_methods: ${{ steps.data-step.outputs.conda_methods }}
       docker_methods: ${{ steps.data-step.outputs.docker_methods }}

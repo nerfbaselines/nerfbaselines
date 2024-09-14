@@ -16,7 +16,7 @@ def test_indices_last():
 
 
 class TimeLimitCancellationToken(CancellationToken):
-    def __init__(self, timeout=0.003):
+    def __init__(self, timeout=0.005):
         super().__init__()
         self.timeout = timeout
         self.start = perf_counter()
@@ -56,9 +56,9 @@ def test_cancel_generator():
         nonlocal was_called
         was_called = True
         for i in range(100):
+            yield i
             CancellationToken.cancel_if_requested()
             sleep(0.001)
-            yield i
         raise Exception("Should not be reached")
 
     token = TimeLimitCancellationToken()
