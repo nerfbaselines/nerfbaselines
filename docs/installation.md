@@ -14,6 +14,10 @@ Please check the [list of methods](methods) first to see if your method is suppo
 For all commands which use a backend, the backend can be set as the `--backend <backend>` argument or using the `NERFBASELINES_BACKEND` environment variable.
 Next, we will describe the installation process for each backend.
 
+```{warning}
+The `conda` backend is not available on Windows or MacOS. This is because the `conda` dependencies for each method can only be installed on Linux (CUDA dependency). If you are on Windows, we strongly recommend installing `NerfBaselines` inside WSL2 and using the `conda` backend.
+```
+
 ## Pre-requisites (NVIDIA GPU)
 If you have an NVIDIA GPU and want to use it (with any backend), you need to install the latest NVIDIA drivers. The installation instruction can vary depending on your operating system.
 Please follow the instructions on the [NVIDIA website](https://www.nvidia.com/Download/index.aspx) or your operating system distribution to install the latest drivers for your GPU.
