@@ -47,9 +47,13 @@ def test_protocol_wait_for_worker_timeout(protocol_classes):
 @pytest.fixture()
 def with_echo_protocol():
     exc = []
-    def worker(cls, config):
+    wait = [True]
+    def worker(cls, config, host_first):
+        if host_first:
+            time.sleep(0.05)
         try:
             protocol_worker = cls(**config)
+            wait[0] = False
             protocol_worker.connect_worker()
 
             while True:
@@ -70,16 +74,19 @@ def with_echo_protocol():
             exc.append(e)
 
     @contextlib.contextmanager
-    def context(protocol_host):
+    def context(protocol_host, host_first=False):
         protocol_host.start_host()
         worker_thread = threading.Thread(
             target=worker, 
-            args=(protocol_host.__class__, protocol_host.get_worker_configuration(),), 
+            args=(protocol_host.__class__, protocol_host.get_worker_configuration(), host_first), 
             daemon=True)
         try:
             worker_thread.start()
-            protocol_host.wait_for_worker(timeout=1.0)
-
+            if not host_first:
+                while wait[0]:
+                    time.sleep(0.005)
+                time.sleep(0.05)
+            protocol_host.wait_for_worker()
             yield protocol_host
 
         finally:
@@ -189,3 +196,21 @@ def test_protocol_close_connection_worker(protocol_classes, with_echo_protocol):
         with pytest.raises(ConnectionError):
             echo_protocol.send({"_action": "end_after_receive"})
             echo_protocol.receive()
+
+
+@pytest.mark.parametrize("protocol_classes", 
+                         [[k] for k in _transport_protocols_registry.keys()] + [
+                             ["tcp-pickle", "shm-pickle"]
+                        ], ids=lambda x: ",".join(x))
+@timeout(4)
+def test_protocol_establish_host_first(protocol_classes, with_echo_protocol):
+    if "shm-pickle" in protocol_classes and sys.version_info < (3, 8):
+        pytest.skip("Shared memory is not supported for Python < 3.8.")
+    from nerfbaselines.backends._rpc import AutoTransportProtocol
+    import numpy as np
+
+    with with_echo_protocol(AutoTransportProtocol(protocol_classes=protocol_classes), host_first=True) as echo_protocol:
+        dummy_data = np.random.rand(100, 100)
+        echo_protocol.send({"data": dummy_data})
+        out = echo_protocol.receive()
+        assert np.array_equal(dummy_data, out["data"])
