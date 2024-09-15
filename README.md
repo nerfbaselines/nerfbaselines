@@ -86,10 +86,10 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 | [Gaussian Splatting](https://jkulhanek.com/nerfbaselines/m-gaussian-splatting)           |     27.434 |     0.814 |       0.257 |     23m 25s |  11.1 GB |
 | [Gaussian Opacity Fields](https://jkulhanek.com/nerfbaselines/m-gaussian-opacity-fields) |     27.421 |   *0.826* |     *0.234* |   1h 3m 54s |  28.4 GB |
 | [gsplat](https://jkulhanek.com/nerfbaselines/m-gsplat)                                   |     27.412 |     0.815 |       0.256 |     29m 19s |   8.3 GB |
+| [2D Gaussian Splatting](https://jkulhanek.com/nerfbaselines/m-2d-gaussian-splatting)     |     26.815 |     0.796 |       0.297 |     31m 10s |  13.2 GB |
 | [NerfStudio](https://jkulhanek.com/nerfbaselines/m-nerfacto)                             |     26.388 |     0.731 |       0.343 |   *19m 30s* | *5.9 GB* |
 | [Instant NGP](https://jkulhanek.com/nerfbaselines/m-instant-ngp)                         |     25.507 |     0.684 |       0.398 |  **3m 54s** |   7.8 GB |
 | [COLMAP](https://jkulhanek.com/nerfbaselines/m-colmap)                                   |     16.670 |     0.445 |       0.590 |  2h 52m 55s | **0 MB** |
-| [2D Gaussian Splatting](https://jkulhanek.com/nerfbaselines/m-2d-gaussian-splatting)     |          - |         - |           - |           - |        - |
 
 
 ### Blender

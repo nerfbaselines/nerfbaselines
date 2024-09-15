@@ -1,7 +1,7 @@
 import copy
 import ast
 from typing import cast
-from ._common import patch_ast_import
+from ._patching import patch_ast_import
 
 # This file includes several patches to 3DGS codebase
 # 1. Patch Gaussian Splatting Cameras to include sampling masks
