@@ -88,10 +88,11 @@ def _load_locally_installed_specs():
 
 
 def _load_specs_from_environment() -> List[MethodSpec]:
+    separator = ";" if os.name == "nt" else ":"
     # Register methods from environment variables
     output = []
     with collect_register_calls(output):
-        for spec_path in os.environ.get("NERFBASELINES_REGISTER", "").split(":"):  
+        for spec_path in os.environ.get("NERFBASELINES_REGISTER", "").split(separator):  
             spec_path = spec_path.strip()
             if not spec_path:
                 # Skip empty definitions

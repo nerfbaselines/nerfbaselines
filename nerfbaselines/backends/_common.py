@@ -1,3 +1,4 @@
+import os
 import functools
 import sys
 import re
@@ -5,15 +6,15 @@ from collections import deque
 import threading
 import importlib
 from pathlib import Path
-import subprocess
+import shutil
 from typing import Optional
 from typing import  Union, Set, Callable, List, cast, Dict, Any, Tuple
 from typing import Sequence
 from nerfbaselines import BackendName, MethodSpec
 try:
-    from typing import Literal
+    from typing import Literal, get_args
 except ImportError:
-    from typing_extensions import Literal
+    from typing_extensions import Literal, get_args
 
 
 _mounted_paths = {}
@@ -76,6 +77,31 @@ def get_forwarded_ports():
     return out
 
 
+@functools.lru_cache(maxsize=None)
+def _is_backend_available(backend: BackendName) -> bool:
+    """
+    Tests if the backend is available on the current platform. 
+    On Linux, the supported backends can be any of "conda", "docker", "apptainer", "python", 
+    depending on which ones are installed. 
+    On Windows or MacOS, "conda" is not supported.
+
+    Returns:
+        bool: True if the backend is available
+    """
+    if backend == "python":
+        return True
+    if sys.platform == "darwin" and backend == "conda":
+        # Conda cannot be supported because it needs CUDA
+        # Apptainer
+        return False
+    if os.name == "nt" and backend == "conda":
+        # Conda is not supported directly on Windows.
+        # It is only supported through WSL2.
+        # The bridge is not maintained in NerfBaselines
+        return False
+    return shutil.which(backend) is not None
+
+
 def get_implemented_backends(method_spec: 'MethodSpec') -> Sequence[BackendName]:
     from ._apptainer import get_apptainer_spec
     from ._docker import get_docker_spec
@@ -98,34 +124,20 @@ def get_implemented_backends(method_spec: 'MethodSpec') -> Sequence[BackendName]
 
 
 def _get_default_backend(implemented_backends: Sequence[BackendName]) -> BackendName:
-    should_install = []
     for backend in implemented_backends:
-        if backend not in implemented_backends:
-            continue
-        if backend == "python":
-            return "python"
-        try:
-            if backend == "conda":
-                test_args = ["conda", "--version"]
-            elif backend == "docker":
-                test_args = ["docker", "-v"]
-            elif backend == "apptainer":
-                test_args = ["apptainer", "-v"]
-            else:
-                raise ValueError(f"Unknown backend {backend}")
-            ret = subprocess.run(test_args, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if ret.returncode == 0:
-                return backend
-        except FileNotFoundError:
-            pass
-            should_install.append(backend)
-    raise RuntimeError("No backend available, please install " + " or ".join(should_install))
+        if _is_backend_available(backend):
+            return backend
+    backends_to_install = [x for x in implemented_backends if _is_backend_available(x) and x != "python"]
+    raise RuntimeError("No backend available, please install " + " or ".join(backends_to_install))
 
 
 def get_backend(method_spec: "MethodSpec", backend: Optional[str]) -> 'Backend':
     implemented_backends = get_implemented_backends(method_spec)
     if backend is None:
-        backend = _get_default_backend(implemented_backends)
+        backend = _get_default_backend([x for x in implemented_backends if x != "python"])
+    elif not _is_backend_available(backend):
+        raise RuntimeError(f"Backend {backend} is not available on this platform. "
+            "Please follow the installation instructions on https://jkulhanek.com/nerfbaselines/docs/.")
     elif backend not in implemented_backends:
         raise RuntimeError(f"Backend {backend} is not implemented for selected method.\nImplemented backends: {','.join(implemented_backends)}")
 

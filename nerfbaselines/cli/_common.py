@@ -440,4 +440,5 @@ def handle_cli_error(fn):
 
 
 def click_backend_option():
-    return click.option("--backend", "backend_name", type=click.Choice(list(get_args(BackendName))), envvar="NERFBASELINES_BACKEND")
+    all_backends = list(get_args(BackendName))
+    return click.option("--backend", "backend_name", type=click.Choice(all_backends), envvar="NERFBASELINES_BACKEND")

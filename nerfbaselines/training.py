@@ -297,7 +297,7 @@ class MetricsAccumulator:
 
 
 def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, step, evaluation_protocol: EvaluationProtocol):
-    rand_number, = struct.unpack("L", hashlib.sha1(str(step).encode("utf8")).digest()[:8])
+    rand_number, = struct.unpack("<Q", hashlib.sha1(str(step).encode("utf8")).digest()[:8])
 
     idx = rand_number % len(dataset["image_paths"])
     dataset_slice = dataset_index_select(dataset, [idx])
@@ -826,7 +826,7 @@ class Trainer:
         logger = self.get_logger()
 
         assert self._train_dataset_for_eval is not None, "train_dataset_for_eval must be set"
-        rand_number, = struct.unpack("L", hashlib.sha1(str(self.step).encode("utf8")).digest()[:8])
+        rand_number, = struct.unpack("<Q", hashlib.sha1(str(self.step).encode("utf8")).digest()[:8])
 
         idx = rand_number % len(self._train_dataset_for_eval["image_paths"])
         dataset_slice = dataset_index_select(self._train_dataset_for_eval, slice(idx, idx + 1))

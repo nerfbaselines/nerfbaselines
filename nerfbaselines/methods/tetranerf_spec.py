@@ -53,7 +53,11 @@ TetraNeRFSpec: MethodSpec = {
         "licenses": [{"name": "MIT", "url":"https://raw.githubusercontent.com/jkulhanek/tetra-nerf/master/LICENSE"}],
     },
     "presets": {
-        "blender": { "@apply": [{"dataset": "blender"}], "pipeline.datamanager.dataparser": "blender-data", }
+        "blender": { "@apply": [{"dataset": "blender"}], "pipeline.datamanager.dataparser": "blender-data", },
+        "latest": {
+            "@description": "This variant of Tetra-NeRF uses biased sampling to speed-up training and rendering. It trains/renders almost twice as fast without sacrificing quality. WARNING: this variant is not the same as the one used in the Tetra-NeRF paper.",
+            "method": "tetra-nerf",
+        },
     },
     "id": "tetra-nerf",
     "implementation_status": {
@@ -62,17 +66,4 @@ TetraNeRFSpec: MethodSpec = {
     }
 }
 
-TetraNeRFLatestSpec: MethodSpec = {
-    **TetraNeRFSpec,
-    "method_class": ".tetranerf:TetraNeRFLatest",
-    "metadata": {
-        **TetraNeRFSpec["metadata"],
-        "name": "Tetra-NeRF (latest)",
-        "description": """This variant of Tetra-NeRF uses biased sampling to speed-up training and rendering. It trains/renders almost twice as fast without sacrificing quality. WARNING: this variant is not the same as the one used in the Tetra-NeRF paper.""",
-    },
-    "id": "tetra-nerf:latest",
-}
-
-
 register(TetraNeRFSpec)
-register(TetraNeRFLatestSpec)

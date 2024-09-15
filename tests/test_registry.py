@@ -280,7 +280,10 @@ register({{
 }})
 """)
 
-    with mock.patch.dict("os.environ", {"NERFBASELINES_REGISTER": str(tmp_path/"test1.py")}):
+    environ = dict(os.environ)
+    environ["NERFBASELINES_REGISTER"] = str(tmp_path/"test1.py")
+    with mock.patch("os.environ", environ):
+        print(os.environ)
         specs = _discover_specs()
         assert len(specs) == 2
         assert specs[0]["metadata"]["test"] == 1
@@ -317,8 +320,9 @@ register({{
     "metadata": {{ "@@test": 1 }},
 }})
 """)
-    with mock.patch.dict("os.environ", {"NERFBASELINES_REGISTER": str(tmp_path/"test1.py")}), \
-            _patch_registry():
+    environ = dict(os.environ)
+    environ["NERFBASELINES_REGISTER"] = str(tmp_path/"test1.py")
+    with mock.patch("os.environ", environ), _patch_registry():
         registry._auto_register()
         assert "@@unique-nerf" in registry.methods_registry
         assert "nerf" in registry.methods_registry
