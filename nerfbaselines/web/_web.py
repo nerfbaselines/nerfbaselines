@@ -283,6 +283,8 @@ def _copy_static_files(input_path, output):
 def _sort_versions(versions, *, reverse=True):
     def _version_tuple(x):
         if x == "latest":
+            out = (100000,)
+        if x == "dev":
             out = (float("inf"),)
         else:
             out = tuple(int(y) for y in x.split("."))
@@ -301,51 +303,63 @@ def _build_docs(configuration,
     env = os.environ.copy()
     env["PYTHONPATH"] = f"{shlex.quote(repo_path)}:{env.get('PYTHONPATH', '')}"
     base_path = f"{configuration.get('base_path', '')}/docs"
-    versions = ["latest"]
+    current_version = "dev"
+    versions = [current_version]
+    version_names = [current_version]
     git_versions = []
     if configuration.get("include_docs") == "all":
         # Build all versions (starting with v)
         git_versions = [x[1:] for x in os.popen("git tag").read().split() if x.startswith("v")]
+        git_versions = _sort_versions(git_versions)
         versions += git_versions
-    versions = _sort_versions(versions)
-    subprocess.check_call(["sphinx-build", 
-                           "-D", f"html_context.current_version={versions[0]}",
-                           "-D", f"html_context.versions={','.join(versions)}",
-                           "-D", f'html_context.base_path={base_path}', 
-                           "-b", "html", os.path.join(repo_path, "docs"), output], env=env)
+        version_names += git_versions
+        if len(versions) > 1:
+            version_names[1] = "latest"
+            current_version = git_versions[0]
+            
+    else:
+        version_names = ["latest"]
 
     # Build all versions (starting with v)
-    for version in versions[1:]:
+    for version, version_name in zip(versions, version_names):
         logging.info(f"Building docs for version {version}")
         with tempfile.TemporaryDirectory() as tmpdir:
-            subprocess.check_call(["git", "clone", repo_path, tmpdir])
-            subprocess.check_call(["git", "checkout", f"v{version}"], cwd=tmpdir)
-            subprocess.check_call(["git", "clean", "-f"], cwd=tmpdir)
-            if not os.path.exists(os.path.join(tmpdir, "docs")):
-                logging.warning(f"Version {version} does not have docs. We will only generate API docs.")
+            if version != "dev":
+                subprocess.check_call(["git", "clone", repo_path, tmpdir])
+                subprocess.check_call(["git", "checkout", f"v{version}"], cwd=tmpdir)
+                subprocess.check_call(["git", "clean", "-f"], cwd=tmpdir)
+                if not os.path.exists(os.path.join(tmpdir, "docs")):
+                    logging.warning(f"Version {version} does not have docs. We will only generate API docs.")
 
-            # Copy conf.py from the source repo to tempdir/docs/conf.py
-            os.makedirs(os.path.join(tmpdir, "docs"), exist_ok=True)
-            with open(os.path.join(repo_path, "docs", "conf.py"), "r", encoding="utf8") as f, \
-                 open(os.path.join(tmpdir, "docs", "conf.py"), "w", encoding="utf8") as f2:
-                f2.write(f.read())
+                # Copy conf.py from the source repo to tempdir/docs/conf.py
+                os.makedirs(os.path.join(tmpdir, "docs"), exist_ok=True)
+                with open(os.path.join(repo_path, "docs", "conf.py"), "r", encoding="utf8") as f, \
+                     open(os.path.join(tmpdir, "docs", "conf.py"), "w", encoding="utf8") as f2:
+                    f2.write(f.read())
 
-            # Copy _ext and _templates dirs from the source to tempdir
-            shutil.rmtree(os.path.join(tmpdir, "docs", "_ext"), ignore_errors=True)
-            shutil.copytree(os.path.join(repo_path, "docs", "_ext"), os.path.join(tmpdir, "docs", "_ext"))
-            shutil.rmtree(os.path.join(tmpdir, "docs", "_templates"), ignore_errors=True)
-            shutil.copytree(os.path.join(repo_path, "docs", "_templates"), os.path.join(tmpdir, "docs", "_templates"))
-            shutil.rmtree(os.path.join(tmpdir, "docs", "_static"), ignore_errors=True)
-            shutil.copytree(os.path.join(repo_path, "docs", "_static"), os.path.join(tmpdir, "docs", "_static"))
+                # Copy _ext and _templates dirs from the source to tempdir
+                shutil.rmtree(os.path.join(tmpdir, "docs", "_ext"), ignore_errors=True)
+                shutil.copytree(os.path.join(repo_path, "docs", "_ext"), os.path.join(tmpdir, "docs", "_ext"))
+                shutil.rmtree(os.path.join(tmpdir, "docs", "_templates"), ignore_errors=True)
+                shutil.copytree(os.path.join(repo_path, "docs", "_templates"), os.path.join(tmpdir, "docs", "_templates"))
+                shutil.rmtree(os.path.join(tmpdir, "docs", "_static"), ignore_errors=True)
+                shutil.copytree(os.path.join(repo_path, "docs", "_static"), os.path.join(tmpdir, "docs", "_static"))
 
-            env["PYTHONPATH"] = f"{shlex.quote(tmpdir)}:{env.get('PYTHONPATH', '')}"
-            shutil.rmtree(os.path.join(tmpdir, "docs", "api"), ignore_errors=True)
+                env["PYTHONPATH"] = f"{shlex.quote(tmpdir)}:{env.get('PYTHONPATH', '')}"
+                shutil.rmtree(os.path.join(tmpdir, "docs", "api"), ignore_errors=True)
+                input_path = os.path.join(tmpdir, "docs")
+            else:
+                input_path = os.path.join(repo_path, "docs")
+
+            the_output = output
+            if version_name != "latest":
+                the_output = os.path.join(output, version)
             subprocess.check_call(["sphinx-build", 
                                    "-D", f"html_context.current_version={version}",
                                    "-D", f"html_context.versions={','.join(versions)}",
+                                   "-D", f"html_context.version_names={','.join(version_names)}",
                                    "-D", f'html_context.base_path={base_path}',
-                                   "-b", "html", os.path.join(tmpdir, "docs"), 
-                                   os.path.join(output, version)], env=env)
+                                   "-b", "html", input_path, the_output], env=env)
 
 
 def _build(input_path, output, raw_data, configuration):

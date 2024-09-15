@@ -12,10 +12,11 @@
         {% if the_version == current_version %}
           {% set the_class = "rst-current-item" %}
         {% endif %}
-        {% if the_version == "latest" %}
-        <dd class="{{ the_class }}"><a href="{{ base_path }}/">{{ the_version }}</a></dd>
+        {% set version_name = version_names.split(",")[versions.split(",").index(the_version)] %}
+        {% if version_name == "latest" %}
+        <dd class="{{ the_class }}"><a href="{{ base_path }}/">{{ version_name }}</a></dd>
         {% else %}
-        <dd class="{{ the_class }}"><a href="{{ base_path }}/{{ the_version }}/">{{ the_version }}</a></dd>
+        <dd class="{{ the_class }}"><a href="{{ base_path }}/{{ the_version }}/">{{ version_name }}</a></dd>
         {% endif %}
       {% endfor %}
     </dl>

@@ -94,7 +94,8 @@ root_doc = "index"
 # Add support for versions
 html_context = {
   'current_version' : "1.0",
-  'versions' : "latest,1.0,2.0",
+  'versions' : "1.1,1.0,2.0",
+  'version_names' : "latest,1.0,2.0",
   'base_path': '',
 }
 html_sidebars = {

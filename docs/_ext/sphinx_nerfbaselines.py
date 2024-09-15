@@ -4,6 +4,9 @@ from docutils import nodes
 
 from docutils.parsers.rst import directives
 from sphinx.util.docutils import SphinxDirective
+from sphinx.application import Sphinx
+from sphinx.directives.code import CodeBlock
+
 if TYPE_CHECKING:
     from nerfbaselines import MethodSpec
 
@@ -311,8 +314,32 @@ class NerfBaselinesDirective(SphinxDirective):
         return sections
 
 
+class NerfBaselinesInstallBlock(CodeBlock):
+    has_content = False
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.arguments = ['bash']
+        html_context = self.state.document.settings.env.config["html_context"]
+        versions = html_context["versions"].split(",")
+        if len(versions) < 2:
+            # Build --docs latest
+            self.content = ['pip install nerfbaselines']
+            return
+        version_names = html_context["version_names"].split(",")
+        current_version = html_context["current_version"]
+        current_version_name = version_names[versions.index(current_version)]
+        if current_version_name == "latest":
+            self.content = ['pip install nerfbaselines']
+        elif current_version_name == "dev":
+            self.content = ['pip install git+https://github.com/jkulhanek/nerfbaselines.git']
+        else:
+            self.content = [f'pip install nerfbaselines=={html_context["current_version"]}']
+
+
 def setup(app: sphinx.application.Sphinx):
     app.add_directive('nerfbaselines', NerfBaselinesDirective)
+    app.add_directive('nerfbaselines-install', NerfBaselinesInstallBlock)
 
     return {
         'version': '0.1',

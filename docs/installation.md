@@ -1,7 +1,6 @@
 # Installation
 Start by installing the `nerfbaselines` pip package on your system. We recommend using a virtual environment (venv or Conda) to avoid conflicts with other packages.
-```bash
-pip install nerfbaselines
+```{nerfbaselines-install}
 ```
 Now you can use the `nerfbaselines` cli to interact with NerfBaselines ([see available commands](cli)).
 
