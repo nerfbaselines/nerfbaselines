@@ -1,3 +1,4 @@
+import logging
 import click
 from pathlib import Path
 import json
@@ -6,19 +7,23 @@ from nerfbaselines import (
     get_method_spec, build_method_class,
 )
 from nerfbaselines.io import open_any_directory, deserialize_nb_info
+from nerfbaselines.datasets import load_dataset
 from ._common import click_backend_option
-from ._common import setup_logging
+from ._common import setup_logging, SetParamOptionType
 
 
 @click.command("export-demo")
-@click.option("--checkpoint", type=click.Path(file_okay=True, dir_okay=True, path_type=str), required=True)
-@click.option("--output", "-o", type=click.Path(file_okay=True, dir_okay=False, path_type=str), required=True)
+@click.option("--checkpoint", type=str, required=True)
+@click.option("--output", "-o", type=str, required=True)
 @click.option("--verbose", "-v", is_flag=True)
+@click.option("--data", required=False, default=None)
+@click.option("--set", "options", help="Set a parameter for demo export.", type=SetParamOptionType(), multiple=True, default=None)
 @click_backend_option()
-def main(checkpoint: str, output: str, backend_name, verbose=False):
+def main(*, checkpoint: str, output: str, backend_name, data=None, options, verbose=False):
     checkpoint = str(checkpoint)
     output = str(output)
     setup_logging(verbose)
+    options = dict(options or [])
 
     # Read method nb-info
     with open_any_directory(checkpoint, mode="r") as _checkpoint_path:
@@ -34,14 +39,24 @@ def main(checkpoint: str, output: str, backend_name, verbose=False):
         method_spec = get_method_spec(method_name)
         with build_method_class(method_spec, backend=backend_name) as method_cls:
             method = method_cls(checkpoint=str(checkpoint_path))
-            dataset_info = nb_info["dataset_metadata"]
-            method_export_demo = getattr(method, "export_demo", None)
-            if method_export_demo is None:
+            dataset_metadata = nb_info.get("dataset_metadata")
+            if data is not None:
+                dataset = load_dataset(data, split="train", load_features=False)
+                if dataset_metadata is not None:
+                    logging.warning("Overwriting dataset metadata stored in the checkpoint")
+                dataset_metadata = dataset["metadata"]
+            if dataset_metadata is None:
+                logging.warning("No dataset metadata found in the checkpoint and no dataset provided as input. Some methods may require dataset metadata to export a demo. Please provide a dataset using the --data option.")
+            try:
+                method_export_demo = method.export_demo
+            except AttributeError:
                 raise NotImplementedError(f"Method {method_name} does not support export_demo")
             method_export_demo(
                 path=output,
-                viewer_transform=dataset_info["viewer_transform"], 
-                viewer_initial_pose=dataset_info["viewer_initial_pose"])
+                options=dict(
+                    **options,
+                    dataset_metadata=dataset_metadata)
+            )
 
 
 if __name__ == "__main__":
