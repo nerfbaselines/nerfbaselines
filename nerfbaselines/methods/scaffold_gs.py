@@ -21,6 +21,7 @@ import dataclasses
 import warnings
 import hashlib
 import itertools
+from collections import namedtuple
 from argparse import ArgumentParser
 import shlex
 import logging
@@ -43,7 +44,7 @@ from PIL import Image  # type: ignore
 from utils.general_utils import safe_state  # type: ignore
 from random import randint  # type: ignore
 from utils.loss_utils import l1_loss, ssim  # type: ignore
-from gaussian_renderer import prefilter_voxel, render  # type: ignore
+from gaussian_renderer import prefilter_voxel, render, generate_neural_gaussians  # type: ignore
 from scene import Scene, sceneLoadTypeCallbacks, GaussianModel as _old_GaussianModel  # type: ignore
 from arguments import ModelParams, PipelineParams, OptimizationParams  # type: ignore
 from utils.general_utils import PILtoTorch  # type: ignore
@@ -54,6 +55,7 @@ import scene.dataset_readers  # type: ignore
 from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # type: ignore
 from scene.dataset_readers import CameraInfo as _old_CameraInfo  # type: ignore
 from scene.dataset_readers import storePly, fetchPly  # type: ignore
+from utils.sh_utils import RGB2SH  # type: ignore
 
 
 
@@ -391,6 +393,7 @@ class ScaffoldGS(Method):
             viewpoint = loadCam(self.dataset, 0, viewpoint_cam, 1.0)
 
             embedding = (options or {}).get("embedding", None)
+            self.gaussians._temp_appearance = None
             if embedding is not None:
                 self.gaussians._temp_appearance = torch.from_numpy(embedding).cuda()
 
@@ -401,7 +404,6 @@ class ScaffoldGS(Method):
             return {
                 "color": color,
             }
-            self.gaussians._temp_appearance = None
 
     def train_iteration(self, step):
         self.step = step
@@ -567,3 +569,35 @@ class ScaffoldGS(Method):
             self.gaussians.get_appearance(
                 torch.tensor(index, dtype=torch.long)).detach().cpu().numpy()
         return None
+
+
+    def export_demo(self, path: str, *, options=None):
+        from nerfbaselines.utils import apply_transform, invert_transform
+        from ._gaussian_splatting_demo import export_demo
+        os.makedirs(path, exist_ok=True)
+        options = options or {}
+        dataset_metadata = options.get("dataset_metadata") or {}
+        logging.warning("Scaffold-GS does not support view-dependent demo. We will bake the appearance of a single appearance embedding and single viewing direction.")
+
+        with torch.no_grad():
+            if "viewer_transform" in dataset_metadata and "viewer_initial_pose" in dataset_metadata:
+                viewer_initial_pose_ws = apply_transform(invert_transform(dataset_metadata["viewer_transform"], has_scale=True), dataset_metadata["viewer_initial_pose"])
+                camera_center = torch.tensor(viewer_initial_pose_ws[:3, 3], dtype=torch.float32, device="cuda")
+            else:
+                camera_center = torch.tensor([1.0, 0.0, 0.0], dtype=torch.float32, device="cuda")
+            viewpoint_cam = namedtuple("Camera", ["camera_center", "uid"])(camera_center=camera_center*(self.dataset.scale_coords or 1), uid=0)
+            viewpoint_cam.uid
+            embedding = (options or {}).get("embedding", None)
+            self.gaussians._temp_appearance = None
+            if embedding is not None:
+                self.gaussians._temp_appearance = torch.from_numpy(embedding).cuda()
+
+            xyz, color, opacity, scaling, rot = generate_neural_gaussians(viewpoint_cam, self.gaussians, visible_mask=None, is_training=False)
+            export_demo(path, 
+                        options=options,
+                        xyz=xyz.detach().cpu().numpy(),
+                        scales=scaling.detach().cpu().numpy(),
+                        opacities=opacity.detach().cpu().numpy(),
+                        quaternions=torch.nn.functional.normalize(rot).detach().cpu().numpy(),
+                        spherical_harmonics=RGB2SH(color[..., None]).detach().cpu().numpy())
+

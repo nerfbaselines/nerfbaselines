@@ -39,7 +39,7 @@ conda install -y gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-
 fi
 
 # Install dependencies
-pip install opencv-python-headless==4.10.0.84 -r examples/requirements.txt
+pip install opencv-python-headless==4.10.0.84 -r examples/requirements.txt plyfile==0.8.1
 
 # Install and build gsplat
 pip install -e . --use-pep517 --no-build-isolation

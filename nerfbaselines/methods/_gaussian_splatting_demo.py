@@ -140,6 +140,9 @@ def generate_ksplat_file(path: str,
     attributes.extend([f'scale_{i}' for i in range(3)])
     attributes.extend([f'rot_{i}' for i in range(4)])
 
+    if len(opacities.shape) == 1:
+        opacities = opacities[:, None]
+
     with tempfile.TemporaryDirectory() as tmpdirname:
         dtype_full = [(attribute, 'f4') for attribute in attributes]
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
