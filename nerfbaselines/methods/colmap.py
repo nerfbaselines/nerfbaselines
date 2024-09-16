@@ -424,3 +424,10 @@ class ColmapMVS(Method):
             self.close()
         except Exception:
             pass
+
+    def export_mesh(self, path: str, **kwargs):
+        del kwargs
+        os.makedirs(path, exist_ok=True)
+        mesh_path = os.path.join(self._model_path, "mesh.ply")
+        shutil.copy(mesh_path, os.path.join(path, "mesh.ply"))
+        logger.info(f"Mesh exported to {path}/mesh.ply")

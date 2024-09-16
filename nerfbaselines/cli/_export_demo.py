@@ -12,12 +12,16 @@ from ._common import click_backend_option
 from ._common import setup_logging, SetParamOptionType
 
 
-@click.command("export-demo")
-@click.option("--checkpoint", type=str, required=True)
-@click.option("--output", "-o", type=str, required=True)
-@click.option("--verbose", "-v", is_flag=True)
-@click.option("--data", required=False, default=None)
-@click.option("--set", "options", help="Set a parameter for demo export.", type=SetParamOptionType(), multiple=True, default=None)
+@click.command("export-demo", help=(
+    "Export a demo from a trained model. "
+    "The interactive demo will be a website (index.html) that can be opened in the browser. "
+    "Only some methods support this feature."))
+@click.option("--checkpoint", type=str, required=True, help="Path to the checkpoint directory. This directory should contain the nb-info.json file.")
+@click.option("--output", "-o", type=str, required=True, help="Path to a directory to save the demo. The directory will contain index.html file.")
+@click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging.")
+@click.option("--data", required=False, default=None, help="Path to a dataset to use for exporting the demo. This is required for some methods.")
+@click.option("--set", "options", help="Set a parameter for demo export.", type=SetParamOptionType(), multiple=True, default=None, help=(
+    "Set a parameter for demo export. Multiple parameters can be set by repeating the option."))
 @click_backend_option()
 def main(*, checkpoint: str, output: str, backend_name, data=None, options, verbose=False):
     checkpoint = str(checkpoint)
