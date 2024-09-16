@@ -14,7 +14,6 @@
 </div>
 </div>
 
-
 NerfBaselines is a framework for **evaluating and comparing existing NeRF and 3DGS methods**. Currently, most official implementations use different dataset loaders, evaluation protocols, and metrics, which renders benchmarking difficult. Therefore, this project aims to provide a **unified interface** for running and evaluating methods on different datasets in a consistent way using the same metrics. But instead of reimplementing the methods, **we use the official implementations** and wrap them so that they can be run easily using the same interface.
 
 Please visit the <a href="https://jkulhanek.com/nerfbaselines">project page to see the results</a> of implemented methods on dataset benchmarks.<br/>
@@ -35,6 +34,10 @@ Please visit the <a href="https://jkulhanek.com/nerfbaselines">project page to s
 
 For the full list of implemented methods, see the [methods](methods.md) section.
 For the full list of available datasets (datasets which support automatic download), see the [datasets](datasets.md) section.
+
+```{tip}
+NerfBaselines now supports online demos for 3DGS-based methods. Check out the demos on the [benchmark page](https://jkulhanek.com/nerfbaselines)!
+```
 
 ## Contents
 The documentation is organized into several sections with increasing level of detail and difficulty:

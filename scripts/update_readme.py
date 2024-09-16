@@ -37,7 +37,7 @@ def update_licenses(readme: str):
             licenses = ", ".join(["[{name}]({url})".format(**x) if "url" in x else x["name"] for x in spec["licenses"]])
             method_name = spec.get("name", method)
             methods_licenses.append(f"- {method_name}: {licenses}")
-    methods_licenses.sort()
+    methods_licenses.sort(key=lambda x: x.lower())
     new_section = f"""{lines[section_start]}
 {os.linesep.join(methods_licenses)}
 
@@ -70,7 +70,7 @@ def update_reproducing_results_table(readme: str):
     max_label_length = 1 + max(len(x) for x in labels.values())
     max_method_length = max(len("Method"), max(len(get_method_spec(method).get("metadata", {}).get("name", "")) for method in get_supported_methods()))
     out = ""
-    datasets = sorted([x for x in get_supported_datasets()], key=lambda x: get_dataset_spec(x).get("metadata", {}).get("name"))
+    datasets = sorted([x for x in get_supported_datasets()], key=lambda x: get_dataset_spec(x).get("metadata", {}).get("name").lower())
     dataset_names = [get_dataset_spec(x).get("metadata", {}).get("name") for x in datasets]
     out += f"| {'Method'.ljust(max_method_length)} "
     for i, dataset in enumerate(datasets):
@@ -82,7 +82,7 @@ def update_reproducing_results_table(readme: str):
         max_column_length = max(max_label_length, len(dataset_names[i]))
         out += f"|:{''.ljust(max_column_length, '-')} "
     out += "|\n"
-    for method in sorted(get_supported_methods(), key=lambda x: get_method_spec(x).get("metadata", {}).get("name", x)):
+    for method in sorted(get_supported_methods(), key=lambda x: get_method_spec(x).get("metadata", {}).get("name", x).lower()):
         spec = get_method_spec(method)
         if ":" in method:
             continue

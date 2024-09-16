@@ -676,3 +676,31 @@ class GSplat(Method):
             },
             "embedding": embedding_th.detach().cpu().numpy(),
         }
+
+    def export_demo(self, path: str, *, options=None):
+        from ._gaussian_splatting_demo import export_demo
+        from nerfbaselines.utils import invert_transform
+
+        if self.cfg.app_opt:
+            raise RuntimeError("Appearance optimization is enabled, cannot export demo")
+
+        splats = self.runner.splats
+        spherical_harmonics = torch.cat((splats["sh0"], splats["shN"]), dim=1).transpose(1, 2)
+
+        # Apply transform to viewer transform
+        options = options or {}
+        if self.runner.parser.transform is not None:
+            transform = self.runner.parser.transform.copy()
+            inv_transform = invert_transform(transform, has_scale=True)
+            options["dataset_metadata"] = options.get("dataset_metadata", {})
+            viewer_transform = options["dataset_metadata"].get("viewer_transform", np.eye(4))
+            _transform = viewer_transform @ inv_transform
+            options["dataset_metadata"]["viewer_transform"] = _transform
+
+        export_demo(path, 
+                    options=options,
+                    xyz=splats["means"].detach().cpu().numpy(),
+                    scales=splats["scales"].exp().detach().cpu().numpy(),
+                    opacities=torch.nn.functional.sigmoid(splats["opacities"]).detach().cpu().numpy(),
+                    quaternions=torch.nn.functional.normalize(splats["quats"]).detach().cpu().numpy(),
+                    spherical_harmonics=spherical_harmonics.detach().cpu().numpy())

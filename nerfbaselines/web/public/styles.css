@@ -426,10 +426,12 @@ h2 .ti {
   cursor: pointer;
   display: inline-block;
   font-size: 1.3rem;
-  margin-top: -0.625rem;
-  margin-bottom: -1rem;
-  display: block;
-  float: left;
+  line-height: 0.1rem;
+  position: relative;
+  top: 0.2rem;
+}
+.table tbody > tr > td .ti.table__action.ti-view-360-number {
+  top: 0.32rem;
 }
 .table .table__expandtoggle:before {
   content: "\ea5f";
@@ -443,6 +445,9 @@ h2 .ti {
 }
 .table .ti-green {
   color: var(--green-color);
+}
+.table .ti-blue {
+  color: var(--blue-color);
 }
 
 .table td .table__infobox {
