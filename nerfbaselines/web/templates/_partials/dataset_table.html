@@ -27,7 +27,10 @@
       <tr data-expand-by="{{ method.id }}" style="display: none">
         <td class="w70">
           {% if scene.data_link %}
-          <a href="{{ scene.data_link }}" title="Download checkpoint and predictions for scene {{ scene.name }}" class="ti table__action ti-download ti-green"></a>
+          <a href="{{ scene.data_link }}" title="Download checkpoint and predictions for scene {{ scene.name }}" class="ti table__action ti-download ti-blue"></a>
+          {% endif %}
+          {% if scene.demo_link %}
+          <a href="{{ scene.demo_link }}" title="Online demo for scene {{ scene.name }}" class="ti table__action ti-view-360-number ti-green"></a>
           {% endif %}
         </td>
         <td class="w120" data-sort-value="{{ scene.sort.name }}">{{ scene.name }}</td>

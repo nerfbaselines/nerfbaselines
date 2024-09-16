@@ -51,6 +51,12 @@ find $inpath -iname '*.zip' -print0  | while IFS= read -r -d '' file; do
     # relative to the repository
     # e.g. blender/lego
     name=${file#"$inpath/"};name=${name%.zip}
+    if [[ "$name" == *"/output" ]]; then
+        name=$(dirname $name)
+        if [ -e "$inpath/$name.zip" ]; then
+            continue
+        fi
+    fi
     method=${name%%/*}
 
     # Absolute output path without the extension

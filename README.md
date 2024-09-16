@@ -134,11 +134,12 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 | Method                    | Blender   | LLFF      | Mip-NeRF 360 | Nerfstudio | Photo Tourism | SeaThru-NeRF | Tanks and Temples |
 |:------------------------- |:--------- |:--------- |:------------ |:---------- |:------------- |:------------ |:----------------- |
 | 2D Gaussian Splatting     | 🥇 gold   | ❔        | 🥇 gold      | ❔         | ❔            | 🥇 gold      | 🥇 gold           |
-| COLMAP                    | 🥇 gold   | ❔        | 🥇 gold      | 🥇 gold    | ❔            | ❔           | 🥇 gold           |
 | CamP                      | ❔        | ❔        | ❔           | ❔         | ❔            | ❔           | ❔                |
-| GS-W                      | ❔        | ❔        | ❔           | ❔         | ❔            | ❔           | ❔                |
+| COLMAP                    | 🥇 gold   | ❔        | 🥇 gold      | 🥇 gold    | ❔            | ❔           | 🥇 gold           |
 | Gaussian Opacity Fields   | 🥇 gold   | ❔        | 🥇 gold      | ❔         | ❔            | ❔           | 🥇 gold           |
 | Gaussian Splatting        | 🥇 gold   | ❔        | 🥇 gold      | ❔         | ❔            | 🥇 gold      | 🥇 gold           |
+| GS-W                      | ❔        | ❔        | ❔           | ❔         | ❔            | ❔           | ❔                |
+| gsplat                    | 🥇 gold   | ❔        | 🥇 gold      | ❔         | 🥇 gold       | ❔           | 🥇 gold           |
 | Instant NGP               | 🥇 gold   | ❔        | 🥇 gold      | 🥇 gold    | ❔            | ❔           | 🥇 gold           |
 | K-Planes                  | 🥇 gold   | ❔        | ❔           | ❔         | 🥈 silver     | ❔           | ❔                |
 | Mip-NeRF 360              | 🥇 gold   | ❔        | 🥇 gold      | ❔         | ❔            | ❔           | 🥇 gold           |
@@ -153,7 +154,6 @@ Detailed results are available on the project page: [https://jkulhanek.com/nerfb
 | Tetra-NeRF                | 🥈 silver | ❔        | 🥈 silver    | ❔         | ❔            | ❔           | ❔                |
 | WildGaussians             | ❔        | ❔        | ❔           | ❔         | 🥇 gold       | ❔           | ❔                |
 | Zip-NeRF                  | 🥇 gold   | ❌        | 🥇 gold      | 🥇 gold    | ❔            | ❔           | ❔                |
-| gsplat                    | 🥇 gold   | ❔        | 🥇 gold      | ❔         | 🥇 gold       | ❔           | 🥇 gold           |
 
 
 
@@ -176,11 +176,12 @@ This project is licensed under the [MIT license](https://raw.githubusercontent.c
 Each implemented method is licensed under the license provided by the authors of the method.
 For the currently implemented methods, the following licenses apply:
 - 2D Gaussian Splatting: [custom, research only](https://raw.githubusercontent.com/hbb1/2d-gaussian-splatting/main/LICENSE.md)
-- COLMAP: [BSD](https://colmap.github.io/license.html)
 - CamP: [Apache 2.0](https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE)
-- GS-W: unknown
+- COLMAP: [BSD](https://colmap.github.io/license.html)
 - Gaussian Opacity Fields: [custom, research only](https://raw.githubusercontent.com/autonomousvision/gaussian-opacity-fields/main/LICENSE.md)
 - Gaussian Splatting: [custom, research only](https://raw.githubusercontent.com/graphdeco-inria/gaussian-splatting/main/LICENSE.md)
+- GS-W: unknown
+- gsplat: [Apache 2.0](https://raw.githubusercontent.com/nerfstudio-project/gsplat/main/LICENSE)
 - Instant NGP: [custom, research only](https://raw.githubusercontent.com/NVlabs/instant-ngp/master/LICENSE.txt)
 - K-Planes: [BSD 3](https://raw.githubusercontent.com/sarafridov/K-Planes/main/LICENSE)
 - Mip-NeRF 360: [Apache 2.0](https://raw.githubusercontent.com/google-research/multinerf/main/LICENSE)
@@ -194,7 +195,6 @@ For the currently implemented methods, the following licenses apply:
 - Tetra-NeRF: [MIT](https://raw.githubusercontent.com/jkulhanek/tetra-nerf/master/LICENSE)
 - WildGaussians: [MIT](https://raw.githubusercontent.com/jkulhanek/wild-gaussians/main/LICENSE), [custom, research only](https://raw.githubusercontent.com/graphdeco-inria/gaussian-splatting/main/LICENSE.md)
 - Zip-NeRF: [Apache 2.0](https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE)
-- gsplat: [Apache 2.0](https://raw.githubusercontent.com/nerfstudio-project/gsplat/main/LICENSE)
 
 
 ## Acknowledgements

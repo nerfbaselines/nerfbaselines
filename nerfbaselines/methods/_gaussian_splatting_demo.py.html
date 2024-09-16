@@ -1,5 +1,4 @@
 <!DOCTYPE html>
-<!-- demo type: 3dgs -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -19,15 +18,23 @@
 <body>
   <script type="module">
     import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
-    fetch('params.json').then(response => response.json()).then(params => {
+    const paramsUri = new URLSearchParams(window.location.search).get('p') || 'params.json';
+    const enableSharedMemory = false;
+    fetch(paramsUri).then(response => response.json()).then(params => {
+      // Update background
+      if (params.backgroundColor)
+        document.body.style.backgroundColor = params.backgroundColor;
+      // Make params.sceneUri relative to paramsUri
+      const url = new URL(paramsUri, window.location.href);
+      const sceneUri = new URL(params.sceneUri, url.href).href;
       const viewer = new GaussianSplats3D.Viewer({
-          sharedMemoryForWorkers: params.sharedMemoryForWorkers,
+          sharedMemoryForWorkers: enableSharedMemory,
           cameraUp: params.cameraUp,
           initialCameraPosition: params.initialCameraPosition,
           initialCameraLookAt: params.initialCameraLookAt,
       });
       viewer.init();
-      viewer.addSplatScene(params.sceneUri, {
+      viewer.addSplatScene(sceneUri, {
         halfPrecisionCovariancesOnGPU: true,
         position: params.offset,
         scale: [params.scale, params.scale, params.scale],

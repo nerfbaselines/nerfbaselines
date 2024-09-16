@@ -10,9 +10,9 @@ import numpy as np
 from nerfbaselines.utils import (
     get_transform_and_scale, 
     rotation_matrix_to_quaternion,
+    convert_image_dtype,
 )
 from nerfbaselines.io import wget
-from plyfile import PlyElement, PlyData
 try:
     from typing import get_origin, get_args
 except ImportError:
@@ -92,10 +92,14 @@ def export_generic_demo(path: str, *,
         rotation = rotation_matrix_to_quaternion(_transform[:3, :3])
         offset = _transform[:3, 3]*scale
         initialCameraPosition = viewer_initial_pose[:3, 3]
+    background_color = None
+    if dataset_metadata.get("background_color") is not None:
+        # Convert (255, 255, 255) to #ffffff
+        background_color = "#" + "".join([hex(x)[2:] for x in convert_image_dtype(dataset_metadata["background_color"], np.uint8)])
     with open(os.path.join(path, "params.json"), "w", encoding="utf8") as f:
         json.dump({
             "type": "gaussian-splatting",
-            "sharedMemoryForWorkers": enable_shared_memory,
+            "backgroundColor": background_color,
             "initialCameraPosition": initialCameraPosition.tolist(),
             "initialCameraLookAt": initialCameraLookAt.tolist(),
             "cameraUp": cameraUp.tolist(),
@@ -103,7 +107,10 @@ def export_generic_demo(path: str, *,
             "rotation": rotation[[1, 2, 3, 0]].tolist(),
             "offset": offset.tolist(),
             "sceneUri": "scene.ksplat",
-        }, f)
+        }, f, indent=2)
+    if enable_shared_memory:
+        assert index.index("const enableSharedMemory = false;") >= 0, "Could not set shared memory"
+        index = index.replace("const enableSharedMemory = false;", "const enableSharedMemory = true;")
     if mock_cors:
         index = index.replace("<head>", '<head><script type="text/javascript" src="coi-serviceworker.min.js"></script>')
         wget("https://raw.githubusercontent.com/gzuidhof/coi-serviceworker/7b1d2a092d0d2dd2b7270b6f12f13605de26f214/coi-serviceworker.min.js", 
@@ -125,6 +132,7 @@ def generate_ksplat_file(path: str,
                          opacities: np.ndarray,
                          quaternions: np.ndarray,
                          spherical_harmonics: np.ndarray):
+    from plyfile import PlyElement, PlyData
     attributes = ['x', 'y', 'z', 'nx', 'ny', 'nz']
     attributes.extend([f'f_dc_{i}' for i in range(3)])
     attributes.extend([f'f_rest_{i}' for i in range(3*(spherical_harmonics.shape[-1]-1))])

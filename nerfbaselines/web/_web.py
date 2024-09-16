@@ -1,3 +1,4 @@
+import numpy as np
 import shutil
 import shlex
 from typing import Optional, Tuple
@@ -5,7 +6,6 @@ from contextlib import contextmanager
 import logging
 import subprocess
 import copy
-import click
 import tempfile
 from functools import partial
 import math
@@ -77,7 +77,6 @@ def _get_method_data(data, method: str):
         **{m["id"]: "-" for m in metrics},
         **{k: _format_cell(v, k) for k, v in m["scenes"].get(s["id"], {}).items()},
         **scenes_map.get(s["id"], {}),
-        "demo_link": None,
         "data_link": (
             _resolve_data_link(data, m, dataset, s["id"]) if s["id"] in m["scenes"]
             else None
@@ -362,6 +361,22 @@ def _build_docs(configuration,
                                    "-b", "html", input_path, the_output], env=env)
 
 
+def _generate_demo_pages(output, configuration):
+    # 3dgs demo
+    del configuration
+    os.makedirs(os.path.join(output, "demos", "3dgs"), exist_ok=True)
+    from nerfbaselines.methods._gaussian_splatting_demo import export_generic_demo
+    export_generic_demo(os.path.join(output, "demos", "3dgs"), options={
+        'dataset_metadata': {
+            'viewer_transform': np.eye(4),
+            'viewer_initial_pose': np.eye(4),
+        },
+        'mock_cors': True,
+        'enable_shared_memory': True,
+    })
+    os.remove(os.path.join(output, "demos", "3dgs", "params.json"))
+
+
 def _build(input_path, output, raw_data, configuration):
     if os.path.exists(output):
         raise FileExistsError(f"Output directory {output} already exists.")
@@ -379,6 +394,10 @@ def _build(input_path, output, raw_data, configuration):
     # Copy static files
     logging.info("Copying static files")
     _copy_static_files(input_path, output)
+
+    # Add demos
+    logging.info("Generating demo pages")
+    _generate_demo_pages(output, configuration)
 
 
 def _reload_data_loading():
@@ -488,7 +507,7 @@ def _get_method_licenses():
             continue
         if meta.get("licenses"):
             implemented_methods.append({"name": meta.get("name", method), "licenses": meta["licenses"]})
-    implemented_methods.sort(key=lambda x: x.get("name", None))
+    implemented_methods.sort(key=lambda x: x.get("name", "").lower())
     return implemented_methods
 
 
@@ -537,6 +556,21 @@ def _prepare_data(data_path, datasets=None, include_docs=None):
                     dataset_info["id"] = dataset
                     dataset_info["resolved_paths"] = resolved_paths
                     raw_data.append(dataset_info)
+
+            with tempfile.TemporaryDirectory() as tmpdir:
+                # Clone supplementary repository
+                subprocess.check_call("git clone --depth=1 https://huggingface.co/datasets/jkulhanek/nerfbaselines-supplementary".split() + [tmpdir], env={"GIT_LFS_SKIP_SMUDGE": "1"})
+
+                # Find all {method}/{dataset}/{scene}_demo/params.json files
+                for dataset in raw_data:
+                    for method in dataset["methods"]:
+                        for scene, scene_data in method["scenes"].items():
+                            if os.path.exists(os.path.join(tmpdir, f"{method['id']}/{dataset['id']}/{scene}_demo/params.json")):
+                                with open(os.path.join(tmpdir, f"{method['id']}/{dataset['id']}/{scene}_demo/params.json"), "r", encoding="utf8") as f:
+                                    demo_params = json.load(f)
+                                if demo_params["type"] == "gaussian-splatting":
+                                    scene_data["demo_link"] = f"./demos/3dgs/?p=https://huggingface.co/datasets/jkulhanek/nerfbaselines-supplementary/resolve/main/{method['id']}/{dataset['id']}/{scene}_demo/params.json"
+
         configuration = {
             "include_docs": include_docs,
         }

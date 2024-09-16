@@ -48,7 +48,7 @@ def main(*, checkpoint: str, output: str, backend_name, data=None, options, verb
             if dataset_metadata is None:
                 logging.warning("No dataset metadata found in the checkpoint and no dataset provided as input. Some methods may require dataset metadata to export a demo. Please provide a dataset using the --data option.")
             try:
-                method_export_demo = method.export_demo
+                method_export_demo = method.export_demo  # type: ignore
             except AttributeError:
                 raise NotImplementedError(f"Method {method_name} does not support export_demo")
             method_export_demo(
