@@ -17,6 +17,9 @@ Please visit the <a href="https://jkulhanek.com/nerfbaselines">project page to s
 <a href="https://jkulhanek.com/nerfbaselines/docs/">📚 Docs</a>
 </h3>
 
+> [!TIP]
+> NerfBaselines now supports online demos for 3DGS-based methods. Check out the demos on the [benchmark page](https://jkulhanek.com/nerfbaselines)!
+
 ## Getting started
 Start by installing the `nerfbaselines` pip package on your host system.
 ```bash
