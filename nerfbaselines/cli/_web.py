@@ -1,12 +1,12 @@
 import click
 from nerfbaselines.web import start_dev_server, build
-from ._common import setup_logging
+from ._common import NerfBaselinesCliCommand
 
 
 web_click_group = click.Group("web")
 
 
-@web_click_group.command("dev")
+@web_click_group.command("dev", cls=NerfBaselinesCliCommand)
 @click.option("--data", "data_path", default=None, help="Path to data directory. If not provided, data is generated from the NerfBaselines repository.")
 @click.option("--datasets", default=None, help="List of comma separated dataset ids to include.")
 @click.option("--docs", "include_docs",
@@ -16,14 +16,13 @@ web_click_group = click.Group("web")
 def _(data_path, datasets, include_docs=None):
     if include_docs == "none":
         include_docs = None
-    setup_logging(False)
     datasets = datasets.split(",") if datasets else None
     if include_docs == "none":
         include_docs = None
     start_dev_server(data=data_path, datasets=datasets, include_docs=include_docs)
 
 
-@web_click_group.command("build")
+@web_click_group.command("build", cls=NerfBaselinesCliCommand)
 @click.option("--data", "data_path", default=None, help="Path to data directory. If not provided, data is generated from the NerfBaselines repository.")
 @click.option("--output", required=True, help="Output directory.")
 @click.option("--datasets", default=None, help="List of comma separated dataset ids to include.")

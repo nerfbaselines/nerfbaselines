@@ -9,13 +9,14 @@ import click
 import json
 from nerfbaselines.results import MethodLink
 from nerfbaselines._constants import RESULTS_REPOSITORY
+from ._common import NerfBaselinesCliCommand
 try:
     from typing import get_args
 except ImportError:
     from typing_extensions import get_args
 
 
-@click.command("generate-dataset-results")
+@click.command("generate-dataset-results", cls=NerfBaselinesCliCommand)
 @click.option("--results", type=click.Path(file_okay=True, exists=True, dir_okay=True, path_type=str), required=False)
 @click.option("--dataset", type=str, required=False)
 @click.option("--output-type", type=click.Choice(["markdown", "json"]), default="markdown")
@@ -23,7 +24,6 @@ except ImportError:
 @click.option("--output", type=click.Path(file_okay=True, exists=False, dir_okay=False, path_type=str), default=None)
 def main(results: Optional[str], dataset: str, output_type="markdown", output: Optional[str] = None, method_links: MethodLink = "none"):
     from nerfbaselines.results import compile_dataset_results, render_markdown_dataset_results_table
-    from ._common import setup_logging
 
     def render_output(dataset_info):
         output_str = None
@@ -39,7 +39,6 @@ def main(results: Optional[str], dataset: str, output_type="markdown", output: O
             with open(output, "w", encoding="utf8") as f:
                 print(output_str, end="", file=f)
 
-    setup_logging(False)
     if results is None:
         with tempfile.TemporaryDirectory() as tmpdir:
             subprocess.check_call(f"git clone --depth=1 https://{RESULTS_REPOSITORY}".split() + [tmpdir], env={"GIT_LFS_SKIP_SMUDGE": "1"})

@@ -9,7 +9,7 @@ from nerfbaselines.datasets import download_dataset
 from nerfbaselines.evaluation import evaluate, run_inside_eval_container
 from ._web import web_click_group
 from ._common import click_backend_option as _click_backend_option
-from ._common import setup_logging
+from ._common import NerfBaselinesCliCommand
 
 
 class LazyGroup(click.Group):
@@ -73,15 +73,12 @@ def main():
 @main.command("shell", context_settings=dict(
     ignore_unknown_options=True,
     allow_interspersed_args=False,
-))
+), cls=NerfBaselinesCliCommand)
 @click.option("--method", type=click.Choice(list(nerfbaselines.get_supported_methods())), required=True)
 @click.option("--verbose", "-v", is_flag=True)
 @_click_backend_option()
 @click.argument('command', nargs=-1, type=click.UNPROCESSED)
-def shell_command(method, backend_name, verbose, command):
-    logging.basicConfig(level=logging.INFO)
-    setup_logging(verbose)
-
+def shell_command(method, backend_name, command):
     method_spec = nerfbaselines.get_method_spec(method)
     backend_impl = backends.get_backend(method_spec, backend_name)
     logging.info(f"Using method: {method}, backend: {backend_impl.name}")
@@ -89,13 +86,11 @@ def shell_command(method, backend_name, verbose, command):
     backend_impl.shell(command if command else None)
 
 
-@main.command("download-dataset")
+@main.command("download-dataset", cls=NerfBaselinesCliCommand)
 @click.argument("dataset", type=str, required=True)
 @click.option("--output", "-o", type=click.Path(file_okay=False, dir_okay=True, path_type=str), required=False, default=None)
-@click.option("--verbose", "-v", is_flag=True)
-def download_dataset_command(dataset: str, output: str, verbose: bool):
+def download_dataset_command(dataset: str, output: str):
     logging.basicConfig(level=logging.INFO)
-    setup_logging(verbose)
     if output is None:
         _out_dataset = dataset
         if _out_dataset.startswith("external://"):
@@ -105,7 +100,7 @@ def download_dataset_command(dataset: str, output: str, verbose: bool):
     logging.info(f"Dataset {dataset} downloaded to {output}")
 
 
-@main.command("evaluate")
+@main.command("evaluate", cls=NerfBaselinesCliCommand)
 @click.argument("predictions", type=click.Path(file_okay=True, dir_okay=True, path_type=str), required=True)
 @click.option("--output", "-o", type=click.Path(file_okay=True, dir_okay=False, path_type=str), required=True)
 def evaluate_command(predictions: str, output: str):
@@ -113,16 +108,14 @@ def evaluate_command(predictions: str, output: str):
         evaluate(predictions, output)
 
 
-@main.command("build-docker-image", hidden=True)
+@main.command("build-docker-image", hidden=True, cls=NerfBaselinesCliCommand)
 @click.option("--method", type=click.Choice(list(nerfbaselines.get_supported_methods("docker"))), required=False)
 @click.option("--environment", type=str, required=False)
 @click.option("--skip-if-exists-remotely", is_flag=True)
 @click.option("--tag-latest", is_flag=True)
 @click.option("--push", is_flag=True)
-@click.option("--verbose", "-v", is_flag=True)
-def build_docker_image_command(method=None, environment=None, push=False, skip_if_exists_remotely=False, tag_latest=False, verbose=False):
+def build_docker_image_command(method=None, environment=None, push=False, skip_if_exists_remotely=False, tag_latest=False):
     from nerfbaselines.backends._docker import build_docker_image, get_docker_spec
-    setup_logging(verbose=verbose)
 
     spec = None
     if method is not None:

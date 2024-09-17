@@ -12,20 +12,18 @@ from nerfbaselines import Method, get_method_spec, build_method_class
 from nerfbaselines import backends
 from nerfbaselines.evaluation import render_all_images, render_frames, trajectory_get_embeddings, trajectory_get_cameras
 from nerfbaselines.io import open_any_directory, deserialize_nb_info, load_trajectory, open_any
-from ._common import handle_cli_error, click_backend_option, setup_logging
+from ._common import handle_cli_error, click_backend_option, NerfBaselinesCliCommand
 
 
-@click.command("render")
+@click.command("render", cls=NerfBaselinesCliCommand)
 @click.option("--checkpoint", type=str, default=None, required=True)
 @click.option("--data", type=str, default=None, required=True)
 @click.option("--output", type=str, default="predictions", help="output directory or tar.gz file")
 @click.option("--split", type=str, default="test")
-@click.option("--verbose", "-v", is_flag=True)
 @click_backend_option()
 @handle_cli_error
-def render_command(checkpoint: str, data: str, output: str, split: str, verbose: bool, backend_name):
+def render_command(checkpoint: str, data: str, output: str, split: str, backend_name):
     checkpoint = str(checkpoint)
-    setup_logging(verbose)
 
     if os.path.exists(output):
         logging.critical("Output path already exists")
@@ -67,25 +65,22 @@ def render_command(checkpoint: str, data: str, output: str, split: str, verbose:
             pass
 
 
-@click.command("render-trajectory")
+@click.command("render-trajectory", cls=NerfBaselinesCliCommand)
 @click.option("--checkpoint", type=str, required=True)
 @click.option("--trajectory", type=str, required=True)
 @click.option("--output", type=click.Path(path_type=str), default=None, help="Output a mp4/directory/tar.gz file. Use '{output}' as a placeholder for output name.")
 @click.option("--resolution", type=str, default=None, help="Override the resolution of the output")
 @click.option("--output-names", type=str, default="color", help="Comma separated list of output types (e.g. color,depth,accumulation)")
-@click.option("--verbose", "-v", is_flag=True)
 @click_backend_option()
 @handle_cli_error
 def render_trajectory_command(checkpoint: Union[str, Path], 
                               trajectory: str, 
                               output: Union[str, Path], 
                               output_names: Union[Tuple[str, ...], str], 
-                              verbose, 
                               backend_name, 
                               resolution=None):
     checkpoint = str(checkpoint)
     output = str(output)
-    setup_logging(verbose)
     if isinstance(output_names, str):
         output_names = tuple(output_names.split(","))
 

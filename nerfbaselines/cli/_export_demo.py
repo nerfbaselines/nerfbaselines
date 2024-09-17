@@ -9,20 +9,18 @@ from nerfbaselines import (
 from nerfbaselines.io import open_any_directory, deserialize_nb_info
 from nerfbaselines.datasets import load_dataset
 from ._common import click_backend_option
-from ._common import setup_logging, SetParamOptionType
+from ._common import SetParamOptionType, NerfBaselinesCliCommand
 
 
-@click.command("export-demo")
+@click.command("export-demo", cls=NerfBaselinesCliCommand)
 @click.option("--checkpoint", type=str, required=True)
 @click.option("--output", "-o", type=str, required=True)
-@click.option("--verbose", "-v", is_flag=True)
 @click.option("--data", required=False, default=None)
 @click.option("--set", "options", help="Set a parameter for demo export.", type=SetParamOptionType(), multiple=True, default=None)
 @click_backend_option()
-def main(*, checkpoint: str, output: str, backend_name, data=None, options, verbose=False):
+def main(*, checkpoint: str, output: str, backend_name, data=None, options):
     checkpoint = str(checkpoint)
     output = str(output)
-    setup_logging(verbose)
     options = dict(options or [])
 
     # Read method nb-info

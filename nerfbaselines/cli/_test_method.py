@@ -33,7 +33,7 @@ from nerfbaselines.evaluation import (
 )
 from nerfbaselines._constants import RESULTS_REPOSITORY
 from ._common import (
-    ChangesTracker, handle_cli_error, SetParamOptionType, click_backend_option, setup_logging,
+    ChangesTracker, handle_cli_error, SetParamOptionType, click_backend_option, NerfBaselinesCliCommand,
     TupleClickType,
 )
 
@@ -168,7 +168,7 @@ def _validate_public_checkpoint(method_cls: Type[Method],
         return f"Public checkpoint valid, psnr diff avg {avg_diff:.2f}, max{max_diff:.2f}"
 
 
-@click.command("test-method")
+@click.command("test-method", cls=NerfBaselinesCliCommand)
 @click.option("--method", "method_name", type=click.Choice(sorted(nerfbaselines.get_supported_methods())), required=True, help="Method to use")
 @click.option("--data", "dataset", type=str, required=True)
 @click.option("--verbose", "-v", is_flag=True)
@@ -183,12 +183,10 @@ def _validate_public_checkpoint(method_cls: Type[Method],
 def main(method_name: str, 
          dataset: str, *, 
          backend_name=None, 
-         verbose: bool = False,
          config_overrides=None,
          presets=None,
          steps: int = 113,
          full=False):
-    setup_logging(verbose)
     fast = not full
     local_results_path = os.environ.get("NERFBASELINES_LOCAL_RESULTS_PATH", None)
 

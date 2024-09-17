@@ -21,8 +21,10 @@ from nerfbaselines.io import (
 from nerfbaselines.training import (
     get_presets_and_config_overrides
 )
-from ._common import ChangesTracker, SetParamOptionType, TupleClickType, handle_cli_error, click_backend_option
-from ._common import setup_logging
+from ._common import (
+    ChangesTracker, SetParamOptionType, TupleClickType, 
+    handle_cli_error, click_backend_option, NerfBaselinesCliCommand,
+)
 
 
 def _fix_sha_keys(obj):
@@ -131,7 +133,7 @@ def fix_checkpoint(checkpoint_path, new_checkpoint, load_train_dataset_fn, backe
             raise e
 
 
-@click.command("fix-checkpoint")
+@click.command("fix-checkpoint", cls=NerfBaselinesCliCommand)
 @click.option("--checkpoint", type=str, default=None, required=True)
 @click.option("--data", type=str, default=None, required=True)
 @click.option("--method", "method_name", type=str, default=None, required=False)
@@ -143,8 +145,7 @@ def fix_checkpoint(checkpoint_path, new_checkpoint, load_train_dataset_fn, backe
     " the method's default presets are applied (based on the dataset metadata)."))
 @click_backend_option()
 @handle_cli_error
-def main(checkpoint: str, data: str, method_name: str, verbose: bool, backend_name, new_checkpoint: str, config_overrides=None, presets=None):
-    setup_logging(verbose)
+def main(checkpoint: str, data: str, method_name: str, backend_name, new_checkpoint: str, config_overrides=None, presets=None):
     if os.path.exists(new_checkpoint):
         raise RuntimeError(f"New checkpoint path {new_checkpoint} already exists")
 

@@ -496,6 +496,26 @@ class Method(Protocol):
         """
         raise NotImplementedError()
 
+    def export_demo(self, path: str, *, options: Optional[Dict] = None) -> None:
+        """
+        Export a web demo. The method will populate the `path` directory with the necessary files including `index.html`.
+
+        Args:
+            path: Path to save the demo.
+            options: Optional export options.
+        """
+        raise NotImplementedError()
+
+    def export_mesh(self, path: str, *, options: Optional[Dict] = None) -> None:
+        """
+        Export the scene as a mesh.
+
+        Args:
+            path: Path to save the mesh.
+            options: Optional export options.
+        """
+        raise NotImplementedError()
+
 
 @runtime_checkable
 class EvaluationProtocol(Protocol):

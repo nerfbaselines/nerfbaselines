@@ -16,16 +16,15 @@ from nerfbaselines.training import (
 )
 from nerfbaselines.io import open_any_directory, deserialize_nb_info
 from nerfbaselines import backends
-from ._common import SetParamOptionType, TupleClickType, IndicesClickType, handle_cli_error, click_backend_option, setup_logging
+from ._common import SetParamOptionType, TupleClickType, IndicesClickType, handle_cli_error, click_backend_option, NerfBaselinesCliCommand
 
 
-@click.command("train")
+@click.command("train", cls=NerfBaselinesCliCommand)
 @click.option("--method", "method_name", type=click.Choice(sorted(nerfbaselines.get_supported_methods())), required=True, help="Method to use")
 @click.option("--checkpoint", type=click.Path(path_type=str), default=None)
 @click.option("--data", type=str, required=True)
 @click.option("--output", type=str, default=".")
 @click.option("--logger", type=click.Choice(["none", "wandb", "tensorboard", "wandb,tensorboard"]), default="tensorboard", help="Logger to use. Defaults to tensorboard.")
-@click.option("--verbose", "-v", is_flag=True)
 @click.option("--save-iters", type=IndicesClickType(), default=Indices([-1]), help="When to save the model")
 @click.option("--eval-few-iters", type=IndicesClickType(), default=Indices.every_iters(2_000), help="When to evaluate on few images")
 @click.option("--eval-all-iters", type=IndicesClickType(), default=Indices([-1]), help="When to evaluate all images")
@@ -42,7 +41,6 @@ def train_command(
     checkpoint,
     data,
     output,
-    verbose,
     backend_name,
     save_iters,
     eval_few_iters,
@@ -56,9 +54,6 @@ def train_command(
         config_overrides = {}
     _loggers = frozenset((x for x in logger.split(",") if x != "none"))
     del logger
-
-    logging.basicConfig(level=logging.INFO)
-    setup_logging(verbose)
 
     if config_overrides is not None and isinstance(config_overrides, (list, tuple)):
         config_overrides = dict(config_overrides)
