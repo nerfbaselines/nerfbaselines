@@ -3,7 +3,7 @@
     <div>NerfBaselines</div>
 
 [![PyPI - Version](https://img.shields.io/pypi/v/nerfbaselines)](https://pypi.org/project/nerfbaselines/)
-[![GitHub License](https://img.shields.io/badge/license-MIT-%2397ca00)](https://github.com/jkulhanek/nerfbaselines/blob/main/LICENSE)
+[![GitHub License](https://img.shields.io/badge/license-MIT-%2397ca00)](https://github.com/nerfbaselines/nerfbaselines/blob/main/LICENSE)
 [![Downloads](https://static.pepy.tech/badge/nerfbaselines)](https://pepy.tech/project/nerfbaselines)
 </h1>
 
@@ -18,6 +18,7 @@ Please visit the <a href="https://nerfbaselines.github.io/">project page to see 
 </h3>
 
 ## News
+*[17/09/2024]* Moved project to nerfbaselines/nerfbaselines repository.</br>
 *[16/09/2024]* Added online demos and demo export for 3DGS-based methods. Check out the [benchmark page](https://nerfbaselines.github.io/).<br>
 *[12/09/2024]* Added gsplat, 2D Gaussian Splatting, Scaffold-GS, and COLMAP MVS methods.<br>
 *[09/09/2024]* Method and Dataset API refac in v1.2.x to simplify usage.<br>
@@ -179,7 +180,7 @@ If you use this project in your research, please cite the following paper:
 ```
 
 ## License
-This project is licensed under the [MIT license](https://raw.githubusercontent.com/jkulhanek/nerfbaselines/main/LICENSE)
+This project is licensed under the [MIT license](https://raw.githubusercontent.com/nerfbaselines/nerfbaselines/main/LICENSE)
 Each implemented method is licensed under the license provided by the authors of the method.
 For the currently implemented methods, the following licenses apply:
 - 2D Gaussian Splatting: [custom, research only](https://raw.githubusercontent.com/hbb1/2d-gaussian-splatting/main/LICENSE.md)

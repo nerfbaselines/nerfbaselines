@@ -45,9 +45,9 @@ jobs:
           if [ ! -e video.html ]; then
             # Download video files
             mkdir -p web-build/assets
-            wget -q https://data.ciirc.cvut.cz/public/projects/2023NerfBaselines/assets/video-1.mp4 -O assets/video-1.mp4
-            wget -q https://data.ciirc.cvut.cz/public/projects/2023NerfBaselines/assets/video-1.webm -O assets/video-1.webm
-            wget -q https://data.ciirc.cvut.cz/public/projects/2023NerfBaselines/video.html -O video.html
+            wget -q https://data.ciirc.cvut.cz/public/projects/2023NerfBaselines/assets/video-1.mp4 -O nerfbaselines.github.io/assets/video-1.mp4
+            wget -q https://data.ciirc.cvut.cz/public/projects/2023NerfBaselines/assets/video-1.webm -O nerfbaselines.github.io/assets/video-1.webm
+            wget -q https://data.ciirc.cvut.cz/public/projects/2023NerfBaselines/video.html -O nerfbaselines.github.io/video.html
           fi
 
           rsync -av --delete ./web-build/ ./nerfbaselines.github.io/ --exclude /.git --exclude '/assets/video-1.*' --exclude '/video.html'

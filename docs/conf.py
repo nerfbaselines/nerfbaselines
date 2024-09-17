@@ -42,7 +42,7 @@ try:
 except ImportError:
     # Fill for older versions
     WEBPAGE_URL = "https://nerfbaselines.github.io"
-    CODE_REPOSITORY = "github.com/jkulhanek/nerfbaselines"
+    CODE_REPOSITORY = "github.com/nerfbaselines/nerfbaselines"
 nerfbaselines_cli = nerfbaselines.__main__.main
 ctx = click.Context(nerfbaselines_cli)
 command_names = nerfbaselines_cli.list_commands(ctx)

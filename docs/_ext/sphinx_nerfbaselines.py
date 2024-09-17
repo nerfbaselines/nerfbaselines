@@ -335,7 +335,7 @@ class NerfBaselinesInstallBlock(CodeBlock):
             try:
                 from nerfbaselines._constants import CODE_REPOSITORY
             except ImportError:
-                CODE_REPOSITORY = "github.com/jkulhanek/nerfbaselines"
+                CODE_REPOSITORY = "github.com/nerfbaselines/nerfbaselines"
             self.content = [f'pip install git+https://{CODE_REPOSITORY}.git']
         else:
             self.content = [f'pip install nerfbaselines=={html_context["current_version"]}']

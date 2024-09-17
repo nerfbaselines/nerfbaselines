@@ -42,9 +42,9 @@ dynamic = ["version"]
 
 [project.urls]
 Documentation = "https://nerfbaselines.github.io/docs"
-Source = "https://github.com/jkulhanek/nerfbaselines"
+Source = "https://github.com/nerfbaselines/nerfbaselines"
 Homepage = "https://nerfbaselines.github.io/"
-"Bug Tracker" = "https://github.com/jkulhanek/nerfbaselines/issues"
+"Bug Tracker" = "https://github.com/nerfbaselines/nerfbaselines/issues"
 
 [project.optional-dependencies]
 web = [

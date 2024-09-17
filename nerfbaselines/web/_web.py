@@ -345,8 +345,8 @@ def _build_docs(configuration,
                             with open(os.path.join(root, file), "r", encoding="utf8") as f:
                                 content = f.read()
                             content = content.replace("jkulhanek.com/nerfbaselines", "nerfbaselines.github.io")
-                            # content = content.replace("github.com/jkulhanek/nerfbaselines", "github.com/nerfbaselines/nerfbaselines")
-                            # content = content.replace("raw.githubusercontent.com/jkulhanek/nerfbaselines", "raw.githubusercontent.com/nerfbaselines/nerfbaselines")
+                            content = content.replace("github.com/jkulhanek/nerfbaselines", "github.com/nerfbaselines/nerfbaselines")
+                            content = content.replace("raw.githubusercontent.com/jkulhanek/nerfbaselines", "raw.githubusercontent.com/nerfbaselines/nerfbaselines")
                             with open(os.path.join(root, file), "w", encoding="utf8") as f:
                                 f.write(content)
 
