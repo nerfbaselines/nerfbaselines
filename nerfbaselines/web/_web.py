@@ -376,6 +376,17 @@ def _generate_demo_pages(output, configuration):
     })
     os.remove(os.path.join(output, "demos", "3dgs", "params.json"))
 
+    # Mesh demo
+    os.makedirs(os.path.join(output, "demos", "mesh"), exist_ok=True)
+    from nerfbaselines.methods._mesh_demo import export_generic_demo
+    export_generic_demo(os.path.join(output, "demos", "mesh"), options={
+        'dataset_metadata': {
+            'viewer_transform': np.eye(4),
+            'viewer_initial_pose': np.eye(4),
+        },
+    })
+    os.remove(os.path.join(output, "demos", "mesh", "params.json"))
+
 
 def _build(input_path, output, raw_data, configuration):
     if os.path.exists(output):
@@ -570,6 +581,8 @@ def _prepare_data(data_path, datasets=None, include_docs=None):
                                     demo_params = json.load(f)
                                 if demo_params["type"] == "gaussian-splatting":
                                     scene_data["demo_link"] = f"./demos/3dgs/?p=https://huggingface.co/datasets/jkulhanek/nerfbaselines-supplementary/resolve/main/{method['id']}/{dataset['id']}/{scene}_demo/params.json"
+                                elif demo_params["type"] == "mesh":
+                                    scene_data["demo_link"] = f"./demos/mesh/?p=https://huggingface.co/datasets/jkulhanek/nerfbaselines-supplementary/resolve/main/{method['id']}/{dataset['id']}/{scene}_demo/params.json"
 
         configuration = {
             "include_docs": include_docs,
