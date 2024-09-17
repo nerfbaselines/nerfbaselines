@@ -31,6 +31,7 @@ from nerfbaselines.results import load_metrics_from_results
 from nerfbaselines.evaluation import (
     evaluate, run_inside_eval_container, build_evaluation_protocol
 )
+from nerfbaselines._constants import RESULTS_REPOSITORY
 from ._common import (
     ChangesTracker, handle_cli_error, SetParamOptionType, click_backend_option, setup_logging,
     TupleClickType,
@@ -81,8 +82,8 @@ def _resolve_checkpoint_path(spec: MethodSpec, dataset_scene: str, local_results
         data = result.json()
         return artifact, data
 
-    artifact = f"https://huggingface.co/jkulhanek/nerfbaselines/resolve/main/{method_id}/{dataset_scene}.zip"
-    artifact_json = f"https://huggingface.co/jkulhanek/nerfbaselines/resolve/main/{method_id}/{dataset_scene}.json"
+    artifact = f"https://{RESULTS_REPOSITORY}/resolve/main/{method_id}/{dataset_scene}.zip"
+    artifact_json = f"https://{RESULTS_REPOSITORY}/resolve/main/{method_id}/{dataset_scene}.json"
     result = requests.get(artifact_json)
     if result.status_code == 404:
         raise skip("Skipping public checkpoint verification - checkpoint not available")

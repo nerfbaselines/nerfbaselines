@@ -31,23 +31,35 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-      - name: Setup Pages
-        id: setup-pages
-        uses: actions/configure-pages@v4
       - name: Generate data
         run: |
           pip install -e '.[web]'
-          nerfbaselines web build --output web-build --base-path "${{ steps.setup-pages.outputs.base_path }}" --docs all
-      - name: Copy required data
-        run: |
-          mkdir -p web-build/assets
-          wget -q https://data.ciirc.cvut.cz/public/projects/2023NerfBaselines/assets/video-1.mp4 -O web-build/assets/video-1.mp4
-          wget -q https://data.ciirc.cvut.cz/public/projects/2023NerfBaselines/assets/video-1.webm -O web-build/assets/video-1.webm
-          wget -q https://data.ciirc.cvut.cz/public/projects/2023NerfBaselines/video.html -O web-build/video.html
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: 'web-build'
+          nerfbaselines web build --output web-build --base-path "" --docs all
       - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+        run: |
+          COMMIT_MESSAGE=$(git log -1 --pretty=%B)
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git clone https://${{ secrets.GH_DEPLOY_TOKEN }}@github.com/nerfbaselines/nerfbaselines.github.io.git
+          # If the files are not included in the repo (first commit), download them
+          if [ ! -e video.html ]; then
+            # Download video files
+            mkdir -p web-build/assets
+            wget -q https://data.ciirc.cvut.cz/public/projects/2023NerfBaselines/assets/video-1.mp4 -O assets/video-1.mp4
+            wget -q https://data.ciirc.cvut.cz/public/projects/2023NerfBaselines/assets/video-1.webm -O assets/video-1.webm
+            wget -q https://data.ciirc.cvut.cz/public/projects/2023NerfBaselines/video.html -O video.html
+          fi
+
+          rsync -av --delete ./web-build/ ./nerfbaselines.github.io/ --exclude /.git --exclude '/assets/video-1.*' --exclude '/video.html'
+          cd nerfbaselines.github.io
+          touch .nojekyll
+          git add .
+          git commit -m "${COMMIT_MESSAGE}"
+          git push
+      # - name: Upload artifact
+      #   uses: actions/upload-pages-artifact@v3
+      #   with:
+      #     path: 'web-build'
+      # - name: Deploy to GitHub Pages
+      #   id: deployment
+      #   uses: actions/deploy-pages@v4

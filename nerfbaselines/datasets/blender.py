@@ -12,12 +12,13 @@ from pathlib import Path
 from typing import Union
 import numpy as np
 from nerfbaselines import camera_model_to_int, new_cameras, new_dataset, DatasetNotFoundError
+from nerfbaselines._constants import DATASETS_REPOSITORY
 
 
 DATASET_NAME = "blender"
 SCENES = {"lego", "ship", "drums", "hotdog", "materials", "mic", "chair", "ficus"}
 SPLITS = {"train", "test"}
-_URL = "https://huggingface.co/datasets/jkulhanek/nerfbaselines-data/resolve/main/blender/{scene}.zip"
+_URL = f"https://{DATASETS_REPOSITORY}/resolve/main/blender/{{scene}}.zip"
 
 
 def load_blender_dataset(path: str, split: str, **kwargs):

@@ -8,6 +8,7 @@ from pathlib import Path
 import click
 import json
 from nerfbaselines.results import MethodLink
+from nerfbaselines._constants import RESULTS_REPOSITORY
 try:
     from typing import get_args
 except ImportError:
@@ -41,7 +42,7 @@ def main(results: Optional[str], dataset: str, output_type="markdown", output: O
     setup_logging(False)
     if results is None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            subprocess.check_call("git clone --depth=1 https://huggingface.co/jkulhanek/nerfbaselines".split() + [tmpdir], env={"GIT_LFS_SKIP_SMUDGE": "1"})
+            subprocess.check_call(f"git clone --depth=1 https://{RESULTS_REPOSITORY}".split() + [tmpdir], env={"GIT_LFS_SKIP_SMUDGE": "1"})
             if dataset is None:
                 logging.fatal("--dataset must be provided")
             dataset_info = compile_dataset_results(Path(tmpdir), dataset)

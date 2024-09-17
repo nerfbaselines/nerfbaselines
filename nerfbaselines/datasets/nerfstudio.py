@@ -14,6 +14,7 @@ from nerfbaselines import DatasetNotFoundError, new_dataset, CameraModel, camera
 from ._colmap_utils import read_points3D_binary, read_points3D_text, read_images_binary, read_images_text
 from ._common import dataset_index_select
 from ..io import wget
+from nerfbaselines._constants import DATASETS_REPOSITORY
 try:
     from typing import get_args
 except ImportError:
@@ -584,7 +585,7 @@ def download_nerfstudio_dataset(path: str, output: Union[Path, str]):
     capture_name = path[len("nerfstudio/") :]
     if capture_name not in nerfstudio_file_ids:
         raise DatasetNotFoundError(f"Capture '{capture_name}' not a valid nerfstudio scene.")
-    capture_url = f"https://huggingface.co/datasets/jkulhanek/nerfbaselines-data/resolve/main/nerfstudio/{capture_name}.zip?download=true"
+    capture_url = f"https://{DATASETS_REPOSITORY}/resolve/main/nerfstudio/{capture_name}.zip?download=true"
     _download_capture_name(output, capture_url, capture_name)
     logging.info(f"Downloaded {path} to {output}")
 

@@ -4,7 +4,7 @@ In this guide, we show the full process of training a [Gaussian Splatting](metho
 
 ## Public benchmark results
 Before training a model, you can inspect the public benchmark to see the results of the implemented methods on standard datasets.
-In our case, the results of the Gaussian Splatting method can be seen [here](https://jkulhanek.com/nerfbaselines/m-gaussian-splatting).
+In our case, the results of the Gaussian Splatting method can be seen [here](https://nerfbaselines.github.io/m-gaussian-splatting).
 If we want to skip the training and only inspect the public checkpoint, we can download the checkpoint from the website and extract it in the current working directory
 (the next section can be skipped).
 

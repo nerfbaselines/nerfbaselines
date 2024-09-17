@@ -332,7 +332,11 @@ class NerfBaselinesInstallBlock(CodeBlock):
         if current_version_name == "latest":
             self.content = ['pip install nerfbaselines']
         elif current_version_name == "dev":
-            self.content = ['pip install git+https://github.com/jkulhanek/nerfbaselines.git']
+            try:
+                from nerfbaselines._constants import CODE_REPOSITORY
+            except ImportError:
+                CODE_REPOSITORY = "github.com/jkulhanek/nerfbaselines"
+            self.content = [f'pip install git+https://{CODE_REPOSITORY}.git']
         else:
             self.content = [f'pip install nerfbaselines=={html_context["current_version"]}']
 

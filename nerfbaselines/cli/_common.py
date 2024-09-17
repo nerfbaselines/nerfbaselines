@@ -1,3 +1,4 @@
+import logging
 import traceback
 import sys
 from functools import wraps
@@ -442,3 +443,17 @@ def handle_cli_error(fn):
 def click_backend_option():
     all_backends = list(get_args(BackendName))
     return click.option("--backend", "backend_name", type=click.Choice(all_backends), envvar="NERFBASELINES_BACKEND")
+
+
+def warn_if_newer_version_available():
+    import requests
+    from packaging import version
+    from nerfbaselines import __version__
+    if __version__ in ("dev", "develop"):
+        return
+    r = requests.get("https://pypi.org/pypi/nerfbaselines/json")
+    r.raise_for_status()
+    latest_version = version.parse(r.json()["info"]["version"])
+    current_version = version.parse(__version__)
+    if latest_version > current_version:
+        logging.warning(f"New version of nerfbaselines available: {latest_version}! Upgrade with `pip install nerfbaselines --upgrade`")

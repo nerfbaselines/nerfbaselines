@@ -37,6 +37,12 @@ extensions = [
 
 # Hack to fix commands for sphinx_click
 import nerfbaselines.__main__, click
+try:
+    from nerfbaselines._constants import WEBPAGE_URL, CODE_REPOSITORY
+except ImportError:
+    # Fill for older versions
+    WEBPAGE_URL = "https://nerfbaselines.github.io"
+    CODE_REPOSITORY = "github.com/jkulhanek/nerfbaselines"
 nerfbaselines_cli = nerfbaselines.__main__.main
 ctx = click.Context(nerfbaselines_cli)
 command_names = nerfbaselines_cli.list_commands(ctx)
@@ -48,7 +54,7 @@ except AttributeError:
 
 # Get current commit
 commit = os.popen("git rev-parse --short HEAD").read().strip()
-code_url = f"https://github.com/jkulhanek/nerfbaselines/blob/{commit}/nerfbaselines"
+code_url = f"https://{CODE_REPOSITORY}/blob/{commit}/nerfbaselines"
 
 def linkcode_resolve(domain, info):
     try:
@@ -295,7 +301,7 @@ html_theme_options = {
     "top_of_page_buttons": [],
     "footer_icons": [{
         "name": "GitHub",
-        "url": "https://github.com/jkulhanek/nerfbaselines",
+        "url": f"https://{CODE_REPOSITORY}",
         "html": """
             <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16">
                 <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path>
@@ -304,7 +310,7 @@ html_theme_options = {
         "class": "",
     }, {
         "name": "Website",
-        "url": "https://jkulhanek.com/nerfbaselines",
+        "url": WEBPAGE_URL,
         "html": """
             <svg viewBox="2 2 21 21" fill="none"  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" /><path d="M3.6 9h16.8" /><path d="M3.6 15h16.8" /><path d="M11.5 3a17 17 0 0 0 0 18" /><path d="M12.5 3a17 17 0 0 1 0 18" />

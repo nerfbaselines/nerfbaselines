@@ -12,11 +12,12 @@ import numpy as np
 from nerfbaselines import UnloadedDataset, DatasetNotFoundError
 from nerfbaselines.datasets import dataset_index_select
 from nerfbaselines.datasets.colmap import load_colmap_dataset
+from nerfbaselines._constants import DATASETS_REPOSITORY
 
 
 T = TypeVar("T")
 DATASET_NAME = "tanksandtemples"
-BASE_URL = "https://huggingface.co/datasets/jkulhanek/nerfbaselines-data/resolve/main/tanksandtemples"
+BASE_URL = f"https://{DATASETS_REPOSITORY}/resolve/main/tanksandtemples"
 _URL = f"{BASE_URL}/{{scene}}.tar.gz"
 del _URL
 _URL2DOWN = f"{BASE_URL}/{{scene}}_2down.tar.gz"
