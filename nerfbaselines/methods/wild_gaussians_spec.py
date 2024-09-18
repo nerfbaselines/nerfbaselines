@@ -7,7 +7,7 @@ else:
 
 _artifacts_base_url = "https://huggingface.co/jkulhanek/wild-gaussians/resolve/main"
 WildGaussiansMethodSpec: MethodSpec = {
-    "method_class": "wildgaussians.method:WildGaussians",
+    "method_class": ".wild_gaussians:WildGaussians",
     "conda": {
         "environment_name": "wild-gaussians",
         "python_version": "3.11",
