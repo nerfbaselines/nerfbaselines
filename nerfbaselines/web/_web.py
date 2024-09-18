@@ -13,6 +13,7 @@ import json
 import os
 from nerfbaselines._constants import RESULTS_REPOSITORY, SUPPLEMENTARY_RESULTS_REPOSITORY
 import packaging.version
+import urllib.parse
 try:
     from typing import Literal
 except ImportError:
@@ -602,10 +603,22 @@ def _prepare_data(data_path, datasets=None, include_docs=None):
                             if os.path.exists(os.path.join(tmpdir, f"{method['id']}/{dataset['id']}/{scene}_demo/params.json")):
                                 with open(os.path.join(tmpdir, f"{method['id']}/{dataset['id']}/{scene}_demo/params.json"), "r", encoding="utf8") as f:
                                     demo_params = json.load(f)
+                                base = f"https://{SUPPLEMENTARY_RESULTS_REPOSITORY}/resolve/main/{method['id']}/{dataset['id']}/{scene}_demo/"
+                                query = {
+                                    "p": base + "params.json",
+                                }
+                                if "links" in demo_params:
+                                    for i, (label, link) in enumerate(demo_params["links"].items()):
+                                        # Make link absolute
+                                        if not link.startswith("http"):
+                                            link = base + link
+                                        # Url encode components
+                                        query[f"p{i}"] = label
+                                        query[f"p{i}v"] = link
                                 if demo_params["type"] == "gaussian-splatting":
-                                    scene_data["demo_link"] = f"./demos/3dgs/?p=https://{SUPPLEMENTARY_RESULTS_REPOSITORY}/resolve/main/{method['id']}/{dataset['id']}/{scene}_demo/params.json"
+                                    scene_data["demo_link"] = f"./demos/3dgs/?{urllib.parse.urlencode(query)}"
                                 elif demo_params["type"] == "mesh":
-                                    scene_data["demo_link"] = f"./demos/mesh/?p=https://{SUPPLEMENTARY_RESULTS_REPOSITORY}/resolve/main/{method['id']}/{dataset['id']}/{scene}_demo/params.json"
+                                    scene_data["demo_link"] = f"./demos/mesh/?{urllib.parse.urlencode(query)}"
 
         configuration = {
             "include_docs": include_docs,
