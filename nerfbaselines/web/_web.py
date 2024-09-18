@@ -386,6 +386,7 @@ def _generate_demo_pages(output, configuration):
     del configuration
     os.makedirs(os.path.join(output, "demos", "3dgs"), exist_ok=True)
     from nerfbaselines.methods._gaussian_splatting_demo import export_generic_demo
+    from ._multidemo import make_multidemo
     export_generic_demo(os.path.join(output, "demos", "3dgs"), options={
         'dataset_metadata': {
             'viewer_transform': np.eye(4),
@@ -394,6 +395,7 @@ def _generate_demo_pages(output, configuration):
         'mock_cors': True,
         'enable_shared_memory': True,
     })
+    make_multidemo(os.path.join(output, "demos", "3dgs"))
     os.remove(os.path.join(output, "demos", "3dgs", "params.json"))
 
     # Mesh demo
@@ -405,6 +407,7 @@ def _generate_demo_pages(output, configuration):
             'viewer_initial_pose': np.eye(4),
         },
     })
+    make_multidemo(os.path.join(output, "demos", "mesh"))
     os.remove(os.path.join(output, "demos", "mesh", "params.json"))
 
 

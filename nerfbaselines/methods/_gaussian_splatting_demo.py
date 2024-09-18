@@ -92,6 +92,8 @@ def export_generic_demo(path: str, *,
         rotation = rotation_matrix_to_quaternion(_transform[:3, :3])
         offset = _transform[:3, 3]*scale
         initialCameraPosition = viewer_initial_pose[:3, 3]
+        if dataset_metadata.get("type") != "object-centric":
+            initialCameraLookAt = initialCameraPosition + viewer_initial_pose[:3, 2]
     background_color = None
     if dataset_metadata.get("background_color") is not None:
         # Convert (255, 255, 255) to #ffffff
@@ -132,7 +134,7 @@ def generate_ksplat_file(path: str,
                          opacities: np.ndarray,
                          quaternions: np.ndarray,
                          spherical_harmonics: np.ndarray):
-    from plyfile import PlyElement, PlyData
+    from plyfile import PlyElement, PlyData  # type: ignore
     attributes = ['x', 'y', 'z', 'nx', 'ny', 'nz']
     attributes.extend([f'f_dc_{i}' for i in range(3)])
     attributes.extend([f'f_rest_{i}' for i in range(3*(spherical_harmonics.shape[-1]-1))])
@@ -166,7 +168,7 @@ def generate_ksplat_file(path: str,
         subprocess.check_call(["bash", "-c", f"""
 if [ ! -e /tmp/gaussian-splats-3d ]; then
 rm -rf "/tmp/gaussian-splats-3d-tmp"
-git clone --depth=0 https://github.com/mkkellogg/GaussianSplats3D.git "/tmp/gaussian-splats-3d-tmp"
+git clone https://github.com/mkkellogg/GaussianSplats3D.git "/tmp/gaussian-splats-3d-tmp"
 cd /tmp/gaussian-splats-3d-tmp
 npm install
 npm run build

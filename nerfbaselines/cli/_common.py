@@ -470,6 +470,7 @@ def warn_if_newer_version_available():
         r.raise_for_status()
         latest_version_str = r.json()["info"]["version"]
         try:
+            os.makedirs(NB_PREFIX, exist_ok=True)
             with open(os.path.join(NB_PREFIX, ".latest-version-cache"), "w") as f:
                 f.write(f"{latest_version_str}\n{time.time()}")
             logging.debug("Updated latest version cache")

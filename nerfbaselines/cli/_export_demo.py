@@ -16,9 +16,10 @@ from ._common import SetParamOptionType, NerfBaselinesCliCommand
 @click.option("--checkpoint", type=str, required=True)
 @click.option("--output", "-o", type=str, required=True)
 @click.option("--data", required=False, default=None)
+@click.option("--train-embedding", type=int, default=None, help="Select the train embedding index to use for the demo.")
 @click.option("--set", "options", help="Set a parameter for demo export.", type=SetParamOptionType(), multiple=True, default=None)
 @click_backend_option()
-def main(*, checkpoint: str, output: str, backend_name, data=None, options):
+def main(*, checkpoint: str, output: str, backend_name, data=None, train_embedding=None, options):
     checkpoint = str(checkpoint)
     output = str(output)
     options = dict(options or [])
@@ -49,10 +50,18 @@ def main(*, checkpoint: str, output: str, backend_name, data=None, options):
                 method_export_demo = method.export_demo  # type: ignore
             except AttributeError:
                 raise NotImplementedError(f"Method {method_name} does not support export_demo")
+
+            # If train embedding is enabled, select train_embedding
+            embedding = None
+            if train_embedding is not None:
+                embedding = method.get_train_embedding(train_embedding)
+                if train_embedding is None:
+                    logging.error(f"Train embedding {train_embedding} not found or not supported by the method.")
             method_export_demo(
                 path=output,
                 options=dict(
                     **options,
+                    embedding=embedding,
                     dataset_metadata=dataset_metadata)
             )
 
