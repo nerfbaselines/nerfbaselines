@@ -464,7 +464,12 @@ class GSplat(Method):
                 for file in ckpt_files
             ]
             for k in self.runner.splats.keys():
-                self.runner.splats[k].data = torch.cat([ckpt["splats"][k] for ckpt in ckpts])
+                feat = torch.cat([ckpt["splats"][k] for ckpt in ckpts]) if len(ckpts) > 1 else ckpts[0]["splats"][k]
+                self.runner.splats[k].data = feat
+            if self.cfg.pose_opt:
+                self.runner.pose_adjust.load_state_dict(ckpts[0]["pose_adjust"])
+            if self.cfg.app_opt:
+                self.runner.app_module.load_state_dict(ckpts[0]["app_module"])
             self.step = self._loaded_step = ckpts[0]["step"]
 
         # Setup dataloaders if training mode
