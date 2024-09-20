@@ -224,7 +224,7 @@ def load_colmap_dataset(path: Union[Path, str],
     if sampling_masks_path is not None:
         sampling_masks_path = Path(sampling_masks_path)
     if features is None:
-        features = typing.cast(FrozenSet[DatasetFeature], {})
+        features = typing.cast(FrozenSet[DatasetFeature], frozenset())
     load_points = "points3D_xyz" in features or "points3D_rgb" in features
     if split:
         assert split in {"train", "test"}

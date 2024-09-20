@@ -9,7 +9,7 @@ import tarfile
 from tqdm import tqdm
 import tempfile
 import numpy as np
-from nerfbaselines import UnloadedDataset, DatasetNotFoundError
+from nerfbaselines import DatasetNotFoundError
 from nerfbaselines.datasets import dataset_index_select
 from nerfbaselines.datasets.colmap import load_colmap_dataset
 from nerfbaselines._constants import DATASETS_REPOSITORY
@@ -64,29 +64,6 @@ def _select_indices_llff(image_names, llffhold=8):
     return indices_train, indices_test
 
 
-def load_tanksandtemples_dataset(path: Union[Path, str], split: str, downscale_factor: int = 2, **kwargs) -> UnloadedDataset:
-    path = Path(path)
-    if split:
-        assert split in {"train", "test"}
-    if DATASET_NAME not in str(path) or not any(s in str(path).lower() for s in SCENES):
-        raise DatasetNotFoundError(f"{DATASET_NAME} and {set(SCENES.keys())} is missing from the dataset path: {path}")
-
-    # Load TT dataset
-    images_path = "images" if downscale_factor == 1 else f"images_{downscale_factor}"
-    scene = next((x for x in SCENES if x in str(path)), None)
-    assert scene is not None, f"Scene not found in path {path}"
-
-    dataset = load_colmap_dataset(path, images_path=images_path, split=None, **kwargs)
-    dataset["metadata"]["id"] = DATASET_NAME
-    dataset["metadata"]["scene"] = scene
-    dataset["metadata"]["downscale_factor"] = downscale_factor
-    dataset["metadata"]["type"] = "object-centric"
-    dataset["metadata"]["evaluation_protocol"] = "default"
-    indices_train, indices_test = _select_indices_llff(dataset["image_paths"])
-    indices = indices_train if split == "train" else indices_test
-    return dataset_index_select(dataset, indices)
-
-
 def download_tanksandtemples_dataset(path: str, output: Union[Path, str]) -> None:
     output = Path(output)
     if not path.startswith(f"{DATASET_NAME}/") and path != DATASET_NAME:
@@ -103,6 +80,7 @@ def download_tanksandtemples_dataset(path: str, output: Union[Path, str]) -> Non
     if SCENES[scene] is False:
         raise DatasetNotFoundError(f"Scene {scene} is not available in current release of the tanksandtemples dataset.")
     url = _URL2DOWN.format(scene=scene)
+    downscale_factor = 2
     response = requests.get(url, stream=True)
     response.raise_for_status()
     total_size_in_bytes = int(response.headers.get("content-length", 0))
@@ -136,11 +114,28 @@ def download_tanksandtemples_dataset(path: str, output: Union[Path, str]) -> Non
             with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f:
                 json.dump({
                     "id": DATASET_NAME,
-                    "loader": load_tanksandtemples_dataset.__module__ + ":" + load_tanksandtemples_dataset.__name__,
                     "scene": scene,
+                    "loader": "colmap",
                     "evaluation_protocol": "default",
                     "type": "object-centric",
+                    "downscale_factor": downscale_factor,
+                    "loader_kwargs": {
+                        "images_path": f"images_{downscale_factor}",
+                    },
                 }, f)
+
+            # Write splits
+            try:
+                colmap_dataset = load_colmap_dataset(output_tmp, split=None, images_path=f"images_{downscale_factor}")
+            except DatasetNotFoundError as e:
+                raise RuntimeError(f"Failed to load dataset {DATASET_NAME}/{scene} after downloading.") from e
+            indices_train, indices_test = _select_indices_llff(colmap_dataset["image_paths"])
+            with open(os.path.join(str(output_tmp), "train_list.txt"), "w", encoding="utf8") as f:
+                for img_name in dataset_index_select(colmap_dataset, indices_train)["image_paths"]:
+                    f.write(os.path.relpath(img_name, colmap_dataset["image_paths_root"]) + "\n")
+            with open(os.path.join(str(output_tmp), "test_list.txt"), "w", encoding="utf8") as f:
+                for img_name in dataset_index_select(colmap_dataset, indices_test)["image_paths"]:
+                    f.write(os.path.relpath(img_name, colmap_dataset["image_paths_root"]) + "\n")
             shutil.rmtree(output, ignore_errors=True)
             shutil.move(str(output_tmp), str(output))
             logging.info(f"Downloaded {DATASET_NAME}/{scene} to {output}")
