@@ -15,6 +15,7 @@ import hashlib
 import pickle
 import warnings
 import itertools
+from importlib import import_module
 import logging
 import copy
 from typing import Optional
@@ -283,7 +284,7 @@ class GaussianSplattingWild(Method):
     def _get_train_dataset(self):
         if self._train_dataset_cache is None and self._train_dataset_link is not None:
             logging.info(f"Loading train dataset from {self._train_dataset_link[0]}")
-            from nerfbaselines.datasets import load_dataset
+            load_dataset = import_module("nerfbaselines.datasets").load_dataset
             features = self.get_method_info().get("required_features")
             supported_camera_models = self.get_method_info().get("supported_camera_models")
             train_dataset = load_dataset(self._train_dataset_link[0], split="train", features=features, supported_camera_models=supported_camera_models)
