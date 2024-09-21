@@ -13,6 +13,7 @@ import dataclasses
 import json
 import hashlib
 import pickle
+from collections import namedtuple
 import warnings
 import itertools
 from importlib import import_module
@@ -571,3 +572,40 @@ class GaussianSplattingWild(Method):
         for _ in self.render(train_dataset["cameras"][i], _gt_image=train_dataset["images"][i], _store_cache=True):
             pass
         return self.gaussians.color_net.cache_outd.detach().cpu().numpy().reshape(-1)
+
+    @torch.no_grad()
+    def export_demo(self, path: str, *, options=None):
+        from ._gaussian_splatting_demo import export_demo
+        from nerfbaselines.utils import apply_transform, invert_transform
+
+        options = options or {}
+        dataset_metadata = options.get("dataset_metadata") or {}
+        if "viewer_transform" in dataset_metadata and "viewer_initial_pose" in dataset_metadata:
+            viewer_initial_pose_ws = apply_transform(invert_transform(dataset_metadata["viewer_transform"], has_scale=True), dataset_metadata["viewer_initial_pose"])
+            camera_center = torch.tensor(viewer_initial_pose_ws[:3, 3], dtype=torch.float32, device="cuda")
+        else:
+            camera_center = torch.tensor([1.0, 0.0, 0.0], dtype=torch.float32, device="cuda")
+        logging.warning("gaussian-splatting-wild does not support view-dependent demo. We will bake the appearance of a single appearance embedding and single viewing direction.")
+
+        gaussians = self.gaussians
+        emb = (options or {}).get("embedding", None)
+        if emb is None:
+            emb = self._default_embedding
+        num_gaussians = gaussians._xyz.shape[0]
+        gaussians.color_net.cache_outd = torch.tensor(emb, dtype=torch.float32, device="cuda").view(num_gaussians, -1)
+        # Bug in the current code where this attribute is not set
+        gaussians._opacity_dealed = self.gaussians._opacity
+        gaussians.forward_cache(namedtuple("Cam", ["camera_center"])(camera_center))
+
+        # Now, we are ready to extract the Gaussians
+        colors = gaussians.get_colors
+        # Convert to spherical harmonics of deg 0
+        C0 = 0.28209479177387814
+        spherical_harmonics = (colors[..., None] - 0.5) / C0
+        export_demo(path, 
+                    options=options,
+                    xyz=gaussians.get_xyz.detach().cpu().numpy(),
+                    scales=self.gaussians.get_scaling.detach().cpu().numpy(),
+                    opacities=self.gaussians.get_opacity_dealed.detach().cpu().numpy(),
+                    quaternions=self.gaussians.get_rotation.detach().cpu().numpy(),
+                    spherical_harmonics=spherical_harmonics.detach().cpu().numpy())
