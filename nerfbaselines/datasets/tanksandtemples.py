@@ -141,4 +141,9 @@ def download_tanksandtemples_dataset(path: str, output: Union[Path, str]) -> Non
             logging.info(f"Downloaded {DATASET_NAME}/{scene} to {output}")
 
 
-__all__ = ["load_tanksandtemples_dataset", "download_tanksandtemples_dataset"]
+def load_tanksandtemples_dataset(path, *args, **kwargs):
+    del args, kwargs
+    raise RuntimeError(f"The dataset was likely downloaded with an older version of NerfBaselines. Please remove `{path}` and try again.")
+
+
+__all__ = ["download_tanksandtemples_dataset"]

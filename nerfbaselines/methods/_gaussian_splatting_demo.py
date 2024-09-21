@@ -68,6 +68,9 @@ def export_generic_demo(path: str, *,
     assert viewer_initial_pose is not None, "viewer_initial_pose is required for export_demo and it is missing in dataset_metadata"
     mock_cors = _cast_value(Optional[bool], options.pop("mock_cors", False)) or False
     enable_shared_memory = _cast_value(Optional[bool], options.pop("enable_shared_memory", False)) or False
+    antialiased = options.pop("antialiased", False)
+    kernel2DSize = options.pop("kernel_2D_size", 0.3)
+    splatRenderMode = "TwoD" if options.pop("is_2DGS", False) else "ThreeD"
     if options:
         logging.warning(f"Unused options: {', '.join(options.keys())}")
     del options
@@ -107,6 +110,9 @@ def export_generic_demo(path: str, *,
             "cameraUp": cameraUp.tolist(),
             "scale": float(scale),
             "rotation": rotation[[1, 2, 3, 0]].tolist(),
+            "antialiased": antialiased,
+            "kernel2DSize": kernel2DSize,
+            "splatRenderMode": splatRenderMode,
             "offset": offset.tolist(),
             "sceneUri": "scene.ksplat",
         }, f, indent=2)
@@ -119,8 +125,10 @@ def export_generic_demo(path: str, *,
             os.path.join(path, "coi-serviceworker.min.js"))
     with open(os.path.join(path, "index.html"), "w", encoding="utf8") as f:
         f.write(index)
+    # NOTE: the viewer is my fork of the Kellogg's viewer with some modifications to 
+    # support methods like MipSplatting, etc.
     wget(
-        "https://gist.githubusercontent.com/jkulhanek/8792b41dc4a8af77f9883c7f1b846cb4/raw/da860114d02c3fdd6ed13c8121330474c93289e9/gaussian-splats-3d.module.min.js",
+        "https://gist.githubusercontent.com/jkulhanek/8792b41dc4a8af77f9883c7f1b846cb4/raw/03c6155d1e358c2562e08172495f79ba07b77876/gaussian-splats-3d.module.min.js",
         os.path.join(path, "gaussian-splats-3d.module.min.js"))
     wget(
         "https://gist.githubusercontent.com/jkulhanek/8792b41dc4a8af77f9883c7f1b846cb4/raw/da860114d02c3fdd6ed13c8121330474c93289e9/three.module.min.js",
@@ -139,7 +147,7 @@ def generate_ksplat_file(path: str,
     attributes.extend([f'f_dc_{i}' for i in range(3)])
     attributes.extend([f'f_rest_{i}' for i in range(3*(spherical_harmonics.shape[-1]-1))])
     attributes.append('opacity')
-    attributes.extend([f'scale_{i}' for i in range(3)])
+    attributes.extend([f'scale_{i}' for i in range(scales.shape[-1])])
     attributes.extend([f'rot_{i}' for i in range(4)])
 
     if len(opacities.shape) == 1:

@@ -489,6 +489,9 @@ class MipSplatting(Method):
     def export_demo(self, path: str, *, options=None):
         from ._gaussian_splatting_demo import export_demo
 
+        options = (options or {}).copy()
+        options["antialiased"] = True
+        options["kernel_2D_size"] = self.dataset.kernel_size
         export_demo(path, 
                     options=options,
                     xyz=self.gaussians.get_xyz.detach().cpu().numpy(),

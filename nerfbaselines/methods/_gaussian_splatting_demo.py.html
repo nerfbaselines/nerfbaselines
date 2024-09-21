@@ -32,10 +32,12 @@
           cameraUp: params.cameraUp,
           initialCameraPosition: params.initialCameraPosition,
           initialCameraLookAt: params.initialCameraLookAt,
+          antialiased: params.antialiased || false,
+          kernel2DSize: (params.kernel2DSize === undefined) ? 0.3 : params.kernel2DSize,
+          splatRenderMode: GaussianSplats3D.SplatRenderMode[params.splatRenderMode || 'ThreeD'],
       });
       viewer.init();
       viewer.addSplatScene(sceneUri, {
-        halfPrecisionCovariancesOnGPU: true,
         position: params.offset,
         scale: [params.scale, params.scale, params.scale],
         rotation: params.rotation,

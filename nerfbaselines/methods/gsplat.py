@@ -728,6 +728,8 @@ class GSplat(Method):
             _transform = viewer_transform @ inv_transform
             options["dataset_metadata"]["viewer_transform"] = _transform
 
+        options = (options or {}).copy()
+        options["antialiased"] = self.cfg.antialiased
         export_demo(path, 
                     options=options,
                     xyz=splats["means"].detach().cpu().numpy(),
