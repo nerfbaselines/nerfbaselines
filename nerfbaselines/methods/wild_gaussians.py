@@ -31,6 +31,9 @@ class WildGaussians(_WildGaussians):
             shdim = (self.config.sh_degree + 1) ** 2
             spherical_harmonics = features.view(-1, shdim, 3).transpose(1, 2).contiguous()
 
+        options = (options or {}).copy()
+        options["antialiased"] = True
+        options["kernel_2D_size"] = self.config.kernel_size
         export_demo(path, 
                     options=options,
                     xyz=gaussians["xyz"].detach().cpu().numpy(),
