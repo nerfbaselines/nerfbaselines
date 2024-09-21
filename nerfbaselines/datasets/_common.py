@@ -1,19 +1,25 @@
+from datetime import datetime
+import time
 import re
 import json
 import importlib
+import shutil
 from pathlib import Path
 import warnings
 import gc
+import functools
 import logging
 import os
 import struct
+import tempfile
 import numpy as np
 import PIL.Image
 import PIL.ExifTags
 from tqdm import tqdm
+import requests
 from typing import (
     Optional, TypeVar, Tuple, Union, List, Dict, Any, 
-    FrozenSet,
+    FrozenSet, Iterable,
     overload, cast,
 )
 from nerfbaselines import (
@@ -599,6 +605,128 @@ def _load_unknown_dataset(path, **kwargs):
         # Return the correct dataset
         loader, dataset = next(((k, d) for k, (d, exc) in loader_results.items() if exc is None))
     return loader, dataset
+
+
+def download_dataset_wrapper(all_scenes: Iterable[str], dataset_name: str):
+    """
+    Wraps a function which downloads a single scene into a function which downloads multiple scenes.
+
+    Args:
+        all_scenes: Supported scenes.
+    """
+    all_scenes = list(all_scenes)
+
+    def wrap(fn):
+        @functools.wraps(fn)
+        def download_dataset(path, output, **kwargs):
+            if "/" in path:
+                if not path.startswith(dataset_name + "/"):
+                    raise DatasetNotFoundError(f"Dataset {path} does not start with {dataset_name}/")
+
+                # Download multiple scenes
+                return fn(path, output, **kwargs)
+            else:
+                if path != dataset_name:
+                    raise DatasetNotFoundError(f"Dataset {path} does not start with {dataset_name}")
+                for scene in all_scenes:
+                    fn(f"{path}/{scene}", os.path.join(output, scene), **kwargs)
+        return download_dataset
+    return wrap
+
+
+def download_archive_dataset(url: str,
+                             output: str,
+                             *,
+                             archive_prefix: Optional[str],
+                             nb_info: Dict[str, Any],
+                             callback=None,
+                             file_type = None):
+    response = requests.get(url, stream=True)
+    response.raise_for_status()
+    total_size_in_bytes = int(response.headers.get("content-length", 0))
+    block_size = 1024  # 1 Kibibyte
+    progress_bar = tqdm(
+        total=total_size_in_bytes,
+        unit="iB",
+        unit_scale=True,
+        desc=f"Downloading {url.split('/')[-1]}", 
+        dynamic_ncols=True,
+    )
+    with tempfile.TemporaryFile("rb+") as file:
+        for data in response.iter_content(block_size):
+            progress_bar.update(len(data))
+            file.write(data)
+        file.flush()
+        file.seek(0)
+        progress_bar.close()
+        if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:  # noqa: PLR1714
+            logging.error(
+                f"Failed to download dataset. {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes."
+            )
+
+        has_any = False
+        if file_type is None:
+            if url.split("?")[0].split("#")[0].endswith(".tar.gz"):
+                file_type = "tar.gz"
+            elif url.split("?")[0].split("#")[0].endswith(".zip"):
+                file_type = "zip"
+            else:
+                raise RuntimeError(f"Unknown file type for {url}")
+        output_tmp = output + ".tmp"
+        os.makedirs(output_tmp, exist_ok=True)
+        if file_type == "tar.gz":
+            import tarfile
+            with tarfile.open(fileobj=file, mode="r:gz") as z:
+                def members(tf):
+                    nonlocal has_any
+                    nonlocal archive_prefix
+                    if archive_prefix is None:
+                        # We estimate archive prefix as the common prefix of all files
+                        archive_prefix = os.path.commonprefix([member.path for member in tf.getmembers() if not member.isdir()])
+                    for member in tf.getmembers():
+                        if not member.path.startswith(archive_prefix):
+                            continue
+                        has_any = True
+                        member.path = member.path[len(archive_prefix):]
+                        yield member
+
+                z.extractall(output_tmp, members=members(z))
+        elif file_type == "zip":
+            import zipfile
+            with zipfile.ZipFile(file, "r") as z:
+                if archive_prefix is None:
+                    # We estimate archive prefix as the common prefix of all files
+                    archive_prefix = os.path.commonprefix([member.filename for member in z.infolist() if not member.is_dir()])
+                for member in z.infolist():
+                    if not member.filename.startswith(archive_prefix):
+                        continue
+                    relname = member.filename[len(archive_prefix):]
+                    target = os.path.join(output_tmp, relname)
+                    if member.is_dir():
+                        os.makedirs(target, exist_ok=True)
+                    else:
+                        os.makedirs(os.path.dirname(target), exist_ok=True)
+                        member.filename = relname
+                        z.extract(member, output_tmp)
+                        has_any = True
+
+                        # Fix mtime
+                        date_time = datetime(*member.date_time)
+                        mtime = time.mktime(date_time.timetuple())
+                        os.utime(target, (mtime, mtime))
+        else:
+            raise RuntimeError(f"Unknown file type {file_type}")
+        if not has_any:
+            raise RuntimeError(f"Prefix '{archive_prefix}' not found in {url}.")
+
+        with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f2:
+            json.dump(nb_info, f2)
+
+        if callback is not None:
+            callback(output_tmp)
+
+        shutil.rmtree(output, ignore_errors=True)
+        shutil.move(str(output_tmp), str(output))
 
 
 def load_dataset(

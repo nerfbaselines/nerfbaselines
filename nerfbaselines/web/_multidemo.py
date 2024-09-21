@@ -53,7 +53,7 @@ if (params.get('p0')) {
           option.checked = value === defaultParams;
           option.onchange = () => {
             params.set('p', value);
-            window.location.search = params.toString();
+            window.location.replace(window.location.pathname + '?' + params.toString());
           };
           multidemo.appendChild(option);
           const label = document.createElement("label");

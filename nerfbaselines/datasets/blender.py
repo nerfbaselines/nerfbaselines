@@ -1,18 +1,10 @@
-import os
-import time
-from datetime import datetime
-import zipfile
-import requests
-import shutil
-import tempfile
 import logging
 import json
-from tqdm import tqdm
 from pathlib import Path
-from typing import Union
 import numpy as np
-from nerfbaselines import camera_model_to_int, new_cameras, new_dataset, DatasetNotFoundError
+from nerfbaselines import camera_model_to_int, new_cameras, new_dataset
 from nerfbaselines._constants import DATASETS_REPOSITORY
+from ._common import download_dataset_wrapper, download_archive_dataset
 
 
 DATASET_NAME = "blender"
@@ -78,67 +70,26 @@ def load_blender_dataset(path: str, split: str, **kwargs):
     )
 
 
-def download_blender_dataset(path: str, output: Union[Path, str]) -> None:
-    output = Path(output)
-    if not path.startswith(f"{DATASET_NAME}/") and path != DATASET_NAME:
-        raise DatasetNotFoundError("Dataset path must be equal to 'blender' or must start with 'blender/'.")
-
-    if path == DATASET_NAME:
-        for scene in SCENES:
-            download_blender_dataset(f"{DATASET_NAME}/{scene}", output/scene)
-        return
-
-    scene = path.split("/")[-1]
+@download_dataset_wrapper(SCENES, DATASET_NAME)
+def download_blender_dataset(path: str, output: str) -> None:
+    dataset_name, scene = path.split("/", 1)
     if scene not in SCENES:
         raise RuntimeError(f"Unknown scene {scene}, supported scenes: {SCENES}")
+
     url = _URL.format(scene=scene)
-    response = requests.get(url, stream=True)
-    response.raise_for_status()
-    total_size_in_bytes = int(response.headers.get("content-length", 0))
-    block_size = 1024  # 1 Kibibyte
-    progress_bar = tqdm(total=total_size_in_bytes, unit="iB", unit_scale=True, desc=f"Downloading {url.split('/')[-1]}", dynamic_ncols=True)
-    with tempfile.TemporaryFile("rb+") as file:
-        for data in response.iter_content(block_size):
-            progress_bar.update(len(data))
-            file.write(data)
-        file.flush()
-        file.seek(0)
-        progress_bar.close()
-        if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
-            logging.error(f"Failed to download dataset. {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes.")
-
-        with zipfile.ZipFile(file, mode="r") as z:
-            output_tmp = output.with_suffix(".tmp")
-            output_tmp.mkdir(exist_ok=True, parents=True)
-
-            for info in z.infolist():
-                if not info.filename.startswith(scene + "/"):
-                    continue
-                relname = info.filename[len(scene) + 1 :]
-                target = output_tmp / relname
-                target.parent.mkdir(exist_ok=True, parents=True)
-                if info.is_dir():
-                    target.mkdir(exist_ok=True, parents=True)
-                else:
-                    info.filename = relname
-                    z.extract(info, output_tmp)
-
-                    # Fix mtime
-                    date_time = datetime(*info.date_time)
-                    mtime = time.mktime(date_time.timetuple())
-                    os.utime(target, (mtime, mtime))
-
-            with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f2:
-                json.dump({
-                    "loader": load_blender_dataset.__module__ + ":" + load_blender_dataset.__name__,
-                    "id": DATASET_NAME,
-                    "scene": scene,
-                    "evaluation_protocol": "nerf",
-                    "type": "object-centric",
-                }, f2)
-            shutil.rmtree(output, ignore_errors=True)
-            shutil.move(str(output_tmp), str(output))
-            logging.info(f"Downloaded {DATASET_NAME}/{scene} to {output}")
+    prefix = f"{scene}/"
+    nb_info = {
+        "loader": load_blender_dataset.__module__ + ":" + load_blender_dataset.__name__,
+        "id": dataset_name,
+        "scene": scene,
+        "evaluation_protocol": "nerf",
+        "type": "object-centric",
+    }
+    download_archive_dataset(url, output, 
+                             archive_prefix=prefix, 
+                             nb_info=nb_info, 
+                             file_type="zip")
+    logging.info(f"Downloaded {DATASET_NAME}/{scene} to {output}")
 
 
 __all__ = ["load_blender_dataset", "download_blender_dataset"]

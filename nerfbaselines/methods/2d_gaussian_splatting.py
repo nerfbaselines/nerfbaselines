@@ -252,3 +252,16 @@ class GaussianSplatting2D(Method):
         torch.save((self._gaussians.capture(), self.step), str(path) + f"/chkpnt-{self.step}.pth")
         with open(str(path) + "/args.txt", "w", encoding="utf8") as f:
             f.write(" ".join(shlex.quote(x) for x in self._args_list))
+
+    def export_demo(self, path: str, *, options=None):
+        from ._gaussian_splatting_demo import export_demo
+
+        options = (options or {}).copy()
+        options["is_2DGS"] = True
+        export_demo(path, 
+                    options=options,
+                    xyz=self._gaussians.get_xyz.detach().cpu().numpy(),
+                    scales=self._gaussians.get_scaling.detach().cpu().numpy(),
+                    opacities=self._gaussians.get_opacity.detach().cpu().numpy(),
+                    quaternions=self._gaussians.get_rotation.detach().cpu().numpy(),
+                    spherical_harmonics=self._gaussians.get_features.transpose(1, 2).detach().cpu().numpy())

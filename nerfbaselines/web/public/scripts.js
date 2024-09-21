@@ -114,14 +114,15 @@ function init() {
     const vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0)
     const td = tooltip.closest("td");
     const tooltipbb = tooltip.getBoundingClientRect();
+    const bodyLeft = document.body.getBoundingClientRect().x;
     if (tooltipbb.width >= vw*0.70) {
-      tooltip.style.left = (vw*0.1) + "px";
+      tooltip.style.left = (vw*0.1-bodyLeft) + "px";
       return;
     }
     const tdbb = td.querySelector("span").getBoundingClientRect();
     let clientLeft = tdbb.x;
     clientLeft = Math.min(Math.max(clientLeft, 0), vw-tooltipbb.width);
-    tooltip.style.left = clientLeft + "px";
+    tooltip.style.left = (clientLeft-bodyLeft) + "px";
   }
   let currentInfobox = null;
   const tooltips = document.querySelectorAll(".table .table__infobox");

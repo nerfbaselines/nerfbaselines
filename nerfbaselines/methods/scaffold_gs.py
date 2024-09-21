@@ -566,8 +566,8 @@ class ScaffoldGS(Method):
         """
         if self.gaussians.appearance_dim > 0:
             self.gaussians._temp_appearance = None
-            self.gaussians.get_appearance(
-                torch.tensor(index, dtype=torch.long)).detach().cpu().numpy()
+            return self.gaussians.get_appearance(
+                torch.tensor(index, dtype=torch.long, device="cuda")).detach().cpu().numpy()
         return None
 
 
@@ -575,22 +575,22 @@ class ScaffoldGS(Method):
         from nerfbaselines.utils import apply_transform, invert_transform
         from ._gaussian_splatting_demo import export_demo
         os.makedirs(path, exist_ok=True)
-        options = options or {}
+        options = (options or {}).copy()
         dataset_metadata = options.get("dataset_metadata") or {}
         logging.warning("Scaffold-GS does not support view-dependent demo. We will bake the appearance of a single appearance embedding and single viewing direction.")
 
         with torch.no_grad():
+            device = torch.device("cuda")
             if "viewer_transform" in dataset_metadata and "viewer_initial_pose" in dataset_metadata:
                 viewer_initial_pose_ws = apply_transform(invert_transform(dataset_metadata["viewer_transform"], has_scale=True), dataset_metadata["viewer_initial_pose"])
-                camera_center = torch.tensor(viewer_initial_pose_ws[:3, 3], dtype=torch.float32, device="cuda")
+                camera_center = torch.tensor(viewer_initial_pose_ws[:3, 3], dtype=torch.float32, device=device)
             else:
-                camera_center = torch.tensor([1.0, 0.0, 0.0], dtype=torch.float32, device="cuda")
+                camera_center = torch.tensor([1.0, 0.0, 0.0], dtype=torch.float32, device=device)
             viewpoint_cam = namedtuple("Camera", ["camera_center", "uid"])(camera_center=camera_center*(self.dataset.scale_coords or 1), uid=0)
-            viewpoint_cam.uid
-            embedding = (options or {}).get("embedding", None)
+            embedding = options.pop("embedding", None)
             self.gaussians._temp_appearance = None
             if embedding is not None:
-                self.gaussians._temp_appearance = torch.from_numpy(embedding).cuda()
+                self.gaussians._temp_appearance = torch.from_numpy(embedding).to(device)
 
             xyz, color, opacity, scaling, rot = generate_neural_gaussians(viewpoint_cam, self.gaussians, visible_mask=None, is_training=False)
             export_demo(path, 

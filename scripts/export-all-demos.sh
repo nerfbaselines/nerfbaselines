@@ -62,7 +62,36 @@ find $inpath -iname '*.zip' -print0  | while IFS= read -r -d '' file; do
     fi
 
     # Try to generate the demo
-    nerfbaselines export-demo --checkpoint $file/checkpoint --data external://$name --output ${out}_demo
+    (
+        set -e
+        if [[ "$name" == "phototourism/"* ]]; then
+            # For phototourism, we generate demos for different appearances
+            if [[ "$name" == *"/trevi-fountain" ]]; then
+                embedding_ids=(7 5 174)
+            elif [[ "$name" == *"/sacre-coeur" ]]; then
+                embedding_ids=(7 14 29)
+            elif [[ "$name" == *"/brandenburg-gate" ]]; then
+                embedding_ids=(0 1 9)
+            else
+                echo "Unknown phototourism scene: $name"
+                exit 1
+            fi
+            tmpdir=$(mktemp -d)
+            trap "rm -rf $tmpdir" EXIT
+            nerfbaselines export-demo --checkpoint $file/checkpoint --data external://$name --output ${out}_demo --train-embedding ${embedding_ids[0]}
+            nerfbaselines export-demo --checkpoint $file/checkpoint --data external://$name --output ${tmpdir}/e2 --train-embedding ${embedding_ids[1]}
+            mv ${tmpdir}/e2/params.json ${out}_demo/params_e2.json
+            mv ${tmpdir}/e2/scene.ksplat ${out}_demo/scene_e2.ksplat
+            python -c 'import json;p=json.load(open("'$out'_demo/params_e2.json"));p["sceneUri"]="scene_e2.ksplat";json.dump(p,open("'$out'_demo/params_e2.json","w"))'
+            nerfbaselines export-demo --checkpoint $file/checkpoint --data external://$name --output ${tmpdir}/e3 --train-embedding ${embedding_ids[2]}
+            mv ${tmpdir}/e3/params.json ${out}_demo/params_e3.json
+            mv ${tmpdir}/e3/scene.ksplat ${out}_demo/scene_e3.ksplat
+            python -c 'import json;p=json.load(open("'$out'_demo/params_e3.json"));p["sceneUri"]="scene_e3.ksplat";json.dump(p,open("'$out'_demo/params_e3.json","w"))'
+            python -c 'import json;p=json.load(open("'$out'_demo/params.json"));p["links"]={"Appearance 1": "params.json", "Appearance 2": "params_e2.json", "Appearance 3": "params_e3.json"};json.dump(p,open("'$out'_demo/params.json","w"))'
+        else
+            nerfbaselines export-demo --checkpoint $file/checkpoint --data external://$name --output ${out}_demo
+        fi
+    )
     result=$?
 
     # Strip first line of the output
