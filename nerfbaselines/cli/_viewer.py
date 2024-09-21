@@ -8,19 +8,16 @@ from nerfbaselines.viewer import run_viser_viewer
 from nerfbaselines import get_method_spec, build_method_class
 from nerfbaselines import backends
 from nerfbaselines.io import open_any_directory, deserialize_nb_info
-from ._common import handle_cli_error, click_backend_option, setup_logging
+from ._common import handle_cli_error, click_backend_option, NerfBaselinesCliCommand
 
 
-@click.command("viewer")
+@click.command("viewer", cls=NerfBaselinesCliCommand)
 @click.option("--checkpoint", default=None, required=False)
 @click.option("--data", type=str, default=None, required=False)
-@click.option("--verbose", "-v", is_flag=True)
 @click.option("--port", type=int, default=6006)
 @click_backend_option()
 @handle_cli_error
-def viewer_command(checkpoint: str, data, verbose, backend_name, port=6006):
-    setup_logging(verbose)
-
+def viewer_command(checkpoint: str, data, backend_name, port=6006):
     with ExitStack() as stack:
         nb_info = None
         method = None

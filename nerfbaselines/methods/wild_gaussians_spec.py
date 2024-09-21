@@ -5,6 +5,7 @@ else:
     MethodSpec = dict
 
 
+_artifacts_base_url = "https://huggingface.co/jkulhanek/wild-gaussians/resolve/main"
 WildGaussiansMethodSpec: MethodSpec = {
     "method_class": "wildgaussians.method:WildGaussians",
     "conda": {
@@ -65,15 +66,15 @@ fi
     "supported_outputs": ["color", "accumulation", "depth"],
     "required_features": ["color", "points3D_xyz"],
     "output_artifacts": {
-        "phototourism/trevi-fountain": { "link": "https://huggingface.co/jkulhanek/wild-gaussians/resolve/main/phototourism/trevi-fountain.zip" },
-        "phototourism/sacre-coeur": { "link": "https://huggingface.co/jkulhanek/wild-gaussians/resolve/main/phototourism/sacre-coeur.zip" },
-        "phototourism/brandenburg-gate": { "link": "https://huggingface.co/jkulhanek/wild-gaussians/resolve/main/phototourism/brandenburg-gate.zip" },
-        "nerfonthego-undistorted/fountain": { "link": "https://huggingface.co/jkulhanek/wild-gaussians/resolve/main/nerfonthego-undistorted/fountain.zip" },
-        "nerfonthego-undistorted/mountain": { "link": "https://huggingface.co/jkulhanek/wild-gaussians/resolve/main/nerfonthego-undistorted/mountain.zip" },
-        "nerfonthego-undistorted/spot": { "link": "https://huggingface.co/jkulhanek/wild-gaussians/resolve/main/nerfonthego-undistorted/spot.zip" },
-        "nerfonthego-undistorted/patio": { "link": "https://huggingface.co/jkulhanek/wild-gaussians/resolve/main/nerfonthego-undistorted/patio.zip" },
-        "nerfonthego-undistorted/patio-high": { "link": "https://huggingface.co/jkulhanek/wild-gaussians/resolve/main/nerfonthego-undistorted/patio-high.zip" },
-        "nerfonthego-undistorted/corner": { "link": "https://huggingface.co/jkulhanek/wild-gaussians/resolve/main/nerfonthego-undistorted/corner.zip" },
+        "phototourism/trevi-fountain": {        "link": f"{_artifacts_base_url}/phototourism/trevi-fountain.zip" },
+        "phototourism/sacre-coeur": {           "link": f"{_artifacts_base_url}/phototourism/sacre-coeur.zip" },
+        "phototourism/brandenburg-gate": {      "link": f"{_artifacts_base_url}/phototourism/brandenburg-gate.zip" },
+        "nerfonthego-undistorted/fountain": {   "link": f"{_artifacts_base_url}/nerfonthego-undistorted/fountain.zip" },
+        "nerfonthego-undistorted/mountain": {   "link": f"{_artifacts_base_url}/nerfonthego-undistorted/mountain.zip" },
+        "nerfonthego-undistorted/spot": {       "link": f"{_artifacts_base_url}/nerfonthego-undistorted/spot.zip" },
+        "nerfonthego-undistorted/patio": {      "link": f"{_artifacts_base_url}/nerfonthego-undistorted/patio.zip" },
+        "nerfonthego-undistorted/patio-high": { "link": f"{_artifacts_base_url}/nerfonthego-undistorted/patio-high.zip" },
+        "nerfonthego-undistorted/corner": {     "link": f"{_artifacts_base_url}/nerfonthego-undistorted/corner.zip" },
     },
     "implementation_status": {
         "phototourism": "reproducing",

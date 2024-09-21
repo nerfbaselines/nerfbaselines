@@ -23,7 +23,7 @@ from nerfbaselines.evaluation import (
     evaluate, run_inside_eval_container, build_evaluation_protocol
 )
 from ._common import ChangesTracker, handle_cli_error, click_backend_option
-from ._common import setup_logging
+from ._common import NerfBaselinesCliCommand
 from ._fix_checkpoint import fix_checkpoint
 
 
@@ -101,7 +101,7 @@ def build_dir_tree(path):
     raise RuntimeError(f"Path {path} is not a file or directory")
 
 
-@click.command("fix-output-artifact")
+@click.command("fix-output-artifact", cls=NerfBaselinesCliCommand)
 @click.option("--input", type=str, default=None, required=True)
 @click.option("--data", type=str, default=None, required=False)
 @click.option("--method", "method_name", type=str, default=None, required=False)
@@ -109,7 +109,6 @@ def build_dir_tree(path):
 @click.option("--rerun-evaluation", is_flag=True)
 @click.option("--rerun-render", is_flag=True)
 @click.option("--output", "new_artifact", type=str, required=False, help="Path to save the new output artifact")
-@click.option("--verbose", "-v", is_flag=True)
 @click.option("--force", is_flag=True)
 @click.option("--inplace", is_flag=True)
 @click_backend_option()
@@ -123,9 +122,7 @@ def main(input: str,
          rerun_evaluation: bool = False,
          rerun_render: bool = False,
          force: bool = False,
-         verbose: bool = False,
          backend_name=None):
-    setup_logging(verbose)
     if not inplace and new_artifact is None:
         raise RuntimeError("Please specify --new-artifact or --inplace to overwrite the input artifact")
     if inplace:

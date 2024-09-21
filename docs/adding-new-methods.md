@@ -13,7 +13,7 @@ you need to follow these steps:
 5) (Optional) Open a pull request to merge the method to NerfBaselines repository.
 
 ```{tip} 
-The source code for the tutorial can be found [here](https://github.com/jkulhanek/nerfbaselines/tree/main/docs/examples/01-simple-method).
+The source code for the tutorial can be found [here](https://github.com/nerfbaselines/nerfbaselines/tree/main/docs/examples/01-simple-method).
 ```
 
 ## Creating a new method module

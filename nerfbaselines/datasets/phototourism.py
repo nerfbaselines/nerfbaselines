@@ -1,71 +1,28 @@
-import json
 import os
 import csv
 import logging
 from pathlib import Path
-import shutil
-import tempfile
 from typing import Union, cast, Dict, Iterable
-import tarfile
+from functools import partial
 
 import numpy as np
 import requests
-from tqdm import tqdm
 
 from nerfbaselines import (
     Dataset, EvaluationProtocol, Method, 
     RenderOutput, DatasetNotFoundError, RenderOptions
 )
 from ..utils import image_to_srgb
-from ._common import dataset_index_select
+from ._common import dataset_index_select, download_dataset_wrapper, download_archive_dataset
 from .colmap import load_colmap_dataset
+
 
 DATASET_NAME = "phototourism"
 
 
-def load_phototourism_dataset(path: Union[Path, str], split: str, use_nerfw_split=None, **kwargs):
-    path = Path(path)
-    use_nerfw_split = use_nerfw_split if use_nerfw_split is not None else True
-
-    # Load phototourism dataset
-    images_path = "images"
-    split_list = None
-    if use_nerfw_split:
-        if (path / "nerfw_split.csv").exists():
-            with (path / "nerfw_split.csv").open() as f:
-                reader = csv.reader(f, delimiter="\t")
-                next(reader)
-                split_list = [x[0] for x in reader if x[1] and x[2] == split]
-                assert len(split_list) > 0, f"{split} list is empty"
-        else:
-            logging.warning(
-                f"NeRF-W test list not found for. Using a standard COLMAP split!"
-            )
-
-    # We then select the same images as in the LLFF multinerf dataset loader
-    dataset = load_colmap_dataset(
-        path, 
-        images_path=images_path,
-        colmap_path="sparse",
-        split=None, **kwargs
-    )
-
-    dataset_len = len(dataset["image_paths"])
-    if split_list is not None:
-        indices = np.array(
-            [i for i, x in enumerate(dataset["image_paths"]) if Path(x).name in split_list]
-        )
-        assert len(indices) > 0, f"No images found in {split} list"
-        logging.info(f"Using {len(indices)}/{dataset_len} images from the NeRF-W {split} list")
-    else:
-        all_indices = np.arange(dataset_len)
-        llffhold = 8
-        if split == "train":
-            indices = all_indices % llffhold != 0
-        else:
-            indices = all_indices % llffhold == 0
-        logging.info(f"Using {len(indices)}/{dataset_len} images using LLFF-hold of {llffhold}")
-    return dataset_index_select(dataset, indices)
+def load_phototourism_dataset(path, *args, **kwargs):
+    del args, kwargs
+    raise RuntimeError(f"The dataset was likely downloaded with an older version of NerfBaselines. Please remove `{path}` and try again.")
 
 
 # https://www.cs.ubc.ca/%7Ekmyi/imw2020/data.html
@@ -99,89 +56,76 @@ _split_lists = {
 }
 
 
-def download_phototourism_dataset(path: str, output: Union[Path, str]):
-    output = Path(output)
-    if not path.startswith(f"{DATASET_NAME}/") and path != DATASET_NAME:
-        raise DatasetNotFoundError(
-            f"Dataset path must be equal to '{DATASET_NAME}' or must start with '{DATASET_NAME}/'."
-        )
-
-    if path == "phototourism":
-        for x in _split_lists:
-            download_phototourism_dataset(f"phototourism/{x}", output / x)
-        return
-
-    capture_name = path.split("/")[1]
-    if capture_name not in _phototourism_downloads:
-        raise DatasetNotFoundError(
-            f"Capture '{capture_name}' not a valid {DATASET_NAME} scene."
-        )
-
-    if output.exists():
-        logging.info(f"Dataset {DATASET_NAME}/{capture_name} already exists in {output}")
-        return
-
-    url = _phototourism_downloads[capture_name]
-    response = requests.get(url, stream=True)
-    response.raise_for_status()
-    total_size_in_bytes = int(response.headers.get("content-length", 0))
-    block_size = 1024  # 1 Kibibyte
-    progress_bar = tqdm(
-        total=total_size_in_bytes,
-        unit="iB",
-        unit_scale=True,
-        desc=f"Downloading {url.split('/')[-1]}", 
-        dynamic_ncols=True,
-    )
-    with tempfile.TemporaryFile("rb+") as file:
-        for data in response.iter_content(block_size):
-            progress_bar.update(len(data))
-            file.write(data)
-        file.flush()
-        file.seek(0)
-        progress_bar.close()
-        if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:  # noqa: PLR1714
-            logging.error(
-                f"Failed to download dataset. {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes."
-            )
-
-        has_any = False
-        prefix = url.split("/")[-1].split(".")[0] + "/dense"
-        with tarfile.open(fileobj=file, mode="r:gz") as z:
-            output_tmp = output.with_suffix(".tmp")
-            output_tmp.mkdir(exist_ok=True, parents=True)
-            def members(tf):
-                nonlocal has_any
-                for member in tf.getmembers():
-                    if not member.path.startswith(prefix + "/"):
-                        continue
-                    has_any = True
-                    member.path = member.path[len(prefix) + 1 :]
-                    yield member
-
-            z.extractall(output_tmp, members=members(z))
-            with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f2:
-                json.dump({
-                    "loader": load_phototourism_dataset.__module__ + ":" + load_phototourism_dataset.__name__,
-                    "id": DATASET_NAME,
-                    "scene": capture_name,
-                    "type": None,
-                    "evaluation_protocol": "nerfw",
-                }, f2)
-            shutil.rmtree(output, ignore_errors=True)
-            if not has_any:
-                raise RuntimeError(f"Capture '{capture_name}' not found in {url}.")
-            shutil.move(str(output_tmp), str(output))
-
+def _add_split_lists(output, scene):
     # Download test list if available
-    if capture_name in _split_lists:
-        split_list_url = _split_lists[capture_name]
+    if scene in _split_lists:
+        split_list_url = _split_lists[scene]
         response = requests.get(split_list_url)
         response.raise_for_status()
-        with open(output / "nerfw_split.csv", "w") as f:
+        with open(os.path.join(output, "nerfw_split.csv"), "w", encoding="utf8") as f:
             f.write(response.text)
 
-    logging.info(f"Downloaded {DATASET_NAME}/{capture_name} to {output}")
+        split_lists = {}
+        for split in ["train", "test"]:
+            with open(os.path.join(output, "nerfw_split.csv"), "r", encoding="utf8") as f:
+                reader = csv.reader(f, delimiter="\t")
+                next(reader)
+                split_lists[split] = [x[0] for x in reader if x[1] and x[2] == split]
+                assert len(split_lists[split]) > 0, f"{split} list is empty"
+
+        # Load phototourism dataset
+        # We then select the same images as in the LLFF multinerf dataset loader
+        dataset = load_colmap_dataset(output, images_path="images", colmap_path="sparse", split=None)
+        dataset_len = len(dataset["image_paths"])
+        indices = {}
+        for split in split_lists:
+            indices[split] = np.array(
+                [i for i, x in enumerate(dataset["image_paths"]) if Path(x).name in split_lists[split]]
+            )
+            assert len(indices[split]) > 0, f"No images found in {split} list"
+            logging.info(f"Using {len(indices)}/{dataset_len} images from the NeRF-W {split} list")
+
+            # Save the lists
+            with open(os.path.join(output, f"{split}_list.txt"), "w", encoding="utf8") as f:
+                for img_name in dataset_index_select(dataset, indices[split])["image_paths"]:
+                    f.write(os.path.relpath(img_name, dataset["image_paths_root"]) + "\n")
+    else:
+        logging.warning(f"Split list not found for {scene}, will use LLFF-hold split")
+
+
+@download_dataset_wrapper(_split_lists.keys(), DATASET_NAME)
+def download_phototourism_dataset(path: str, output: str):
+    assert "/" in path
+
+    if os.path.exists(output):
+        logging.info(f"Dataset {path} already exists in {output}")
+        return
+
+    dataset_name, scene = path.split("/")
+    if scene not in _phototourism_downloads:
+        raise DatasetNotFoundError(
+            f"Capture '{scene}' not a valid {dataset_name} scene."
+        )
+
+    url = _phototourism_downloads[scene]
+    archive_prefix = url.split("/")[-1].split(".")[0] + "/dense/"
+    nb_info = {
+        "loader": "colmap",
+        "loader_kwargs": {
+            "images_path": "images",
+            "colmap_path": "sparse",
+        },
+        "id": dataset_name,
+        "scene": scene,
+        "type": None,
+        "evaluation_protocol": "nerfw",
+    }
+    download_archive_dataset(url, output, 
+                             archive_prefix=archive_prefix, 
+                             nb_info=nb_info, 
+                             callback=partial(_add_split_lists, scene=scene),
+                             file_type="tar.gz")
+    logging.info(f"Downloaded {path} to {output}")
 
 
 def horizontal_half_dataset(dataset: Dataset, left: bool = True) -> Dataset:
@@ -254,4 +198,4 @@ class NerfWEvaluationProtocol(EvaluationProtocol):
                 acc[k] = (acc.get(k, 0) * i + v) / (i + 1)
         return acc
 
-__all__ = ["load_phototourism_dataset", "download_phototourism_dataset", "NerfWEvaluationProtocol"]
+__all__ = ["download_phototourism_dataset", "NerfWEvaluationProtocol"]

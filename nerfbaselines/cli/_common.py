@@ -1,3 +1,5 @@
+import time
+import logging
 import traceback
 import sys
 from functools import wraps
@@ -17,6 +19,7 @@ from PIL import Image
 from nerfbaselines import BackendName
 from nerfbaselines.backends import run_on_host
 from nerfbaselines.utils import Indices
+from nerfbaselines import NB_PREFIX
 try:
     from typing import get_args
 except ImportError:
@@ -442,3 +445,55 @@ def handle_cli_error(fn):
 def click_backend_option():
     all_backends = list(get_args(BackendName))
     return click.option("--backend", "backend_name", type=click.Choice(all_backends), envvar="NERFBASELINES_BACKEND")
+
+
+def warn_if_newer_version_available():
+    if os.environ.get("NERFBASELINES_NO_UPDATE_CHECK", "0") == "1":
+        return
+    import requests
+    from packaging import version
+    from nerfbaselines import __version__
+    if __version__ in ("dev", "develop"):
+        return
+    latest_version_str = None
+    try:
+        with open(os.path.join(NB_PREFIX, ".latest-version-cache"), "r") as f:
+            _latest_version_str, update_time_str = f.read().strip().split("\n")
+            update_time = float(update_time_str)
+        if time.time() - update_time < 3600 * 24:
+            latest_version_str = _latest_version_str
+    except FileNotFoundError:
+        pass
+
+    if latest_version_str is None:
+        r = requests.get("https://pypi.org/pypi/nerfbaselines/json")
+        r.raise_for_status()
+        latest_version_str = r.json()["info"]["version"]
+        try:
+            os.makedirs(NB_PREFIX, exist_ok=True)
+            with open(os.path.join(NB_PREFIX, ".latest-version-cache"), "w") as f:
+                f.write(f"{latest_version_str}\n{time.time()}")
+            logging.debug("Updated latest version cache")
+        except Exception as e:
+            logging.exception(e)
+    logging.debug(f"Latest version: {latest_version_str}, current version: {__version__}")
+
+    latest_version = version.parse(latest_version_str)
+    current_version = version.parse(__version__)
+    if latest_version > current_version:
+        logging.warning(f"New version of nerfbaselines available: {latest_version} (current version: {__version__})! Upgrade with `pip install nerfbaselines --upgrade`")
+
+
+class NerfBaselinesCliCommand(click.Command):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def get_params(self, ctx):
+        rv = list(super().get_params(ctx))
+        rv.insert(len(rv)-1, click.Option(("--verbose", "-v"), is_flag=True, help="Enable verbose logging"))
+        return rv
+
+    def invoke(self, ctx):
+        setup_logging(ctx.params.pop("verbose", False))
+        warn_if_newer_version_available()
+        return super().invoke(ctx)

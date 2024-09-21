@@ -129,7 +129,7 @@ jobs:
 
   setup:
     runs-on: ubuntu-latest
-    needs: [common-tests, windows-tests, macos-tests]
+    needs: [common-tests]
     outputs:
       conda_methods: ${{ steps.data-step.outputs.conda_methods }}
       docker_methods: ${{ steps.data-step.outputs.docker_methods }}

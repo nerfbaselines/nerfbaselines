@@ -149,7 +149,7 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python", config
     from nerfbaselines.utils import Indices
     from nerfbaselines.io import deserialize_nb_info
 
-    # train_command.callback(method, checkpoint, data, output, no_wandb, verbose, backend, eval_single_iters, eval_all_iters)
+    # train_command.callback(method, checkpoint, data, output, no_wandb, backend, eval_single_iters, eval_all_iters)
     (tmp_path / "output").mkdir()
     num_steps = [13]
     workdir = os.getcwd()
@@ -165,7 +165,7 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python", config
                 if isinstance(v, Indices):
                     v.total = self.num_iterations + 1
         with mock.patch.object(Trainer, '__init__', __init__):
-            train_cmd(method_name, None, str(dataset_path), str(tmp_path / "output"), False, backend, Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), logger="none", config_overrides=config_overrides)
+            train_cmd(method_name, None, str(dataset_path), str(tmp_path / "output"), backend, Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), logger="none", config_overrides=config_overrides)
     except Exception as e:
         if is_gpu_error(e):
             pytest.skip("no GPU available")
@@ -197,7 +197,7 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python", config
     render_cmd = render_command.callback
     assert render_cmd is not None
     # render_command(checkpoint, data, output, split, verbose, backend):
-    render_cmd(str(tmp_path / "output" / "checkpoint-13"), str(dataset_path), str(tmp_path / "output-render"), "test", verbose=False, backend_name=backend)
+    render_cmd(str(tmp_path / "output" / "checkpoint-13"), str(dataset_path), str(tmp_path / "output-render"), "test", backend_name=backend)
 
     print(os.listdir(tmp_path / "output-render"))
     assert (tmp_path / "output-render").exists()
@@ -221,7 +221,6 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python", config
                 tmp_path / "output" / "checkpoint-13",
                 str(dataset_path),
                 str(tmp_path / "output"),
-                False,
                 backend,
                 Indices.every_iters(9), 
                 Indices.every_iters(5),

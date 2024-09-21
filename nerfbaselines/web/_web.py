@@ -11,6 +11,9 @@ from functools import partial
 import math
 import json
 import os
+from nerfbaselines._constants import RESULTS_REPOSITORY, SUPPLEMENTARY_RESULTS_REPOSITORY
+import packaging.version
+import urllib.parse
 try:
     from typing import Literal
 except ImportError:
@@ -330,6 +333,24 @@ def _build_docs(configuration,
                 if not os.path.exists(os.path.join(tmpdir, "docs")):
                     logging.warning(f"Version {version} does not have docs. We will only generate API docs.")
 
+                # Rewrite the old version fixing the old repo path... replacing:
+                # - jkulhanek.com/nerfbaselines -> nerfbaselines.github.io
+                # - [github.com/jkulhanek/nerfbaselines -> github.com/nerfbaselines/nerfbaselines]
+                # - [raw.githubusercontent.com/jkulhanek/nerfbaselines -> raw.githubusercontent.com/nerfbaselines/nerfbaselines]
+                if packaging.version.parse(version) <= packaging.version.parse("1.2.2"):
+                    fix_extensions = {".rst", ".md", ".py", ".html"}
+                    for root, _, files in os.walk(tmpdir):
+                        for file in files:
+                            if not any(file.endswith(ext) for ext in fix_extensions):
+                                continue
+                            with open(os.path.join(root, file), "r", encoding="utf8") as f:
+                                content = f.read()
+                            content = content.replace("jkulhanek.com/nerfbaselines", "nerfbaselines.github.io")
+                            content = content.replace("github.com/jkulhanek/nerfbaselines", "github.com/nerfbaselines/nerfbaselines")
+                            content = content.replace("raw.githubusercontent.com/jkulhanek/nerfbaselines", "raw.githubusercontent.com/nerfbaselines/nerfbaselines")
+                            with open(os.path.join(root, file), "w", encoding="utf8") as f:
+                                f.write(content)
+
                 # Copy conf.py from the source repo to tempdir/docs/conf.py
                 os.makedirs(os.path.join(tmpdir, "docs"), exist_ok=True)
                 with open(os.path.join(repo_path, "docs", "conf.py"), "r", encoding="utf8") as f, \
@@ -366,6 +387,7 @@ def _generate_demo_pages(output, configuration):
     del configuration
     os.makedirs(os.path.join(output, "demos", "3dgs"), exist_ok=True)
     from nerfbaselines.methods._gaussian_splatting_demo import export_generic_demo
+    from ._multidemo import make_multidemo
     export_generic_demo(os.path.join(output, "demos", "3dgs"), options={
         'dataset_metadata': {
             'viewer_transform': np.eye(4),
@@ -374,7 +396,20 @@ def _generate_demo_pages(output, configuration):
         'mock_cors': True,
         'enable_shared_memory': True,
     })
+    make_multidemo(os.path.join(output, "demos", "3dgs"))
     os.remove(os.path.join(output, "demos", "3dgs", "params.json"))
+
+    # Mesh demo
+    os.makedirs(os.path.join(output, "demos", "mesh"), exist_ok=True)
+    from nerfbaselines.methods._mesh_demo import export_generic_demo
+    export_generic_demo(os.path.join(output, "demos", "mesh"), options={
+        'dataset_metadata': {
+            'viewer_transform': np.eye(4),
+            'viewer_initial_pose': np.eye(4),
+        },
+    })
+    make_multidemo(os.path.join(output, "demos", "mesh"))
+    os.remove(os.path.join(output, "demos", "mesh", "params.json"))
 
 
 def _build(input_path, output, raw_data, configuration):
@@ -544,11 +579,11 @@ def _prepare_data(data_path, datasets=None, include_docs=None):
 
             # Clone results repository
             with tempfile.TemporaryDirectory() as tmpdir:
-                subprocess.check_call("git clone --depth=1 https://huggingface.co/jkulhanek/nerfbaselines".split() + [tmpdir], env={"GIT_LFS_SKIP_SMUDGE": "1"})
+                subprocess.check_call(f"git clone --depth=1 https://{RESULTS_REPOSITORY}".split() + [tmpdir], env={"GIT_LFS_SKIP_SMUDGE": "1"})
                 # List all paths in tmpdir
                 existing_paths = [os.path.relpath(os.path.join(root, file), tmpdir) for root, _, files in os.walk(tmpdir) for file in files]
                 resolved_paths = {
-                    path: f"https://huggingface.co/jkulhanek/nerfbaselines/resolve/main/{path}"
+                    path: f"https://{RESULTS_REPOSITORY}/resolve/main/{path}"
                     for path in existing_paths
                 }
                 for dataset in datasets:
@@ -559,7 +594,7 @@ def _prepare_data(data_path, datasets=None, include_docs=None):
 
             with tempfile.TemporaryDirectory() as tmpdir:
                 # Clone supplementary repository
-                subprocess.check_call("git clone --depth=1 https://huggingface.co/datasets/jkulhanek/nerfbaselines-supplementary".split() + [tmpdir], env={"GIT_LFS_SKIP_SMUDGE": "1"})
+                subprocess.check_call(f"git clone --depth=1 https://{SUPPLEMENTARY_RESULTS_REPOSITORY}".split() + [tmpdir], env={"GIT_LFS_SKIP_SMUDGE": "1"})
 
                 # Find all {method}/{dataset}/{scene}_demo/params.json files
                 for dataset in raw_data:
@@ -568,8 +603,22 @@ def _prepare_data(data_path, datasets=None, include_docs=None):
                             if os.path.exists(os.path.join(tmpdir, f"{method['id']}/{dataset['id']}/{scene}_demo/params.json")):
                                 with open(os.path.join(tmpdir, f"{method['id']}/{dataset['id']}/{scene}_demo/params.json"), "r", encoding="utf8") as f:
                                     demo_params = json.load(f)
+                                base = f"https://{SUPPLEMENTARY_RESULTS_REPOSITORY}/resolve/main/{method['id']}/{dataset['id']}/{scene}_demo/"
+                                query = {
+                                    "p": base + "params.json",
+                                }
+                                if "links" in demo_params:
+                                    for i, (label, link) in enumerate(demo_params["links"].items()):
+                                        # Make link absolute
+                                        if not link.startswith("http"):
+                                            link = base + link
+                                        # Url encode components
+                                        query[f"p{i}"] = label
+                                        query[f"p{i}v"] = link
                                 if demo_params["type"] == "gaussian-splatting":
-                                    scene_data["demo_link"] = f"./demos/3dgs/?p=https://huggingface.co/datasets/jkulhanek/nerfbaselines-supplementary/resolve/main/{method['id']}/{dataset['id']}/{scene}_demo/params.json"
+                                    scene_data["demo_link"] = f"./demos/3dgs/?{urllib.parse.urlencode(query)}"
+                                elif demo_params["type"] == "mesh":
+                                    scene_data["demo_link"] = f"./demos/mesh/?{urllib.parse.urlencode(query)}"
 
         configuration = {
             "include_docs": include_docs,

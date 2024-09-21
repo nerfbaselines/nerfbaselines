@@ -9,24 +9,22 @@ from nerfbaselines import (
 from nerfbaselines.io import open_any_directory, deserialize_nb_info
 from nerfbaselines.datasets import load_dataset
 from ._common import click_backend_option
-from ._common import setup_logging, SetParamOptionType
+from ._common import SetParamOptionType, NerfBaselinesCliCommand
 
 
-@click.command("export-demo", help=(
+@click.command("export-demo", cls=NerfBaselinesCliCommand, help=(
     "Export a demo from a trained model. "
     "The interactive demo will be a website (index.html) that can be opened in the browser. "
     "Only some methods support this feature."))
-@click.option("--checkpoint", type=str, required=True, help="Path to the checkpoint directory. This directory should contain the nb-info.json file.")
-@click.option("--output", "-o", type=str, required=True, help="Path to a directory to save the demo. The directory will contain index.html file.")
-@click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging.")
-@click.option("--data", required=False, default=None, help="Path to a dataset to use for exporting the demo. This is required for some methods.")
-@click.option("--set", "options", help="Set a parameter for demo export.", type=SetParamOptionType(), multiple=True, default=None, help=(
-    "Set a parameter for demo export. Multiple parameters can be set by repeating the option."))
+@click.option("--checkpoint", type=str, required=True)
+@click.option("--output", "-o", type=str, required=True)
+@click.option("--data", required=False, default=None)
+@click.option("--train-embedding", type=int, default=None, help="Select the train embedding index to use for the demo.")
+@click.option("--set", "options", help="Set a parameter for demo export.", type=SetParamOptionType(), multiple=True, default=None)
 @click_backend_option()
-def main(*, checkpoint: str, output: str, backend_name, data=None, options, verbose=False):
+def main(*, checkpoint: str, output: str, backend_name, data=None, train_embedding=None, options):
     checkpoint = str(checkpoint)
     output = str(output)
-    setup_logging(verbose)
     options = dict(options or [])
 
     # Read method nb-info
@@ -55,10 +53,18 @@ def main(*, checkpoint: str, output: str, backend_name, data=None, options, verb
                 method_export_demo = method.export_demo  # type: ignore
             except AttributeError:
                 raise NotImplementedError(f"Method {method_name} does not support export_demo")
+
+            # If train embedding is enabled, select train_embedding
+            embedding = None
+            if train_embedding is not None:
+                embedding = method.get_train_embedding(train_embedding)
+                if train_embedding is None:
+                    logging.error(f"Train embedding {train_embedding} not found or not supported by the method.")
             method_export_demo(
                 path=output,
                 options=dict(
                     **options,
+                    embedding=embedding,
                     dataset_metadata=dataset_metadata)
             )
 

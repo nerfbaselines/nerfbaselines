@@ -784,7 +784,7 @@ if __name__ == "__main__":
     with open(sys.argv[1], "rb") as f:
         kwargs = pickle.load(f)
 
-    method = NeRFWReimpl(**kwargs)
+    method = NeRFWReimpl(**kwargs)  # type: ignore
     del kwargs
     info = method.get_info()
     for i in range(info.get("loaded_step") or 0, info["num_iterations"]):

@@ -11,10 +11,11 @@ from typing import Optional
 from typing import  Union, Set, Callable, List, cast, Dict, Any, Tuple
 from typing import Sequence
 from nerfbaselines import BackendName, MethodSpec
+from nerfbaselines._constants import WEBPAGE_URL
 try:
-    from typing import Literal, get_args
+    from typing import Literal
 except ImportError:
-    from typing_extensions import Literal, get_args
+    from typing_extensions import Literal
 
 
 _mounted_paths = {}
@@ -137,7 +138,7 @@ def get_backend(method_spec: "MethodSpec", backend: Optional[str]) -> 'Backend':
         backend = _get_default_backend([x for x in implemented_backends if x != "python"])
     elif not _is_backend_available(backend):
         raise RuntimeError(f"Backend {backend} is not available on this platform. "
-            "Please follow the installation instructions on https://jkulhanek.com/nerfbaselines/docs/.")
+            f"Please follow the installation instructions on {WEBPAGE_URL}/docs/.")
     elif backend not in implemented_backends:
         raise RuntimeError(f"Backend {backend} is not implemented for selected method.\nImplemented backends: {','.join(implemented_backends)}")
 

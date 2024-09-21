@@ -1,3 +1,4 @@
+import logging
 import pprint
 import dataclasses
 import json
@@ -463,7 +464,12 @@ class GSplat(Method):
                 for file in ckpt_files
             ]
             for k in self.runner.splats.keys():
-                self.runner.splats[k].data = torch.cat([ckpt["splats"][k] for ckpt in ckpts])
+                feat = torch.cat([ckpt["splats"][k] for ckpt in ckpts]) if len(ckpts) > 1 else ckpts[0]["splats"][k]
+                self.runner.splats[k].data = feat
+            if self.cfg.pose_opt:
+                self.runner.pose_adjust.load_state_dict(ckpts[0]["pose_adjust"])
+            if self.cfg.app_opt:
+                self.runner.app_module.load_state_dict(ckpts[0]["app_module"])
             self.step = self._loaded_step = ckpts[0]["step"]
 
         # Setup dataloaders if training mode
@@ -681,11 +687,36 @@ class GSplat(Method):
         from ._gaussian_splatting_demo import export_demo
         from nerfbaselines.utils import invert_transform
 
-        if self.cfg.app_opt:
-            raise RuntimeError("Appearance optimization is enabled, cannot export demo")
-
+        options = options or {}
+        dataset_metadata = options.get("dataset_metadata") or {}
         splats = self.runner.splats
-        spherical_harmonics = torch.cat((splats["sh0"], splats["shN"]), dim=1).transpose(1, 2)
+
+        if self.cfg.app_opt:
+            from nerfbaselines.utils import apply_transform, invert_transform
+            if "viewer_transform" in dataset_metadata and "viewer_initial_pose" in dataset_metadata:
+                viewer_initial_pose_ws = apply_transform(invert_transform(dataset_metadata["viewer_transform"], has_scale=True), dataset_metadata["viewer_initial_pose"])
+                camera_center = torch.tensor(viewer_initial_pose_ws[:3, 3], dtype=torch.float32, device="cuda")
+            else:
+                camera_center = torch.tensor([1.0, 0.0, 0.0], dtype=torch.float32, device="cuda")
+            logging.warning("gsplat does not support view-dependent demo when appearance is enabled (app_opt=True). We will bake the appearance of a single appearance embedding and single viewing direction.")
+            embedding_np = (options or {}).get("embedding")
+            embedding = torch.from_numpy(embedding_np).to(self.runner.device) if embedding_np is not None else None
+            with torch.no_grad(), self._patch_embedding(embedding):
+                # Get the embedding
+                colors = self.runner.app_module(
+                    features=splats["features"],
+                    embed_ids=torch.zeros((1,), dtype=torch.long, device="cuda"),
+                    dirs=splats["means"][None, :, :] - camera_center[None, None, :],
+                    sh_degree=self.cfg.sh_degree,
+                )
+                colors = colors + splats["colors"]
+                colors = torch.sigmoid(colors).squeeze(0)[..., None]
+                assert len(colors.shape) == 3 and colors.shape[1:] == (3, 1), f"Invalid colors shape {colors.shape}"
+                # Convert to spherical harmonics of deg 0
+                C0 = 0.28209479177387814
+                spherical_harmonics = (colors - 0.5) / C0
+        else:
+            spherical_harmonics = torch.cat((splats["sh0"], splats["shN"]), dim=1).transpose(1, 2)
 
         # Apply transform to viewer transform
         options = options or {}
@@ -697,6 +728,8 @@ class GSplat(Method):
             _transform = viewer_transform @ inv_transform
             options["dataset_metadata"]["viewer_transform"] = _transform
 
+        options = (options or {}).copy()
+        options["antialiased"] = self.cfg.antialiased
         export_demo(path, 
                     options=options,
                     xyz=splats["means"].detach().cpu().numpy(),

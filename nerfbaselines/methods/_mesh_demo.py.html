@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <title>Demo</title>
+    <script type="importmap">
+      {
+          "imports": {
+              "three": "https://cdn.jsdelivr.net/npm/three@0.152.0/build/three.module.js"
+          }
+      }
+    </script>
+    <style>
+body { background-color: #000000; height: 100vh; margin: 0px; }
+
+.spinner__outer_container {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    top: 0;
+    left: 0;
+    position: absolute;
+    pointer-events: none;
+}
+
+.spinner__message_container {
+    height: 20px;
+    font-family: arial;
+    font-size: 12pt;
+    color: #ffffff;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.spinner {
+    padding: 15px;
+    background: #07e8d6;
+    z-index:99999;
+
+    aspect-ratio: 1;
+    border-radius: 50%;
+    --_m: 
+        conic-gradient(#0000,#000),
+        linear-gradient(#000 0 0) content-box;
+    -webkit-mask: var(--_m);
+        mask: var(--_m);
+    -webkit-mask-composite: source-out;
+        mask-composite: subtract;
+    box-sizing: border-box;
+    animation: load 1s linear infinite;
+}
+
+.spinner__container_primary {
+    z-index:99999;
+    background-color: rgba(128, 128, 128, 0.75);
+    border: #666666 1px solid;
+    border-radius: 5px;
+    padding-top: 20px;
+    padding-bottom: 10px;
+    margin: 0;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-80px, -80px);
+    width: 180px;
+    pointer-events: auto;
+}
+
+.spinner__primary {
+    width: 120px;
+    margin-left: 30px;
+}
+
+.spinner__message_container_primary {
+    padding-top: 15px;
+}
+
+@keyframes load {
+    to{transform: rotate(1turn)}
+}
+</style>
+</head>
+<body>
+    <div class="spinner__outer_container" id="spinner" style="display:none">
+      <div class="spinner__container_primary">
+        <div class="spinner spinner__primary"></div>
+        <div class="spinner__message_container spinner__message_container_primary">Loading...</div>
+      </div>
+    </div>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.152.0/examples/jsm/controls/OrbitControls.js';
+        import { PLYLoader } from 'https://cdn.jsdelivr.net/npm/three@0.152.0/examples/jsm/loaders/PLYLoader.js';
+
+        // Loading element
+        class LoadingSpinner {
+          constructor(spinner_element) {
+            this.spinnerContainerOuter = spinner_element;
+            this.messageContainerPrimary = this.spinnerContainerOuter.querySelector('.spinner__message_container_primary');
+            this.messageContainerPrimary.innerHTML = this.message;
+          }
+
+          show() {
+            this.spinnerContainerOuter.style.display = 'block';
+            this.messageContainerPrimary.innerHTML = 'Loading...';
+          }
+
+          hide() {
+            this.spinnerContainerOuter.style.display = 'none';
+          }
+
+          setMessage(msg) {
+            this.messageContainerPrimary.innerHTML = msg;
+          }
+        }
+        const spinner = new LoadingSpinner(document.getElementById('spinner'));
+
+        const paramsUri = new URLSearchParams(window.location.search).get('p') || 'params.json';
+        let scene, camera, renderer, controls;
+
+        // LoadingManager to track the loading progress
+        const loadingManager = new THREE.LoadingManager();
+        loadingManager.onStart = function (url, itemsLoaded, itemsTotal) { spinner.show(); };
+        loadingManager.onLoad = function () { spinner.hide(); };
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Render loop
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();  // Required when damping is enabled
+            renderer.render(scene, camera);
+        }
+
+        fetch(paramsUri).then(response => response.json()).then(params => {
+          // Make params.sceneUri relative to paramsUri
+          const url = new URL(paramsUri, window.location.href);
+          const meshUri = new URL(params.meshUri, url.href).href;
+
+          // Initialize the scene, camera, and renderer
+          function init() {
+              scene = new THREE.Scene();
+              scene.background = new THREE.Color(params.backgroundColor || 0x000000);
+
+              // Set up camera with perspective projection
+              camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+              camera.up.set(0, 0, 1);
+              camera.position.set(
+                  params.initialCameraPosition[0], params.initialCameraPosition[1], params.initialCameraPosition[2]);
+
+              renderer = new THREE.WebGLRenderer({ antialias: true });
+              renderer.setSize(window.innerWidth, window.innerHeight);
+              document.body.appendChild(renderer.domElement);
+
+              // Orbit controls for rotating the camera around the origin
+              controls = new OrbitControls(camera, renderer.domElement);
+              controls.enableDamping = true;  // Adds a smoother effect to the rotation
+
+              // Load and add the PLY model to the scene
+              const loader = new PLYLoader(loadingManager);
+              loader.load(meshUri, function (geometry) {
+                  // Apply transformations: offset, rotation, and scale
+                  geometry.applyQuaternion(new THREE.Quaternion(
+                    params.rotation[0], params.rotation[1], params.rotation[2], params.rotation[3]));
+                  geometry.scale(params.scale, params.scale, params.scale);
+                  geometry.translate(params.offset[0], params.offset[1], params.offset[2]);
+
+                  geometry.computeVertexNormals();
+                  const material = new THREE.MeshBasicMaterial({ vertexColors: true });
+                  const mesh = new THREE.Mesh(geometry, material);
+                  scene.add(mesh);
+              }, (xhr) => {
+                const percentage = Math.round((xhr.loaded / xhr.total) * 100);
+                spinner.setMessage(`Loading ${percentage}%`);
+              });
+
+              // Handle window resize
+              window.addEventListener('resize', onWindowResize, false);
+          }
+
+          // Initialize and start the animation loop
+          init();
+          animate();
+        });
+    </script>
+</body>
+</html>

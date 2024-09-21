@@ -5,6 +5,7 @@ import numpy as np
 import pickle
 
 MESSAGE_SIZE = 64 * 1024 * 1024  # 128 MB
+PORT = 8234
 
 
 def _limit_message_size(message, message_size=MESSAGE_SIZE):
@@ -91,7 +92,7 @@ def test_http_transport(benchmark, serialize, deserialize, image_dtype):
     import threading
 
     # Benchmark serialize and deserialize when sent through a Listener, Client connection
-    with Listener(address=("localhost", 8000), authkey=b'secret password') as listener:
+    with Listener(address=("localhost", PORT), authkey=b'secret password') as listener:
         def handle_client(listener):
             with listener.accept() as conn:
                 while conn.recv():
@@ -99,7 +100,7 @@ def test_http_transport(benchmark, serialize, deserialize, image_dtype):
                         conn.send_bytes(m)
         threading.Thread(target=handle_client, args=(listener,)).start()
 
-        with Client(address=("localhost", 8000), authkey=b'secret password') as client:
+        with Client(address=("localhost", PORT), authkey=b'secret password') as client:
             def _measure():
                 client.send(True)
                 def _iter_response():
@@ -133,7 +134,7 @@ def test_shared_memory_transport(benchmark, serialize, deserialize, image_dtype)
     try:
 
         # Benchmark serialize and deserialize when sent through a Listener, Client connection
-        with Listener(address=("localhost", 8000), authkey=b'secret password') as listener:
+        with Listener(address=("localhost", PORT), authkey=b'secret password') as listener:
             def handle_client(listener):
                 shm_local = multiprocessing.shared_memory.SharedMemory(name=shm.name)
                 try:
@@ -147,7 +148,7 @@ def test_shared_memory_transport(benchmark, serialize, deserialize, image_dtype)
                     shm_local.close()
             threading.Thread(target=handle_client, args=(listener,)).start()
 
-            with Client(address=("localhost", 8000), authkey=b'secret password') as client:
+            with Client(address=("localhost", PORT), authkey=b'secret password') as client:
                 def _measure():
                     client.send(True)
                     def _iter_response():
@@ -186,7 +187,7 @@ def test_shm_merge_messages(benchmark, serialize, deserialize, image_dtype):
     try:
 
         # Benchmark serialize and deserialize when sent through a Listener, Client connection
-        with Listener(address=("localhost", 8000), authkey=b'secret password') as listener:
+        with Listener(address=("localhost", PORT), authkey=b'secret password') as listener:
             def handle_client(listener):
                 shm_local = multiprocessing.shared_memory.SharedMemory(name=shm.name)
                 try:
@@ -200,7 +201,7 @@ def test_shm_merge_messages(benchmark, serialize, deserialize, image_dtype):
                     shm_local.close()
             threading.Thread(target=handle_client, args=(listener,)).start()
 
-            with Client(address=("localhost", 8000), authkey=b'secret password') as client:
+            with Client(address=("localhost", PORT), authkey=b'secret password') as client:
                 def _measure():
                     client.send(True)
                     def _iter_response():

@@ -31,47 +31,28 @@ _scenes360_res = {
 SCENES = set(_scenes360_res.keys())
 
 
-def load_mipnerf360_dataset(path: Union[Path, str], split: str, resize_full_image: bool = False, downscale_factor=None, **kwargs):
-    path = Path(path)
-    if split:
-        assert split in {"train", "test"}
-    if "360" not in str(path) or not any(s in str(path) for s in _scenes360_res):
-        raise DatasetNotFoundError(f"360 and {set(_scenes360_res.keys())} is missing from the dataset path: {path}")
+def load_mipnerf360_dataset(path, *args, **kwargs):
+    del args, kwargs
+    raise RuntimeError(f"The dataset was likely downloaded with an older version of NerfBaselines. Please remove `{path}` and try again.")
 
-    # Load MipNerf360 dataset
-    scene = single(res for res in _scenes360_res if str(res) in path.name)
-    res = _scenes360_res[scene]
 
-    if downscale_factor is not None and downscale_factor != res:
-        warnings.warn(f"downscale_factor {downscale_factor} was specified, overriding the default downscale_factor for the scene {res}.")
-        res = downscale_factor
+def _save_colmap_splits(output):
+    with open(os.path.join(output, "nb-info.json"), "r", encoding="utf8") as f:
+        dataset_info = json.load(f)
 
-    if resize_full_image or res == 1:
-        images_path = f"images"
-    else:
-        images_path = f"images_{res}"
-
-    # Use split=None to load all images
-    # We then select the same images as in the LLFF multinerf dataset loader
-    dataset = load_colmap_dataset(path, images_path=images_path, split=None, **kwargs)
-    dataset["metadata"]["id"] = DATASET_NAME
-    dataset["metadata"]["scene"] = scene
-    dataset["metadata"]["downscale_factor"] = res
-    if resize_full_image:
-        dataset["metadata"]["downscale_loaded_factor"] = res
-    dataset["metadata"]["color_space"] = "srgb"
-
+    dataset = load_colmap_dataset(output, **dataset_info["loader_kwargs"])
     image_names = dataset["image_paths"]
     inds = np.argsort(image_names)
 
     all_indices = np.arange(len(dataset["image_paths"]))
     llffhold = 8
-    if split == "train":
-        indices = all_indices % llffhold != 0
-    else:
-        indices = all_indices % llffhold == 0
-    indices = inds[indices]
-    return dataset_index_select(dataset, indices)
+    indices = {}
+    indices["train"] = inds[all_indices % llffhold != 0]
+    indices["test"] = inds[all_indices % llffhold == 0]
+    for split in indices:
+        with open(os.path.join(output, f"{split}_list.txt"), "w", encoding="utf8") as f:
+            for img_name in dataset_index_select(dataset, indices[split])["image_paths"]:
+                f.write(os.path.relpath(img_name, dataset["image_paths_root"]) + "\n")
 
 
 def download_mipnerf360_dataset(path: str, output: Union[Path, str]):
@@ -89,11 +70,11 @@ def download_mipnerf360_dataset(path: str, output: Union[Path, str]):
     else:
         captures = [(path[len(f"{DATASET_NAME}/") :], output)]
     captures_to_download: List[Tuple[str, str, Path]] = []
-    for capture_name, output in captures:
-        if capture_name not in _scenes360_res:
-            raise DatasetNotFoundError(f"Capture '{capture_name}' not a valid {DATASET_NAME} scene.")
-        url = url_extra if capture_name in {"flowers", "treehill"} else url_base
-        captures_to_download.append((url, capture_name, output))
+    for scene, output in captures:
+        if scene not in _scenes360_res:
+            raise DatasetNotFoundError(f"Capture '{scene}' not a valid {DATASET_NAME} scene.")
+        url = url_extra if scene in {"flowers", "treehill"} else url_base
+        captures_to_download.append((url, scene, output))
     captures_to_download.sort(key=lambda x: x[0])
     for url, _captures in groupby(captures_to_download, key=lambda x: x[0]):
         response = requests.get(url, stream=True)
@@ -113,15 +94,15 @@ def download_mipnerf360_dataset(path: str, output: Union[Path, str]):
 
             has_any = False
             with zipfile.ZipFile(file) as z:
-                for _, capture_name, output in _captures:
+                for _, scene, output in _captures:
                     output_tmp = output.with_suffix(".tmp")
                     output_tmp.mkdir(exist_ok=True, parents=True)
                     for info in z.infolist():
-                        if not info.filename.startswith(capture_name + "/"):
+                        if not info.filename.startswith(scene + "/"):
                             continue
                         # z.extract(name, output_tmp)
                         has_any = True
-                        relname = info.filename[len(capture_name) + 1 :]
+                        relname = info.filename[len(scene) + 1 :]
                         target = output_tmp / relname
                         target.parent.mkdir(exist_ok=True, parents=True)
                         if info.is_dir():
@@ -130,19 +111,30 @@ def download_mipnerf360_dataset(path: str, output: Union[Path, str]):
                             with z.open(info) as source, open(target, "wb") as target:
                                 shutil.copyfileobj(source, target)
                     if not has_any:
-                        raise RuntimeError(f"Capture '{capture_name}' not found in {url}.")
+                        raise RuntimeError(f"Capture '{scene}' not found in {url}.")
+
+                    res = _scenes360_res[scene]
+                    images_path = "images" if res == 1 else f"images_{res}"
+
                     with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f:
                         json.dump({
-                            "loader": load_mipnerf360_dataset.__module__ + ":" + load_mipnerf360_dataset.__name__,
-                            "loader_kwargs": {},
+                            "loader": "colmap",
+                            "loader_kwargs": {
+                                "images_path": images_path,
+                            },
                             "id": DATASET_NAME,
-                            "scene": capture_name,
+                            "scene": scene,
+                            "downscale_factor": res,
                             "evaluation_protocol": "nerf",
                             "type": "object-centric",
                         }, f)
+
+                    # Generate split files
+                    _save_colmap_splits(output_tmp)
+
                     shutil.rmtree(output, ignore_errors=True)
                     shutil.move(str(output_tmp), str(output))
-                    logging.info(f"Downloaded {DATASET_NAME}/{capture_name} to {output}")
+                    logging.info(f"Downloaded {DATASET_NAME}/{scene} to {output}")
 
 
-__all__ = ["load_mipnerf360_dataset", "download_mipnerf360_dataset"]
+__all__ = ["download_mipnerf360_dataset"]
