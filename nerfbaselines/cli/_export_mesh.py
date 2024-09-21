@@ -55,7 +55,7 @@ def export_mesh_command(*, checkpoint: str, output: str, backend_name, data=None
             raise NotImplementedError(f"Method {method_name} does not support export_mesh")
         method_export_mesh(
             path=output,
+            train_dataset=dataset,
             options=dict(**options, 
-                         train_dataset=dataset,
                          dataset_metadata=dataset_metadata)
         )

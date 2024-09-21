@@ -279,3 +279,17 @@ if viewpoint_cam.sampling_mask is not None:
     # print(ast.unparse(train_step))
     # print("Train step sets: ")
     # print(train_step_transformer._stored_names)
+
+
+# Add export mesh function (extract code form render.py)
+@patch_ast_import("render")
+def _(ast_module: ast.Module):
+    # Extract if __name__ == "__main__" block
+    main_block = next(x for x in ast_module.body if isinstance(x, ast.If) and ast.unparse(x.test) == "__name__ == '__main__'")
+    # Get if not args.skip_mesh:
+    if_not_skip_mesh = next(x for x in main_block.body if isinstance(x, ast.If) and ast.unparse(x.test) == "not args.skip_mesh")
+    body = copy.deepcopy(if_not_skip_mesh.body)
+    # Make new function
+    function = ast.parse("""def export_mesh(train_dir, args, gaussExtractor, scene):\n    pass""").body[0]
+    function.body = body
+    ast_module.body.append(function)

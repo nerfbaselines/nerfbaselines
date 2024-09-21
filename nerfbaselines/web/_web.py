@@ -618,7 +618,25 @@ def _prepare_data(data_path, datasets=None, include_docs=None):
                                 if demo_params["type"] == "gaussian-splatting":
                                     scene_data["demo_link"] = f"./demos/3dgs/?{urllib.parse.urlencode(query)}"
                                 elif demo_params["type"] == "mesh":
-                                    scene_data["demo_link"] = f"./demos/mesh/?{urllib.parse.urlencode(query)}"
+                                    scene_data["mesh_demo_link"] = scene_data["demo_link"] = f"./demos/mesh/?{urllib.parse.urlencode(query)}"
+
+                            # Add mesh demo
+                            if os.path.exists(os.path.join(tmpdir, f"{method['id']}/{dataset['id']}/{scene}_mesh/params.json")):
+                                with open(os.path.join(tmpdir, f"{method['id']}/{dataset['id']}/{scene}_mesh/params.json"), "r", encoding="utf8") as f:
+                                    demo_params = json.load(f)
+                                base = f"https://{SUPPLEMENTARY_RESULTS_REPOSITORY}/resolve/main/{method['id']}/{dataset['id']}/{scene}_mesh/"
+                                query = {
+                                    "p": base + "params.json",
+                                }
+                                if "links" in demo_params:
+                                    for i, (label, link) in enumerate(demo_params["links"].items()):
+                                        # Make link absolute
+                                        if not link.startswith("http"):
+                                            link = base + link
+                                        # Url encode components
+                                        query[f"p{i}"] = label
+                                        query[f"p{i}v"] = link
+                                scene_data["mesh_demo_link"] = f"./demos/mesh/?{urllib.parse.urlencode(query)}"
 
         configuration = {
             "include_docs": include_docs,

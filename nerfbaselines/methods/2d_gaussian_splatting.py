@@ -3,8 +3,13 @@
 # 2) Adds support for sampling masks
 from . import _2d_gaussian_splatting_patch as _  #  Patch imports
 from argparse import ArgumentParser
+from collections import namedtuple
+import logging
 import warnings
+import shutil
 import itertools
+import copy
+import tempfile
 import shlex
 from typing import Optional
 import os
@@ -20,7 +25,7 @@ from utils.camera_utils import loadCam  # type: ignore
 from scene import Scene  # type: ignore
 
 import torch
-from arguments import ModelParams, PipelineParams, OptimizationParams #  type: ignore
+from arguments import ParamGroup, ModelParams, PipelineParams, OptimizationParams #  type: ignore
 from gaussian_renderer import render # type: ignore
 from scene import GaussianModel # type: ignore
 from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # type: ignore
@@ -143,6 +148,23 @@ def _convert_dataset_to_scene_info(dataset: Optional[Dataset], white_background:
                      nerf_normalization=nerf_normalization)
 
 
+class MeshParamGroup(ParamGroup):
+    def __init__(self, parser):
+        self.voxel_size: float = -1.0
+        """Mesh: voxel size for TSDF"""
+        self.depth_trunc: float = -1.0
+        """Mesh: Max depth range for TSDF"""
+        self.sdf_trunc: float = -1.0
+        """Mesh: truncation value for TSDF"""
+        self.num_cluster: int = 50
+        """Mesh: number of connected clusters to export"""
+        self.unbounded: bool = False
+        """Mesh: using unbounded mode for meshing"""
+        self.mesh_res: int = 1024
+        """Mesh: resolution for unbounded mesh extraction"""
+        super().__init__(parser, "Mesh extraction parameters")
+
+
 class GaussianSplatting2D(Method):
     def __init__(self, *,
                  checkpoint: Optional[str] = None,
@@ -161,7 +183,9 @@ class GaussianSplatting2D(Method):
                 self._args_list = shlex.split(f.read())
             self._loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(str(checkpoint)) if x.startswith("chkpnt-"))[-1]
 
-        if self.checkpoint is None and config_overrides is not None:
+        if config_overrides is not None:
+            if checkpoint is not None:
+                logging.warning("Checkpoint hyperparameters are being overriden by the provided config_overrides")
             _config_overrides_to_args_list(self._args_list, config_overrides)
 
         self._load_config()
@@ -169,11 +193,14 @@ class GaussianSplatting2D(Method):
 
     def _load_config(self):
         parser = ArgumentParser(description="Training script parameters")
+
         lp = ModelParams(parser)
         op = OptimizationParams(parser)
         pp = PipelineParams(parser)
+        mesh = MeshParamGroup(parser)
         parser.add_argument("--scale_coords", type=float, default=None, help="Scale the coords")
         args = parser.parse_args(self._args_list)
+        self._mesh_args = mesh.extract(args)
         self._dataset = lp.extract(args)
         self._dataset.scale_coords = args.scale_coords
         self._opt = op.extract(args)
@@ -265,3 +292,39 @@ class GaussianSplatting2D(Method):
                     opacities=self._gaussians.get_opacity.detach().cpu().numpy(),
                     quaternions=self._gaussians.get_rotation.detach().cpu().numpy(),
                     spherical_harmonics=self._gaussians.get_features.transpose(1, 2).detach().cpu().numpy())
+
+    @torch.no_grad()
+    def export_mesh(self, path: str, *, train_dataset=None, options=None):
+        from render import export_mesh, GaussianExtractor, render  # type: ignore
+        assert train_dataset is not None, "train_dataset is required for export_mesh. Please add --data option to the command."
+
+        # Export mesh args
+        args = copy.deepcopy(self._mesh_args)
+        options = options or {}
+        for k, vtype in vars(MeshParamGroup(ArgumentParser())).items():
+            if k not in options:
+                continue
+            tp = type(vtype)
+            if tp in (int, float):
+                setattr(args, k, tp(options[k]))
+            elif tp is bool:
+                assert str(options[k]).lower() in ("true", "false"), f"Expected boolean value for {k}"
+                setattr(args, k, options[k].lower() == "true")
+            else:
+                raise ValueError(f"Unsupported type {tp} for {k}")
+
+        # Patch required features for Scene to be built
+        train_cameras = [
+            loadCam(self._dataset, 0, 
+                _build_caminfo(
+                    0, camera.poses, camera.intrinsics, f"{0:06d}.png", camera.image_sizes, scale_coords=self._dataset.scale_coords), 1.0) 
+                for camera in train_dataset["cameras"]]
+        scene = namedtuple("Scene", ["getTrainCameras"])(lambda: train_cameras)
+        gaussExtractor = GaussianExtractor(self._gaussians, render, self._pipe, bg_color=self._background)
+        with tempfile.TemporaryDirectory() as tempdir:
+            # export_mesh(train_dir, args, gaussExtractor, scene)
+            export_mesh(tempdir, args, gaussExtractor, scene)
+            # Export *_post.ply to the target path
+            output_file = next(x for x in os.listdir(tempdir) if x.endswith("_post.ply"))
+            os.makedirs(path, exist_ok=True)
+            shutil.move(os.path.join(tempdir, output_file), os.path.join(path, "mesh.ply"))

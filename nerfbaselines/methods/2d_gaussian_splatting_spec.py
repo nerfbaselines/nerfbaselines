@@ -61,6 +61,11 @@ fi
             "@apply": [{"dataset": "tanksandtemples"}],
             "depth_ratio": 1.0,
             "lambda_dist": 100,
+            # Mesh generation related:
+            "num_cluster": 1,
+            "voxel_size": 0.004,
+            "sdf_trunc": 0.016,
+            "depth_trunc": 3.0,
         },
         "tanksandtemples-large": {
             "@apply": [
@@ -73,6 +78,21 @@ fi
                 {"dataset": "tanksandtemples", "scene": "palace" },
             ],
             "lambda_dist": 10,
+            # Mesh generation related:
+            "num_cluster": 1,
+            "voxel_size": 0.006,
+            "sdf_trunc": 0.024,
+            "depth_trunc": 4.5,
+        },
+        "dtu": {
+            "@apply": [{"dataset": "dtu"}],
+            "depth_ratio": 1.0,
+            "lambda_dist": 1000,
+            # Mesh generation related:
+            "num_cluster": 1,
+            "voxel_size": 0.004,
+            "sdf_trunc": 0.016,
+            "depth_trunc": 3.0,
         },
         "large": {
             "@apply": [{"dataset": "phototourism"}],
