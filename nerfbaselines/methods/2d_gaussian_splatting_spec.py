@@ -1,7 +1,8 @@
 import os
 from nerfbaselines import register
 
-
+_note = """Authors evaluated on larger images which were downscaled to the target size (avoiding JPEG compression artifacts) instead of using the official provided downscaled images. As mentioned in the 3DGS paper, this increases results slightly ~0.5 dB PSNR."""
+_tnt_note = """2DGS used different data pre-processing and train/test split for Tanks and Temples. It sets specific hyperparameters for each scene which may not be suitable with the public Tanks and Temples released by NerfBaselines. The results are not directly comparable and a hyperparameter tuning is needed to improve the results."""
 _paper_results = {
     "blender/mic": { "psnr": 35.09 },
     "blender/chair": { "psnr": 35.05 },
@@ -11,21 +12,21 @@ _paper_results = {
     "blender/drums": { "psnr": 26.05 },
     "blender/ficus": { "psnr": 35.57 },
     "blender/hotdog": { "psnr": 37.36 },
-    "tanksandtemples/barn": { "psnr": 28.79 },
-    "tanksandtemples/caterpillar": { "psnr": 24.23 },
-    "tanksandtemples/courthouse": { "psnr": 23.51 },
-    "tanksandtemples/ignatius": { "psnr": 23.82 },
-    "tanksandtemples/meetingroom": { "psnr": 26.15 },
-    "tanksandtemples/truck": { "psnr": 26.85 },
-    "mipnerf360/bicycle": { "psnr": 24.87, "ssim": 0.752, "lpips": 0.218 },
-    "mipnerf360/flowers": { "psnr": 21.15, "ssim": 0.588, "lpips": 0.346 },
-    "mipnerf360/garden": { "psnr": 26.95, "ssim": 0.852, "lpips": 0.115 },
-    "mipnerf360/stump": { "psnr": 26.47, "ssim": 0.765, "lpips": 0.222 },
-    "mipnerf360/treehill": { "psnr": 22.27, "ssim": 0.627, "lpips": 0.329 },
-    "mipnerf360/room": { "psnr": 31.06, "ssim": 0.912, "lpips": 0.223 },
-    "mipnerf360/counter": { "psnr": 28.55, "ssim": 0.900, "lpips": 0.208 },
-    "mipnerf360/kitchen": { "psnr": 30.50, "ssim": 0.919, "lpips": 0.133 },
-    "mipnerf360/bonsai": { "psnr": 31.52, "ssim": 0.933, "lpips": 0.214 },
+    "tanksandtemples/barn": { "psnr": 28.79, "note": _tnt_note },
+    "tanksandtemples/caterpillar": { "psnr": 24.23, "note": _tnt_note },
+    "tanksandtemples/courthouse": { "psnr": 23.51, "note": _tnt_note },
+    "tanksandtemples/ignatius": { "psnr": 23.82, "note": _tnt_note },
+    "tanksandtemples/meetingroom": { "psnr": 26.15, "note": _tnt_note },
+    "tanksandtemples/truck": { "psnr": 26.85, "note": _tnt_note },
+    "mipnerf360/bicycle": { "psnr": 24.87, "ssim": 0.752, "lpips": 0.218, "note": _note },
+    "mipnerf360/flowers": { "psnr": 21.15, "ssim": 0.588, "lpips": 0.346, "note": _note },
+    "mipnerf360/garden": { "psnr": 26.95, "ssim": 0.852, "lpips": 0.115, "note": _note },
+    "mipnerf360/stump": { "psnr": 26.47, "ssim": 0.765, "lpips": 0.222, "note": _note },
+    "mipnerf360/treehill": { "psnr": 22.27, "ssim": 0.627, "lpips": 0.329, "note": _note },
+    "mipnerf360/room": { "psnr": 31.06, "ssim": 0.912, "lpips": 0.223, "note": _note },
+    "mipnerf360/counter": { "psnr": 28.55, "ssim": 0.900, "lpips": 0.208, "note": _note },
+    "mipnerf360/kitchen": { "psnr": 30.50, "ssim": 0.919, "lpips": 0.133, "note": _note },
+    "mipnerf360/bonsai": { "psnr": 31.52, "ssim": 0.933, "lpips": 0.214, "note": _note},
 }
 
 
@@ -139,7 +140,7 @@ fi
     "implementation_status": {
         "blender": "working",
         "mipnerf360": "reproducing",
-        "tanksandtemples": "working",
+        "tanksandtemples": "working-not-reproducing",
         "seathru-nerf": "working",
     }
 })

@@ -91,6 +91,7 @@ Detailed results are available on the project page: [https://nerfbaselines.githu
 | [Zip-NeRF](https://nerfbaselines.github.io/m-zipnerf)                                | **28.553** | **0.829** |   **0.218** |  5h 30m 20s |  26.8 GB |
 | [Scaffold-GS](https://nerfbaselines.github.io/m-scaffold-gs)                         |   *27.714* |     0.813 |       0.262 |     23m 28s |   8.7 GB |
 | [Mip-NeRF 360](https://nerfbaselines.github.io/m-mipnerf360)                         |     27.681 |     0.792 |       0.272 | 30h 14m 36s |  33.6 GB |
+| [3DGS-MCMC](https://nerfbaselines.github.io/m-3dgs-mcmc)                             |     27.571 |     0.798 |       0.281 |      35m 8s |  21.6 GB |
 | [Mip-Splatting](https://nerfbaselines.github.io/m-mip-splatting)                     |     27.492 |     0.815 |       0.258 |     25m 37s |  11.0 GB |
 | [Gaussian Splatting](https://nerfbaselines.github.io/m-gaussian-splatting)           |     27.434 |     0.814 |       0.257 |     23m 25s |  11.1 GB |
 | [Gaussian Opacity Fields](https://nerfbaselines.github.io/m-gaussian-opacity-fields) |     27.421 |   *0.826* |     *0.234* |   1h 3m 54s |  28.4 GB |
@@ -113,6 +114,7 @@ Detailed results are available on the project page: [https://nerfbaselines.githu
 | [Gaussian Splatting](https://nerfbaselines.github.io/m-gaussian-splatting)           |     33.308 |     0.969 |     *0.037* |     *6m 6s* |   3.1 GB |
 | [TensoRF](https://nerfbaselines.github.io/m-tensorf)                                 |     33.172 |     0.963 |       0.051 |     10m 47s |  16.4 GB |
 | [Scaffold-GS](https://nerfbaselines.github.io/m-scaffold-gs)                         |     33.080 |     0.966 |       0.048 |       7m 4s |   3.7 GB |
+| [3DGS-MCMC](https://nerfbaselines.github.io/m-3dgs-mcmc)                             |     33.068 |     0.969 |       0.040 |      6m 13s |   3.9 GB |
 | [K-Planes](https://nerfbaselines.github.io/m-kplanes)                                |     32.265 |     0.961 |       0.062 |     23m 58s |   4.6 GB |
 | [Instant NGP](https://nerfbaselines.github.io/m-instant-ngp)                         |     32.198 |     0.959 |       0.055 |  **2m 23s** | *2.6 GB* |
 | [Tetra-NeRF](https://nerfbaselines.github.io/m-tetra-nerf)                           |     31.951 |     0.957 |       0.056 |  6h 53m 20s |  29.6 GB |
@@ -142,7 +144,8 @@ Detailed results are available on the project page: [https://nerfbaselines.githu
 ## Implementation status
 | Method                    | Blender   | LLFF      | Mip-NeRF 360 | Nerfstudio | Photo Tourism | SeaThru-NeRF | Tanks and Temples |
 |:------------------------- |:--------- |:--------- |:------------ |:---------- |:------------- |:------------ |:----------------- |
-| 2D Gaussian Splatting     | 🥇 gold   | ❔        | 🥇 gold      | ❔         | ❔            | 🥇 gold      | 🥇 gold           |
+| 2D Gaussian Splatting     | 🥇 gold   | ❔        | 🥇 gold      | ❔         | ❔            | 🥇 gold      | 🥈 silver         |
+| 3DGS-MCMC                 | 🥈 silver | ❔        | 🥇 gold      | ❔         | ❔            | 🥇 gold      | 🥇 gold           |
 | CamP                      | ❔        | ❔        | ❔           | ❔         | ❔            | ❔           | ❔                |
 | COLMAP                    | 🥇 gold   | ❔        | 🥇 gold      | 🥇 gold    | ❔            | ❔           | 🥇 gold           |
 | Gaussian Opacity Fields   | 🥇 gold   | ❔        | 🥇 gold      | ❔         | ❔            | ❔           | 🥇 gold           |
@@ -185,6 +188,7 @@ This project is licensed under the [MIT license](https://raw.githubusercontent.c
 Each implemented method is licensed under the license provided by the authors of the method.
 For the currently implemented methods, the following licenses apply:
 - 2D Gaussian Splatting: [custom, research only](https://raw.githubusercontent.com/hbb1/2d-gaussian-splatting/main/LICENSE.md)
+- 3DGS-MCMC: [custom, research only](https://raw.githubusercontent.com/ubc-vision/3dgs-mcmc/refs/heads/main/LICENSE.md)
 - CamP: [Apache 2.0](https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE)
 - COLMAP: [BSD](https://colmap.github.io/license.html)
 - Gaussian Opacity Fields: [custom, research only](https://raw.githubusercontent.com/autonomousvision/gaussian-opacity-fields/main/LICENSE.md)
