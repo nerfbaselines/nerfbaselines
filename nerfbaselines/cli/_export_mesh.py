@@ -43,7 +43,12 @@ def export_mesh_command(*, checkpoint: str, output: str, backend_name, data=None
         dataset_metadata = nb_info.get("dataset_metadata")
         dataset = None
         if data is not None:
-            dataset = load_dataset(data, split="train", load_features=False)
+            # We need to load features at least to fix image resolutions
+            method_info = method.get_method_info()
+            dataset = load_dataset(data, split="train", 
+                                   load_features=True, 
+                                   supported_camera_models=method_info.get("supported_camera_models"),
+                                   features=method_info.get("required_features"))
             if dataset_metadata is not None:
                 logging.warning("Overwriting dataset metadata stored in the checkpoint")
             dataset_metadata = dataset["metadata"]
