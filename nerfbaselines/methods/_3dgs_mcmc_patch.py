@@ -201,10 +201,10 @@ def _(ast_module: ast.Module):
         return compute_relocation(opacity_old, scale_old, N, binoms, N_max)
     """
     # Get binoms=...cuda() call
-    binoms_ast = next(x for x in ast_module.body if isinstance(x, ast.Assign) and x.targets[0].id == "binoms")
-    assert isinstance(binoms_ast.value, ast.Call) and binoms_ast.value.func.attr == "cuda", "binoms.cuda() not found in reloc_utils"
+    binoms_ast = next(x for x in ast_module.body if isinstance(x, ast.Assign) and x.targets[0].id == "binoms")  # type: ignore
+    assert isinstance(binoms_ast.value, ast.Call) and binoms_ast.value.func.attr == "cuda", "binoms.cuda() not found in reloc_utils"  # type: ignore
     # Remove binoms.cuda()
-    binoms_ast.value = binoms_ast.value.func.value
+    binoms_ast.value = binoms_ast.value.func.value  # type: ignore
     # Get compute_relocation_cuda
     compute_relocation_cuda_ast = next(x for x in ast_module.body if isinstance(x, ast.FunctionDef) and x.name == "compute_relocation_cuda")
     # Add:
