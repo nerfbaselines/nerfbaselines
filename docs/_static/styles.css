@@ -123,4 +123,10 @@
   text-decoration: none;
 }
 
-
+div.cell.container div.cell_input, div.cell.container details.below-input>summary {
+  border: initial;
+  border-radius: initial;
+  border-left-width: initial;
+  background-color: initial;
+}
+}

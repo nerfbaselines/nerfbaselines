@@ -46,6 +46,7 @@ The documentation is organized into several sections with increasing level of de
 installation
 quickstart
 using-custom-data
+python-tutorial
 ```
 
 ```{toctree}
@@ -55,6 +56,9 @@ adding-new-methods
 custom-dataset-loader
 adding-new-datasets
 backends
+exporting-demos
+exporting-meshes
+custom-web
 ```
 
 ```{toctree}

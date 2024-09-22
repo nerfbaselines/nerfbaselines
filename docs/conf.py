@@ -30,10 +30,15 @@ extensions = [
     'sphinxext.opengraph',
     'sphinx_copybutton',
     'sphinx_click',
-    'myst_parser',
+    #'myst_parser',
     'sphinx_nerfbaselines',
+    'myst_nb',
+    'sphinx_design',
     # 'sphinxcontrib.apidoc',
 ]
+
+nb_execution_mode = "off"
+nb_merge_streams = True
 
 # Hack to fix commands for sphinx_click
 import nerfbaselines.__main__, click

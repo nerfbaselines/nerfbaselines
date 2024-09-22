@@ -61,6 +61,7 @@ from ._registry import (
 )
 from ._method_utils import (
     build_method_class as build_method_class,
+    load_checkpoint as load_checkpoint,
 )
 
 # We require the __version__ import - the package needs to be installed

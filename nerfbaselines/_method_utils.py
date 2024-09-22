@@ -1,11 +1,13 @@
+import json
+import os
 import types
 import functools
 import importlib
 import logging
 from typing import Any, Type, cast
-from contextlib import contextmanager
-from typing import Optional
-from nerfbaselines import Method, MethodSpec, BackendName
+from contextlib import contextmanager, ExitStack
+from typing import Optional, Generator
+from nerfbaselines import Method, MethodSpec, BackendName, get_method_spec
 
 
 def _wrap_method_class(method_class: Type[Method], spec: MethodSpec):
@@ -85,3 +87,42 @@ def build_method_class(spec: MethodSpec, backend: Optional[BackendName] = None):
         backend_impl.install()
         build_method = _build_method_class_internal
         yield cast(Type[Method], backend_impl.static_call(f"{build_method.__module__}:{build_method.__name__}", spec))
+
+
+@contextmanager
+def load_checkpoint(checkpoint: str, backend: Optional[BackendName] = None) -> Generator[Method, None, None]:
+    """
+    This is a utility function to open the checkpoint directory,
+    mount it, start the backend, build the model class and load the checkpoint.
+    The checkpoint can be a local path, a remote path or a path inside a zip file.
+    The function returns a context manager that yields the model instance.
+
+    Args:
+        checkpoint: Path to the checkpoint. Can be a local path or a remote path. Can also be a path inside a zip file.
+        backend: Backend name
+
+    Returns:
+        Context manager that yields the model instance
+
+    """
+    from nerfbaselines.io import open_any_directory, deserialize_nb_info
+    from nerfbaselines import backends
+
+    logging.info(f"Loading checkpoint {checkpoint}")
+    with ExitStack() as stack:
+        # Load the checkpoint
+        checkpoint_path = stack.enter_context(open_any_directory(checkpoint, mode="r"))
+        stack.enter_context(backends.mount(checkpoint_path, checkpoint_path))
+        assert os.path.exists(checkpoint_path), f"checkpoint path {checkpoint} does not exist"
+        assert os.path.exists(os.path.join(checkpoint_path, "nb-info.json")), \
+            f"checkpoint path {checkpoint} does not contain nb-info.json"
+        # Read method nb-info
+        with open(os.path.join(checkpoint_path, "nb-info.json"), "r", encoding="utf8") as f:
+            nb_info = json.load(f)
+        nb_info = deserialize_nb_info(nb_info)
+
+        # Load the method
+        method_name = nb_info["method"]
+        method_spec = get_method_spec(method_name)
+        method_cls = stack.enter_context(build_method_class(method_spec, backend=backend))
+        yield method_cls(checkpoint=str(checkpoint_path))
