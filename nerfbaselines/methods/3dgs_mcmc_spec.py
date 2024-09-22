@@ -1,23 +1,25 @@
 import os
 from nerfbaselines import register
 
+_note = """Authors evaluated on larger images which were downscaled to the target size (avoiding JPEG compression artifacts) instead of using the official provided downscaled images. As mentioned in the 3DGS paper, this increases results slightly ~0.5 dB PSNR."""
+_blender_note = """Exact hyperparameters for Blender dataset are not provided in the released source code. The default parameters were used in NerfBaselines likely leading to worse results."""
 
 _paper_results = {
-    "blender/mic": {"psnr": 37.29, "ssim": 0.99, "lpips": 0.01},
-    "blender/ship": {"psnr": 30.82, "ssim": 0.91, "lpips": 0.12},
-    "blender/lego": {"psnr": 36.01, "ssim": 0.98, "lpips": 0.02},
-    "blender/chair": {"psnr": 36.51, "ssim": 0.99, "lpips": 0.02},
-    "blender/materials": {"psnr": 30.59, "ssim": 0.96, "lpips": 0.04},
-    "blender/hotdog": {"psnr": 37.82, "ssim": 0.99, "lpips": 0.02},
-    "blender/drums": {"psnr": 26.29, "ssim": 0.95, "lpips": 0.04},
-    "blender/ficus": {"psnr": 35.07, "ssim": 0.99, "lpips": 0.01},
-    "mipnerf360/counter": {"psnr": 29.51, "ssim": 0.92, "lpips": 0.22},
-    "mipnerf360/stump": {"psnr": 27.80, "ssim": 0.82, "lpips": 0.19},
-    "mipnerf360/kitchen": {"psnr": 32.27, "ssim": 0.94, "lpips": 0.14},
-    "mipnerf360/bicycle": {"psnr": 26.15, "ssim": 0.81, "lpips": 0.18},
-    "mipnerf360/bonsai": {"psnr": 32.88, "ssim": 0.95, "lpips": 0.22},
-    "mipnerf360/room": {"psnr": 32.48, "ssim": 0.94, "lpips": 0.25},
-    "mipnerf360/garden": {"psnr": 28.16, "ssim": 0.89, "lpips": 0.10},
+    "blender/mic": {"psnr": 37.29, "ssim": 0.99, "lpips": 0.01, "note": _blender_note},
+    "blender/ship": {"psnr": 30.82, "ssim": 0.91, "lpips": 0.12, "note": _blender_note},
+    "blender/lego": {"psnr": 36.01, "ssim": 0.98, "lpips": 0.02, "note": _blender_note},
+    "blender/chair": {"psnr": 36.51, "ssim": 0.99, "lpips": 0.02, "note": _blender_note},
+    "blender/materials": {"psnr": 30.59, "ssim": 0.96, "lpips": 0.04, "note": _blender_note},
+    "blender/hotdog": {"psnr": 37.82, "ssim": 0.99, "lpips": 0.02, "note": _blender_note},
+    "blender/drums": {"psnr": 26.29, "ssim": 0.95, "lpips": 0.04, "note": _blender_note},
+    "blender/ficus": {"psnr": 35.07, "ssim": 0.99, "lpips": 0.01, "note": _blender_note},
+    "mipnerf360/counter": {"psnr": 29.51, "ssim": 0.92, "lpips": 0.22, "note": _note},
+    "mipnerf360/stump": {"psnr": 27.80, "ssim": 0.82, "lpips": 0.19, "note": _note},
+    "mipnerf360/kitchen": {"psnr": 32.27, "ssim": 0.94, "lpips": 0.14, "note": _note},
+    "mipnerf360/bicycle": {"psnr": 26.15, "ssim": 0.81, "lpips": 0.18, "note": _note},
+    "mipnerf360/bonsai": {"psnr": 32.88, "ssim": 0.95, "lpips": 0.22, "note": _note},
+    "mipnerf360/room": {"psnr": 32.48, "ssim": 0.94, "lpips": 0.25, "note": _note},
+    "mipnerf360/garden": {"psnr": 28.16, "ssim": 0.89, "lpips": 0.10, "note": _note},
     "tanksandtemples/train": {"psnr": 22.47, "ssim": 0.83, "lpips": 0.24},
     "tanksandtemples/truck": {"psnr": 26.11, "ssim": 0.89, "lpips": 0.14},
 }
@@ -68,14 +70,14 @@ fi
 """,
     },
     "metadata": {
-        "name": "2D Gaussian Splatting",
-        "description": "2DGS adopts 2D oriented disks as surface elements and allows high-quality rendering with Gaussian Splatting. In NerfBaselines, we fixed bug with cx,cy, added appearance embedding optimization, and added support for sampling masks.",
-        "paper_title": "2D Gaussian Splatting for Geometrically Accurate Radiance Fields",
-        "paper_authors": ["Binbin Huang", "Zehao Yu", "Anpei Chen", "Andreas Geiger", "Shenghua Gao"],
+        "name": "3DGS-MCMC",
+        "description": "3DGS-MCMC reinterprets 3D Gaussian Splatting as MCMC sampling, introducing noise-based updates and removing heuristic cloning strategies, leading to improved rendering quality, efficient Gaussian use, and robustness to initialization. In NerfBaselines, we fixed bug with cx,cy, added appearance embedding optimization, and added support for sampling masks and web demos.",
+        "paper_title": "3D Gaussian Splatting as Markov Chain Monte Carlo",
+        "paper_authors": "Shakiba Kheradmand, Daniel Rebain, Gopal Sharma, Weiwei Sun, Yang-Che Tseng, Hossam Isack, Abhishek Kar, Andrea Tagliasacchi, Kwang Moo Yi".split(", "),
         "paper_results": _paper_results,
-        "paper_link": "https://arxiv.org/pdf/2403.17888.pdf",
-        "link": "https://surfsplatting.github.io/",
-        "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/hbb1/2d-gaussian-splatting/main/LICENSE.md"}],
+        "paper_link": "https://ubc-vision.github.io/3dgs-mcmc/paper.pdf",
+        "link": "https://ubc-vision.github.io/3dgs-mcmc/",
+        "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/ubc-vision/3dgs-mcmc/refs/heads/main/LICENSE.md"}],
     },
     "presets": {
         "mipnerf360/kitchen": { "@apply": [{"dataset": "mipnerf360", "scene": "kitchen"}], "cap_max": 1800000 },
@@ -89,7 +91,7 @@ fi
         "blender": { "@apply": [{"dataset": "blender"}], "white_background": True, },
     },
     "implementation_status": {
-        "blender": "working",
+        "blender": "working-not-reproducing",
         "mipnerf360": "reproducing",
         "tanksandtemples": "working",
         "seathru-nerf": "working",
