@@ -32,7 +32,7 @@ outpath="$2"
 result_rows=""
 
 # Process all output artifacts in the baselines directory
-find $inpath -iname '*.zip' -print0  | while IFS= read -r -d '' file; do
+while IFS= read -r -d '' file; do
     # Base path to store output without the extension,
     # relative to the repository
     # e.g. blender/lego
@@ -104,7 +104,7 @@ find $inpath -iname '*.zip' -print0  | while IFS= read -r -d '' file; do
 
     # Store new sha
     echo $newsha > "$out.zip.sha256" || exit 1
-done
+done < <(find $inpath -iname '*.zip' -print0)
 
 # Print results
 echo ""
