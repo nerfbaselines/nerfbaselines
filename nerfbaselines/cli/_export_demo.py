@@ -12,7 +12,10 @@ from ._common import click_backend_option
 from ._common import SetParamOptionType, NerfBaselinesCliCommand
 
 
-@click.command("export-demo", cls=NerfBaselinesCliCommand)
+@click.command("export-demo", cls=NerfBaselinesCliCommand, help=(
+    "Export a demo from a trained model. "
+    "The interactive demo will be a website (index.html) that can be opened in the browser. "
+    "Only some methods support this feature."))
 @click.option("--checkpoint", type=str, required=True)
 @click.option("--output", "-o", type=str, required=True)
 @click.option("--data", required=False, default=None)

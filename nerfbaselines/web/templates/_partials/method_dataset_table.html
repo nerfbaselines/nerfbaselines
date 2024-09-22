@@ -17,6 +17,9 @@
           {% if scene.data_link %}
           <a href="{{ scene.data_link }}" title="Download checkpoint and predictions for scene {{ scene.name }}" class="ti table__action ti-download ti-blue"></a>
           {% endif %}
+          {% if scene.mesh_demo_link %}
+          <a href="{{ scene.mesh_demo_link }}" title="Online mesh demo for scene {{ scene.name }}" class="ti table__action ti-cube ti-green"></a>
+          {% endif %}
           {% if scene.demo_link %}
           <a href="{{ scene.demo_link }}" title="Online demo for scene {{ scene.name }}" class="ti table__action ti-view-360-number ti-green"></a>
           {% endif %}

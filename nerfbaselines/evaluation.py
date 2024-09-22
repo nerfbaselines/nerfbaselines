@@ -563,7 +563,15 @@ def run_inside_eval_container(backend_name: Optional[str] = None):
         "method_class": "base",
         "conda": {
             "environment_name": "_metrics", 
-            "install_script": ""
+            "install_script": """
+# Install dependencies
+pip install \
+    opencv-python==4.9.0.80 \
+    torch==2.2.0 \
+    torchvision==0.17.0 \
+    'numpy<2.0.0' \
+    --extra-index-url https://download.pytorch.org/whl/cu118
+"""
         }}, backend=backend_name)
     with backend:
         backend.install()

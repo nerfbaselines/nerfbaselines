@@ -18,6 +18,7 @@ Please visit the <a href="https://nerfbaselines.github.io/">project page to see 
 </h3>
 
 ## News
+*[22/09/2024]* Added mesh export for 2DGS, COLMAP, and GOF.</br>
 *[17/09/2024]* Moved project to nerfbaselines/nerfbaselines repository.</br>
 *[16/09/2024]* Added online demos and demo export for 3DGS-based methods. Check out the [benchmark page](https://nerfbaselines.github.io/).<br>
 *[12/09/2024]* Added gsplat, 2D Gaussian Splatting, Scaffold-GS, and COLMAP MVS methods.<br>

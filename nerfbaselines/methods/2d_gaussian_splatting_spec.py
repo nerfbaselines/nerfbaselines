@@ -2,6 +2,33 @@ import os
 from nerfbaselines import register
 
 
+_paper_results = {
+    "blender/mic": { "psnr": 35.09 },
+    "blender/chair": { "psnr": 35.05 },
+    "blender/ship": { "psnr": 30.60 },
+    "blender/materials": { "psnr": 29.74 },
+    "blender/lego": { "psnr": 35.10 },
+    "blender/drums": { "psnr": 26.05 },
+    "blender/ficus": { "psnr": 35.57 },
+    "blender/hotdog": { "psnr": 37.36 },
+    "tanksandtemples/barn": { "psnr": 28.79 },
+    "tanksandtemples/caterpillar": { "psnr": 24.23 },
+    "tanksandtemples/courthouse": { "psnr": 23.51 },
+    "tanksandtemples/ignatius": { "psnr": 23.82 },
+    "tanksandtemples/meetingroom": { "psnr": 26.15 },
+    "tanksandtemples/truck": { "psnr": 26.85 },
+    "mipnerf360/bicycle": { "psnr": 24.87, "ssim": 0.752, "lpips": 0.218 },
+    "mipnerf360/flowers": { "psnr": 21.15, "ssim": 0.588, "lpips": 0.346 },
+    "mipnerf360/garden": { "psnr": 26.95, "ssim": 0.852, "lpips": 0.115 },
+    "mipnerf360/stump": { "psnr": 26.47, "ssim": 0.765, "lpips": 0.222 },
+    "mipnerf360/treehill": { "psnr": 22.27, "ssim": 0.627, "lpips": 0.329 },
+    "mipnerf360/room": { "psnr": 31.06, "ssim": 0.912, "lpips": 0.223 },
+    "mipnerf360/counter": { "psnr": 28.55, "ssim": 0.900, "lpips": 0.208 },
+    "mipnerf360/kitchen": { "psnr": 30.50, "ssim": 0.919, "lpips": 0.133 },
+    "mipnerf360/bonsai": { "psnr": 31.52, "ssim": 0.933, "lpips": 0.214 },
+}
+
+
 register({
     "id": "2d-gaussian-splatting",
     "method_class": ".2d_gaussian_splatting:GaussianSplatting2D",
@@ -52,6 +79,7 @@ fi
         "paper_title": "2D Gaussian Splatting for Geometrically Accurate Radiance Fields",
         "paper_authors": ["Binbin Huang", "Zehao Yu", "Anpei Chen", "Andreas Geiger", "Shenghua Gao"],
         "paper_link": "https://arxiv.org/pdf/2403.17888.pdf",
+        "paper_results": _paper_results,
         "link": "https://surfsplatting.github.io/",
         "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/hbb1/2d-gaussian-splatting/main/LICENSE.md"}],
     },
@@ -61,6 +89,11 @@ fi
             "@apply": [{"dataset": "tanksandtemples"}],
             "depth_ratio": 1.0,
             "lambda_dist": 100,
+            # Mesh generation related:
+            "num_cluster": 1,
+            "voxel_size": 0.004,
+            "sdf_trunc": 0.016,
+            "depth_trunc": 3.0,
         },
         "tanksandtemples-large": {
             "@apply": [
@@ -73,6 +106,21 @@ fi
                 {"dataset": "tanksandtemples", "scene": "palace" },
             ],
             "lambda_dist": 10,
+            # Mesh generation related:
+            "num_cluster": 1,
+            "voxel_size": 0.006,
+            "sdf_trunc": 0.024,
+            "depth_trunc": 4.5,
+        },
+        "dtu": {
+            "@apply": [{"dataset": "dtu"}],
+            "depth_ratio": 1.0,
+            "lambda_dist": 1000,
+            # Mesh generation related:
+            "num_cluster": 1,
+            "voxel_size": 0.004,
+            "sdf_trunc": 0.016,
+            "depth_trunc": 3.0,
         },
         "large": {
             "@apply": [{"dataset": "phototourism"}],

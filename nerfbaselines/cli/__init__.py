@@ -145,6 +145,7 @@ def build_docker_image_command(method=None, environment=None, push=False, skip_i
 
 main.add_command(web_click_group)
 main.add_lazy_command("nerfbaselines.cli._export_demo", "export-demo")
+main.add_lazy_command("nerfbaselines.cli._export_mesh:export_mesh_command", "export-mesh")
 main.add_lazy_command("nerfbaselines.cli._test_method", "test-method")
 main.add_lazy_command("nerfbaselines.cli._render:render_command", "render")
 main.add_lazy_command("nerfbaselines.cli._render:render_trajectory_command", "render-trajectory")

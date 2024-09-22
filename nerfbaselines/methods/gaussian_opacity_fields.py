@@ -9,6 +9,8 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+import shutil
+import contextlib
 import dataclasses
 import warnings
 import itertools
@@ -550,3 +552,52 @@ class GaussianOpacityFields(Method):
                     opacities=self.gaussians.get_opacity_with_3D_filter.detach().cpu().numpy(),
                     quaternions=self.gaussians.get_rotation.detach().cpu().numpy(),
                     spherical_harmonics=self.gaussians.get_features.transpose(1, 2).detach().cpu().numpy())
+
+    def export_mesh(self, path: str, train_dataset=None, options=None, **kwargs):
+        del kwargs
+        assert train_dataset is not None, "train_dataset is required for export_mesh. Please add --data option to the command."
+
+        with temp_seed(0), torch.no_grad(), tempfile.TemporaryDirectory() as tmpdir:
+            from extract_mesh import marching_tetrahedra_with_binary_search  # type: ignore
+
+            # Load cameras
+            dataset_args = copy.deepcopy(self.dataset)
+            dataset_args.data_device = "cpu"
+            cams = [
+                loadCam(dataset_args, 0, 
+                    _load_caminfo(0, camera.poses, camera.intrinsics, 
+                                  f"{0:06d}.png", camera.image_sizes, 
+                                  scale_coords=self.dataset.scale_coords), 1.0)
+                for camera in train_dataset["cameras"]]
+
+            kernel_size = self.dataset.kernel_size
+            filter_mesh = (options or {}).get("filter_mesh", False)
+            texture_mesh = (options or {}).get("texture_mesh", True)
+            marching_tetrahedra_with_binary_search(tmpdir, "test", 0, cams, self.gaussians, self.pipe, self.background, kernel_size, filter_mesh, texture_mesh)
+
+            # Move resulting mesh to the output path
+            render_path = os.path.join(tmpdir, "test", "ours_0", "fusion")
+            _meshes = [f for f in os.listdir(render_path) if f.startswith("mesh_binary_search_") and f.endswith(".ply")]
+            _meshes.sort(key=lambda x: int(x[len("mesh_binary_search_") : -len(".ply")]))
+            os.makedirs(path, exist_ok=True)
+            shutil.move(os.path.join(render_path, _meshes[-1]), os.path.join(path, "mesh.ply"))
+
+
+@contextlib.contextmanager
+def temp_seed(seed):
+    npstate = np.random.get_state()
+    rstate = random.getstate()
+    torchstate = torch.random.get_rng_state() 
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    try:
+        with torch.random.fork_rng(devices=["cuda:0"]):
+            torch.random.manual_seed(seed)
+            torch.cuda.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+            yield
+    finally:
+        random.setstate(rstate)
+        np.random.set_state(npstate)
+        torch.random.set_rng_state(torchstate)
