@@ -291,5 +291,5 @@ def _(ast_module: ast.Module):
     body = copy.deepcopy(if_not_skip_mesh.body)
     # Make new function
     function = ast.parse("""def export_mesh(train_dir, args, gaussExtractor, scene):\n    pass""").body[0]
-    function.body = body
+    function.body = body  # type: ignore
     ast_module.body.append(function)
