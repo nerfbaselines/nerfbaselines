@@ -1,5 +1,4 @@
 import threading
-import sys
 import os
 import contextlib
 import struct
@@ -18,37 +17,36 @@ class ConnectionClosed(ConnectionError):
         super().__init__("Connection closed")
 
 
-def _shm_recv(shared_memory):
-    num_buffers, shared_memory_size = struct.unpack("!IQ", shared_memory.buf[_SHM_OFFSET:_SHM_OFFSET+12])
-    len_header = 12+8*num_buffers
-    buff_lens = struct.unpack("!"+"Q"*num_buffers, shared_memory.buf[_SHM_OFFSET+12:_SHM_OFFSET+len_header])
-    # print("recv", num_buffers, [buff for buff in buff_lens], "thread", threading.get_ident())
-    write_first = buff_lens[0] + _SHM_OFFSET+len_header <= shared_memory_size
-    if not write_first:
-        _shm_set_flag(shared_memory, 5)
+def _shm_recv(shared_memory, wait_for, timeout=None):
     buffers = []
-    for buff_i, buff_len in enumerate(buff_lens):
-        # Write first
-        if buff_i == 0 and write_first:
+    with _shm_wait_set_flag(shared_memory, wait_for, 5, timeout=timeout):
+        num_buffers, shared_memory_size = struct.unpack("!IQ", shared_memory.buf[_SHM_OFFSET:_SHM_OFFSET+12])
+        len_header = 12+8*num_buffers
+        buff_lens = struct.unpack("!"+"Q"*num_buffers, shared_memory.buf[_SHM_OFFSET+12:_SHM_OFFSET+len_header])
+        # print("recv", num_buffers, [buff for buff in buff_lens], "thread", threading.get_ident())
+        write_first = buff_lens[0] + _SHM_OFFSET+len_header <= shared_memory_size
+        if write_first:
             # Copy bytes from the shared_memory.buf
+            buff_len = buff_lens[0]
             buffers.append(shared_memory.buf[_SHM_OFFSET+len_header:_SHM_OFFSET+len_header+buff_len].tobytes())
-            _shm_set_flag(shared_memory, 5)
-            continue
+            buff_lens = buff_lens[1:]
 
+    for buff_len in buff_lens:
         # Allocate buffer
         buffer = bytearray(buff_len)
         buffers.append(buffer)
         
         for i in range(0, buff_len, shared_memory_size - _SHM_OFFSET):
             mess_len = min(buff_len - i, shared_memory_size - _SHM_OFFSET)
-            _shm_wait_for(shared_memory, [4])
-            memoryview(buffer)[i:i+mess_len] = shared_memory.buf[_SHM_OFFSET:_SHM_OFFSET+mess_len]
-            _shm_set_flag(shared_memory, 5)
+            with _shm_wait_set_flag(shared_memory, [4], 5):
+                memoryview(buffer)[i:i+mess_len] = shared_memory.buf[_SHM_OFFSET:_SHM_OFFSET+mess_len]
     return pickle.loads(buffers[0], **({'buffers': buffers[1:]} if len(buffers) > 1 else {}))  # type: ignore
 
 
-def _shm_send(shared_memory, message, set_flag,
+def _shm_send(shared_memory, message, channel,
           *,
+          wait_for,
+          set_flag,
           shared_memory_size: int,
           pickle_protocol: int = pickle.HIGHEST_PROTOCOL,
           pickle_use_buffers: bool = False):
@@ -62,134 +60,55 @@ def _shm_send(shared_memory, message, set_flag,
                         else {})))  # type: ignore
     header = struct.pack("!IQ", len(buffers), shared_memory_size)
     header += struct.pack("!"+"Q"*len(buffers), *(len(buff) for buff in buffers))
-    # print("send", len(buffers), [len(buff) for buff in buffers], "thread", threading.get_ident())
-    shared_memory.buf[_SHM_OFFSET:_SHM_OFFSET+len(header)] = header
     write_first = len(buffers[0]) + _SHM_OFFSET+len(header) <= shared_memory_size
-    if write_first:
-        shared_memory.buf[_SHM_OFFSET+len(header):_SHM_OFFSET+len(header)+len(buffers[0])] = buffers[0]
-        buffers = buffers[1:]
-    _shm_set_flag(shared_memory, set_flag)
-    _shm_wait_for(shared_memory, [5])
+    # print("send", len(buffers), [len(buff) for buff in buffers], "thread", threading.get_ident())
+    with _shm_wait_set_flag(shared_memory, wait_for, channel):
+        shared_memory.buf[_SHM_OFFSET:_SHM_OFFSET+len(header)] = header
+        if write_first:
+            shared_memory.buf[_SHM_OFFSET+len(header):_SHM_OFFSET+len(header)+len(buffers[0])] = buffers[0]
+            buffers = buffers[1:]
     for buffer in buffers:
         for i in range(0, len(buffer), shared_memory_size - _SHM_OFFSET):
             mess_len = min(len(buffer) - i, shared_memory_size - _SHM_OFFSET)
-            shared_memory.buf[_SHM_OFFSET:_SHM_OFFSET+mess_len] = buffer[i:i+mess_len]
-            _shm_set_flag(shared_memory, 4)
-            _shm_wait_for(shared_memory, [5])
+            with _shm_wait_set_flag(shared_memory, [5], 4):
+                shared_memory.buf[_SHM_OFFSET:_SHM_OFFSET+mess_len] = buffer[i:i+mess_len]
+    with _shm_wait_set_flag(shared_memory, [5], set_flag):
+        pass
 
 
-
-def _shm_recv_unify_buffers(shared_memory):
-    # NOTE: This function is not used in the current implementation
-    # There are no performance benefits for standard workloads
-    # And it currently fails for large messages
-    num_buffers, = struct.unpack("!I", shared_memory.buf[_SHM_OFFSET:_SHM_OFFSET+4])
-    buff_lens = struct.unpack("!"+"Q"*num_buffers, shared_memory.buf[_SHM_OFFSET+4:_SHM_OFFSET+4+8*num_buffers])
-    offset = 4+8*num_buffers
-    total_len = sum(buff_lens)
-    data = bytearray(total_len)
-    sh_offset = offset
-
-    for i in range(offset, total_len+offset, shared_memory.size - _SHM_OFFSET):
-        mess_len = min(total_len+offset - i, shared_memory.size - _SHM_OFFSET)
-        if i > offset:
-            _shm_wait_for(shared_memory, [4])
-        start, end = _SHM_OFFSET+sh_offset, min(_SHM_OFFSET+sh_offset+mess_len, shared_memory.size)
-        print(f"read {start}:{end}, len({end-start}), lenwanted({mess_len})")
-        start, end = i-offset, min(i-offset+mess_len, total_len)
-        print(f"write {start}:{end}, len({end-start}), lenwanted({mess_len})")
-        memoryview(data)[i-offset:i-offset+mess_len] = shared_memory.buf[_SHM_OFFSET+sh_offset:_SHM_OFFSET+sh_offset+mess_len]
-        sh_offset = 0
-        _shm_set_flag(shared_memory, 5)
-
-    offset = 0
-    buffers = []
-    for buff_len in buff_lens:
-        buffer = memoryview(data)[offset:offset+buff_len]
-        buffers.append(buffer)
-        offset += buff_len
-    out = pickle.loads(buffers[-1], **({'buffers': buffers[:-1]} if len(buffers) > 1 else {}))  # type: ignore
-    return out
-
-
-def _shm_send_unify_buffers(shared_memory, message, set_flag,
-          *,
-          pickle_protocol: int = pickle.HIGHEST_PROTOCOL,
-          pickle_use_buffers: bool = False):
-    # NOTE: This function is not used in the current implementation
-    # There are no performance benefits for standard workloads
-    # And it currently fails for large messages
-    buffers = []
-    def _add_buffer(buffer):
-        buffers.append(buffer.raw())
-    buffers.append(
-        pickle.dumps(message, 
-                     protocol=pickle_protocol,
-                     **({ "buffer_callback": _add_buffer } 
-                        if (pickle_use_buffers and pickle_protocol >= 5) 
-                        else {})))  # type: ignore
-    header = struct.pack("!I", len(buffers))
-    header += struct.pack("!"+"Q"*len(buffers), *(len(buff) for buff in buffers))
-    shared_memory.buf[_SHM_OFFSET:_SHM_OFFSET+len(header)] = header
-    offset = len(header)
-
-    for buffer in buffers:
-        local_offset = 0
-        rest = min(shared_memory.size-_SHM_OFFSET - offset, len(buffer) - local_offset)
-        shared_memory.buf[_SHM_OFFSET+offset:_SHM_OFFSET+offset+rest] = buffer[local_offset:local_offset+rest]
-        local_offset += rest
-        offset += rest
-        while local_offset < len(buffer):
-            # Flush buffer
-            _shm_set_flag(shared_memory, set_flag)
-            set_flag = 4
-            _shm_wait_for(shared_memory, [5])
-            offset = 0
-
-            rest = min(shared_memory.size-_SHM_OFFSET - offset, len(buffer) - local_offset)
-            shared_memory.buf[_SHM_OFFSET+offset:_SHM_OFFSET+offset+rest] = buffer[local_offset:local_offset+rest]
-            local_offset += rest
-            offset += rest
-
-    # Flush last data
-    _shm_set_flag(shared_memory, set_flag)
-    set_flag = 4
-    _shm_wait_for(shared_memory, [5])
-
-
-def _shm_wait_for(shared_memory, lock_value, sleep=0.00001, timeout=None):
-    # print("waitf", lock_value, os.getpid())
+@contextlib.contextmanager
+def _shm_wait_set_flag(shared_memory, wait_for, lock_value, sleep=0.00001, timeout=None):
+    lock_id = os.urandom(4)
     start_time = time.time()
     if shared_memory.buf is None:
         raise ConnectionClosed()
-    flag = struct.unpack("!I", shared_memory.buf[:4])[0]
     # print("  waitf", lock_value, os.getpid(), threading.get_ident())
     # wp = False
-    while flag not in lock_value and flag != 7:
-        time.sleep(sleep)
+    while True:
         if shared_memory.buf is None:
             raise ConnectionClosed()
-
-        # DEBUG:
-        # if (time.time() - start_time) > 5 and not wp:
-        #     import traceback
-        #     traceback.print_stack()
-        #     wp = True
-        #     print("  waitf>60s", lock_value, os.getpid(), threading.get_ident())
-
         if timeout is not None and time.time() - start_time > timeout:
             raise TimeoutError()
-        flag = struct.unpack("!I", shared_memory.buf[:4])[0]
-    if flag == 7:
-        raise ConnectionClosed()
-    return flag
+        _data = shared_memory.buf[:8].tobytes()
+        flag = struct.unpack("!I", _data[:4])[0]
+        if flag == 7:
+            raise ConnectionClosed()
 
+        _lock_id = _data[4:]
+        if _lock_id == lock_id and flag == 16:
+            # Lock was acquired
+            yield
 
-def _shm_set_flag(shared_memory, lock_value):
-    # print("  setf", lock_value, os.getpid())
-    shared_memory.buf[:4] = struct.pack("!I", lock_value)
+            # Release the lock
+            shared_memory.buf[:8] = struct.pack("!I", lock_value) + b'\x00' * 4
+            break
 
-    # print("  setf", lock_value, os.getpid(), threading.get_ident())
+        # If flag is in wait_for, we try to acquire the lock
+        if flag in wait_for:
+            _data = struct.pack("!I", 16) + lock_id
+            shared_memory.buf[:8] = _data
+        else:
+            time.sleep(sleep)
 
 
 def _remove_shm_from_resource_tracker():
@@ -248,14 +167,13 @@ class SharedMemoryProtocol:
         self._shared_memory = SharedMemory(name=self._shared_memory_name,
                                            size=self._shared_memory_size, 
                                            create=True)
-        _shm_set_flag(self._shared_memory, 0)
+        self._shared_memory.buf[:8] = b"\x00" * 8
 
     def wait_for_worker(self, timeout=None):
         assert self._is_host is not None, "Not started as host or worker"
 
         # Establish the protocol
-        _shm_wait_for(self._shared_memory, [3], timeout=timeout)
-        msg = _shm_recv(self._shared_memory)
+        msg = _shm_recv(self._shared_memory, wait_for=[3], timeout=timeout)
         assert msg["message"] == "ready", f"Unexpected message {msg['message']}"
         transport_options = msg["transport_options"]
         transport_options["pickle_protocol"] = min(
@@ -264,17 +182,14 @@ class SharedMemoryProtocol:
         transport_options["pickle_use_buffers"] = (
             transport_options.get("pickle_use_buffers", False) and 
             transport_options["pickle_protocol"] >= 5)
-        _shm_wait_for(self._shared_memory, [6])
+        old_transport_options = self._transport_options
+        self._transport_options = transport_options
+        self._has_server = True
+        self._connected = True
         _shm_send(self._shared_memory, {
             "message": "ready_ack",
             "transport_options": transport_options,
-        }, 1, **self._transport_options)
-        self._transport_options = transport_options
-        self._has_server = True
-
-        # Start the communication by releasing the channel
-        self._connected = True
-        _shm_set_flag(self._shared_memory, 0)
+        }, 1, wait_for=[6], set_flag=0, **old_transport_options)
 
     def get_worker_configuration(self):
         assert self._is_host is True, "Not started as host"
@@ -293,7 +208,6 @@ class SharedMemoryProtocol:
         # pipe_out_interrupt = os.open(path + "/pipe-out-interrupt", os.O_RDONLY)
         # pipe_in = os.open(path + "/pipe-in", os.O_WRONLY)
 
-        _shm_wait_for(self._shared_memory, [0])
         _shm_send(self._shared_memory, { 
             "message": "ready",
             "transport_options": {
@@ -301,10 +215,8 @@ class SharedMemoryProtocol:
                 "pickle_use_buffers": pickle.HIGHEST_PROTOCOL >= 5,
                 "shared_memory_size": self._shared_memory_size,
             },
-        }, 3, **self._transport_options)
-        _shm_set_flag(self._shared_memory, 6)
-        _shm_wait_for(self._shared_memory, [1])
-        setup_response = _shm_recv(self._shared_memory)
+        }, 3, wait_for=[0], set_flag=6, **self._transport_options)
+        setup_response = _shm_recv(self._shared_memory, wait_for=[1])
         if setup_response["message"] != "ready_ack":
             raise RuntimeError(f"Unexpected message {setup_response['message']}")
         self._connected = True
@@ -332,24 +244,21 @@ class SharedMemoryProtocol:
         assert self._is_host or not interrupt, "Only host can send interrupt messages"
         with self._protect_singlerun("send", interrupt):
             channel = 3 if not self._is_host else (2 if interrupt else 1)
-            _shm_wait_for(self._shared_memory, [0])
-            _shm_send(self._shared_memory, message, channel, **self._transport_options)
-            _shm_set_flag(self._shared_memory, 0)
+            _shm_send(self._shared_memory, message, channel, wait_for=[0], set_flag=0, **self._transport_options)
 
     def receive(self, interrupt=False):
         assert self._is_host is not None, "Not started as host or worker"
         assert not self._is_host or not interrupt, "Only worker can receive interrupt messages"
         with self._protect_singlerun("receive", interrupt):
             channel = 3 if self._is_host else (2 if interrupt else 1)
-            _shm_wait_for(self._shared_memory, [channel])
-            return _shm_recv(self._shared_memory)
+            return _shm_recv(self._shared_memory, wait_for=[channel])
 
     def close(self):
         if self._is_host is None:
             return
         if self._shared_memory is not None:
             for _ in range(100):
-                _shm_set_flag(self._shared_memory, 7)
+                self._shared_memory.buf[:8] = struct.pack("!II", 7, 0)
             if self._is_host:
                 self._shared_memory.unlink()
             self._shared_memory.close()
