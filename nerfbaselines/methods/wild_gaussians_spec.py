@@ -15,15 +15,14 @@ WildGaussiansMethodSpec: MethodSpec = {
 git clone https://github.com/jkulhanek/wild-gaussians.git
 cd wild-gaussians
 git checkout 481e46b478fc259e991bf4873b139c0ad33613ec
-conda install -y --override-channels -c nvidia/label/cuda-11.8.0 cuda-toolkit
 if [ "$NERFBASELINES_DOCKER_BUILD" != "1" ]; then
 conda install -y gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
 fi
+conda install -y --override-channels -c nvidia/label/cuda-11.8.0 cuda-toolkit
 pip install --upgrade pip
-pip install 'numpy<2.0.0' -r requirements.txt
-LIBRARY_PATH="$CONDA_PREFIX/lib/stubs" pip install -e ./submodules/diff-gaussian-rasterization ./submodules/simple-knn
+pip install opencv-python-headless 'numpy<2.0.0' -r requirements.txt
+LIBRARY_PATH="$CONDA_PREFIX/lib/stubs" pip install -e ./submodules/diff-gaussian-rasterization ./submodules/simple-knn --no-build-isolation
 pip install -e .
-pip install opencv-python-headless
 
 function nb-post-install () {
 if [ "$NERFBASELINES_DOCKER_BUILD" = "1" ]; then
