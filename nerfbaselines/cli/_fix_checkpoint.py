@@ -133,16 +133,19 @@ def fix_checkpoint(checkpoint_path, new_checkpoint, load_train_dataset_fn, backe
             raise e
 
 
-@click.command("fix-checkpoint", cls=NerfBaselinesCliCommand)
-@click.option("--checkpoint", type=str, default=None, required=True)
-@click.option("--data", type=str, default=None, required=True)
-@click.option("--method", "method_name", type=str, default=None, required=False)
+@click.command("fix-checkpoint", cls=NerfBaselinesCliCommand, help=(
+    "Fix a checkpoint created from either an older `nerfbaselines` version or a checkpoint created directly by using the authors' code. "
+    "This command will update the checkpoint to the latest format and save it to a new directory."
+))
+@click.option("--checkpoint", type=str, default=None, required=True, help="Path to the current checkpoint directory.")
+@click.option("--data", type=str, default=None, required=True, help=(
+    "A path to the dataset the model was trained on. The dataset can be either an external dataset (e.g., a path starting with `external://{dataset}/{scene}`) or a local path to a dataset. If the dataset is an external dataset, the dataset will be downloaded and cached locally. If the dataset is a local path, the dataset will be loaded directly from the specified path."))
+@click.option("--method", "method_name", type=str, default=None, required=False, help="Method to use. If not provided, the method name will be read from the checkpoint (if `nb-info.json` file is present).")
 @click.option("--new-checkpoint", type=str, required=True, help="Path to save the new checkpoint")
-@click.option("--verbose", "-v", is_flag=True)
-@click.option("--set", "config_overrides", help="Override a parameter in the method.", type=SetParamOptionType(), multiple=True, default=None)
-@click.option("--presets", type=TupleClickType(), multiple=True, default=None, help=(
-    "Apply a comma-separated list of preset to the method. If no `--presets` is supplied, or if a special `@auto` preset is present,"
-    " the method's default presets are applied (based on the dataset metadata)."))
+@click.option("--set", "config_overrides", type=SetParamOptionType(), multiple=True, default=None, help=(
+    "Override parameters used when training the original checkpoint. The argument should be in the form of `--set key=value`. This argument can be used multiple times to override multiple parameters. And it is specific to each method."))
+@click.option("--presets", type=TupleClickType(), default=None, help=(
+    "A comma-separated list of presets used when training the original checkpoint."))
 @click_backend_option()
 @handle_cli_error
 def main(checkpoint: str, data: str, method_name: str, backend_name, new_checkpoint: str, config_overrides=None, presets=None):

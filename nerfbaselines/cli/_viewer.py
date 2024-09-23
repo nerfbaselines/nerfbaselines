@@ -11,10 +11,17 @@ from nerfbaselines.io import open_any_directory, deserialize_nb_info
 from ._common import handle_cli_error, click_backend_option, NerfBaselinesCliCommand
 
 
-@click.command("viewer", cls=NerfBaselinesCliCommand)
-@click.option("--checkpoint", default=None, required=False)
-@click.option("--data", type=str, default=None, required=False)
-@click.option("--port", type=int, default=6006)
+@click.command("viewer", cls=NerfBaselinesCliCommand, short_help="Start the viewer", help=(
+    "Start the viewer. If a checkpoint is provided, the viewer will load the model. "
+    "If a data path is provided, the viewer will load the dataset. "
+    "Note that even then the checkpoint is provided, providing the `--data` argument is still recommended as it will improve viewing experience."
+))
+@click.option("--checkpoint", default=None, required=False, type=str, help=(
+    "Path to the checkpoint directory. It can also be a remote path (starting with `http(s)://`) or be a path inside a zip file."
+))
+@click.option("--data", type=str, default=None, required=False, help=(
+    "A path to the dataset to load in the viewer. The dataset can be either an external dataset (e.g., a path starting with `external://{dataset}/{scene}`) or a local path to a dataset. If the dataset is an external dataset, the dataset will be downloaded and cached locally. If the dataset is a local path, the dataset will be loaded directly from the specified path."))
+@click.option("--port", type=int, default=6006, help="Port to run the viewer on. Defaults to 6006.")
 @click_backend_option()
 @handle_cli_error
 def viewer_command(checkpoint: str, data, backend_name, port=6006):

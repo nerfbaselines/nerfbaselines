@@ -390,7 +390,7 @@ register({{
 }})
 """)
 
-    command = "nerfbaselines install-method --spec {tmp_path}test3.py"
+    command = "nerfbaselines install --spec {tmp_path}test3.py"
     command = [x.replace("{tmp_path}", str(tmp_path / "input") + os.path.sep) for x in command.split()]
 
     # Patch sys.argv

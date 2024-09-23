@@ -268,8 +268,8 @@ All tests passed:
 ## Release the method
 Once you are satisfied with the method, you can open a **pull request** to merge the method to NerfBaselines repository.
 Alternatively, you can only release the method spec in your repository and instruct users to install it
-using `nerfbaselines install-method` command.
-The `install-method` command is a more permanent way to install the method (as opposed to using the 
+using `nerfbaselines install` command.
+The `nerfbaselines install` command is a more permanent way to install the method (as opposed to using the 
 `NERFBASELINES_REGISTER` environment variable), and it will copy the method spec to the NerfBaselines installation directory.
 However, we **strongly recommend** opening a pull request to merge the method to NerfBaselines repository as 
 it will make the method more discoverable and easier to use for other users.

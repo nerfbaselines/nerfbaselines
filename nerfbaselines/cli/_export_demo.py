@@ -16,11 +16,20 @@ from ._common import SetParamOptionType, NerfBaselinesCliCommand
     "Export a demo from a trained model. "
     "The interactive demo will be a website (index.html) that can be opened in the browser. "
     "Only some methods support this feature."))
-@click.option("--checkpoint", type=str, required=True)
-@click.option("--output", "-o", type=str, required=True)
-@click.option("--data", required=False, default=None)
-@click.option("--train-embedding", type=int, default=None, help="Select the train embedding index to use for the demo.")
-@click.option("--set", "options", help="Set a parameter for demo export.", type=SetParamOptionType(), multiple=True, default=None)
+@click.option("--checkpoint", default=None, required=False, type=str, help=(
+    "Path to the checkpoint directory. It can also be a remote path (starting with `http(s)://`) or be a path inside a zip file."
+))
+@click.option("--output", "-o", type=str, required=True, help="Output directory for the demo.")
+@click.option("--data", type=str, default=None, required=False, help=(
+    "A path to the dataset to load which matches the dataset used to train the model. "
+    "The dataset can be either an external dataset (e.g., a path starting with `external://{dataset}/{scene}`) or a local path to a dataset. If the dataset is an external dataset, the dataset will be downloaded and cached locally. "
+    "If the dataset is a local path, the dataset will be loaded directly from the specified path. "
+    "While only some methods require the dataset, it is recommended to always specify it as it can improve viewing experience."))
+@click.option("--train-embedding", type=int, default=None, help="Select the train embedding index to use for the demo (if the method supports appearance modelling.")
+@click.option("--set", "options", type=SetParamOptionType(), multiple=True, default=None, help=(
+    "Set a parameter for demo export. " 
+    "The argument should be in the form of `--set key=value` and can be used multiple times to set multiple parameters. "
+    "The parameters are specific to each method."))
 @click_backend_option()
 def main(*, checkpoint: str, output: str, backend_name, data=None, train_embedding=None, options):
     checkpoint = str(checkpoint)

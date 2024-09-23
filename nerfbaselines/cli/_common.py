@@ -444,7 +444,7 @@ def handle_cli_error(fn):
 
 def click_backend_option():
     all_backends = list(get_args(BackendName))
-    return click.option("--backend", "backend_name", type=click.Choice(all_backends), envvar="NERFBASELINES_BACKEND")
+    return click.option("--backend", "backend_name", type=click.Choice(all_backends), envvar="NERFBASELINES_BACKEND", help="The backend to use. If not specified, a supported installed  backend is selected automatically. Note, the backend can be specified via the NERFBASELINES_BACKEND environment variable.")
 
 
 def warn_if_newer_version_available():
@@ -490,7 +490,7 @@ class NerfBaselinesCliCommand(click.Command):
 
     def get_params(self, ctx):
         rv = list(super().get_params(ctx))
-        rv.insert(len(rv)-1, click.Option(("--verbose", "-v"), is_flag=True, help="Enable verbose logging"))
+        rv.insert(len(rv)-1, click.Option(("--verbose", "-v"), is_flag=True, help="Enable verbose logging."))
         return rv
 
     def invoke(self, ctx):

@@ -19,20 +19,24 @@ from nerfbaselines import backends
 from ._common import SetParamOptionType, TupleClickType, IndicesClickType, handle_cli_error, click_backend_option, NerfBaselinesCliCommand
 
 
-@click.command("train", cls=NerfBaselinesCliCommand)
+@click.command("train", cls=NerfBaselinesCliCommand, help=(
+    "Train a model of a specified method on a dataset. The method is specified by the `--method` argument, and the dataset is specified by the `--data` argument. The training will periodically save checkpoints, evaluate the intermediate model on a few images, and evaluate the final model on all images. The training progress will be logged to the console and optionally to TensorBoard, Weights & Biases, or another supported logger. The final model and predictions can be saved as an output artifact which can be uploaded to the web benchmark. The training can be resumed from a checkpoint by specifying the `--checkpoint` argument. The method's parameters can be overridden using the `--set` argument, and the method's presets can be applied using the `--presets` argument. The `--set` and `--presets` arguments can be used multiple times to apply multiple overrides and presets and are specific to each method."
+), short_help="Train a model")
 @click.option("--method", "method_name", type=click.Choice(sorted(nerfbaselines.get_supported_methods())), required=True, help="Method to use")
-@click.option("--checkpoint", type=click.Path(path_type=str), default=None)
-@click.option("--data", type=str, required=True)
-@click.option("--output", type=str, default=".")
-@click.option("--logger", type=click.Choice(["none", "wandb", "tensorboard", "wandb,tensorboard"]), default="tensorboard", help="Logger to use. Defaults to tensorboard.")
-@click.option("--save-iters", type=IndicesClickType(), default=Indices([-1]), help="When to save the model")
-@click.option("--eval-few-iters", type=IndicesClickType(), default=Indices.every_iters(2_000), help="When to evaluate on few images")
-@click.option("--eval-all-iters", type=IndicesClickType(), default=Indices([-1]), help="When to evaluate all images")
+@click.option("--checkpoint", type=click.Path(path_type=str), default=None, help="Path to a checkpoint to resume training from.")
+@click.option("--data", type=str, required=True, help=(
+    "A path to the dataset to train on. The dataset can be either an external dataset (e.g., a path starting with `external://{dataset}/{scene}`) or a local path to a dataset. If the dataset is an external dataset, the dataset will be downloaded and cached locally. If the dataset is a local path, the dataset will be loaded directly from the specified path."))
+@click.option("--output", type=str, default=".", help="Output directory to save the training results", show_default=True)
+@click.option("--logger", type=click.Choice(["none", "wandb", "tensorboard", "wandb,tensorboard"]), default="tensorboard", help="Logger to use.", show_default=True)
+@click.option("--save-iters", type=IndicesClickType(), default=Indices([-1]), help="When to save the model", show_default=True)
+@click.option("--eval-few-iters", type=IndicesClickType(), default=Indices.every_iters(2_000), help="When to evaluate on few images", show_default=True)
+@click.option("--eval-all-iters", type=IndicesClickType(), default=Indices([-1]), help="When to evaluate all images", show_default=True)
 @click.option("--disable-output-artifact", "generate_output_artifact", help="Disable producing output artifact containing final model and predictions.", default=None, flag_value=False, is_flag=True)
 @click.option("--force-output-artifact", "generate_output_artifact", help="Force producing output artifact containing final model and predictions.", default=None, flag_value=True, is_flag=True)
-@click.option("--set", "config_overrides", help="Override a parameter in the method.", type=SetParamOptionType(), multiple=True, default=None)
+@click.option("--set", "config_overrides", type=SetParamOptionType(), multiple=True, default=None, help=(
+    "Override a parameter in the method. The argument should be in the form of `--set key=value`. This argument can be used multiple times to override multiple parameters. And it is specific to each method."))
 @click.option("--presets", type=TupleClickType(), default=None, help=(
-    "Apply a comma-separated list of preset to the method. If no `--presets` is supplied, or if a special `@auto` preset is present,"
+    "Apply a comma-separated list of preset to the method. If no `--presets` is supplied, or if a special `@auto` preset is present (default if no presets are specified),"
     " the method's default presets are applied (based on the dataset metadata)."))
 @click_backend_option()
 @handle_cli_error

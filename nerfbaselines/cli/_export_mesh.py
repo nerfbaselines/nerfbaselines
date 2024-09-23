@@ -13,12 +13,27 @@ from ._common import click_backend_option
 from ._common import setup_logging, SetParamOptionType
 
 
-@click.command("export-mesh", help="Export a mesh from a trained model. Only some methods support this feature.")
-@click.option("--checkpoint", type=str, required=True, help="Path to the checkpoint directory. This directory should contain the nb-info.json file.")
-@click.option("--output", "-o", type=str, required=True, help="Path to a directory to save the mesh.")
+@click.command("export-mesh", short_help="Export mesh from model checkpoint", help=(
+    "Export a mesh from a trained model. "
+    "This usually involves rendering all training cameras and fusing the depth maps and normals into a mesh. "
+    "The mesh will be saved in the specified output directory, usually as `mesh.ply` file, but different methods can export other files or file formats. "
+    "Note, only some methods support this feature."
+))
+@click.option("--checkpoint", default=None, required=False, type=str, help=(
+    "Path to the checkpoint directory. It can also be a remote path (starting with `http(s)://`) or be a path inside a zip file."
+))
+@click.option("--output", "-o", type=str, required=True, help="Path to a directory to save the mesh (usually as a `mesh.ply` file).")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging")
-@click.option("--data", required=False, default=None, help="Path to a dataset to use for exporting the mesh. This is required for some methods.")
-@click.option("--set", "options", help="Set a parameter for mesh export.", type=SetParamOptionType(), multiple=True, default=None)
+@click.option("--data", type=str, default=None, required=False, help=(
+    "A path to the dataset to load which matches the dataset used to train the model. "
+    "The dataset can be either an external dataset (e.g., a path starting with `external://{dataset}/{scene}`) or a local path to a dataset. If the dataset is an external dataset, the dataset will be downloaded and cached locally. "
+    "If the dataset is a local path, the dataset will be loaded directly from the specified path. "
+    "While required for most, some methods do not require the dataset to export a mesh (e.g. `colmap`)."))
+@click.option("--set", "options", type=SetParamOptionType(), multiple=True, default=None, help=(
+    "Set a parameter for mesh export. " 
+    "The argument should be in the form of `--set key=value` and can be used multiple times to set multiple parameters. "
+    "The parameters will override the parameters stored in the checkpoint. "
+    "The parameters are specific to each method."))
 @click_backend_option()
 def export_mesh_command(*, checkpoint: str, output: str, backend_name, data=None, options, verbose=False):
     checkpoint = str(checkpoint)

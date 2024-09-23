@@ -15,11 +15,19 @@ from nerfbaselines.io import open_any_directory, deserialize_nb_info, load_traje
 from ._common import handle_cli_error, click_backend_option, NerfBaselinesCliCommand
 
 
-@click.command("render", cls=NerfBaselinesCliCommand)
-@click.option("--checkpoint", type=str, default=None, required=True)
-@click.option("--data", type=str, default=None, required=True)
-@click.option("--output", type=str, default="predictions", help="output directory or tar.gz file")
-@click.option("--split", type=str, default="test")
+@click.command("render", cls=NerfBaselinesCliCommand, short_help="Render images from a trained model", help=(
+    "Render images from a trained model for all cameras in the dataset. "
+    "The images will be saved in the specified output directory. "
+    "The correct evaluation protocol will be used to render the images. "
+    "E.g., for Photo Tourism, appearance embeddings will be optimized before the images are rendered."
+))
+@click.option("--checkpoint", default=None, required=True, type=str, help=(
+    "Path to the checkpoint directory. It can also be a remote path (starting with `http(s)://`) or be a path inside a zip file."
+))
+@click.option("--data", type=str, required=True, help=(
+    "A path to the dataset to render the cameras from. The dataset can be either an external dataset (e.g., a path starting with `external://{dataset}/{scene}`) or a local path to a dataset. If the dataset is an external dataset, the dataset will be downloaded and cached locally. If the dataset is a local path, the dataset will be loaded directly from the specified path."))
+@click.option("--output", type=str, default="predictions", help="Output directory or tar.gz/zip file.")
+@click.option("--split", type=str, default="test", show_default=True, help="Dataset split to render.")
 @click_backend_option()
 @handle_cli_error
 def render_command(checkpoint: str, data: str, output: str, split: str, backend_name):
@@ -65,12 +73,19 @@ def render_command(checkpoint: str, data: str, output: str, split: str, backend_
             pass
 
 
-@click.command("render-trajectory", cls=NerfBaselinesCliCommand)
-@click.option("--checkpoint", type=str, required=True)
-@click.option("--trajectory", type=str, required=True)
+@click.command("render-trajectory", cls=NerfBaselinesCliCommand, short_help="Render images from a trained model for a trajectory", help=(
+    "Render images from a trained model for a trajectory. "
+    "The trajectory should be a JSON file obtained from the viewer (`nerfbaselines viewer`). "
+    "The output can be a video or a directory with images. "
+    "Furthermore, one or multiple outputs can be rendered (e.g., color, depth, accumulation)."
+    "If multiple outputs are specified, the `--output` argument should contain a placeholder `{output}` which will be replaced with the output name and multiple files will be generated (unless the output is a directory or an archive, where all outputs can be placed to a single archive)."))
+@click.option("--checkpoint", default=None, required=True, type=str, help=(
+    "Path to the checkpoint directory. It can also be a remote path (starting with `http(s)://`) or be a path inside a zip file."
+))
+@click.option("--trajectory", type=str, required=True, help="Path to the trajectory JSON file.")
 @click.option("--output", type=click.Path(path_type=str), default=None, help="Output a mp4/directory/tar.gz file. Use '{output}' as a placeholder for output name.")
-@click.option("--resolution", type=str, default=None, help="Override the resolution of the output")
-@click.option("--output-names", type=str, default="color", help="Comma separated list of output types (e.g. color,depth,accumulation)")
+@click.option("--resolution", type=str, default=None, help="Override the resolution of the output. Use 'widthxheight' format (e.g., 1920x1080). If one of the dimensions is negative, the aspect ratio will be preserved and the dimension will be rounded to the nearest multiple of the absolute value of the dimension.")
+@click.option("--output-names", type=str, default="color", help="Comma separated list of output types (e.g. color,depth,accumulation). See the method's `get_info()['supported_outputs']` for supported outputs.")
 @click_backend_option()
 @handle_cli_error
 def render_trajectory_command(checkpoint: Union[str, Path], 

@@ -1,4 +1,3 @@
-import tqdm
 import itertools
 import numpy as np
 import pprint
