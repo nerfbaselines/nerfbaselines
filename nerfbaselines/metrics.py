@@ -50,7 +50,8 @@ def dmpix_ssim(
     perform any colorspace transform. If the input is in a color space, then it
     will compute the average SSIM.
 
-    NOTE: This function exactly matches dm_pix.ssim
+    Note: 
+        This function exactly matches dm_pix.ssim
 
     Args:
         a: First image (or set of images).
@@ -195,7 +196,8 @@ def torchmetrics_ssim(
 ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
     """Compute Structural Similarity Index Measure.
 
-    NOTE: this metric exactly matches torchmetrics.ssim
+    Note: 
+        This metric exactly matches torchmetrics.ssim
 
     Args:
         preds: estimated image

@@ -246,20 +246,45 @@ def _undistort(camera_models: TTensor, distortion_params: TTensor, uv: TTensor, 
 
 
 def get_image_pixels(image_sizes: TTensor) -> TTensor:
+    """
+    Get the pixel coordinates of all pixels of an image.
+    The output is flattened array of all pixel coordinates in all images (shape [num_pixels, 2]).
+
+    Args:
+        image_sizes: [batch..., 2]
+
+    Returns:
+        Coordinates (x,y) in flattened format [num_pixels, 2]
+    """
     xnp = _get_xnp(image_sizes)
-    options = {}
+    options = dict(dtype=image_sizes.dtype)
     if len(image_sizes.shape) == 1:
         w, h = image_sizes
         if xnp.__name__ == "torch" and not TYPE_CHECKING:
-            options = {"device": image_sizes.device}
+            options = {**options, "device": image_sizes.device}
         return xnp.stack(xnp.meshgrid(xnp.arange(w, **options), xnp.arange(h, **options), indexing="xy"), -1).reshape(-1, 2)
     return xnp.concatenate([get_image_pixels(s) for s in image_sizes])
 
 
 def get_rays(cameras: GenericCameras[TTensor], xy: TTensor) -> Tuple[TTensor, TTensor]:
+    """
+    Gets correctly projected rays from pixel coordinates. This function is useful for raymarching.
+    The function is similar to `unproject` but it offsets the pixel coordinates by 0.5 to get the center of the pixel.
+    The shape of the output rays is the broadcasted shape of the input pixel coordinates and the camera poses:
+
+    * For cameras and xy shapes () and (N, 2), the outputs shapes are (N, 3).
+    * For cameras and xy shapes (N) and (N, 2), the outputs shapes are (N, 3).
+    * For cameras and xy shapes (B..., N) and (B..., N, 2), the outputs shapes are (B..., N, 3).
+
+    Args:
+        cameras: Cameras
+        xy: Pixel coordinates
+
+    Returns:
+        A tuple of ray origins and ray directions.
+    """
     xnp = _get_xnp(xy)
     assert xy.shape[-1] == 2
-    assert xy.shape[0] == len(cameras)
     kind = getattr(xy.dtype, "kind", None)
     if kind is not None:
         assert kind in {"i", "u"}, "xy must be integer"
@@ -269,6 +294,21 @@ def get_rays(cameras: GenericCameras[TTensor], xy: TTensor) -> Tuple[TTensor, TT
 
 
 def unproject(cameras: GenericCameras[TTensor], xy: TTensor) -> Tuple[TTensor, TTensor]:
+    """
+    Unproject pixel coordinates to rays in world coordinates.
+    The shape of the output rays is the broadcasted shape of the input pixel coordinates and the camera poses:
+
+    * For cameras and xy shapes () and (N, 2), the outputs shapes are (N, 3).
+    * For cameras and xy shapes (N) and (N, 2), the outputs shapes are (N, 3).
+    * For cameras and xy shapes (B..., N) and (B..., N, 2), the outputs shapes are (B..., N, 3).
+
+    Args:
+        cameras: Cameras
+        xy: Pixel coordinates
+
+    Returns:
+        A tuple of ray origins and ray directions.
+    """
     xnp = _get_xnp(xy)
     assert xy.shape[-1] == 2
     assert _is_broadcastable(xy.shape[:-1], cameras.poses.shape[:-2]), \
@@ -276,27 +316,47 @@ def unproject(cameras: GenericCameras[TTensor], xy: TTensor) -> Tuple[TTensor, T
     if hasattr(xy.dtype, "kind"):
         if not TYPE_CHECKING:
             assert xy.dtype.kind == "f"
+    intrinsics = cameras.intrinsics
+    distortion_parameters = cameras.distortion_parameters
+    camera_models = cameras.camera_models
+    poses = cameras.poses
+
     fx: TTensor
     fy: TTensor
     cx: TTensor
     cy: TTensor
-    fx, fy, cx, cy = xnp.moveaxis(cameras.intrinsics, -1, 0)
+    fx, fy, cx, cy = xnp.moveaxis(intrinsics, -1, 0)
     x = xy[..., 0]
     y = xy[..., 1]
     u = (x - cx) / fx
     v = (y - cy) / fy
 
     uv = xnp.stack((u, v), -1)
-    uv = _undistort(cameras.camera_models, cameras.distortion_parameters, uv, xnp=xnp)
+    uv = _undistort(camera_models, distortion_parameters, uv, xnp=xnp)
     directions = xnp.concatenate((uv, xnp.ones_like(uv[..., :1])), -1)
 
-    rotation = cameras.poses[..., :3, :3]  # (..., 3, 3)
+    rotation = poses[..., :3, :3]  # (..., 3, 3)
     directions = (directions[..., None, :] * rotation).sum(-1)
-    origins = xnp.broadcast_to(cameras.poses[..., :3, 3], directions.shape)
+    origins = xnp.broadcast_to(poses[..., :3, 3], directions.shape)
     return origins, directions
 
 
 def project(cameras: GenericCameras[TTensor], xyz: TTensor) -> TTensor:
+    """
+    Project 3D points to pixel coordinates.
+    The shape of the output pixel coordinates is the broadcasted shape of the input 3D points and the camera poses:
+
+    * For cameras and xyz shapes () and (N, 3), the output has shape (N, 2).
+    * For cameras and xyz shapes (N) and (N, 3), the output has shape (N, 2).
+    * For cameras and xyz shapes (B..., N) and (B..., N, 3), the output has shape (B..., N, 2).
+
+    Args:
+        cameras: Cameras
+        xyz: 3D points
+
+    Returns:
+        Pixel coordinates
+    """
     xnp = _get_xnp(xyz)
     eps = xnp.finfo(xyz.dtype).eps  # type: ignore
     assert xyz.shape[-1] == 3
@@ -325,6 +385,16 @@ def project(cameras: GenericCameras[TTensor], xyz: TTensor) -> TTensor:
 
 
 def interpolate_bilinear(image: TTensor, xy: TTensor) -> TTensor:
+    """
+    Interpolates an image at pixel coordinates using bilinear interpolation.
+
+    Args:
+        image: Image tensor [H, W, C]
+        xy: Pixel coordinates [H, W, 2]
+    Returns:
+        Interpolated image [H, W, C]
+    """
+
     xnp = _get_xnp(image)
     if xnp.__name__ == "torch":
         if not sys.modules["torch"].is_floating_point(xy):
@@ -383,6 +453,18 @@ def interpolate_bilinear(image: TTensor, xy: TTensor) -> TTensor:
 def warp_image_between_cameras(cameras1: GenericCameras[np.ndarray], 
                                cameras2: GenericCameras[np.ndarray],
                                images: np.ndarray):
+    """
+    Warp an image from cameras1 to cameras2 by mapping pixels from cameras2 to cameras1.
+
+    Args:
+        cameras1: Cameras
+        cameras2: Cameras
+        images: Images tensor
+    
+    Returns:
+        Warped images
+    """
+
     xnp = _get_xnp(images)
     assert cameras1.image_sizes is not None, "cameras1 must have image sizes"
     assert cameras2.image_sizes is not None, "cameras2 must have image sizes"
@@ -410,12 +492,19 @@ def warp_image_between_cameras(cameras1: GenericCameras[np.ndarray],
 
     w, h = cam2.image_sizes
     xy = get_image_pixels(cam2.image_sizes)
-    xy = xy.astype(xnp.float32) + 0.5
 
     # Camera models assume that the upper left pixel center is (0.5, 0.5).
+    xy = xy.astype(xnp.float32) + 0.5
+
+    # Replace poses with empty poses
     empty_poses = xnp.eye(4, dtype=cam2.poses.dtype)[:3, :4]
-    _, cam_point = unproject(cam2.replace(poses=empty_poses)[None], xy)
-    source_point = project(cam1.replace(poses=empty_poses)[None], cam_point)
+    cam2 = cam2.replace(poses=empty_poses)
+    cam1 = cam1.replace(poses=empty_poses)
+    
+    # Unproject and reproject back
+    _, cam_point = unproject(cam2[None], xy)
+    source_point = project(cam1[None], cam_point)
+
     # Undo 0.5 offset
     source_point -= 0.5
 
@@ -431,6 +520,15 @@ def warp_image_between_cameras(cameras1: GenericCameras[np.ndarray],
 
 
 def undistort_camera(camera: Cameras):
+    """
+    Undistort cameras.
+
+    Args:
+        camera: Cameras
+    
+    Returns:
+        Pinhole cameras
+    """
     assert camera.image_sizes is not None, "Camera must have image sizes"
     # xnp = _get_xnp(camera.image_sizes)
     original_camera = camera
