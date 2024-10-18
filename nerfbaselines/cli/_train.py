@@ -79,6 +79,9 @@ def train_command(
                 sys.exit(1)
             method_name = info["method"]
 
+        # Print started training
+        logging.info(f"Started training, version: {nerfbaselines.__version__}, method: {method_name}")
+
         # Prepare the output directory
         output_path = stack.enter_context(open_any_directory(output, "w"))
         stack.enter_context(backends.mount(output_path, output_path))
