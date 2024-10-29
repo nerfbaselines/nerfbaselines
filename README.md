@@ -164,6 +164,7 @@ Detailed results are available on the project page: [https://nerfbaselines.githu
 | SeaThru-NeRF              | ❔        | ❔        | ❔           | ❔         | ❔            | 🥇 gold      | ❔                |
 | TensoRF                   | 🥇 gold   | 🥇 gold   | ❌           | ❔         | ❔            | ❔           | ❔                |
 | Tetra-NeRF                | 🥈 silver | ❔        | 🥈 silver    | ❔         | ❔            | ❔           | ❔                |
+| Water-Splatting           | ❔        | ❔        | ❔           | ❔         | ❔            | 🥇 gold      | ❔                |
 | WildGaussians             | ❔        | ❔        | ❔           | ❔         | 🥇 gold       | ❔           | ❔                |
 | Zip-NeRF                  | 🥇 gold   | ❌        | 🥇 gold      | 🥇 gold    | ❔            | ❔           | ❔                |
 
