@@ -628,7 +628,7 @@ class GSplat(Method):
         Ks = torch.from_numpy(np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])).float().to(device)
         width, height = camera.image_sizes
         dataset = gs_Dataset.preprocess_images(dataset)
-        pixels = torch.from_numpy(dataset["images"][0]).float().to(device)[None].div(255.)
+        pixels = torch.from_numpy(dataset["images"][0]).float().to(device).div(255.)
         # Extend gsplat, handle sampling masks
         sampling_masks = None
         _dataset_sampling_masks = dataset.get("sampling_masks")
@@ -663,9 +663,9 @@ class GSplat(Method):
                 if sampling_masks is not None:
                     colors = colors * sampling_masks + colors.detach() * (1.0 - sampling_masks)
 
-                l1loss = F.l1_loss(colors, pixels)
+                l1loss = F.l1_loss(colors, pixels[None])
                 ssimloss = 1.0 - self.runner.ssim(
-                    pixels.permute(0, 3, 1, 2), colors.permute(0, 3, 1, 2)
+                    pixels[None].permute(0, 3, 1, 2), colors.permute(0, 3, 1, 2)
                 )
                 loss = l1loss * (1.0 - cfg.ssim_lambda) + ssimloss * cfg.ssim_lambda
                 l1losses.append(l1loss.item())
