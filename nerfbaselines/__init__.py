@@ -65,4 +65,10 @@ from ._method_utils import (
 )
 
 # We require the __version__ import - the package needs to be installed
-from ._version import __version__  # noqa
+try:
+    from ._version import __version__  # noqa
+except ImportError:
+    import sys
+    print("Failed to import version from _version.py. Make sure the package was installed correctly by following the official instructions.", flush=True, file=sys.stderr)
+    del sys
+    __version__ = "develop"
