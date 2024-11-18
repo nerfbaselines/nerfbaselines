@@ -16,7 +16,7 @@ from nerfbaselines.training import (
 )
 from nerfbaselines.io import open_any_directory, deserialize_nb_info
 from nerfbaselines import backends
-from ._common import SetParamOptionType, TupleClickType, IndicesClickType, handle_cli_error, click_backend_option, NerfBaselinesCliCommand
+from ._common import SetParamOptionType, TupleClickType, IndicesClickType, click_backend_option, NerfBaselinesCliCommand
 
 
 @click.command("train", cls=NerfBaselinesCliCommand, help=(
@@ -39,7 +39,6 @@ from ._common import SetParamOptionType, TupleClickType, IndicesClickType, handl
     "Apply a comma-separated list of preset to the method. If no `--presets` is supplied, or if a special `@auto` preset is present (default if no presets are specified),"
     " the method's default presets are applied (based on the dataset metadata)."))
 @click_backend_option()
-@handle_cli_error
 def train_command(
     method_name,
     checkpoint,

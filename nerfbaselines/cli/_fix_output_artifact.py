@@ -21,7 +21,7 @@ from nerfbaselines.io import (
 from nerfbaselines.evaluation import (
     evaluate, run_inside_eval_container, build_evaluation_protocol
 )
-from ._common import ChangesTracker, handle_cli_error, click_backend_option
+from ._common import ChangesTracker, click_backend_option
 from ._common import NerfBaselinesCliCommand
 from ._fix_checkpoint import fix_checkpoint
 
@@ -111,7 +111,6 @@ def build_dir_tree(path):
 @click.option("--force", is_flag=True)
 @click.option("--inplace", is_flag=True)
 @click_backend_option()
-@handle_cli_error
 def main(input: str,
          data=None,
          new_artifact=None,

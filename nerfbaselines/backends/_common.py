@@ -1,4 +1,5 @@
 import os
+import logging
 import functools
 import sys
 import re
@@ -217,6 +218,7 @@ class SimpleBackend(Backend):
         self._instances = {}
 
     def static_call(self, function: str, *args, **kwargs):
+        logging.debug(f"Calling function {function}")
         fn, fnname = function.split(":", 1)
         fn = importlib.import_module(fn)
         for part in fnname.split("."):
@@ -225,12 +227,14 @@ class SimpleBackend(Backend):
         return fn(*args, **kwargs)
 
     def instance_call(self, instance: int, method: str, *args, **kwargs):
+        logging.debug(f"Calling method {method} on instance {instance}")
         instance = self._instances[instance]
         fn = getattr(instance, method)
         return fn(*args, **kwargs)
 
     def instance_del(self, instance: int):
-        del self._instances[instance]
+        obj = self._instances.pop(instance, None)
+        del obj
 
 
 def get_package_dependencies(extra=None, ignore: Optional[Set[str]] = None, ignore_viewer: bool = False):

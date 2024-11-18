@@ -4,7 +4,7 @@ import types
 import functools
 import importlib
 import logging
-from typing import Any, Type, cast
+from typing import Any, Type, cast, Tuple, Dict
 from contextlib import contextmanager, ExitStack
 from typing import Optional, Generator
 from nerfbaselines import Method, MethodSpec, BackendName, get_method_spec
@@ -90,19 +90,19 @@ def build_method_class(spec: MethodSpec, backend: Optional[BackendName] = None):
 
 
 @contextmanager
-def load_checkpoint(checkpoint: str, backend: Optional[BackendName] = None) -> Generator[Method, None, None]:
+def load_checkpoint(checkpoint: str, *, backend: Optional[BackendName] = None) -> Generator[Tuple[Method, Dict], None, None]:
     """
     This is a utility function to open the checkpoint directory,
     mount it, start the backend, build the model class and load the checkpoint.
     The checkpoint can be a local path, a remote path or a path inside a zip file.
-    The function returns a context manager that yields the model instance.
+    The function returns a context manager that yields the model instance and nb-info.
 
     Args:
         checkpoint: Path to the checkpoint. Can be a local path or a remote path. Can also be a path inside a zip file.
         backend: Backend name
 
     Returns:
-        Context manager that yields the model instance
+        Context manager that yields a tuple of model instance and the nb-info dictionary.
 
     """
     from nerfbaselines.io import open_any_directory, deserialize_nb_info
@@ -125,4 +125,5 @@ def load_checkpoint(checkpoint: str, backend: Optional[BackendName] = None) -> G
         method_name = nb_info["method"]
         method_spec = get_method_spec(method_name)
         method_cls = stack.enter_context(build_method_class(method_spec, backend=backend))
-        yield method_cls(checkpoint=str(checkpoint_path))
+        model = method_cls(checkpoint=str(checkpoint_path))
+        yield model, nb_info

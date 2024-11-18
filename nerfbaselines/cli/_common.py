@@ -426,7 +426,7 @@ class SetParamOptionType(click.ParamType):
         return k, v
 
 
-def handle_cli_error(fn):
+def _handle_cli_error(fn):
     @wraps(fn)
     def wrapped(*args, **kwargs):
         try:
@@ -496,4 +496,4 @@ class NerfBaselinesCliCommand(click.Command):
     def invoke(self, ctx):
         setup_logging(ctx.params.pop("verbose", False))
         warn_if_newer_version_available()
-        return super().invoke(ctx)
+        return _handle_cli_error(super().invoke)(ctx)

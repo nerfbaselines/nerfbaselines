@@ -22,8 +22,11 @@ except ImportError:
 @click.option("--output-type", type=click.Choice(["markdown", "json"]), default="markdown")
 @click.option("--method-links", type=click.Choice(get_args(MethodLink)), default="none")
 @click.option("--output", type=click.Path(file_okay=True, exists=False, dir_okay=False, path_type=str), default=None)
-def main(results: Optional[str], dataset: str, output_type="markdown", output: Optional[str] = None, method_links: MethodLink = "none"):
+@click.option("--scenes", type=str, default=None, help="Comma-separated list of scenes to include in the results.")
+def main(results: Optional[str], dataset: str, output_type="markdown", output: Optional[str] = None, method_links: MethodLink = "none", scenes=None):
     from nerfbaselines.results import compile_dataset_results, render_markdown_dataset_results_table
+
+    scenes_list = scenes.split(",") if scenes is not None else None
 
     def render_output(dataset_info):
         output_str = None
@@ -44,12 +47,12 @@ def main(results: Optional[str], dataset: str, output_type="markdown", output: O
             subprocess.check_call(f"git clone --depth=1 https://{RESULTS_REPOSITORY}".split() + [tmpdir], env={"GIT_LFS_SKIP_SMUDGE": "1"})
             if dataset is None:
                 logging.fatal("--dataset must be provided")
-            dataset_info = compile_dataset_results(Path(tmpdir), dataset)
+            dataset_info = compile_dataset_results(Path(tmpdir), dataset, scenes=scenes_list)
             render_output(dataset_info)
     elif os.path.isdir(results):
         if dataset is None:
             logging.fatal("If --results is a directory, --dataset must be provided")
-        dataset_info = compile_dataset_results(results, dataset)
+        dataset_info = compile_dataset_results(results, dataset, scenes=scenes_list)
         render_output(dataset_info)
     else:
         with open(results, "r", encoding="utf8") as f:

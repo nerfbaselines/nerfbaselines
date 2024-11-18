@@ -27,6 +27,11 @@ def mock_results(results_path, datasets, methods):
                     json.dumps(
                         {
                             "metrics_raw": {k: _encode_values([0.5, 0.1]) for k in dinfo["metrics"]},
+                            "nb_info": {"method": method },
+                            "render_dataset_metadata": {
+                                "name": dataset,
+                                "scene": scene
+                            }
                         }
                     )
                 )

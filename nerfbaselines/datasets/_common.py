@@ -729,6 +729,13 @@ def download_archive_dataset(url: str,
         shutil.move(str(output_tmp), str(output))
 
 
+def _parse_metadata(meta):
+    meta = meta.copy()
+    if "background_color" in meta and isinstance(meta["background_color"], (list, tuple)):
+        meta["background_color"] = np.array(meta["background_color"], dtype=np.uint8)
+    return meta
+
+
 def load_dataset(
         path: Union[Path, str], 
         split: str, 
@@ -795,6 +802,7 @@ def load_dataset(
     # Dataset loaded successfully
     # Now we apply the postprocessing
     # We update the metadata from nb-info.json
+    meta = _parse_metadata(meta)
     dataset_instance["metadata"].update(meta)
     if split == "train":
         # For train split, we compute additional metadata

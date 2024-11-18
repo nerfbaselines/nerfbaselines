@@ -286,7 +286,7 @@ def render_all_images(
     method: Method,
     dataset: Dataset,
     output: str,
-    description: str = "rendering all images",
+    description: Optional[str] = "rendering all images",
     nb_info: Optional[dict] = None,
     evaluation_protocol: Optional[EvaluationProtocol] = None,
 ) -> Iterable[RenderOutput]:
@@ -316,7 +316,10 @@ def render_all_images(
         for i in range(len(dataset["cameras"])):
             yield evaluation_protocol.render(method, dataset_index_select(dataset, [i]))
 
-    with tqdm(desc=description, total=len(dataset["cameras"]), dynamic_ncols=True) as progress:
+    with tqdm(desc=description or "", 
+              disable=description is None, 
+              total=len(dataset["cameras"]), 
+              dynamic_ncols=True) as progress:
         for val in _save_predictions_iterate(output,
                                              _render_all(),
                                              dataset=dataset,

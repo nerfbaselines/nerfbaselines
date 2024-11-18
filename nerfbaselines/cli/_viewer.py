@@ -8,7 +8,7 @@ from nerfbaselines.viewer import run_viser_viewer
 from nerfbaselines import get_method_spec, build_method_class
 from nerfbaselines import backends
 from nerfbaselines.io import open_any_directory, deserialize_nb_info
-from ._common import handle_cli_error, click_backend_option, NerfBaselinesCliCommand
+from ._common import click_backend_option, NerfBaselinesCliCommand
 
 
 @click.command("viewer", cls=NerfBaselinesCliCommand, short_help="Start the viewer", help=(
@@ -23,7 +23,6 @@ from ._common import handle_cli_error, click_backend_option, NerfBaselinesCliCom
     "A path to the dataset to load in the viewer. The dataset can be either an external dataset (e.g., a path starting with `external://{dataset}/{scene}`) or a local path to a dataset. If the dataset is an external dataset, the dataset will be downloaded and cached locally. If the dataset is a local path, the dataset will be loaded directly from the specified path."))
 @click.option("--port", type=int, default=6006, help="Port to run the viewer on. Defaults to 6006.")
 @click_backend_option()
-@handle_cli_error
 def viewer_command(checkpoint: str, data, backend_name, port=6006):
     with ExitStack() as stack:
         nb_info = None

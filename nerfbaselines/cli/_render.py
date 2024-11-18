@@ -12,7 +12,7 @@ from nerfbaselines import Method, get_method_spec, build_method_class
 from nerfbaselines import backends
 from nerfbaselines.evaluation import render_all_images, render_frames, trajectory_get_embeddings, trajectory_get_cameras
 from nerfbaselines.io import open_any_directory, deserialize_nb_info, load_trajectory, open_any
-from ._common import handle_cli_error, click_backend_option, NerfBaselinesCliCommand
+from ._common import click_backend_option, NerfBaselinesCliCommand
 
 
 @click.command("render", cls=NerfBaselinesCliCommand, short_help="Render images from a trained model", help=(
@@ -29,7 +29,6 @@ from ._common import handle_cli_error, click_backend_option, NerfBaselinesCliCom
 @click.option("--output", type=str, default="predictions", help="Output directory or tar.gz/zip file.")
 @click.option("--split", type=str, default="test", show_default=True, help="Dataset split to render.")
 @click_backend_option()
-@handle_cli_error
 def render_command(checkpoint: str, data: str, output: str, split: str, backend_name):
     checkpoint = str(checkpoint)
 
@@ -87,7 +86,6 @@ def render_command(checkpoint: str, data: str, output: str, split: str, backend_
 @click.option("--resolution", type=str, default=None, help="Override the resolution of the output. Use 'widthxheight' format (e.g., 1920x1080). If one of the dimensions is negative, the aspect ratio will be preserved and the dimension will be rounded to the nearest multiple of the absolute value of the dimension.")
 @click.option("--output-names", type=str, default="color", help="Comma separated list of output types (e.g. color,depth,accumulation). See the method's `get_info()['supported_outputs']` for supported outputs.")
 @click_backend_option()
-@handle_cli_error
 def render_trajectory_command(checkpoint: Union[str, Path], 
                               trajectory: str, 
                               output: Union[str, Path], 

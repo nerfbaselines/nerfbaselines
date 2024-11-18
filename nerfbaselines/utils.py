@@ -26,9 +26,10 @@ def _get_xnp(tensor: TTensor):
     raise ValueError(f"Unknown tensor type {type(tensor)}")
 
 
-def _xnp_astype(tensor: TTensor, dtype, xnp: Any) -> TTensor:
+def _xnp_astype(tensor: TTensor, dtype) -> TTensor:
+    xnp = _get_xnp(tensor)
     if xnp.__name__ == "torch":
-        return tensor.to(dtype)  # type: ignore
+        return tensor.to(dtype=dtype)  # type: ignore
     return tensor.astype(dtype)  # type: ignore
 
 
@@ -114,9 +115,28 @@ class Indices:
     A class that represents a set of indices or slices. This is useful for specifying subsets of data
     training iterations or evaluation steps.
     """
-    def __init__(self, steps):
+    def __init__(self, steps, total=None):
         self._steps = steps
-        self.total: Optional[int] = None
+        self.total: Optional[int] = total
+
+    def with_total(self, total):
+        """
+        Set the total number of elements in the sequence.
+
+        Args:
+            total: The total number of elements.
+
+        Returns:
+            The updated ``Indices`` object.
+        """
+        return Indices(self._steps, total=total)
+
+    def __iter__(self):
+        i = 0
+        while self.total is None or i < self.total:
+            if i in self:
+                yield i
+            i += 1
 
     def __contains__(self, x):
         if isinstance(self._steps, list):
@@ -299,7 +319,7 @@ def apply_colormap(array: TTensor, *, pallete: str = "viridis", invert: bool = F
         colormaps = cast(Dict[str, Any], vars(_colormaps))  # type: ignore
 
     # Map to a color scale
-    array_long = cast(TTensor, _xnp_astype(array * 255, xnp.int32, xnp=xnp).clip(0, 255))
+    array_long = cast(TTensor, _xnp_astype(array * 255, xnp.int32).clip(0, 255))
     colormap = colormaps[pallete]
     colormap_colors = None
     if ListedColormap is not None and isinstance(colormap, ListedColormap):  # type: ignore
@@ -314,7 +334,7 @@ def apply_colormap(array: TTensor, *, pallete: str = "viridis", invert: bool = F
     if invert:
         array_long = 255 - array_long
     out = cast(TTensor, pallete_array[array_long])  # type: ignore
-    return _xnp_astype(out * 255, xnp.uint8, xnp=xnp)
+    return _xnp_astype(out * 255, xnp.uint8)
 
 
 def visualize_depth(depth: np.ndarray, expected_scale: Optional[float] = None, near_far: Optional[np.ndarray] = None, pallete: str = "viridis") -> np.ndarray:

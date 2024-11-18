@@ -268,7 +268,7 @@ class GaussianSplattingWild(Method):
         # Needed for get_train_embedding
         self._train_dataset_cache = None
         self._train_dataset_link = None
-        if self.checkpoint is not None:
+        if self.checkpoint is not None and os.path.exists(os.path.join(self.checkpoint, "train_dataset_link.json")):
             with open(os.path.join(self.checkpoint, "train_dataset_link.json"), "r", encoding="utf8") as file:
                 link = json.load(file)
                 self._train_dataset_link = link["link"], link["image_names_sha"]

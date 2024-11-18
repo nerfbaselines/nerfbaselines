@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from nerfbaselines import cameras
 from nerfbaselines import camera_model_to_int, CameraModel, new_cameras
+from nerfbaselines._types import _get_xnp
 try:
     from typing import get_args
 except ImportError:
@@ -16,10 +17,11 @@ def test_distortions(camera_type: CameraModel):
     xy = np.random.rand(num_samples, 2) * 2 - 1
     xy *= 0.8
 
-    xy_distorted = cameras._distort(camera_models, params, xy)
+    xnp = _get_xnp(xy)
+    xy_distorted = cameras._distort(camera_models, params, xy, xnp=xnp)
     if camera_type != "pinhole":
         assert not np.allclose(xy, xy_distorted, atol=5e-4, rtol=0), "distorted image should not be equal to original image"
-    new_xy = cameras._undistort(camera_models, params, xy_distorted)
+    new_xy = cameras._undistort(camera_models, params, xy_distorted, xnp=xnp)
     np.testing.assert_allclose(xy, new_xy, atol=5e-4, rtol=0)
 
 

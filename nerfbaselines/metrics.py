@@ -255,7 +255,6 @@ def torchmetrics_ssim(
         a = np.clip(a, data_range[0], data_range[1])
         b = np.clip(b, data_range[0], data_range[1])
         data_range = data_range[1] - data_range[0]
-    assert isinstance(data_range, float), f"Expected data_range to be float, got {type(data_range)}"
 
     c1 = pow(k1 * data_range, 2)
     c2 = pow(k2 * data_range, 2)

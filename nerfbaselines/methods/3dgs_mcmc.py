@@ -63,15 +63,11 @@ def _config_overrides_to_args_list(args_list, config_overrides):
             v = False
         if isinstance(v, bool):
             if v:
-                if f'--no-{k}' in args_list:
-                    args_list.remove(f'--no-{k}')
                 if f'--{k}' not in args_list:
                     args_list.append(f'--{k}')
             else:
                 if f'--{k}' in args_list:
                     args_list.remove(f'--{k}')
-                else:
-                    args_list.append(f"--no-{k}")
         elif f'--{k}' in args_list:
             args_list[args_list.index(f'--{k}') + 1] = str(v)
         else:

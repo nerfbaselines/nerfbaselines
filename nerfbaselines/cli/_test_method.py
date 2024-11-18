@@ -33,7 +33,7 @@ from nerfbaselines.evaluation import (
 )
 from nerfbaselines._constants import RESULTS_REPOSITORY
 from ._common import (
-    ChangesTracker, handle_cli_error, SetParamOptionType, click_backend_option, NerfBaselinesCliCommand,
+    ChangesTracker, SetParamOptionType, click_backend_option, NerfBaselinesCliCommand,
     TupleClickType,
 )
 
@@ -179,7 +179,6 @@ def _validate_public_checkpoint(method_cls: Type[Method],
     " the method's default presets are applied (based on the dataset metadata)."))
 @click.option("--set", "config_overrides", help="Override a parameter in the method.", type=SetParamOptionType(), multiple=True, default=None)
 @click_backend_option()
-@handle_cli_error
 def main(method_name: str, 
          dataset: str, *, 
          backend_name=None, 

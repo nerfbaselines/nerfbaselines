@@ -23,7 +23,7 @@ from nerfbaselines.training import (
 )
 from ._common import (
     ChangesTracker, SetParamOptionType, TupleClickType, 
-    handle_cli_error, click_backend_option, NerfBaselinesCliCommand,
+    click_backend_option, NerfBaselinesCliCommand,
 )
 
 
@@ -147,7 +147,6 @@ def fix_checkpoint(checkpoint_path, new_checkpoint, load_train_dataset_fn, backe
 @click.option("--presets", type=TupleClickType(), default=None, help=(
     "A comma-separated list of presets used when training the original checkpoint."))
 @click_backend_option()
-@handle_cli_error
 def main(checkpoint: str, data: str, method_name: str, backend_name, new_checkpoint: str, config_overrides=None, presets=None):
     if os.path.exists(new_checkpoint):
         raise RuntimeError(f"New checkpoint path {new_checkpoint} already exists")

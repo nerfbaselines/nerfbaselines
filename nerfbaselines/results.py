@@ -1,5 +1,6 @@
 import sys
 import contextlib
+import logging
 from unittest import mock
 import math
 from typing import List, Dict, Any, cast, Union, Type, Iterator, Optional
@@ -70,9 +71,20 @@ def get_dataset_info(dataset: str) -> DatasetInfo:
     metrics_info_path = Path(metrics.__file__).with_suffix(".json")
     assert metrics_info_path.exists(), f"Metrics info file {metrics_info_path} does not exist"
     metrics_info = json.loads(metrics_info_path.read_text(encoding="utf8"))
-    dataset_info = cast(Optional[DatasetSpecMetadata], get_dataset_spec(dataset).get("metadata", None))
+    try:
+        dataset_info = cast(Optional[DatasetSpecMetadata], get_dataset_spec(dataset).get("metadata", None))
+    except RuntimeError as e:
+        if "could not find dataset" in str(e).lower():
+            warnings.warn(f"Cound not find dataset {dataset}")
+            dataset_info = {
+                "metrics": ["psnr", "ssim", "lpips"],
+                "default_metric": "psnr",
+            }
+        else:
+            raise
+
     if dataset_info is None:
-        raise RuntimeError(f"Dataset {dataset} does not have metadata")
+        warnings.warn(f"Dataset {dataset} does not have metadata")
 
     # Fill metrics into dataset info
     metrics_dict = {v["id"]: v for v in metrics_info}
@@ -122,7 +134,7 @@ def _mock_build_method(spec: MethodSpec) -> Iterator[Type[Method]]:
     def _patch_import(name, globals=None, locals=None, fromlist=(), level=0):
         if level > 0:
             return old_import(name, globals, locals, fromlist, level)
-        if name == 'torch' or name.startswith('torch.') or name == "scipy" or name.startswith("jax") or name == "cv2":
+        if name == 'torch' or name.startswith('torch.') or name == "scipy" or name.startswith("jax") or name == "cv2" or name.startswith("pandas"):
             return mock.MagicMock()
         try:
             return old_import(name, globals, locals, fromlist, level)
@@ -180,6 +192,14 @@ def get_method_info_from_spec(spec: MethodSpec) -> MethodInfo:
         raise
 
 
+def _is_scene_results(data: Dict) -> bool:
+    return (
+        ("render_dataset_metadata" in data or
+         ("info" in data and "dataset_metadata" in data["info"]) or
+         ("nb_info" in data and "dataset_metadata" in data["nb_info"])) and
+        "metrics_raw" in data)
+
+
 def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes: Optional[List[str]] = None) -> Dict[str, Any]:
     """
     Compile the results.json file from the results repository.
@@ -218,6 +238,40 @@ def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes
             method_data["scenes"][scene_id][k] = round(np.mean(v), 5)
         if output_artifact is not None:
             method_data["scenes"][scene_id]["output_artifact"] = output_artifact
+    
+    for path in results_path.glob("**/*.json"):
+        scene_results = json.loads(path.read_text(encoding="utf8"))
+        if not _is_scene_results(scene_results):
+            logging.warning(f"Skipping invalid results file {path}")
+            continue
+
+        render_dataset_metadata = scene_results.get("render_dataset_metadata", 
+                                                    scene_results.get("info", scene_results.get("nb_info", {})).get("dataset_metadata", {}))
+        dataset_ = render_dataset_metadata.get("id", render_dataset_metadata.get("name", None))
+        scene_id = render_dataset_metadata.get("scene", None)
+        method_id = scene_results.get("nb_info", {}).get("method", None)
+
+        # For old data we try to get method from the scene results
+        if method_id is None:
+            method_id = os.path.basename(os.path.dirname(os.path.dirname(path)))
+            logging.warning(f"Method id not found in the results file {path}, using the method id from the path {method_id}")
+
+        if scene_id is None or dataset_ is None or method_id is None:
+            logging.warning(f"Skipping results file {path} without render_dataset_metadata (scene, dataset), or nb_info(method_id)")
+            continue
+
+        if dataset_ != dataset:
+            logging.debug(f"Skipping results file {path} with dataset {dataset_} != {dataset}")
+            continue
+
+        # Skip scenes missing from dataset_info_scenes
+        if dataset_info_scenes is not None and not any(x["id"] == scene_id for x in dataset_info_scenes):
+            logging.debug(f"Skipping scene {scene_id} not in dataset_info_scenes")
+            continue
+
+        method_spec = get_method_spec(method_id)
+        method_data = method_spec.get("metadata", {})
+        _add_scene_data(scene_id, method_id, method_data, scene_results)
 
     # Fill the results from the methods registry
     for method_id in get_supported_methods():
@@ -244,49 +298,36 @@ def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes
             results_link = info["link"][:-4] + ".json"
             with open_any(results_link, "r") as f:
                 results = json.load(f)
-            _add_scene_data(scene_id, method_id, method_data, results, info)
 
-    
-    for method_id in os.listdir(results_path):
-        # Skip methods not evaluated on the dataset
-        if not any(results_path.joinpath(method_id, dataset).glob("*.json")):
-            continue
+            # Only add if the scene is not already in the results
+            if method_id not in method_data_map or scene_id not in method_data_map[method_id]["scenes"]:
+                _add_scene_data(scene_id, method_id, method_data, results, info)
 
-        method_spec = get_method_spec(method_id)
-        method_data = method_spec.get("metadata", {})
-        for path in results_path.joinpath(method_id, dataset).glob("*.json"):
-            scene_id = path.stem
-
-            # Skip scenes missing from dataset_info_scenes
-            if dataset_info_scenes is not None and not any(x["id"] == scene_id for x in dataset_info_scenes):
-                continue
-
-            scene_results_path = results_path.joinpath(method_id, dataset, scene_id + ".json")
-            if not scene_results_path.exists():
-                warnings.warn(f"Results file {scene_results_path} does not exist")
-                continue
-            scene_results = json.loads(scene_results_path.read_text(encoding="utf8"))
-            _add_scene_data(scene_id, method_id, method_data, scene_results)
 
     # Aggregate the metrics
-    if dataset_info_scenes is not None:
+    if dataset_info_scenes is None:
+        warnings.warn("Dataset info does not have scenes, aggregating all scenes from the methods.")
+        scene_ids = set()
         for method_data in dataset_info["methods"]:
-            agg_metrics = {}
-            for k, scene in method_data["scenes"].items():
-                for k, v in scene.items():
-                    if isinstance(v, dict):
-                        continue
-                    if k not in agg_metrics:
-                        agg_metrics[k] = []
-                    agg_metrics[k].append(v)
-            if len(method_data["scenes"]) == len(dataset_info_scenes):
-                for k, v in agg_metrics.items():
-                    method_data[k] = round(np.mean(v), 5)
+            scene_ids.update(method_data["scenes"].keys())
+        dataset_info_scenes = [{"id": x} for x in sorted(scene_ids)]
+
+    for method_data in dataset_info["methods"]:
+        agg_metrics = {}
+        for k, scene in method_data["scenes"].items():
+            for k, v in scene.items():
+                if isinstance(v, dict):
+                    continue
+                if k not in agg_metrics:
+                    agg_metrics[k] = []
+                agg_metrics[k].append(v)
+        if len(method_data["scenes"]) == len(dataset_info_scenes):
+            for k, v in agg_metrics.items():
+                method_data[k] = round(np.mean(v), 5)
 
     # Reorder scenes using the dataset_info_scenes order and add missing data
-    if dataset_info_scenes is not None:
-        for method_data in dataset_info["methods"]:
-            method_data["scenes"] = {x["id"]: {**x, **method_data["scenes"][x["id"]]} for x in dataset_info_scenes if x["id"] in method_data["scenes"]}
+    for method_data in dataset_info["methods"]:
+        method_data["scenes"] = {x["id"]: {**x, **method_data["scenes"][x["id"]]} for x in dataset_info_scenes if x["id"] in method_data["scenes"]}
     return dataset_info
 
 

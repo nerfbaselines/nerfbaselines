@@ -20,7 +20,7 @@ def _xnp_astype(tensor: TTensor, dtype, xnp: Any) -> TTensor:
     return tensor.astype(dtype)  # type: ignore
 
 
-def _xnp_copy(tensor: TTensor, xnp: Any = np) -> TTensor:
+def _xnp_copy(tensor: TTensor, xnp: Any) -> TTensor:
     if xnp.__name__ == "torch":
         return tensor.clone()  # type: ignore
     return xnp.copy(tensor)  # type: ignore
@@ -193,7 +193,7 @@ _DISTORTIONS: Dict[CameraModel, _DistortionFunction] = {
 }
 
 
-def _distort(camera_models, distortion_params, uv, xnp: Any = np):
+def _distort(camera_models, distortion_params, uv, xnp: Any):
     """
     Distorts OpenCV points according to the distortion parameters.
 
@@ -221,7 +221,7 @@ def _distort(camera_models, distortion_params, uv, xnp: Any = np):
     return out
 
 
-def _undistort(camera_models: TTensor, distortion_params: TTensor, uv: TTensor, xnp: Any = np, **kwargs) -> TTensor:
+def _undistort(camera_models: TTensor, distortion_params: TTensor, uv: TTensor, xnp: Any, **kwargs) -> TTensor:
     pinhole_mask = camera_models == camera_model_to_int("pinhole")
     if xnp.all(pinhole_mask):
         return uv
