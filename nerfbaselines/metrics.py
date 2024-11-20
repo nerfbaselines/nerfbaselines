@@ -250,14 +250,16 @@ def torchmetrics_ssim(
         raise ValueError(f"Expected `sigma` to have positive number. Got {sigma}.")
 
     if data_range is None:
-        data_range = max(a.max() - a.min(), b.max() - b.min())
+        data_range_scalar = max(a.max() - a.min(), b.max() - b.min())
     elif isinstance(data_range, tuple):
         a = np.clip(a, data_range[0], data_range[1])
         b = np.clip(b, data_range[0], data_range[1])
-        data_range = data_range[1] - data_range[0]
+        data_range_scalar = data_range[1] - data_range[0]
+    else:
+        data_range_scalar = data_range
 
-    c1 = pow(k1 * data_range, 2)
-    c2 = pow(k2 * data_range, 2)
+    c1 = pow(k1 * data_range_scalar, 2)
+    c2 = pow(k2 * data_range_scalar, 2)
 
     dtype = a.dtype
     gauss_kernel_size = [int(3.5 * s + 0.5) * 2 + 1 for s in sigma]

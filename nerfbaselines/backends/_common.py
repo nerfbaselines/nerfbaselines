@@ -228,8 +228,8 @@ class SimpleBackend(Backend):
 
     def instance_call(self, instance: int, method: str, *args, **kwargs):
         logging.debug(f"Calling method {method} on instance {instance}")
-        instance = self._instances[instance]
-        fn = getattr(instance, method)
+        instance_obj = self._instances[instance]
+        fn = getattr(instance_obj, method)
         return fn(*args, **kwargs)
 
     def instance_del(self, instance: int):

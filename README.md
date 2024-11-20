@@ -134,7 +134,7 @@ Detailed results are available on the project page: [https://nerfbaselines.githu
 | [Zip-NeRF](https://nerfbaselines.github.io/m-zipnerf)                                | **24.628** | **0.840** | **0.131** |  5h 44m 9s |  26.6 GB |
 | [Mip-Splatting](https://nerfbaselines.github.io/m-mip-splatting)                     |   *23.930* |   *0.833* |     0.166 |    15m 56s |   7.3 GB |
 | [Gaussian Splatting](https://nerfbaselines.github.io/m-gaussian-splatting)           |     23.827 |     0.831 |   *0.165* |  *13m 48s* |   6.9 GB |
-| [Gaussian Opacity Fields](https://nerfbaselines.github.io/m-gaussian-opacity-fields) |     22.395 |     0.825 |     0.172 |    40m 25s |  26.3 GB |
+| [Gaussian Opacity Fields](https://nerfbaselines.github.io/m-gaussian-opacity-fields) |     22.395 |     0.825 |     0.172 |    41m 21s |  24.1 GB |
 | [NerfStudio](https://nerfbaselines.github.io/m-nerfacto)                             |     22.043 |     0.743 |     0.270 |    19m 27s | *3.7 GB* |
 | [Instant NGP](https://nerfbaselines.github.io/m-instant-ngp)                         |     21.623 |     0.712 |     0.340 | **4m 27s** |   4.1 GB |
 | [2D Gaussian Splatting](https://nerfbaselines.github.io/m-2d-gaussian-splatting)     |     21.535 |     0.768 |     0.281 |    15m 47s |   7.2 GB |

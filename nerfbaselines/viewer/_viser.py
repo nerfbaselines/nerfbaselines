@@ -1194,8 +1194,12 @@ class ViewerRenderer:
             else:
                 scope = contextlib.nullcontext()
             with scope:
+                output_types = (output_type or "color",)
+                if split_output_type is not None:
+                    output_types = output_types + (split_output_type,)
                 options: RenderOptions = { "output_type_dtypes": { "color": "uint8" }, 
-                                           "embedding": embedding }
+                                           "embedding": embedding,
+                                           "outputs": output_types }
                 outputs = self.method.render(camera, options=options)
             self._cancellation_token = None
             

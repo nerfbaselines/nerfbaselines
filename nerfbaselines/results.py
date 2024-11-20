@@ -89,8 +89,8 @@ def get_dataset_info(dataset: str) -> DatasetInfo:
     # Fill metrics into dataset info
     metrics_dict = {v["id"]: v for v in metrics_info}
     return cast(DatasetInfo, {
-        **dataset_info,
-        "metrics": [metrics_dict[v] for v in dataset_info.get("metrics", [])],
+        **(dataset_info or {}),
+        "metrics": [metrics_dict[v] for v in (dataset_info or {}).get("metrics", [])],
     })
 
 

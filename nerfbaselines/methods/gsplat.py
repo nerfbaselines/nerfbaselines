@@ -600,9 +600,9 @@ class GSplat(Method):
                 image_ids=object() if embedding is not None else None,
                 render_mode="RGB+ED" if "depth" in outputs else "RGB",
             )  # [1, H, W, 3]
-            colors = self._add_background_color(colors, accumulation)
+        color = self._add_background_color(colors[..., :3], accumulation)
         out = {
-            "color": torch.clamp(colors.squeeze(0)[..., :3], 0.0, 1.0).detach().cpu().numpy(),
+            "color": torch.clamp(color.squeeze(0), 0.0, 1.0).detach().cpu().numpy(),
             "accumulation": accumulation.squeeze(0).squeeze(-1).detach().cpu().numpy(),
         }
         if colors.shape[-1] > 3:
