@@ -6,9 +6,10 @@ KPlanesSpec: MethodSpec = {
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.11",
-        "install_script": """git clone https://github.com/sarafridov/K-Planes.git kplanes --recursive
+        "install_script": """git clone https://github.com/sarafridov/K-Planes.git kplanes
 cd kplanes
 git checkout 7e3a82dbdda31eddbe2a160bc9ef89e734d9fc54
+git submodule update --init --recursive
 
 conda install -y --override-channels -c nvidia/label/cuda-11.8.0 cuda-toolkit
 conda install -y pytorch==2.3.0 torchvision==0.18.0 pytorch-cuda=11.8 'numpy<2.0.0' -c pytorch -c nvidia

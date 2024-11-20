@@ -39,9 +39,10 @@ ln -s "$CXX" "$CONDA_PREFIX/bin/g++"
 export CPATH="$CONDA_PREFIX/x86_64-conda-linux-gnu/sysroot/usr/include:$CPATH"
 
 # Clone source code
-git clone --recursive https://github.com/NVlabs/instant-ngp.git
+git clone https://github.com/NVlabs/instant-ngp.git
 cd instant-ngp
 git checkout cc749144b0665ff7adeee6c57787573fa3b45787
+git submodule update --init --recursive
 conda install -y conda-build && conda develop .
 # Replace python version in CMakeLists.txt
 sed -i "s/Python 3\.7/Python 3\.9/g" CMakeLists.txt

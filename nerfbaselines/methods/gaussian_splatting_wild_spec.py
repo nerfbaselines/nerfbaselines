@@ -14,9 +14,10 @@ GaussianSplattingWildSpec: MethodSpec = {
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9",
-        "install_script": """git clone https://github.com/EastbeanZhang/Gaussian-Wild.git --recursive
+        "install_script": """git clone https://github.com/EastbeanZhang/Gaussian-Wild.git
 cd Gaussian-Wild
 git checkout 79d9e6855298a2632b530644e52d1829c6356b08
+git submodule update --init --recursive
 
 # Fix the code, replace line 80 in scene/dataset_readers.py 
 # from "intr = cam_intrinsics[extr.id]" to "intr = cam_intrinsics[extr.camera_id]"

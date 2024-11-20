@@ -31,10 +31,10 @@ register({
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9",
-        "install_script": """git clone --recursive https://github.com/ubc-vision/3dgs-mcmc.git
+        "install_script": """git clone https://github.com/ubc-vision/3dgs-mcmc.git
 cd 3dgs-mcmc
 git checkout a22a24bd7e64b089d983bfcf52c906df7d46f25d
-git submodule update --recursive
+git submodule update --init --recursive
 
 conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 'numpy<2.0.0' -c pytorch -c nvidia
 conda install -y cudatoolkit-dev=11.7 gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
