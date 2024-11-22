@@ -19,18 +19,21 @@ except ImportError:
 @click.command("generate-dataset-results", cls=NerfBaselinesCliCommand)
 @click.option("--results", type=click.Path(file_okay=True, exists=True, dir_okay=True, path_type=str), required=False)
 @click.option("--dataset", type=str, required=False)
-@click.option("--output-type", type=click.Choice(["markdown", "json"]), default="markdown")
+@click.option("--output-type", type=click.Choice(["markdown", "json", "latex"]), default="markdown")
 @click.option("--method-links", type=click.Choice(get_args(MethodLink)), default="none")
 @click.option("--output", type=click.Path(file_okay=True, exists=False, dir_okay=False, path_type=str), default=None)
 @click.option("--scenes", type=str, default=None, help="Comma-separated list of scenes to include in the results.")
 def main(results: Optional[str], dataset: str, output_type="markdown", output: Optional[str] = None, method_links: MethodLink = "none", scenes=None):
-    from nerfbaselines.results import compile_dataset_results, render_markdown_dataset_results_table
+    from nerfbaselines.results import compile_dataset_results, render_markdown_dataset_results_table, render_latex_dataset_results_table
 
     scenes_list = scenes.split(",") if scenes is not None else None
 
     def render_output(dataset_info):
         output_str = None
-        if output_type == "markdown":
+        if output_type == "latex":
+            assert method_links == "none", "Method links are not supported in LaTeX output"
+            output_str = render_latex_dataset_results_table(dataset_info)
+        elif output_type == "markdown":
             output_str = render_markdown_dataset_results_table(dataset_info, method_links=method_links)
         elif output_type == "json":
             output_str = json.dumps(dataset_info, indent=2) + os.linesep

@@ -134,7 +134,7 @@ def _mock_build_method(spec: MethodSpec) -> Iterator[Type[Method]]:
     def _patch_import(name, globals=None, locals=None, fromlist=(), level=0):
         if level > 0:
             return old_import(name, globals, locals, fromlist, level)
-        if name == 'torch' or name.startswith('torch.') or name == "scipy" or name.startswith("jax") or name == "cv2" or name.startswith("pandas"):
+        if name == 'torch' or name.startswith('torch.') or name == "scipy" or name.startswith("jax") or name == "cv2" or name.startswith("pandas") or name.startswith("xml.") or name.startswith("aiohttp") or name.startswith("datasets"):
             return mock.MagicMock()
         try:
             return old_import(name, globals, locals, fromlist, level)
@@ -354,32 +354,26 @@ def format_memory(memory: Optional[float]) -> str:
     return f"{memory / 1024:.1f} GB"
 
 
-def render_markdown_dataset_results_table(results, method_links: MethodLink = "none") -> str:
-    """
-    Generates a markdown table from the output of the `compile_dataset_results` method.
-
-    Args:
-        results: Output of the `nerfbaselines.results.compile_dataset_results` method.
-    """
+def _process_data_for_formatting(results, method_links=None):
     columns = ["name"]
-    table = [["Method"]]
+    table = [[{"type": "header", "value": "Method"}]]
     align = "l"
     column_orders: List[Optional[bool]] = [None]
 
     default_metric = results["default_metric"]
     for metric in results["metrics"]:
         columns.append(metric["id"])
-        table[-1].append(metric["name"])
+        table[-1].append({"type": "header", "value": metric["name"]})
         column_orders.append(metric["ascending"])
         align += "r"
 
     # Add train time and GPU memory
     columns.append("total_train_time")
-    table[-1].append("Time")
+    table[-1].append({"type": "header", "value": "Time"})
     column_orders.append(False)
     columns.append("gpu_memory")
     column_orders.append(False)
-    table[-1].append("GPU mem.")
+    table[-1].append({"type": "header", "value": "GPU mem."})
     align += "rr"
 
     def get(data, path):
@@ -388,7 +382,9 @@ def render_markdown_dataset_results_table(results, method_links: MethodLink = "n
             data = data.get(p, {})
         return data.get(parts[-1], None)
 
+
     # Add method's data
+    header_len = len(table)
     ord_values = [[] for _ in column_orders]
     method_names = []
     default_metric_id = None
@@ -397,27 +393,31 @@ def render_markdown_dataset_results_table(results, method_links: MethodLink = "n
         table.append([])
         for i, (column, asc) in enumerate(zip(columns, column_orders)):
             value = sort_value = get(method, column)
+            link = None
             if column == default_metric:
                 default_metric_id = i
             if column == "name":
                 # Render link if requested
                 if method_links == "paper" and "paper_link" in method:
-                    value = f"[{value}]({method['paper_link']})"
+                    link = method['paper_link']
                 elif method_links == "website" and "link" in method:
-                    value = f"[{value}]({method['link']})"
+                    link = method['link']
                 elif method_links == "results":
-                    value = f"[{value}]({WEBPAGE_URL}/m-{method['id'].replace(':', '--')})"
+                    link = f"{WEBPAGE_URL}/m-{method['id'].replace(':', '--')}"
+                sort_value = value.lower()
             elif column == "total_train_time":
                 value = format_duration(value)
             elif column == "gpu_memory":
                 value = format_memory(value)
             elif isinstance(value, float):
                 value = f"{value:.3f}"
+                # Round the value for comparisons
+                sort_value = float(value)
             elif isinstance(value, int):
                 value = f"{value:d}"
             elif value is None:
                 value = "-"
-            table[-1].append(value)
+            table[-1].append({"type": "value", "value": value, "link": link})
             if asc is None:
                 continue
             if sort_value is not None:
@@ -427,36 +427,14 @@ def render_markdown_dataset_results_table(results, method_links: MethodLink = "n
             ord_values[i].append(sort_value)
 
     # Extract 1st,2nd,3rd places
-    order_table = []
     for i, (asc, ord_vals) in enumerate(zip(column_orders, ord_values)):
-        order_table.append(None)
         if asc is None:
             continue
-        vals = sorted(list(set(ord_vals)))
-        order_table[-1] = [vals.index(x) if x != float("inf") else None for x in ord_vals]
-
-    def pad(value, align, cell_len):
-        cell_len += 2
-        value = f" {value} "
-        padding = (cell_len - len(value)) * " "
-        return (value + padding) if align == "l" else (padding + value)
-
-    def pad_splitter(align, cell_len):
-        cell_len += 2
-        value = (cell_len - 1) * "-"
-        return f":{value}" if align == "l" else f"{value}:"
-
-    # Add bold to best numbers in column and italics to second values
-    for i, order in enumerate(column_orders):
-        if order is None:
-            continue
-        for j, val in enumerate(table[1:]):
-            val = val[i]
-            if order_table[i][j] == 0:
-                val = f"**{val}**"
-            elif order_table[i][j] == 1:
-                val = f"*{val}*"
-            table[j + 1][i] = val
+        # vals = sorted(list(set(ord_vals)))
+        # order_col = [vals.index(x) if x != float("inf") else None for x in ord_vals]
+        order_col = [r if math.isfinite(v) else None for r, v in zip(_rank(ord_vals), ord_vals)]
+        for j, rank in enumerate(order_col):
+            table[j + header_len][i]["rank"] = rank
 
     # Sort by the default metric
     all_metrics = ",".join(x["id"] for x in results["metrics"])
@@ -465,10 +443,93 @@ def render_markdown_dataset_results_table(results, method_links: MethodLink = "n
         order = [x[-1] for x in sorted([(v, method_names[i], i) for i, v in enumerate(ord_values[default_metric_id])])]
         table = table[:1] + [table[i + 1] for i in order]
 
+    return table, align
+
+
+def _pad_table(table, align):
+    if len(table) == 0:
+        return table
     cell_lens = [max(len(x[i]) for x in table) for i in range(len(table[0]))]
-    table_str = ""
-    table_str += "|" + "|".join(map(pad, table[0], align, cell_lens)) + "|\n"
-    table_str += "|" + "|".join(map(pad_splitter, align, cell_lens)) + "|\n"
-    for row in table[1:]:
-        table_str += "|" + "|".join(map(pad, row, align, cell_lens)) + "|\n"
-    return table_str
+    def pad(value, align, cell_len):
+        padding = (cell_len - len(value)) * " "
+        return (value + padding) if align == "l" else (padding + value)
+    return [[pad(x[i], align[i], cell_lens[i]) for i in range(len(x))] for x in table]
+
+
+def _rank(x, invert=False):
+    out = [0] * len(x)
+    lastval = None
+    lasti = None
+    for j, (i, val) in enumerate(sorted(list(enumerate(x)), key=lambda x: -x[1] if invert else x[1])):
+        if lastval is None or lastval != val:
+            lasti = j
+        out[i] = lasti
+        lastval = val
+    return out
+
+
+def render_latex_dataset_results_table(results):
+    """
+    Generates a latex table from the output of the `compile_dataset_results` method.
+
+    Args:
+        results: Output of the `nerfbaselines.results.compile_dataset_results` method.
+    """
+    table_data, align = _process_data_for_formatting(results)
+    table = [[x["value"] for x in table_data[0]]]
+
+    def render_cell(value, rank=None, **kwargs):
+        del kwargs
+        value = str(value)
+        if rank == 0:
+            return f"\\pf{{{value}}}"
+        if rank == 1:
+            return f"\\ps{{{value}}}"
+        if rank == 2:
+            return f"\\pt{{{value}}}"
+        return value
+    table += [[render_cell(**x) for x in row] for row in table_data[1:]]
+    table = _pad_table(table, align)
+    return r"""
+\providecommand{\pf}[1]{\textbf{#1}}
+\providecommand{\ps}[1]{\underline{#1}}
+\providecommand{\pt}[1]{#1}
+\begin{tabular}{""" + "".join(align) + r"""}\hline
+""" + "\n".join(" & ".join(row) + r" \\" for row in table) + r"""
+\end{tabular}
+"""
+
+
+def render_markdown_dataset_results_table(results, method_links: MethodLink = "none") -> str:
+    """
+    Generates a markdown table from the output of the `compile_dataset_results` method.
+
+    Args:
+        results: Output of the `nerfbaselines.results.compile_dataset_results` method.
+    """
+    table_data, align = _process_data_for_formatting(results, method_links=method_links)
+    table = [[x["value"] for x in table_data[0]]]
+
+    def render_cell(value, rank=None, link=None, **kwargs):
+        del kwargs
+        value = str(value)
+        if rank == 0:
+            value = f"**{value}**"
+        if rank == 1:
+            value = f"*{value}*"
+        if link is not None:
+            value = f"[{value}]({link})"
+        return value
+    table += [[render_cell(**x) for x in row] for row in table_data[1:]]
+    table = _pad_table(table, align)
+
+    lines = ["| " + " | ".join(row) + " |" for row in table]
+    # Add header separator
+    def pad_splitter(align, cell_len):
+        cell_len += 2
+        value = (cell_len - 1) * "-"
+        return f":{value}" if align == "l" else f"{value}:"
+
+    cell_lens = [max(len(x[i]) for x in table) for i in range(len(table[0]))]
+    lines.insert(1, "|" + "|".join(map(pad_splitter, align, cell_lens)) + "|")
+    return "".join(x+"\n" for x in lines)
