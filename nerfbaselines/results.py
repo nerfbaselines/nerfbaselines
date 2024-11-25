@@ -215,7 +215,7 @@ def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes
             raise e
     dataset_info_scenes = dataset_info.get("scenes", None)
     if scenes is not None:
-        dataset_info_scenes = dataset_info["scenes"] = [(dataset_info_scenes or {}).get(x, dict(id=x)) for x in scenes]
+        dataset_info_scenes = dataset_info["scenes"] = [next((y for y in dataset_info_scenes if x == y["id"]), dict(id=x)) for x in scenes]
     dataset_info["methods"] = []
     method_data_map = {}
     agg_metrics = {}
