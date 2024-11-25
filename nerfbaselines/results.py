@@ -356,7 +356,7 @@ def format_memory(memory: Optional[float]) -> str:
 
 def _process_data_for_formatting(results, method_links=None):
     columns = ["name"]
-    table = [[{"type": "header", "value": "Method"}]]
+    table: List[List[Any]] = [[{"type": "header", "value": "Method"}]]
     align = "l"
     column_orders: List[Optional[bool]] = [None]
 
@@ -463,6 +463,7 @@ def _rank(x, invert=False):
     for j, (i, val) in enumerate(sorted(list(enumerate(x)), key=lambda x: -x[1] if invert else x[1])):
         if lastval is None or lastval != val:
             lasti = j
+        assert lasti is not None
         out[i] = lasti
         lastval = val
     return out
