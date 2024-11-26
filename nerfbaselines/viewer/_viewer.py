@@ -13,6 +13,8 @@ from PIL import Image, ImageDraw
 pcs = set()
 candidates = []
 
+TEMPLATES_AUTO_RELOAD = True
+
 
 def bouncing_ball_frame(time, width=400, height=400, **kwargs):
     del kwargs
@@ -172,6 +174,7 @@ def _build_flake_app(render_fn):
         return Response(generate(), mimetype = "multipart/x-mixed-replace; boundary=frame")
     del video_feed
 
+    app.config["TEMPLATES_AUTO_RELOAD"] = True
     return app
 
 

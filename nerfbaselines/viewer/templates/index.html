@@ -4,30 +4,119 @@
     <title>Viewer</title>
 </head>
 <body>
-    <h1>Viewer</h1>
-    <!--<video id="video" playsinline autoplay muted src="/video-feed"></video>-->
     <canvas id="viewport"></canvas>
 <style>
+:root {
+  --border: #ccc;
+  --panel-background: white;
+  --primary: #101010;
+  --secondary: #6c757d;
+}
+body {
+  font-family: 'Roboto', sans-serif;
+}
 .controls {
   display: flex;
   justify-content: center;
   width: 38ch;
-  background: red;
+  background: var(--panel-background);
+  color: var(--primary);
+  max-width: 100%;
+  overflow-y: scroll;
 }
+
+.dropdown > label, .slider > label {
+  display: block;
+}
+
+.dropdown > select, .slider > input {
+  width: 100%;
+}
+
+.dropdown select {
+  height: 2rem;
+  color: var(--primary);
+  border: 1px solid var(--border);
+  border-radius: 0px;
+}
+
+.row {
+  margin: 0.6rem 0 1.2rem 0;
+}
+.row:last-child {
+  margin-bottom: 0;
+}
+
+.controls fieldset {
+    border: 1px solid var(--border);
+    border-radius: 0.4rem;
+    margin: 0.3rem 0 0.6rem 0;
+    padding: 0.5rem;
+}
+.controls legend {
+  color: var(--secondary);
+  cursor: default;
+}
+/*hint is secondary color*/
+.input-hint {
+  color: var(--secondary);
+  font-size: 0.8rem;
+}
+
 .panel {
   display: flex;
   flex-direction: column;
   margin: 0 1ch;
 }
-.accordion .accordion-header {
+.tabs {
+  width: 100%;
+}
+.tabs [type="radio"] {
+	display: none;
+}
+
+.row-group {
   display: flex;
+  flex-direction: row;
+  gap: 0.4em;
 }
-.accordion > input[type="radio"] {
+
+.tabs .tabs-header {
+  display: flex;
+  align-items: stretch;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.6rem 0;
+}
+.tabs .tabs-header > label {
+  padding: 1rem;
+}
+.tabs [type="radio"]:nth-of-type(1):checked ~ .tabs-header label:nth-of-type(1),
+.tabs [type="radio"]:nth-of-type(2):checked ~ .tabs-header label:nth-of-type(2),
+.tabs [type="radio"]:nth-of-type(3):checked ~ .tabs-header label:nth-of-type(3),
+.tabs [type="radio"]:nth-of-type(4):checked ~ .tabs-header label:nth-of-type(4),
+.tabs [type="radio"]:nth-of-type(5):checked ~ .tabs-header label:nth-of-type(5) {
+  background: var(--primary);
+  color: white;
+}
+
+.tabs .tab {
   display: none;
 }
-.accordion > input[type="radio"]:not(:checked) + .tab {
-  display: none;
+.tabs [type="radio"]:nth-of-type(1):checked ~ .tab:nth-of-type(1),
+.tabs [type="radio"]:nth-of-type(2):checked ~ .tab:nth-of-type(2),
+.tabs [type="radio"]:nth-of-type(3):checked ~ .tab:nth-of-type(3),
+.tabs [type="radio"]:nth-of-type(4):checked ~ .tab:nth-of-type(4) {
+	display: block;
 }
+
+.controls button {
+  height: 2rem;
+  width: 100%;
+  border: none;
+}
+
+
 html, body {
   margin: 0;
   padding: 0;
@@ -48,21 +137,172 @@ html, body {
 </style>
 
     <div class="controls">
-      <div class="accordion">
-        <div class="accordion-header">
-          <label for="tab-1">Controls</label>
-          <label for="tab-2">Settings</label>
-        </div>
+      <div class="tabs">
         <input type="radio" id="tab-1" name="accordion-1" checked>
-        <div class="tab panel">
-          <button id="startButton">Start</button>
-        </div>
         <input type="radio" id="tab-2" name="accordion-1">
+
+        <span class="tabs-header">
+          <label for="tab-1">Control</label>
+          <label for="tab-2">Trajectory</label>
+        </span>
         <div class="tab panel">
-          <label for="width">Width:</label>
-          <input type="number" id="width" value="640">
-          <label for="height">Height:</label>
-          <input type="number" id="height" value="480">
+          <fieldset>
+            <legend>Render options</legend>
+            <div class="row slider">
+              <label for="max-res">Max res</label>
+              <input type="range" id="max-res" min="64" max="2048" value="100">
+            </div>
+
+            <div class="row dropdown">
+              <label for="output-type">Output type</label>
+              <select id="output-type">
+                <option value="not set">not set</option>
+              </select>
+            </div>
+          </fieldset>
+          <fieldset id="folder-split-screen">
+            <legend>Split screen</legend>
+            <div class="row checkbox">
+              <label for="output_split">Enable split screen</label>
+              <input type="checkbox" id="output_split" name="output_split">
+            </div>
+
+            <div class="row slider">
+              <label for="split_percentage">Split percentage</label>
+              <input type="range" id="split_percentage" min="0" max="1" step="0.01" value="0.5">
+              <div class="input-hint">Where to split</div>
+            </div>
+
+            <div class="row dropdown">
+              <label for="output-render-split">Output render split</label>
+              <select id="output-render-split">
+                <option value="not set">not set</option>
+              </select>
+              <div class="input-hint">The second output</div>
+            </div>
+          </fieldset>
+          <div class="row checkbox">
+            <label for="show_train_cameras">Show train cams</label>
+            <input type="checkbox" id="show_train_cameras" name="show_train_cameras" disabled>
+          </div>
+          <div class="row checkbox">
+            <label for="show_test_cameras">Show test cams</label>
+            <input type="checkbox" id="show_test_cameras" name="show_test_cameras" disabled>
+          </div>
+          <div class="row checkbox">
+            <label for="show_input_points">Show input PC</label>
+            <input type="checkbox" id="show_input_points" name="show_input_points" disabled>
+          </div>
+          <button id="reset-camera">Reset up direction</button>
+        </div>
+        <div class="tab panel">
+          <!-- Render -->
+          <div class="row">
+            <label for="render_fov">Default FOV</label>
+            <input type="range" id="render_fov" name="render_fov" min="0.1" max="175" step="0.01" value="60">
+          </div>
+
+          <div class="row">
+            <label for="render_resolution">Resolution</label>
+            <input type="range" id="render_resolution" name="render_resolution" min="50" max="10000" step="1" value="100">
+          </div>
+
+          <div class="row dropdown">
+            <label for="render_appearance_train_index">Appearance train index</label>
+            <select id="render_appearance_train_index" name="render_appearance_train_index">
+              <option value="not set">not set</option>
+            </select>
+          </div>
+
+          <div class="row row-group">
+            <button id="button_add_keyframe" title="Add a new keyframe at the current pose.">Add keyframe</button>
+            <button id="button_clear_keyframes" title="Remove all keyframes from the render path.">Clear keyframes</button>
+          </div>
+
+
+          <fieldset>
+            <legend>Playback</legend>
+              <div class="row row-group">
+                <button id="button_play">Play</button>
+                <button id="button_pause">Pause</button>
+                <button id="button_preview_render">Preview render</button>
+                <button id="button_preview_render_stop">Exit render preview</button>
+              </div>
+
+              <div class="row number">
+                <label for="camera_path_default_transition_duration">Transition (sec)</label>
+                <input type="number" id="camera_path_default_transition_duration" name="camera_path_default_transition_duration" min="0.001" max="30" step="0.001" value="1">
+                <div class="input-hint">Time in seconds between each keyframe, which can also be overridden on a per-transition basis.</div>
+              </div>
+
+              <div class="row number">
+                <label for="camera_path_framerate">FPS</label>
+                <input type="number" id="camera_path_framerate" name="camera_path_framerate" min="0.1" max="240" step="0.01" value="30">
+              </div>
+
+              <div class="row row-group">
+                <button onclick="document.getElementById('camera_path_framerate').value = 24">24</button>
+                <button onclick="document.getElementById('camera_path_framerate').value = 30">30</button>
+                <button onclick="document.getElementById('camera_path_framerate').value = 60">60</button>
+              </div>
+
+              <div class="row number">
+                <label for="camera_path_duration">Duration (sec)</label>
+                <input type="number" id="camera_path_duration" name="camera_path_duration" min="0.001" max="1e8" step="0.001" value="1">
+                <div class="input-hint">Total duration of the camera path in seconds.</div>
+              </div>
+
+              <div class="row slider">
+                <label for="preview_frame">Preview frame</label>
+                <input type="range" id="preview_frame" name="preview_frame" min="0" step="1" value="0">
+              </div>
+          </fieldset>
+
+          <div class="row dropdown">
+            <label for="camera_path_interpolation">Interpolation</label>
+            <select id="camera_path_interpolation" name="camera_path_interpolation">
+              <option value="kochanek-bartels">kochanek-bartels</option>
+              <option value="none">none</option>
+              <option value="ellipse">ellipse</option>
+            </select>
+            <div class="input-hint">Camera path interpolation.</div>
+          </div>
+
+          <div class="row checkbox">
+            <label for="camera_path_loop">Loop</label>
+            <input type="checkbox" id="camera_path_loop" name="camera_path_loop">
+            <div class="input-hint">Add a segment between the first and last keyframes.</div>
+          </div>
+
+          <div class="row slider">
+            <label for="camera_path_tension">Spline tension</label>
+            <input type="range" id="camera_path_tension" name="camera_path_tension" min="0" max="1" step="0.01" value="0.5">
+            <div class="input-hint">Tension parameter for adjusting smoothness of spline interpolation.</div>
+          </div>
+
+          <div class="row checkbox">
+            <label for="camera_path_move_keyframes">Move keyframes</label>
+            <input type="checkbox" id="camera_path_move_keyframes" name="camera_path_move_keyframes">
+            <div class="input-hint">Toggle move handles for keyframes in the scene.</div>
+          </div>
+
+          <div class="row checkbox">
+            <label for="camera_path_show_keyframes">Show keyframes</label>
+            <input type="checkbox" id="camera_path_show_keyframes" name="camera_path_show_keyframes">
+            <div class="input-hint">Show keyframes in the scene.</div>
+          </div>
+
+          <div class="row checkbox">
+            <label for="camera_path_show_spline">Show spline</label>
+            <input type="checkbox" id="camera_path_show_spline" name="camera_path_show_spline">
+            <div class="input-hint">Show camera path spline in the scene.</div>
+          </div>
+
+          <div class="row row-group">
+            <button id="button_load_camera_path">Load trajectory</button>
+            <button id="button_export_camera_path">Export trajectory</button>
+          </div>
+          <button id="button_render_video">Render video</button>
         </div>
       </div>
     </div>
