@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Viewer</title>
+</head>
+<body>
+    <h1>Viewer</h1>
+    <!--<video id="video" playsinline autoplay muted src="/video-feed"></video>-->
+    <canvas id="viewport"></canvas>
+<style>
+.controls {
+  display: flex;
+  justify-content: center;
+  width: 38ch;
+  background: red;
+}
+.panel {
+  display: flex;
+  flex-direction: column;
+  margin: 0 1ch;
+}
+.accordion .accordion-header {
+  display: flex;
+}
+.accordion > input[type="radio"] {
+  display: none;
+}
+.accordion > input[type="radio"]:not(:checked) + .tab {
+  display: none;
+}
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+#viewport {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -999;
+}
+
+</style>
+
+    <div class="controls">
+      <div class="accordion">
+        <div class="accordion-header">
+          <label for="tab-1">Controls</label>
+          <label for="tab-2">Settings</label>
+        </div>
+        <input type="radio" id="tab-1" name="accordion-1" checked>
+        <div class="tab panel">
+          <button id="startButton">Start</button>
+        </div>
+        <input type="radio" id="tab-2" name="accordion-1">
+        <div class="tab panel">
+          <label for="width">Width:</label>
+          <input type="number" id="width" value="640">
+          <label for="height">Height:</label>
+          <input type="number" id="height" value="480">
+        </div>
+      </div>
+    </div>
+
+    <script>
+
+    </script>
+
+
+    <script>
+      const canvas = document.getElementById("viewport");
+      const ctx = canvas.getContext("2d");
+
+      const renderers = [];
+      const state = {
+        renderers: {},
+      };
+
+      class HTTPRenderer {
+        constructor(baseUrl) {
+          this._baseUrl = baseUrl;
+          // Generate uuid
+          this.state = null;
+          this.onUpdateFrame = null;
+          this.onUpdateState = null;
+
+        }
+
+        async updateRenderParams(renderParams) {
+          await fetch(`${this._baseUrl}/set-feed-params?feedid=${this.state.feedid}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(renderParams),
+          });
+        }
+
+        async _run(reader) {
+          const boundary = "frame"; // Boundary from server response
+          const boundaryBytes = new TextEncoder().encode(`--${boundary}`);
+          const headerSeparator = new Uint8Array([13, 10, 13, 10]); // "\r\n\r\n"
+
+          let buffer = new Uint8Array(0);
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            // Concatenate new data into buffer
+            const tempBuffer = new Uint8Array(buffer.length + value.length);
+            tempBuffer.set(buffer);
+            tempBuffer.set(value, buffer.length);
+            buffer = tempBuffer;
+
+            // Process all frames in the current buffer
+            while (true) {
+              const boundaryIndex = this._findSequence(buffer, boundaryBytes);
+              if (boundaryIndex === -1) break;
+
+              const headerEndIndex = this._findSequence(buffer, headerSeparator, boundaryIndex + boundaryBytes.length);
+              if (headerEndIndex === -1) break;
+
+              const frameStart = headerEndIndex + headerSeparator.length;
+              const nextBoundaryIndex = this._findSequence(buffer, boundaryBytes, frameStart);
+              if (nextBoundaryIndex === -1) break;
+
+              const frameData = buffer.slice(frameStart, nextBoundaryIndex);
+
+              // Create a Blob and update the image element
+              const blob = new Blob([frameData], { type: "image/jpeg" });
+              const image = new Image();
+              image.src = URL.createObjectURL(blob);
+              image.onload = () => {
+                if (this.onUpdateFrame) {
+                  this.onUpdateFrame(image);
+                }
+              };
+
+              // Remove processed data from the buffer
+              buffer = buffer.slice(nextBoundaryIndex);
+            }
+          }
+        }
+
+        async _run_polling() {
+          while (this._running) {
+            try {
+              const response = await fetch(`/get-state?poll=${this.state.version}&feedid=${this.state.feedid}`);
+              if (!response.ok) {
+                  throw new Error("Network response was not ok");
+              }
+              const data = await response.json();
+              const oldVersion = this.state.version;
+              if (data) {
+                this.state = Object.assign(this.state, data);
+              }
+              if (this.state.version != oldVersion && this.onUpdateState) {
+                this.onUpdateState(data);
+              }
+            } catch (error) {
+              console.error("Error fetching updates:", error);
+
+              // Retry after a delay in case of an error
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
+          }
+        }
+
+
+        async start() {
+          this.state = {};
+          const setFeedResponse = await fetch(this._baseUrl + "/set-feed-params", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              width: canvas.clientWidth,
+              height: canvas.clientHeight,
+            }),
+          }).then((response) => response.json());
+          if (setFeedResponse.status !== "ok") throw exception("Failed to set feed params");
+          this.state.feedid = setFeedResponse.feedid;
+          this.state.version = 0;
+          const response = await fetch(`${this._baseUrl}/video-feed?feedid=${this.state.feedid}`);
+          if (!response.body) {
+            throw new Error("ReadableStream not yet supported in this browser");
+          }
+          const reader = response.body.getReader();
+
+
+          // NOTE: We start the async loop here
+          this._running = true;
+          this._run(reader).catch((err) => {
+            console.error("Error:", err);
+          });
+          this._run_polling().catch((err) => {
+            console.error("Error:", err);
+          });
+        }
+
+        _findSequence(buffer, sequence, startIndex = 0) {
+          for (let i = startIndex; i <= buffer.length - sequence.length; i++) {
+            let found = true;
+            for (let j = 0; j < sequence.length; j++) {
+              if (buffer[i + j] !== sequence[j]) {
+                found = false;
+                break;
+              }
+            }
+            if (found) return i;
+          }
+          return -1;
+        }
+      }
+
+      const lastFrames = {};
+      function draw() {
+        if (lastFrames[0]) {
+          ctx.drawImage(lastFrames[0], 0, 0);
+        }
+      }
+
+      async function start() {
+        const renderer = new HTTPRenderer("http://localhost:5001");
+        await renderer.start();
+
+        renderer.onUpdateFrame = (frame) => {
+          lastFrames[0] = frame;
+          draw();
+        };
+        // renderer.onUpdateState = (state) => {
+        //   console.log("State:", renderer.state, state);
+        // };
+        renderers.push(renderer);
+      }
+
+      canvas.width = canvas.clientWidth;
+      canvas.height = canvas.clientHeight;
+      start();
+
+      window.addEventListener("resize", async () => {
+        canvas.width = canvas.clientWidth;
+        canvas.height = canvas.clientHeight;
+        draw();
+        for (const renderer of renderers) {
+          await renderer.updateRenderParams({
+            width: canvas.clientWidth,
+            height: canvas.clientHeight,
+          }).catch((err) => {
+            console.error("Error updating render params:", err);
+          });
+        }
+      });
+      
+      // Implement WebRTC
+    </script>
+</body>
+</html>
