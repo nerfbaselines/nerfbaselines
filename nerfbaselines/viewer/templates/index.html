@@ -1,66 +1,122 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Viewer</title>
+  <title>Viewer</title>
+  <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
 </head>
 <body>
-    <canvas id="viewport"></canvas>
 <style>
 :root {
-  --border: #ccc;
-  --panel-background: white;
-  --primary: #101010;
-  --secondary: #6c757d;
+  --theme-color: #ffd369;
+  --theme-highlight-color: #ffdf7e;
+  --primary-color: #c9c9c9;
+  --highlight-color: #fff;
+  --secondary-color: #828282;
+  --border-radius: 0.1rem;
+
+  --border-color: #424242;
+  --primary-background-color: #242424;
+  --secondary-background-color: #2e2e2e;
 }
 body {
   font-family: 'Roboto', sans-serif;
 }
+* {
+  box-sizing: border-box;
+  accent-color: var(--theme-color);
+}
+
+main {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+}
+
 .controls {
   display: flex;
   justify-content: center;
-  width: 38ch;
-  background: var(--panel-background);
-  color: var(--primary);
+  width: 45ch;
+  background: var(--primary-background-color);
+  color: var(--primary-color);
   max-width: 100%;
-  overflow-y: scroll;
+  overflow-y: auto;
+  font-size: 0.8rem;
+  padding: 0 0.6rem;
 }
 
-.dropdown > label, .slider > label {
-  display: block;
+select, input {
+  height: 1.625rem;
+  color: var(--primary-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--secondary-background-color);
 }
-
-.dropdown > select, .slider > input {
-  width: 100%;
-}
-
-.dropdown select {
-  height: 2rem;
-  color: var(--primary);
-  border: 1px solid var(--border);
-  border-radius: 0px;
+input[type="range"], input[type="checkbox"] {
+  height: initial;
 }
 
 .row {
-  margin: 0.6rem 0 1.2rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 0.4rem;
+  padding-bottom: 0.6rem;
 }
+.row > label {
+  width: 40%;
+  display: block;
+  gap: 0.4em;
+}
+
+.row > select, .row > input[type="range"], .row > input[type="number"], .row > button {
+  flex: 1;
+  width: 30%;
+}
+
+.row > input[type="range"] + input[type="number"] {
+  max-width: 20%;
+  flex: 1 0 auto;
+}
+
 .row:last-child {
   margin-bottom: 0;
 }
 
 .controls fieldset {
-    border: 1px solid var(--border);
-    border-radius: 0.4rem;
-    margin: 0.3rem 0 0.6rem 0;
-    padding: 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  margin: 0.3rem 0 0.6rem 0;
+  padding: 0.5rem 0.5rem 0 0.5rem;
 }
 .controls legend {
-  color: var(--secondary);
+  color: var(--secondary-color);
   cursor: default;
 }
 /*hint is secondary color*/
 .input-hint {
-  color: var(--secondary);
+  color: var(--secondary-color);
   font-size: 0.8rem;
+  flex-basis: 100%;
+}
+
+.toggle-group {
+  display: flex;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+}
+
+.toggle-group > button {
+  background: none;
+  border: none;
+  border-right: 1px solid var(--border-color);
+  color: var(--secondary-color);
+}
+.toggle-group > button:hover {
+  color: var(--primary-highlight-color);
+  background: var(--secondary-background-color);
+}
+.toggle-group > button:last-child {
+  border-right: none;
 }
 
 .panel {
@@ -75,18 +131,13 @@ body {
 	display: none;
 }
 
-.row-group {
-  display: flex;
-  flex-direction: row;
-  gap: 0.4em;
-}
-
 .tabs .tabs-header {
   display: flex;
   align-items: stretch;
   list-style: none;
   padding: 0;
   margin: 0 0 0.6rem 0;
+  border-bottom: 1px solid var(--border-color);
 }
 .tabs .tabs-header > label {
   padding: 1rem;
@@ -96,8 +147,9 @@ body {
 .tabs [type="radio"]:nth-of-type(3):checked ~ .tabs-header label:nth-of-type(3),
 .tabs [type="radio"]:nth-of-type(4):checked ~ .tabs-header label:nth-of-type(4),
 .tabs [type="radio"]:nth-of-type(5):checked ~ .tabs-header label:nth-of-type(5) {
-  background: var(--primary);
-  color: white;
+  color: var(--highlight-color);
+  border-bottom: 3px solid var(--theme-color);
+  margin-bottom: -1px;
 }
 
 .tabs .tab {
@@ -110,10 +162,16 @@ body {
 	display: block;
 }
 
-.controls button {
-  height: 2rem;
-  width: 100%;
-  border: none;
+button {
+  height: 1.625rem;
+  flex: 1;
+  border: 1px solid var(--border-color);
+  background: var(--theme-color);
+  color: #333;
+}
+
+button:hover {
+  background: var(--theme-highlight-color);
 }
 
 
@@ -125,16 +183,30 @@ html, body {
   overflow: hidden;
   position: relative;
 }
-#viewport {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: -999;
+.viewport {
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Control logic */
+#button_play, #button_pause, #button_preview_render_stop, #button_preview_render {
+  display: none;
+}
+#preview_is_playing:not(:checked) ~ #button_play,
+#preview_is_playing:checked ~ #button_pause {
+  display: block;
+}
+
+#preview_is_preview_mode:not(:checked) ~ #button_preview_render,
+#preview_is_preview_mode:checked ~ #button_preview_render_stop {
+  display: block;
 }
 
 </style>
+
+<main>
+    <div class="viewport">
+    </div>
 
     <div class="controls">
       <div class="tabs">
@@ -163,7 +235,7 @@ html, body {
           <fieldset id="folder-split-screen">
             <legend>Split screen</legend>
             <div class="row checkbox">
-              <label for="output_split">Enable split screen</label>
+              <label for="output_split">Enable</label>
               <input type="checkbox" id="output_split" name="output_split">
             </div>
 
@@ -181,52 +253,61 @@ html, body {
               <div class="input-hint">The second output</div>
             </div>
           </fieldset>
-          <div class="row checkbox">
+          <div class="row">
             <label for="show_train_cameras">Show train cams</label>
             <input type="checkbox" id="show_train_cameras" name="show_train_cameras" disabled>
           </div>
-          <div class="row checkbox">
+          <div class="row">
             <label for="show_test_cameras">Show test cams</label>
             <input type="checkbox" id="show_test_cameras" name="show_test_cameras" disabled>
           </div>
-          <div class="row checkbox">
+          <div class="row">
             <label for="show_input_points">Show input PC</label>
             <input type="checkbox" id="show_input_points" name="show_input_points" disabled>
           </div>
-          <button id="reset-camera">Reset up direction</button>
+          <div class="row">
+            <button id="reset-camera">Reset up direction</button>
+          </div>
         </div>
         <div class="tab panel">
-          <!-- Render -->
           <div class="row">
             <label for="render_fov">Default FOV</label>
-            <input type="range" id="render_fov" name="render_fov" min="0.1" max="175" step="0.01" value="60">
+            <input type="range" id="render_fov" name="render_fov" min="1" max="175" step="1" value="60">
+            <input type="number" id="render_fov_number" name="render_fov_number" min="1" max="175" step="1" value="60">
           </div>
 
           <div class="row">
             <label for="render_resolution">Resolution</label>
-            <input type="range" id="render_resolution" name="render_resolution" min="50" max="10000" step="1" value="100">
+            <input type="number" id="render_resolution_1" name="render_resolution_1" min="50" max="10000" step="1" value="1280">
+            <input type="number" id="render_resolution_2" name="render_resolution_2" min="50" max="10000" step="1" value="720">
           </div>
 
-          <div class="row dropdown">
-            <label for="render_appearance_train_index">Appearance train index</label>
+          <div class="row">
+            <label for="render_appearance_train_index">Appearance</label>
             <select id="render_appearance_train_index" name="render_appearance_train_index">
               <option value="not set">not set</option>
             </select>
+            <div class="input-hint">Appearance of one of the train image.</div>
           </div>
 
-          <div class="row row-group">
+          <div class="row">
             <button id="button_add_keyframe" title="Add a new keyframe at the current pose.">Add keyframe</button>
             <button id="button_clear_keyframes" title="Remove all keyframes from the render path.">Clear keyframes</button>
           </div>
 
-
           <fieldset>
             <legend>Playback</legend>
+              <div class="row slider">
+                <label for="preview_frame">Preview frame</label>
+                <input type="range" id="preview_frame" name="preview_frame" min="0" step="1" value="0">
+              </div>
               <div class="row row-group">
-                <button id="button_play">Play</button>
-                <button id="button_pause">Pause</button>
-                <button id="button_preview_render">Preview render</button>
-                <button id="button_preview_render_stop">Exit render preview</button>
+                <input type="checkbox" id="preview_is_playing" name="preview_is_playing" style="display: none" />
+                <input type="checkbox" id="preview_is_preview_mode" name="preview_is_preview_mode" style="display: none" />
+                <button id="button_play" onclick="var el=document.getElementById('preview_is_playing'); el.checked = true; el.dispatchEvent(new Event('change'))">Play</button>
+                <button id="button_pause" onclick="var el=document.getElementById('preview_is_playing'); el.checked = false; el.dispatchEvent(new Event('change'))">Pause</button>
+                <button id="button_preview_render" onclick="var el=document.getElementById('preview_is_preview_mode'); el.checked = true; el.dispatchEvent(new Event('change'))">Preview render</button>
+                <button id="button_preview_render_stop" onclick="var el=document.getElementById('preview_is_preview_mode'); el.checked = false; el.dispatchEvent(new Event('change'))">Exit render preview</button>
               </div>
 
               <div class="row number">
@@ -237,269 +318,93 @@ html, body {
 
               <div class="row number">
                 <label for="camera_path_framerate">FPS</label>
-                <input type="number" id="camera_path_framerate" name="camera_path_framerate" min="0.1" max="240" step="0.01" value="30">
+                <input type="number" id="camera_path_framerate" style="flex: 2" name="camera_path_framerate" min="1" max="240" step="1" value="30">
+                <div class="toggle-group" style="flex: 4; display: flex;">
+                  <button onclick="var el=document.getElementById('camera_path_framerate');el.value = 24;el.dispatchEvent(new Event('change'))">24</button>
+                  <button onclick="var el=document.getElementById('camera_path_framerate');el.value = 30;el.dispatchEvent(new Event('change'))">30</button>
+                  <button onclick="var el=document.getElementById('camera_path_framerate');el.value = 60;el.dispatchEvent(new Event('change'))">60</button>
+                </div>
               </div>
 
-              <div class="row row-group">
-                <button onclick="document.getElementById('camera_path_framerate').value = 24">24</button>
-                <button onclick="document.getElementById('camera_path_framerate').value = 30">30</button>
-                <button onclick="document.getElementById('camera_path_framerate').value = 60">60</button>
-              </div>
 
               <div class="row number">
                 <label for="camera_path_duration">Duration (sec)</label>
-                <input type="number" id="camera_path_duration" name="camera_path_duration" min="0.001" max="1e8" step="0.001" value="1">
+                <input type="number" id="camera_path_duration" name="camera_path_duration" min="0.01" max="1e8" step="0.01" value="1">
                 <div class="input-hint">Total duration of the camera path in seconds.</div>
               </div>
 
-              <div class="row slider">
-                <label for="preview_frame">Preview frame</label>
-                <input type="range" id="preview_frame" name="preview_frame" min="0" step="1" value="0">
-              </div>
           </fieldset>
 
-          <div class="row dropdown">
+          <div class="row">
             <label for="camera_path_interpolation">Interpolation</label>
             <select id="camera_path_interpolation" name="camera_path_interpolation">
               <option value="kochanek-bartels">kochanek-bartels</option>
+              <option value="linear">linear</option>
               <option value="none">none</option>
               <option value="ellipse">ellipse</option>
             </select>
             <div class="input-hint">Camera path interpolation.</div>
           </div>
 
-          <div class="row checkbox">
+          <div class="row">
             <label for="camera_path_loop">Loop</label>
             <input type="checkbox" id="camera_path_loop" name="camera_path_loop">
             <div class="input-hint">Add a segment between the first and last keyframes.</div>
           </div>
 
-          <div class="row slider">
+          <div class="row">
             <label for="camera_path_tension">Spline tension</label>
             <input type="range" id="camera_path_tension" name="camera_path_tension" min="0" max="1" step="0.01" value="0.5">
             <div class="input-hint">Tension parameter for adjusting smoothness of spline interpolation.</div>
           </div>
 
-          <div class="row checkbox">
+          <div class="row">
             <label for="camera_path_move_keyframes">Move keyframes</label>
             <input type="checkbox" id="camera_path_move_keyframes" name="camera_path_move_keyframes">
             <div class="input-hint">Toggle move handles for keyframes in the scene.</div>
           </div>
 
-          <div class="row checkbox">
+          <div class="row">
             <label for="camera_path_show_keyframes">Show keyframes</label>
-            <input type="checkbox" id="camera_path_show_keyframes" name="camera_path_show_keyframes">
+            <input type="checkbox" id="camera_path_show_keyframes" name="camera_path_show_keyframes" checked>
             <div class="input-hint">Show keyframes in the scene.</div>
           </div>
 
-          <div class="row checkbox">
+          <div class="row">
             <label for="camera_path_show_spline">Show spline</label>
-            <input type="checkbox" id="camera_path_show_spline" name="camera_path_show_spline">
+            <input type="checkbox" id="camera_path_show_spline" name="camera_path_show_spline" checked>
             <div class="input-hint">Show camera path spline in the scene.</div>
           </div>
 
-          <div class="row row-group">
+          <div class="row">
             <button id="button_load_camera_path">Load trajectory</button>
             <button id="button_export_camera_path">Export trajectory</button>
           </div>
-          <button id="button_render_video">Render video</button>
+          <div class="row">
+            <button id="button_render_video">Render video</button>
+          </div>
         </div>
       </div>
     </div>
-
+</main>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
     <script>
 
+
     </script>
+    <script type="module">
+</script>
+<script src="static/interpolation.js" type="module"></script>
+<script src="static/threejs_utils.js" type="module"></script>
+<script src="static/viewer.js" type="module"></script>
 
 
-    <script>
-      const canvas = document.getElementById("viewport");
-      const ctx = canvas.getContext("2d");
-
-      const renderers = [];
-      const state = {
-        renderers: {},
-      };
-
-      class HTTPRenderer {
-        constructor(baseUrl) {
-          this._baseUrl = baseUrl;
-          // Generate uuid
-          this.state = null;
-          this.onUpdateFrame = null;
-          this.onUpdateState = null;
-
-        }
-
-        async updateRenderParams(renderParams) {
-          await fetch(`${this._baseUrl}/set-feed-params?feedid=${this.state.feedid}`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(renderParams),
-          });
-        }
-
-        async _run(reader) {
-          const boundary = "frame"; // Boundary from server response
-          const boundaryBytes = new TextEncoder().encode(`--${boundary}`);
-          const headerSeparator = new Uint8Array([13, 10, 13, 10]); // "\r\n\r\n"
-
-          let buffer = new Uint8Array(0);
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            // Concatenate new data into buffer
-            const tempBuffer = new Uint8Array(buffer.length + value.length);
-            tempBuffer.set(buffer);
-            tempBuffer.set(value, buffer.length);
-            buffer = tempBuffer;
-
-            // Process all frames in the current buffer
-            while (true) {
-              const boundaryIndex = this._findSequence(buffer, boundaryBytes);
-              if (boundaryIndex === -1) break;
-
-              const headerEndIndex = this._findSequence(buffer, headerSeparator, boundaryIndex + boundaryBytes.length);
-              if (headerEndIndex === -1) break;
-
-              const frameStart = headerEndIndex + headerSeparator.length;
-              const nextBoundaryIndex = this._findSequence(buffer, boundaryBytes, frameStart);
-              if (nextBoundaryIndex === -1) break;
-
-              const frameData = buffer.slice(frameStart, nextBoundaryIndex);
-
-              // Create a Blob and update the image element
-              const blob = new Blob([frameData], { type: "image/jpeg" });
-              const image = new Image();
-              image.src = URL.createObjectURL(blob);
-              image.onload = () => {
-                if (this.onUpdateFrame) {
-                  this.onUpdateFrame(image);
-                }
-              };
-
-              // Remove processed data from the buffer
-              buffer = buffer.slice(nextBoundaryIndex);
-            }
-          }
-        }
-
-        async _run_polling() {
-          while (this._running) {
-            try {
-              const response = await fetch(`/get-state?poll=${this.state.version}&feedid=${this.state.feedid}`);
-              if (!response.ok) {
-                  throw new Error("Network response was not ok");
-              }
-              const data = await response.json();
-              const oldVersion = this.state.version;
-              if (data) {
-                this.state = Object.assign(this.state, data);
-              }
-              if (this.state.version != oldVersion && this.onUpdateState) {
-                this.onUpdateState(data);
-              }
-            } catch (error) {
-              console.error("Error fetching updates:", error);
-
-              // Retry after a delay in case of an error
-              await new Promise((resolve) => setTimeout(resolve, 1000));
-            }
-          }
-        }
-
-
-        async start() {
-          this.state = {};
-          const setFeedResponse = await fetch(this._baseUrl + "/set-feed-params", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              width: canvas.clientWidth,
-              height: canvas.clientHeight,
-            }),
-          }).then((response) => response.json());
-          if (setFeedResponse.status !== "ok") throw exception("Failed to set feed params");
-          this.state.feedid = setFeedResponse.feedid;
-          this.state.version = 0;
-          const response = await fetch(`${this._baseUrl}/video-feed?feedid=${this.state.feedid}`);
-          if (!response.body) {
-            throw new Error("ReadableStream not yet supported in this browser");
-          }
-          const reader = response.body.getReader();
-
-
-          // NOTE: We start the async loop here
-          this._running = true;
-          this._run(reader).catch((err) => {
-            console.error("Error:", err);
-          });
-          this._run_polling().catch((err) => {
-            console.error("Error:", err);
-          });
-        }
-
-        _findSequence(buffer, sequence, startIndex = 0) {
-          for (let i = startIndex; i <= buffer.length - sequence.length; i++) {
-            let found = true;
-            for (let j = 0; j < sequence.length; j++) {
-              if (buffer[i + j] !== sequence[j]) {
-                found = false;
-                break;
-              }
-            }
-            if (found) return i;
-          }
-          return -1;
-        }
-      }
-
-      const lastFrames = {};
-      function draw() {
-        if (lastFrames[0]) {
-          ctx.drawImage(lastFrames[0], 0, 0);
-        }
-      }
-
-      async function start() {
-        const renderer = new HTTPRenderer("http://localhost:5001");
-        await renderer.start();
-
-        renderer.onUpdateFrame = (frame) => {
-          lastFrames[0] = frame;
-          draw();
-        };
-        // renderer.onUpdateState = (state) => {
-        //   console.log("State:", renderer.state, state);
-        // };
-        renderers.push(renderer);
-      }
-
-      canvas.width = canvas.clientWidth;
-      canvas.height = canvas.clientHeight;
-      start();
-
-      window.addEventListener("resize", async () => {
-        canvas.width = canvas.clientWidth;
-        canvas.height = canvas.clientHeight;
-        draw();
-        for (const renderer of renderers) {
-          await renderer.updateRenderParams({
-            width: canvas.clientWidth,
-            height: canvas.clientHeight,
-          }).catch((err) => {
-            console.error("Error updating render params:", err);
-          });
-        }
-      });
-      
-      // Implement WebRTC
-    </script>
 </body>
 </html>

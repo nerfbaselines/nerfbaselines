@@ -6,7 +6,7 @@ import time
 import logging
 import uuid
 import io
-from flask import Flask, request, jsonify, render_template, Response
+from flask import Flask, request, jsonify, render_template, Response, send_from_directory
 import numpy as np
 from PIL import Image, ImageDraw
 
