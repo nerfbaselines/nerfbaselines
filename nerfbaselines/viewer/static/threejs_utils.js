@@ -1,7 +1,9 @@
 import * as THREE from 'three';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { Line2 } from 'three/addons/lines/Line2.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 
 
 const registeredInvisibleLineMaterials = new Set();
@@ -30,7 +32,7 @@ class AxisArrow extends THREE.Group {
   constructor({
     scale,
     axis,
-    lineWidth,
+    linewidth,
     fixed,
     axisColors,
     hoveredColor,
@@ -41,7 +43,7 @@ class AxisArrow extends THREE.Group {
     super();
     const direction = getAxisVector(axis);
 
-    const coneWidth = fixed ? (lineWidth / scale) * 1.6 : scale / 20;
+    const coneWidth = fixed ? (linewidth / scale) * 1.6 : scale / 20;
     const coneLength = fixed ? 0.2 : scale / 5;
     const cylinderLength = fixed ? 1 - coneLength : scale - coneLength;
     const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.clone().normalize());
@@ -58,7 +60,7 @@ class AxisArrow extends THREE.Group {
       geometry,
         new LineMaterial({
             color: axisColors[axis],
-            linewidth: lineWidth,
+            linewidth: linewidth,
             transparent: true,
         })
     );
@@ -158,7 +160,7 @@ class AxisRotator extends THREE.Group {
     axis,
     scale,
     fixed,
-    lineWidth,
+    linewidth,
     axisColors,
     hoveredColor,
     onDragStart,
@@ -184,7 +186,7 @@ class AxisRotator extends THREE.Group {
       geometry,
       new LineMaterial({
         color: axisColors[axis],
-        linewidth: lineWidth,
+        linewidth: linewidth,
         transparent: true,
       })
     );
@@ -192,7 +194,7 @@ class AxisRotator extends THREE.Group {
 
     this._addPointerInteractions({
       geometry,
-      lineWidth,
+      linewidth,
       hoveredColor,
       axis,
       onDragStart,
@@ -211,13 +213,13 @@ class AxisRotator extends THREE.Group {
     return points;
   }
 
-  _addPointerInteractions({ geometry, lineWidth, hoveredColor, axis, onDragStart, onDrag, onDragEnd }) {
+  _addPointerInteractions({ geometry, linewidth, hoveredColor, axis, onDragStart, onDrag, onDragEnd }) {
     const setHover = buildSetHover(this, hoveredColor);
     let clickInfo = null;
 
     // Add invisible mesh
     const invisibleMaterial = new LineMaterial({
-      linewidth: lineWidth * 4,
+      linewidth: linewidth * 4,
       visible: false,
     });
     const mesh = new Line2(geometry, invisibleMaterial);
@@ -304,7 +306,7 @@ class AxisRotator extends THREE.Group {
 class PlaneSlider extends THREE.Group {
   constructor({
     axis,
-    lineWidth,
+    linewidth,
     scale,
     fixed,
     axisColors,
@@ -350,7 +352,7 @@ class PlaneSlider extends THREE.Group {
         new LineMaterial({
           transparent: true,
           color: color,
-          linewidth: lineWidth,
+          linewidth: linewidth,
           polygonOffset: true,
           polygonOffsetFactor: -10,
           fog: false,
@@ -457,176 +459,103 @@ const mL0Inv = /* @__PURE__ */ new THREE.Matrix4()
 const mdL = /* @__PURE__ */ new THREE.Matrix4()
 const mG = /* @__PURE__ */ new THREE.Matrix4()
 
-const bb = /* @__PURE__ */ new THREE.Box3()
-const bbObj = /* @__PURE__ */ new THREE.Box3()
-const vCenter = /* @__PURE__ */ new THREE.Vector3()
-const vSize = /* @__PURE__ */ new THREE.Vector3()
-const vAnchorOffset = /* @__PURE__ */ new THREE.Vector3()
-const vPosition = /* @__PURE__ */ new THREE.Vector3()
-const vScale = /* @__PURE__ */ new THREE.Vector3()
-
-const xDir = /* @__PURE__ */ new THREE.Vector3(1, 0, 0)
-const yDir = /* @__PURE__ */ new THREE.Vector3(0, 1, 0)
-const zDir = /* @__PURE__ */ new THREE.Vector3(0, 0, 1)
-
 
 export class PivotControls extends THREE.Group {
   constructor(options) {
     const {
-      enabled = true,
       matrix,
-      onDragStart,
-      onDrag,
-      onDragEnd,
       autoTransform = true,
-      anchor,
       disableAxes = false,
       disableSliders = false,
       disableRotations = false,
-      activeAxes = [true, true, true],
-      offset = [0, 0, 0],
-      rotation = [0, 0, 0],
       scale = 1,
-      lineWidth = 4,
+      linewidth = 4,
       fixed = false,
       axisColors = ['#ff2060', '#20df80', '#2080ff'],
       hoveredColor = '#ffff40',
-      visible = true,
+      onDragStart,
+      onDrag,
+      onDragEnd,
     } = options;
     super();
 
-        this.options = {
-            enabled,
-            matrix,
-            onDragStart,
-            onDrag,
-            onDragEnd,
-            autoTransform,
-            anchor,
-            disableAxes,
-            disableSliders,
-            disableRotations,
-            activeAxes,
-            offset,
-            rotation,
-            scale,
-            lineWidth,
-            fixed,
-            axisColors,
-            hoveredColor,
-            visible,
-        };
-      function invalidate() {
-      }
-        this.options.onDragStart = (props) => {
-          mL0.copy(this.ref.matrix)
-          mW0.copy(this.ref.matrixWorld)
-          onDragStart && onDragStart(props)
-          invalidate()
-        };
-        this.options.onDrag = (mdW) => {
-          console.log(mdW.elements[12], mdW.elements[13], mdW.elements[14]);
-          mP.copy(this.matrixWorld)
-          mPInv.copy(mP).invert()
-          // After applying the delta
-          mW.copy(mW0).premultiply(mdW)
-          mL.copy(mW).premultiply(mPInv)
-          mL0Inv.copy(mL0).invert()
-          mdL.copy(mL).multiply(mL0Inv)
-          if (autoTransform) {
-            this.ref.matrix.copy(mL)
-          }
-          onDrag && onDrag(mL, mdL, mW, mdW)
-        };
-        this.options.onDragEnd = () => {
-          if (onDragEnd) onDragEnd()
-          invalidate()
-        };
+    this.ref = new THREE.Group();
+    if (matrix)
+      this.ref.matrix.copy(matrix);
+    this.ref.matrixAutoUpdate = false;
+    this.gizmoRef = new THREE.Group();
 
-
-      this.ref = new THREE.Group();
-      this.ref.matrixAutoUpdate = false;
-      this.gizmoRef = new THREE.Group();
-      this.initialize();
-    }
-
-    initialize() {
-        const { anchor, offset, rotation, fixed, visible, activeAxes, disableAxes, disableSliders, disableRotations } =
-            this.options;
-
-        if (anchor) {
-            this.setupAnchor(anchor, offset);
+    const objectProps = {
+      scale,
+      linewidth,
+      fixed,
+      axisColors,
+      hoveredColor,
+      onDragStart: (props) => {
+        mL0.copy(this.ref.matrix)
+        mW0.copy(this.ref.matrixWorld)
+        this.dispatchEvent({ type: 'dragstart' });
+      },
+      onDrag: (mdW) => {
+        mP.copy(this.matrixWorld)
+        mPInv.copy(mP).invert()
+        // After applying the delta
+        mW.copy(mW0).premultiply(mdW)
+        mL.copy(mW).premultiply(mPInv)
+        mL0Inv.copy(mL0).invert()
+        mdL.copy(mL).multiply(mL0Inv)
+        if (autoTransform) {
+          this.ref.matrix.copy(mL)
         }
-
-        this.gizmoRef.position.set(...offset);
-        this.gizmoRef.rotation.set(...rotation);
-        this.gizmoRef.visible = visible;
-
-        // Add Axis Arrows
-        if (!disableAxes) {
-            if (activeAxes[0]) this.gizmoRef.add(this.createAxisArrow(0, new THREE.Vector3(1, 0, 0)));
-            if (activeAxes[1]) this.gizmoRef.add(this.createAxisArrow(1, new THREE.Vector3(0, 1, 0)));
-            if (activeAxes[2]) this.gizmoRef.add(this.createAxisArrow(2, new THREE.Vector3(0, 0, 1)));
-        }
-
-        // Add Plane Sliders
-        if (!disableSliders) {
-            if (activeAxes[0] && activeAxes[1]) this.gizmoRef.add(this.createPlaneSlider(2, new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0)));
-            if (activeAxes[0] && activeAxes[2]) this.gizmoRef.add(this.createPlaneSlider(1, new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0)));
-            if (activeAxes[2] && activeAxes[1]) this.gizmoRef.add(this.createPlaneSlider(0, new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)));
-        }
-
-      // Add Axis Rotators
-      if (!disableRotations) {
-          if (activeAxes[0] && activeAxes[1]) this.gizmoRef.add(this.createAxisRotator(2, new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0)));
-          if (activeAxes[0] && activeAxes[2]) this.gizmoRef.add(this.createAxisRotator(1, new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0)));
-          if (activeAxes[2] && activeAxes[1]) this.gizmoRef.add(this.createAxisRotator(0, new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)));
-      }
-
-        this.add(this.ref);
-        this.ref.add(this.gizmoRef);
-    }
-
-    setupAnchor(anchor, offset) {
-        const bb = new THREE.Box3();
-        const vCenter = new THREE.Vector3();
-        const vSize = new THREE.Vector3();
-        const vAnchorOffset = new THREE.Vector3();
-        const vPosition = new THREE.Vector3(...offset);
-
-        vCenter.copy(bb.max).add(bb.min).multiplyScalar(0.5);
-        vSize.copy(bb.max).sub(bb.min).multiplyScalar(0.5);
-        vAnchorOffset.copy(vSize).multiply(new THREE.Vector3(...anchor)).add(vCenter);
-        vPosition.add(vAnchorOffset);
-
-        this.gizmoRef.position.copy(vPosition);
-    }
-
-    createAxisArrow(axis, direction) {
-        return new AxisArrow({
-            axis,
-            direction,
-            ...this.options,
+        this.dispatchEvent({ 
+          type: 'drag',
+          matrix: mL,
         });
+      },
+      onDragEnd: () => {
+        this.dispatchEvent({ type: 'dragend' });
+      },
+    };
+
+    // Add Axis Arrows
+    if (!disableAxes) {
+      this.gizmoRef.add(new AxisArrow({...objectProps, axis: 0}));
+      this.gizmoRef.add(new AxisArrow({...objectProps, axis: 1}));
+      this.gizmoRef.add(new AxisArrow({...objectProps, axis: 2}));
     }
 
-    createPlaneSlider(axis, dir1, dir2) {
-        return new PlaneSlider({
-            axis,
-            dir1,
-            dir2,
-            ...this.options,
-        });
+    // Add Plane Sliders
+    if (!disableSliders) {
+      this.gizmoRef.add(new PlaneSlider({...objectProps, axis: 0}));
+      this.gizmoRef.add(new PlaneSlider({...objectProps, axis: 1}));
+      this.gizmoRef.add(new PlaneSlider({...objectProps, axis: 2}));
     }
 
-    createAxisRotator(axis, dir1, dir2) {
-        return new AxisRotator({
-            axis,
-            dir1,
-            dir2,
-            ...this.options,
-        });
+    // Add Axis Rotators
+    if (!disableRotations) {
+      this.gizmoRef.add(new AxisRotator({...objectProps, axis: 0}));
+      this.gizmoRef.add(new AxisRotator({...objectProps, axis: 1}));
+      this.gizmoRef.add(new AxisRotator({...objectProps, axis: 2}));
     }
+
+    this.add(this.ref);
+    this.ref.add(this.gizmoRef);
+  }
+
+  setMatrix(matrix) {
+    this.ref.matrix.copy(matrix);
+    this.ref.updateWorldMatrix(true, true);
+  }
+
+  dispose() {
+    // Dispose all children and their materials
+    this.traverse(child => {
+      if (child === this) return;
+      if (child.dispose) child.dispose();
+      if (child.material) child.material.dispose();
+      if (child.geometry) child.geometry.dispose();
+    });
+  }
 }
 
 
@@ -776,5 +705,139 @@ export class MouseInteractions {
       this._dispatchIntersected(event, this._currentlyIntersected);
     }
     this._currentEvent = null;
+  }
+}
+
+
+export class CameraFrustum extends THREE.Group {
+  constructor({
+    fov = 75,
+    linewidth = 3,
+    aspect = 1,
+    scale = 1,
+    color,
+    position,
+    quaternion,
+  }) {
+    super();
+    if (position) this.position.copy(position);
+    if (quaternion) this.quaternion.copy(quaternion);
+
+    this.hasImage = false;
+    this._fov = fov;
+    this._aspect = aspect;
+
+    // Define fov property
+    Object.defineProperty(this, 'fov', {
+      get: () => this._fov,
+      set: (value) => {
+        if (value === this._fov) return;
+        this._fov = value;
+        this._updateGeometry(scale);
+      },
+    });
+
+    Object.defineProperty(this, 'aspect', {
+      get: () => this._aspect,
+      set: (value) => {
+        if (value === this._aspect) return;
+        this._aspect = value;
+        this._updateGeometry(scale);
+      },
+    });
+
+    this.geometry = new LineSegmentsGeometry();
+    this._updateGeometry(scale);
+    this.material = new LineMaterial({
+      color,
+      linewidth,
+    });
+    // Attach material to geometry.
+    this.add(new LineSegments2(this.geometry, this.material));
+  }
+
+  _updateGeometry(scale) {
+    let y = Math.tan(this.fov / 2.0);
+    let x = y * this.aspect;
+    let z = 1.0;
+
+    const volumeScale = Math.cbrt((x * y * z) / 3.0);
+    x /= volumeScale;
+    y /= volumeScale;
+    z /= volumeScale;
+    x *= scale;
+    y *= scale;
+    z *= scale;
+
+    const points = [
+      // Rectangle.
+      [-1, -1, 1],
+      [1, -1, 1],
+      [1, -1, 1],
+      [1, 1, 1],
+      [1, 1, 1],
+      [-1, 1, 1],
+      [-1, 1, 1],
+      [-1, -1, 1],
+      // Lines to origin.
+      [-1, -1, 1],
+      [0, 0, 0],
+      [0, 0, 0],
+      [1, -1, 1],
+      // Lines to origin.
+      [-1, 1, 1],
+      [0, 0, 0],
+      [0, 0, 0],
+      [1, 1, 1],
+      // Up direction indicator.
+      // Don't overlap with the image if the image is present.
+      [0.0, -1.2, 1.0],
+      this.hasImage ? [0.0, -1.0, 1.0] : [0.0, -0.9, 1.0],
+    ].map((xyz) => [xyz[0] * x, xyz[1] * y, xyz[2] * z]);
+    this.geometry.setPositions(points.flat())
+  }
+
+  dispose() {
+    this.geometry.dispose();
+    this.material.dispose();
+  }
+}
+
+export class TrajectoryCurve extends THREE.Group {
+  constructor({
+    positions,
+    color,
+    linewidth = 4,
+  }) {
+    super()
+    this.geometry = undefined;
+    this.lineSegments = undefined;
+    this.material = new LineMaterial({ color, linewidth });
+    this.setPositions(positions);
+  }
+
+  setPositions(points) {
+    if (points.length < 2) return;
+    const segment_points = [];
+    for (let i = 0; i < points.length; i++) {
+      segment_points.push(points[i].x, points[i].y, points[i].z);
+      segment_points.push(points[i].x, points[i].y, points[i].z);
+    }
+    segment_points.splice(0, 3);
+    segment_points.splice(segment_points.length - 3, 3);
+    if (this.lineSegments) {
+      this.remove(this.lineSegments);
+      this.lineSegments = undefined;
+      this.geometry.dispose();
+    }
+    this.geometry = new LineSegmentsGeometry();
+    this.geometry.setPositions(segment_points);
+    this.lineSegments = new LineSegments2(this.geometry, this.material);
+    this.add(this.lineSegments);
+  }
+
+  dispose() {
+    this.geometry.dispose();
+    this.material.dispose();
   }
 }
