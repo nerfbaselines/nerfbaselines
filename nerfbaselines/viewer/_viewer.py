@@ -1,3 +1,4 @@
+from contextlib import ExitStack, contextmanager
 import multiprocessing
 import threading
 import copy
@@ -6,14 +7,54 @@ import time
 import logging
 import uuid
 import io
-from flask import Flask, request, jsonify, render_template, Response, send_from_directory
+from flask import Flask, request, jsonify, render_template, Response, send_file
 import numpy as np
 from PIL import Image, ImageDraw
+import nerfbaselines
 
 pcs = set()
 candidates = []
 
 TEMPLATES_AUTO_RELOAD = True
+
+
+def create_ply_bytes(points3D_xyz, points3D_rgb=None):
+    from plyfile import PlyData, PlyElement
+
+    # Check if points3D_xyz is a valid array
+    if points3D_xyz is None or points3D_xyz.ndim != 2 or points3D_xyz.shape[1] != 3:
+        raise ValueError("points3D_xyz must be a 2D array with shape [N, 3].")
+    
+    # Optional: Check if points3D_rgb is valid if provided
+    if points3D_rgb is not None:
+        if points3D_rgb.ndim != 2 or points3D_rgb.shape[1] != 3 or points3D_rgb.shape[0] != points3D_xyz.shape[0]:
+            raise ValueError("points3D_rgb must be a 2D array with shape [N, 3] matching points3D_xyz.")
+
+    # Create a structured array
+    N = points3D_xyz.shape[0]
+    dtype = [('x', 'f4'), ('y', 'f4'), ('z', 'f4')]
+    if points3D_rgb is not None:
+        dtype += [('red', 'u1'), ('green', 'u1'), ('blue', 'u1')]
+
+    vertex_data = np.zeros(N, dtype=dtype)
+    vertex_data['x'] = points3D_xyz[:, 0]
+    vertex_data['y'] = points3D_xyz[:, 1]
+    vertex_data['z'] = points3D_xyz[:, 2]
+
+    if points3D_rgb is not None:
+        vertex_data['red'] = points3D_rgb[:, 0]
+        vertex_data['green'] = points3D_rgb[:, 1]
+        vertex_data['blue'] = points3D_rgb[:, 2]
+
+    # Create the PlyElement
+    vertex_element = PlyElement.describe(vertex_data, "vertex")
+
+    # Write to a PLY file in memory
+    plydata = PlyData([vertex_element])
+    output = io.BytesIO()
+    plydata.write(output)
+    output.seek(0)
+    return output
 
 
 def bouncing_ball_frame(time, width=400, height=400, **kwargs):
@@ -72,7 +113,7 @@ class _Feed:
         return self._render(self.feedid, **copy.deepcopy(self.feed_params))
 
 
-def _run_viewer_server(request_queue, output_queue):
+def _run_viewer_server(request_queue, output_queue, datasets):
     output_queues = {}
 
     def render_fn(feedid, **kwargs):
@@ -86,7 +127,7 @@ def _run_viewer_server(request_queue, output_queue):
         out = output_queues[feedid].get()
         out_type = out.pop("type")
         if out_type == "error":
-            raise RuntimeError(out["message"]) from out["exception"]
+            raise RuntimeError(out["error"]) from out["exception"]
         elif out_type == "end":
             raise SystemExit(0)
         return out["result"]
@@ -104,9 +145,10 @@ def _run_viewer_server(request_queue, output_queue):
                     assert feedid is not None
                     output_queues[feedid].put(out)
         except Exception as e:
+            logging.exception(e)
             logging.error(e)
 
-    app = _build_flake_app(render_fn)
+    app = _build_flake_app(render_fn, datasets)
     multiplex_thread = threading.Thread(target=_multiplex_queues, args=(output_queue, output_queues), daemon=True)
     multiplex_thread.start()
     try:
@@ -115,7 +157,7 @@ def _run_viewer_server(request_queue, output_queue):
         multiplex_thread.join()
 
 
-def _build_flake_app(render_fn):
+def _build_flake_app(render_fn, datasets):
     app = Flask(__name__)
     _feed_states = {}
 
@@ -158,6 +200,80 @@ def _build_flake_app(render_fn):
         return jsonify({"status": "ok", "feedid": feedid})
     del set_feed_params
 
+    @app.route("/render")
+    def render():
+        req = request.args
+        width = int(req.get("width", 256))
+        height = int(req.get("height", 256))
+        frame_bytes = render_fn(threading.get_ident(),
+                                width=width, 
+                                height=height)
+        return Response(frame_bytes, mimetype="image/jpeg")
+    del render
+
+    @app.route("/dataset/pointcloud.ply")
+    def dataset_pointcloud():
+        if datasets.get("train") is None:
+            return jsonify({"status": "error", "message": "Dataset not found"}), 404
+        dataset = datasets["train"]
+        points3D_xyz = dataset.get("points3D_xyz")
+        points3D_rgb = dataset.get("points3D_rgb")
+        if points3D_xyz is None:
+            return jsonify({"status": "error", "message": "No pointcloud in dataset"}), 404
+        output = create_ply_bytes(points3D_xyz, points3D_rgb)
+        # return send_file(output, mimetype="application/octet-stream")
+        return send_file(output, download_name="pointcloud.ply", as_attachment=True)
+        # return create_and_send_ply(points3D_xyz, points3D_rgb)
+    del dataset_pointcloud
+
+    @app.route("/dataset/<string:split>.json")
+    def dataset_cameras(split):
+        if datasets.get(split) is None:
+            return jsonify({"status": "error", "message": "Dataset not found"}), 404
+        nb_cameras = datasets[split].get("cameras")
+        cameras = [{
+            "pose": pose[:3, :4].flatten().tolist(),
+            "intrinsics": intrinsics.tolist(),
+            "image_size": image_size.tolist(),
+        } for _, (pose, intrinsics, image_size) in enumerate(zip(
+            nb_cameras.poses, 
+            nb_cameras.intrinsics, 
+            nb_cameras.image_sizes))]
+        return jsonify({
+            "cameras": cameras
+        })
+    del dataset_cameras
+
+    @app.route("/dataset/thumbnails/<string:split>/<int:idx>.jpg")
+    def dataset_thumbnail(split, idx):
+        max_img_size = 64
+
+        from nerfbaselines.datasets import dataset_index_select, dataset_load_features
+        from nerfbaselines.utils import image_to_srgb
+
+        if datasets.get(split) is None:
+            return jsonify({"status": "error", "message": "Dataset not found"}), 404
+        dataset = datasets[split]
+        if not (0 <= idx < len(dataset["cameras"])): 
+            return jsonify({"status": "error", "message": "Image not found in the dataset"}), 404
+
+        dataset_slice = dataset_load_features(dataset_index_select(dataset, [idx]))
+        image = dataset_slice["images"][0]
+
+        W, H = image.shape[:2]
+        downsample_factor = max(1, min(W//max_img_size, H//max_img_size))
+        image = image[::downsample_factor, ::downsample_factor]
+        image = image_to_srgb(image, 
+                              dtype=np.uint8, 
+                              color_space="srgb", 
+                              background_color=(dataset.get("metadata") or {}).get("background_color"))
+        output = io.BytesIO()
+        Image.fromarray(image).save(output, format="JPEG")
+        output.seek(0)
+        return send_file(output, mimetype="image/jpeg")
+
+    del dataset_thumbnail
+
     @app.route("/video-feed")
     def video_feed():
         feedid = request.args.get("feedid")
@@ -178,9 +294,32 @@ def _build_flake_app(render_fn):
     return app
 
 
-def run_viewer():
+def run_viewer(model=None, train_dataset=None, test_dataset=None, nb_info=None):
     request_queue = multiprocessing.Queue()
     output_queue = multiprocessing.Queue()
+
+    def render(feedid,
+               pose=None,
+               image_size=None,
+               intrinsics=None,
+               **kwargs):
+        # image_size = np.array(image_size, dtype=np.int32)
+
+        pose = nb_info["dataset_metadata"]["viewer_initial_pose"]
+        image_size = np.array((256, 256), dtype=np.int32)
+        if intrinsics is None:
+            w, h = image_size
+            intrinsics = np.array([w/2, w/2, w/2, h/2], dtype=np.float32)
+        camera = nerfbaselines.new_cameras(
+            poses=np.array(pose, dtype=np.float32),
+            intrinsics=np.array(intrinsics, dtype=np.float32),
+            camera_models=0,
+            image_sizes=image_size,
+        )
+        outputs = model.render(camera)
+        outputs = model.render(camera)
+        frame = outputs["color"]
+        return frame
 
     def update_step():
         req = request_queue.get()
@@ -188,6 +327,8 @@ def run_viewer():
         if req_type == "render":
             feedid = req.pop("feedid")
             try:
+                # frame = render(feedid, **req)
+
                 frame = bouncing_ball_frame(time=time.time()*10, **req)
                 with io.BytesIO() as output, Image.fromarray(frame) as img:
                     img.save(output, format="JPEG")
@@ -206,7 +347,7 @@ def run_viewer():
                     "exception": e
                 })
 
-    process = multiprocessing.Process(target=_run_viewer_server, args=(request_queue, output_queue), daemon=True)
+    process = multiprocessing.Process(target=_run_viewer_server, args=(request_queue, output_queue, {"train": train_dataset, "test": test_dataset}), daemon=True)
     process.start()
 
     try:
@@ -223,4 +364,37 @@ def run_viewer():
 
 
 if __name__ == "__main__":
-    run_viewer()
+    # run_viewer()
+    from nerfbaselines import load_checkpoint
+    from nerfbaselines.datasets import load_dataset
+
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--checkpoint", default=None, required=False, type=str)
+    parser.add_argument("--data", type=str, default=None, required=False)
+    parser.add_argument("--port", type=int, default=5001)
+    parser.add_argument("--backend", type=str, default="python")
+    args = parser.parse_args()
+
+    port = 5001
+    with ExitStack() as stack:
+        nb_info = None
+        model = None
+        if args.checkpoint is not None:
+            model, nb_info = stack.enter_context(load_checkpoint(args.checkpoint, backend=args.backend))
+        else:
+            logging.info("Starting viewer without method")
+
+        train_dataset = None
+        test_dataset = None
+        if args.data is not None:
+            train_dataset = load_dataset(args.data, split="train", load_features=False, features=("points3D_xyz", "points3D_rgb"))
+            test_dataset = load_dataset(args.data, split="test", load_features=False, features=("points3D_xyz", "points3D_rgb"))
+
+        # Start the viewer
+        run_viewer(
+            model=model, 
+            train_dataset=train_dataset,
+            test_dataset=test_dataset,
+            nb_info=nb_info)
+

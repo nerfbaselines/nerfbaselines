@@ -14,16 +14,17 @@ function buildSetHover(obj, hoveredColor) {
   let isHovered = false;
   return (hover) => {
     if (isHovered === hover) return
-    isHovered = hover
     for (let child of obj.children) {
       if (!child.material || !child.material.color) continue;
-      if (isHovered) {
+      if (!isHovered)
         child.material._backup_color = child.material.color.clone();
+      if (hover) {
         child.material.color.set(hoveredColor);
-      } else {
+      } else if (child.material._backup_color) {
         child.material.color.set(child.material._backup_color);
       }
     }
+    isHovered = hover;
   }
 }
 
@@ -718,14 +719,23 @@ export class CameraFrustum extends THREE.Group {
     color,
     position,
     quaternion,
+    hoveredColor = '#ffff40',
+    interactive = false,
+    originSphereScale,
   }) {
     super();
+    this._scale = scale;
     if (position) this.position.copy(position);
     if (quaternion) this.quaternion.copy(quaternion);
 
-    this.hasImage = false;
+    this._hasImage = false;
     this._fov = fov;
     this._aspect = aspect;
+    this._interactive = interactive;
+    this._pointerdown = false;
+    this._focused = false;
+    this._hoveredColor = hoveredColor;
+    this._color = color;
 
     // Define fov property
     Object.defineProperty(this, 'fov', {
@@ -746,17 +756,91 @@ export class CameraFrustum extends THREE.Group {
       },
     });
 
+    Object.defineProperty(this, 'focused', {
+      get: () => this._focused,
+      set: (value) => {
+        if (value === this._focused) return;
+        this._focused = value;
+        this._hover = false;
+        this.originSphere && (this.originSphere.visible = !value);
+        this._updateColor();
+      },
+    });
+
     this.geometry = new LineSegmentsGeometry();
     this._updateGeometry(scale);
     this.material = new LineMaterial({
       color,
       linewidth,
     });
+
     // Attach material to geometry.
     this.add(new LineSegments2(this.geometry, this.material));
+
+    if (originSphereScale) {
+      const ballGeometry = new THREE.SphereGeometry(originSphereScale*scale, 32, 32);
+      this.originSphereMaterial = new THREE.MeshBasicMaterial({ color });
+      this.originSphere = new THREE.Mesh(ballGeometry, this.originSphereMaterial);
+      this.originSphere.visible = !this._focused;
+      this.add(this.originSphere);
+    }
+
+    if (this._interactive) {
+      // Add invisible mesh for raycasting.
+      this.invisibleMaterial = new LineMaterial({
+        linewidth: linewidth * 4,
+        visible: false,
+      });
+      const invisibleMesh = new LineSegments2(this.geometry, this.invisibleMaterial);
+      invisibleMesh.addEventListener('pointermove', this._onPointerMove.bind(this));
+      invisibleMesh.addEventListener('pointerout', this._onPointerOut.bind(this));
+      invisibleMesh.addEventListener('pointerup', this._onPointerUp.bind(this));
+      invisibleMesh.addEventListener('pointerdown', this._onPointerDown.bind(this));
+      registeredInvisibleLineMaterials.add(invisibleMesh);
+      this.add(invisibleMesh);
+    }
   }
 
-  _updateGeometry(scale) {
+  _updateColor() {
+    if (this._hover || this._focused) {
+      this.material.color.set(this._hoveredColor);
+      this.originSphereMaterial.color.set(this._hoveredColor);
+    } else {
+      this.material.color.set(this._color);
+      this.originSphereMaterial.color.set(this._color);
+    }
+  }
+
+  _onPointerDown(e) {
+    if (this._focused) return;
+    e.stopPropagation();
+    this._pointerdown = true;
+  }
+
+  _onPointerUp(e) {
+    if (this._focused) return;
+    e.stopPropagation();
+    if (this._pointerdown) {
+      this.dispatchEvent({ type: 'click' });
+    }
+  }
+
+  _onPointerMove(e) {
+    if (this._focused) return;
+    e.stopPropagation();
+    this._hover = true;
+    this._updateColor();
+  }
+
+  _onPointerOut(e) {
+    if (this._focused) return;
+    e.stopPropagation();
+    this._pointerdown = false;
+    this._hover = false;
+    this._updateColor();
+  }
+
+  _computeXyz() {
     let y = Math.tan(this.fov / 2.0);
     let x = y * this.aspect;
     let z = 1.0;
@@ -765,10 +849,14 @@ export class CameraFrustum extends THREE.Group {
     x /= volumeScale;
     y /= volumeScale;
     z /= volumeScale;
-    x *= scale;
-    y *= scale;
-    z *= scale;
+    x *= this._scale;
+    y *= this._scale;
+    z *= this._scale;
+    return [x, y, z];
+  }
 
+  _updateGeometry() {
+    const [x, y, z] = this._computeXyz();
     const points = [
       // Rectangle.
       [-1, -1, 1],
@@ -792,14 +880,45 @@ export class CameraFrustum extends THREE.Group {
       // Up direction indicator.
       // Don't overlap with the image if the image is present.
       [0.0, -1.2, 1.0],
-      this.hasImage ? [0.0, -1.0, 1.0] : [0.0, -0.9, 1.0],
+      this._hasImage ? [0.0, -1.0, 1.0] : [0.0, -0.9, 1.0],
     ].map((xyz) => [xyz[0] * x, xyz[1] * y, xyz[2] * z]);
     this.geometry.setPositions(points.flat())
   }
 
+  setImageTexture(texture) {
+    if (this._hasImage)
+      throw new Error('Image texture is already set.');
+    this._hasImage = true;
+    this._updateGeometry();
+    const [x, y, z] = this._computeXyz();
+    const imageGeometry = new THREE.PlaneGeometry(this.aspect * y * 2, y * 2);
+    const imageMaterial = new THREE.MeshBasicMaterial({ 
+      transparent: true,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+      map: texture,
+    });
+    const mesh = new THREE.Mesh(imageGeometry, imageMaterial)
+    mesh.position.set(0.0, 0.0, z * 0.999999);
+    mesh.rotation.set(Math.PI, 0.0, 0.0);
+    this.add(mesh);
+
+    if (this._interactive) {
+      mesh.addEventListener('pointermove', this._onPointerMove.bind(this));
+      mesh.addEventListener('pointerout', this._onPointerOut.bind(this));
+      mesh.addEventListener('pointerup', this._onPointerUp.bind(this));
+      mesh.addEventListener('pointerdown', this._onPointerDown.bind(this));
+    }
+  }
+
   dispose() {
-    this.geometry.dispose();
-    this.material.dispose();
+    // Dispose all children and their materials
+    this.traverse(child => {
+      if (child === this) return;
+      if (child.dispose) child.dispose();
+      if (child.material) child.material.dispose();
+      if (child.geometry) child.geometry.dispose();
+    });
   }
 }
 

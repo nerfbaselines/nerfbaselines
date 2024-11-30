@@ -3,6 +3,7 @@
 <head>
   <title>Viewer</title>
   <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.7.0/dist/tabler-icons.min.css" rel="stylesheet">
 </head>
 <body>
 <style>
@@ -124,7 +125,7 @@ input[type="range"], input[type="checkbox"] {
   flex-direction: column;
   margin: 0 1ch;
 }
-.tabs {
+.tabs, .dialog {
   width: 100%;
 }
 .tabs [type="radio"] {
@@ -202,6 +203,24 @@ html, body {
   display: block;
 }
 
+.dialog {
+  display: none;
+}
+
+.dialog.dialog-open {
+  display: block;
+}
+
+.dialog.dialog-open ~ .tabs {
+  display: none;
+}
+
+.dialog-header {
+  margin: 0 0 0.6rem 0;
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
 </style>
 
 <main>
@@ -209,6 +228,13 @@ html, body {
     </div>
 
     <div class="controls">
+      <div class="dialog" data-bind-class="dialog-open:camera_path_has_selected_keyframe">
+        <div class="dialog-header">
+          <div>Editing keyframe <span data-bind="camera_path_selected_keyframe_natural_index"></span></div>
+          <button data-action="clear_selected_keyframe">X</button>
+        </div>
+      </div>
+
       <div class="tabs">
         <input type="radio" id="tab-1" name="accordion-1" checked>
         <input type="radio" id="tab-2" name="accordion-1">
@@ -253,18 +279,21 @@ html, body {
               <div class="input-hint">The second output</div>
             </div>
           </fieldset>
-          <div class="row">
-            <label for="show_train_cameras">Show train cams</label>
-            <input type="checkbox" id="show_train_cameras" name="show_train_cameras" disabled>
-          </div>
-          <div class="row">
-            <label for="show_test_cameras">Show test cams</label>
-            <input type="checkbox" id="show_test_cameras" name="show_test_cameras" disabled>
-          </div>
-          <div class="row">
-            <label for="show_input_points">Show input PC</label>
-            <input type="checkbox" id="show_input_points" name="show_input_points" disabled>
-          </div>
+          <fieldset>
+            <legend>Dataset</legend>
+            <div class="row">
+              <label for="dataset_show_train_cameras">Show train cams</label>
+              <input type="checkbox" id="dataset_show_train_cameras" name="dataset_show_train_cameras" data-enable-if="dataset_has_train_cameras" disabled>
+            </div>
+            <div class="row">
+              <label for="dataset_show_test_cameras">Show test cams</label>
+              <input type="checkbox" id="dataset_show_test_cameras" name="dataset_show_test_cameras" data-enable-if="dataset_has_train_cameras" disabled checked>
+            </div>
+            <div class="row">
+              <label for="dataset_show_pointcloud">Show input PC</label>
+              <input type="checkbox" id="dataset_show_pointcloud" name="dataset_show_pointcloud" data-enable-if="dataset_has_pointcloud" disabled checked>
+            </div>
+          </fieldset>
           <div class="row">
             <button id="reset-camera">Reset up direction</button>
           </div>

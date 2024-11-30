@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
@@ -11,6 +12,7 @@ const theme_color = 0xffd369;
 const trajectory_curve_color = 0xffd369;
 const player_frustum_color = 0x20df80;
 const keyframe_frustum_color = 0xff0000;
+const dataset_frustum_color = 0xd3d3d3;
 
 let _keyframe_counter = 0;
 const viewport = document.querySelector(".viewport");
@@ -18,6 +20,17 @@ const renderers = [];
 const state = {
   renderers: {},
 };
+
+
+class HTTPRemote {
+  constructor(baseUrl) {
+    this._baseUrl = baseUrl;
+  }
+
+  load_dataset_point_cloud(dataset) {
+    const ply_url = `${this._baseUrl}/datasets/${encodeURIComponent(dataset)}/point_cloud.ply`;
+  }
+}
 
 class HTTPRenderer {
   constructor(baseUrl) {
@@ -126,21 +139,50 @@ class HTTPRenderer {
     if (setFeedResponse.status !== "ok") throw exception("Failed to set feed params");
     this.state.feedid = setFeedResponse.feedid;
     this.state.version = 0;
-    const response = await fetch(`${this._baseUrl}/video-feed?feedid=${this.state.feedid}`);
-    if (!response.body) {
-      throw new Error("ReadableStream not yet supported in this browser");
-    }
-    const reader = response.body.getReader();
+    // const response = await fetch(`${this._baseUrl}/video-feed?feedid=${this.state.feedid}`);
+    // if (!response.body) {
+    //   throw new Error("ReadableStream not yet supported in this browser");
+    // }
+    // const reader = response.body.getReader();
 
 
     // NOTE: We start the async loop here
     this._running = true;
-    this._run(reader).catch((err) => {
-      console.error("Error:", err);
-    });
-    this._run_polling().catch((err) => {
-      console.error("Error:", err);
-    });
+    //this._run();
+    // this._run(reader).catch((err) => {
+    //   console.error("Error:", err);
+    // });
+    //this._run_polling().catch((err) => {
+    //  console.error("Error:", err);
+    //});
+  }
+
+  async _updateSingle() {
+    const response = await fetch(`${this._baseUrl}/render?width=${viewport.clientWidth}&height=${viewport.clientHeight}`);
+    // Read response as blob
+    const blob = await response.blob();
+    const image = new Image();
+    image.src = URL.createObjectURL(blob);
+    image.onload = () => {
+      if (this.onUpdateFrame) {
+        this.onUpdateFrame(image);
+      }
+    };
+  }
+
+  _run() {
+    let lastUpdate = Date.now() - 1;
+
+    const run = () => {
+      this._updateSingle().then(() => {
+        if (this._running) {
+          const wait = Math.max(0, 1000 / 30 - (Date.now() - lastUpdate));
+          lastUpdate = Date.now();
+          setTimeout(() => run(), wait);
+        }
+      });
+    };
+    run();
   }
 
   _findSequence(buffer, sequence, startIndex = 0) {
@@ -455,7 +497,7 @@ function _attach_camera_path_selected_keyframe_pivot_controls(viewer) {
     selected_keyframe = camera_path_keyframes.find((keyframe) => keyframe.id === camera_path_selected_keyframe);
     if (!pivot_controls) {
       pivot_controls = new PivotControls({
-        scale: 0.1,
+        scale: 0.2,
       });
       viewer.threejs_renderer.scene.add(pivot_controls);
       pivot_controls.addEventListener("drag", (e) => {
@@ -473,13 +515,13 @@ function _attach_camera_path_selected_keyframe_pivot_controls(viewer) {
           trigger: "pivot_controls",
         });
       });
-    } else {
-      const matrix = new THREE.Matrix4().compose(
-        selected_keyframe.position, 
-        selected_keyframe.quaternion, 
-        new THREE.Vector3(1, 1, 1));
-      pivot_controls.setMatrix(matrix);
     }
+    const matrix = new THREE.Matrix4().compose(
+      selected_keyframe.position, 
+      selected_keyframe.quaternion, 
+      new THREE.Vector3(1, 1, 1));
+    console.log("Updating pivot controls", matrix);
+    pivot_controls.setMatrix(matrix);
   }
 
   viewer.addEventListener("change", ({ property, state, trigger }) => {
@@ -516,6 +558,12 @@ function _attach_camera_path_keyframes(viewer) {
           quaternion: keyframe.quaternion.clone(),
           scale: 0.1,
           color: keyframe_frustum_color,
+          interactive: true,
+          originSphereScale: 0.12,
+        });
+        frustum.addEventListener("click", () => {
+          viewer._gui_state.camera_path_selected_keyframe = keyframe.id;
+          viewer.notifyChange({ property: "camera_path_selected_keyframe" });
         });
         viewer.threejs_renderer.scene.add(frustum);
       } else {
@@ -525,6 +573,7 @@ function _attach_camera_path_keyframes(viewer) {
         frustum.aspect = aspect;
       }
       new_keyframe_frustums[keyframe.id] = frustum;
+      frustum.focused = keyframe.id === camera_path_selected_keyframe;
     }
     // Remove old keyframes
     for (const keyframe_id in keyframe_frustums) {
@@ -537,12 +586,20 @@ function _attach_camera_path_keyframes(viewer) {
   }
 
   viewer.addEventListener("change", ({ property, state }) => {
-    if (property !== undefined &&
-        property !== 'camera_path_keyframes' &&
-        property !== 'render_fov' &&
-        property !== 'render_resolution_1' &&
-        property !== 'render_resolution_2') return;
-    update_keyframe_frustums(state);
+    if (property === undefined ||
+        property === 'camera_path_keyframes' ||
+        property === 'render_fov' ||
+        property === 'render_resolution_1' ||
+        property === 'render_resolution_2')
+        update_keyframe_frustums(state);
+
+    if (property === 'camera_path_selected_keyframe') {
+      for (const keyframe of state.camera_path_keyframes) {
+        const frustum = keyframe_frustums[keyframe.id];
+        if (frustum === undefined) continue;
+        frustum.focused = keyframe.id === state.camera_path_selected_keyframe;
+      }
+    }
   });
 }
 
@@ -572,7 +629,6 @@ function _attach_camera_path(viewer) {
     viewer.notifyChange({ property: "camera_path_trajectory", trigger: "camera_path" });
   });
 }
-
 
 function _attach_camera_path_curve(viewer) {
   let trajectory_curve = undefined;
@@ -690,6 +746,7 @@ class Viewer extends THREE.EventDispatcher {
     this._on_camera_path_change_callbacks = [];
     this._on_gui_change_callbacks = [];
 
+    this._attach_computed_properties();
     _attach_camera_path(this);
     this._attach_preview_is_playing();
     this._attach_update_preview_mode();
@@ -725,6 +782,23 @@ class Viewer extends THREE.EventDispatcher {
     this.notifyChange({ property: "camera_path_keyframes" });
     this._gui_state.camera_path_selected_keyframe = id;
     this.notifyChange({ property: "camera_path_selected_keyframe" });
+  }
+
+  clear_selected_keyframe() {
+    this._gui_state.camera_path_selected_keyframe = undefined;
+    this.notifyChange({ property: "camera_path_selected_keyframe" });
+  }
+
+  _attach_computed_properties() {
+    this.addEventListener("change", ({ property, state }) => {
+      if (property === undefined || property === 'camera_path_selected_keyframe') {
+        state.camera_path_selected_keyframe_natural_index = 
+          state.camera_path_keyframes.findIndex((keyframe) => keyframe.id === state.camera_path_selected_keyframe) + 1;
+        this.notifyChange({ property: 'camera_path_selected_keyframe_natural_index' });
+        state.camera_path_has_selected_keyframe = state.camera_path_selected_keyframe !== undefined;
+        this.notifyChange({ property: 'camera_path_has_selected_keyframe' });
+      }
+    });
   }
 
   _attach_update_preview_mode() {
@@ -825,6 +899,41 @@ class Viewer extends THREE.EventDispatcher {
         setValue(element, state[name]);
       });
     });
+    root.querySelectorAll("[data-bind]").forEach(element => {
+      const name = element.getAttribute("data-bind");
+      this.addEventListener("change", ({ property, trigger }) => {
+        if (property !== name && property !== undefined) return;
+        element.textContent = state[name];
+      });
+    });
+
+    root.querySelectorAll("[data-enable-if]").forEach(element => {
+      const name = element.getAttribute("data-enable-if");
+      this.addEventListener("change", ({ property, state }) => {
+        if (property !== name && property !== undefined) return;
+        element.disabled = !state[name];
+      });
+    });
+
+    root.querySelectorAll("[data-action]").forEach(element => {
+      const action = element.getAttribute("data-action");
+      element.addEventListener("click", () => {
+        this[action]();
+      });
+    });
+
+    // data-bind-class has the form "class1:property1"
+    root.querySelectorAll("[data-bind-class]").forEach(element => {
+      const [class_name, name] = element.getAttribute("data-bind-class").split(":");
+      this.addEventListener("change", ({ property, trigger }) => {
+        if (property !== name && property !== undefined) return;
+        if (state[name]) {
+          element.classList.add(class_name);
+        } else {
+          element.classList.remove(class_name);
+        }
+      });
+    });
     this.notifyChange({ property: null, trigger: 'init' });
   }
 
@@ -860,3 +969,125 @@ const viewer = new Viewer(viewport);
 viewer.attach_gui(document.querySelector('.controls'));
 viewer.add_keyframe();
 window._draw = () => viewer._draw_background();
+
+
+class DatasetManager {
+  constructor({
+    viewer,
+    url,
+  }) {
+    this.viewer = viewer;
+    this.scene = viewer.threejs_renderer.scene;
+    this.url = url;
+
+    this._train_cameras = new THREE.Group();
+    this._train_cameras.visible = !!state.dataset_show_train_cameras;
+    this._test_cameras = new THREE.Group();
+    this._test_cameras.visible = !!state.dataset_show_test_cameras;
+    this._pointcloud = new THREE.Group();
+    this._pointcloud.visible = !!state.dataset_show_pointcloud;
+    this.scene.add(this._train_cameras);
+    this.scene.add(this._test_cameras);
+    this.scene.add(this._pointcloud);
+    viewer.addEventListener("change", ({ property, state }) => {
+      if (property === undefined || property === 'dataset_show_pointcloud')
+        this._pointcloud.visible = state.dataset_show_pointcloud;
+      if (property === undefined || property === 'dataset_show_train_cameras')
+        this._train_cameras.visible = state.dataset_show_train_cameras;
+      if (property === undefined || property === 'dataset_show_test_cameras')
+        this._test_cameras.visible = state.dataset_show_test_cameras;
+    });
+
+    this._load_cameras("test");
+    this._load_cameras("train");
+    this._load_pointcloud();
+  }
+
+  _load_cameras(split) {
+    // Load dataset train/test frustums
+    const trainCamerasLoader = new THREE.FileLoader();
+    trainCamerasLoader.setResponseType('json'); // Ensures the result is parsed as JSON
+    trainCamerasLoader.load(
+      `${this.url}/${split}.json`,
+      (result) => {
+        const { cameras } = result;
+        this.viewer._gui_state[`dataset_has_${split}_cameras`] = true;
+        this.viewer.notifyChange({ property: `dataset_has_${split}_cameras` });
+        let i = 0;
+        for (const camera of cameras) {
+          const pose = camera.pose; // Assuming pose is a flat array representing a 3x4 matrix
+          if (pose.length !== 12) {
+            console.error('Invalid pose array. Expected 12 elements for 3x4 matrix.');
+            continue;
+          }
+
+          const poseMatrix = new THREE.Matrix4();
+          poseMatrix.set(
+            pose[0], pose[1], pose[2], pose[3],
+            pose[4], pose[5], pose[6], pose[7],
+            pose[8], pose[9], pose[10], pose[11],
+            0, 0, 0, 1 // Add the last row to make it a full 4x4 matrix
+          );
+
+          // Optional: Decompose the pose matrix into position, quaternion, and scale
+          const position = new THREE.Vector3();
+          const quaternion = new THREE.Quaternion();
+          const scale = new THREE.Vector3();
+          poseMatrix.decompose(position, quaternion, scale);
+
+          const [fx, fy, cx, cy] = camera.intrinsics;
+          const [width, height] = camera.image_size;
+
+          const frustum = new CameraFrustum({ 
+            fov: Math.atan2(cy, fy) * 2,
+            aspect: width / height,
+            position,
+            quaternion,
+            scale: 0.1,
+            color: dataset_frustum_color,
+            hasImage: true,
+          });
+
+          // Replace image_path extension with .jpg
+          new THREE.TextureLoader().load(`${this.url}/thumbnails/${split}/${i}.jpg`, (texture) => {
+            frustum.setImageTexture(texture);
+          });
+          this[`_${split}_cameras`].add(frustum);
+          i++;
+        }
+      },
+      undefined,
+      (error) => {
+        console.error('An error occurred while loading the cameras:', error);
+      }
+    );
+  }
+
+  _load_pointcloud() {
+    // Load PLY file
+    const loader = new PLYLoader();
+    loader.load(`${this.url}/pointcloud.ply`, (geometry) => {
+      this.viewer._gui_state.dataset_has_pointcloud = true;
+      this.viewer.notifyChange({ property: 'dataset_has_pointcloud' });
+      geometry.setAttribute('color', geometry.getAttribute('color'));
+      geometry.computeBoundingSphere();
+
+      const material = new THREE.ShaderMaterial({ 
+        uniforms: {
+          scale: { value: 10.0 },
+          point_ball_norm: { value: 2.0 },
+        },
+        vertexShader: _point_cloud_vertex_shader,
+        fragmentShader: _point_cloud_fragment_shader,
+      });
+      material.vertexColors = geometry.hasAttribute('color');
+
+      const points = new THREE.Points(geometry, material);
+      this._pointcloud.add(points);
+    }, undefined, (error) => {
+        console.error('An error occurred while loading the PLY file:', error);
+    });
+  }
+}
+
+const dataset_manager = new DatasetManager({ viewer, url: "http://localhost:5001/dataset" });
