@@ -111,6 +111,7 @@ input[type="range"], input[type="checkbox"] {
   border: none;
   border-right: 1px solid var(--border-color);
   color: var(--secondary-color);
+  height: 1.625rem;
 }
 .toggle-group > button:hover {
   color: var(--primary-highlight-color);
@@ -164,7 +165,7 @@ input[type="range"], input[type="checkbox"] {
 }
 
 button {
-  height: 1.625rem;
+  height: 2rem;
   flex: 1;
   border: 1px solid var(--border-color);
   background: var(--theme-color);
@@ -215,10 +216,32 @@ html, body {
   display: none;
 }
 
+/* Hide all dialogs except the first one that is open */
+.dialog.dialog-open ~ .dialog.dialog-open {
+  display: none;
+}
+
 .dialog-header {
   margin: 0 0 0.6rem 0;
   padding: 1rem;
   border-bottom: 1px solid var(--border-color);
+  display: flex;
+  font-size: 1.2em;
+}
+
+.dialog-header > div {
+  flex: 1;
+}
+.dialog-header > i.ti-x {
+  cursor: pointer;
+  font-size: 1.2rem;
+
+  /* Enlarge clickable area */
+  padding: 1rem;
+  margin: -1rem;
+}
+.dialog-header > i.ti-x:hover {
+  color: var(--highlight-color);
 }
 
 </style>
@@ -228,10 +251,27 @@ html, body {
     </div>
 
     <div class="controls">
+      <div class="dialog" id="dialog_camera_path_delete_all">
+        <div class="dialog-header">
+          <div>Confirm deletion</div>
+          <i class="ti ti-x" onclick="this.closest('.dialog').classList.remove('dialog-open')"></i>
+        </div>
+        <p>Are you sure you want to delete all keyframes?</p>
+        <div class="row">
+          <button 
+            onclick="this.closest('.dialog').classList.remove('dialog-open')"
+            data-action="delete_all_keyframes">Yes</button>
+          <button onclick="this.closest('.dialog').classList.remove('dialog-open')">No</button>
+        </div>
+      </div>
+
       <div class="dialog" data-bind-class="dialog-open:camera_path_has_selected_keyframe">
         <div class="dialog-header">
           <div>Editing keyframe <span data-bind="camera_path_selected_keyframe_natural_index"></span></div>
-          <button data-action="clear_selected_keyframe">X</button>
+          <i class="ti ti-x" data-action="clear_selected_keyframe"></i>
+        </div>
+        <div class="row">
+          <button data-action="delete_selected_keyframe">Delete</button>
         </div>
       </div>
 
@@ -300,15 +340,15 @@ html, body {
         </div>
         <div class="tab panel">
           <div class="row">
-            <label for="render_fov">Default FOV</label>
-            <input type="range" id="render_fov" name="render_fov" min="1" max="175" step="1" value="60">
-            <input type="number" id="render_fov_number" name="render_fov_number" min="1" max="175" step="1" value="60">
-          </div>
-
-          <div class="row">
             <label for="render_resolution">Resolution</label>
             <input type="number" id="render_resolution_1" name="render_resolution_1" min="50" max="10000" step="1" value="1280">
             <input type="number" id="render_resolution_2" name="render_resolution_2" min="50" max="10000" step="1" value="720">
+          </div>
+
+          <div class="row">
+            <label for="render_fov">Default FOV</label>
+            <input type="range" id="render_fov" name="render_fov" min="1" max="175" step="1" value="60">
+            <input type="number" id="render_fov_number" name="render_fov_number" min="1" max="175" step="1" value="60">
           </div>
 
           <div class="row">
@@ -320,8 +360,12 @@ html, body {
           </div>
 
           <div class="row">
-            <button id="button_add_keyframe" title="Add a new keyframe at the current pose.">Add keyframe</button>
-            <button id="button_clear_keyframes" title="Remove all keyframes from the render path.">Clear keyframes</button>
+            <button 
+               data-action="add_keyframe"
+               title="Add a new keyframe at the current pose.">Add keyframe</button>
+            <button 
+               onclick="document.getElementById('dialog_camera_path_delete_all').classList.add('dialog-open')"
+               title="Remove all keyframes from the render path.">Clear keyframes</button>
           </div>
 
           <fieldset>
@@ -388,12 +432,6 @@ html, body {
           </div>
 
           <div class="row">
-            <label for="camera_path_move_keyframes">Move keyframes</label>
-            <input type="checkbox" id="camera_path_move_keyframes" name="camera_path_move_keyframes">
-            <div class="input-hint">Toggle move handles for keyframes in the scene.</div>
-          </div>
-
-          <div class="row">
             <label for="camera_path_show_spline">Show spline</label>
             <input type="checkbox" id="camera_path_show_spline" name="camera_path_show_spline" checked>
             <div class="input-hint">Show camera path spline in the scene.</div>
@@ -409,25 +447,17 @@ html, body {
         </div>
       </div>
     </div>
-</main>
-    <script type="importmap">
-      {
-        "imports": {
-          "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
-        }
+  </main>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
       }
-    </script>
-    <script>
-
-
-    </script>
-    <script type="module">
-</script>
-<script src="static/interpolation.js" type="module"></script>
-<script src="static/threejs_utils.js" type="module"></script>
-<script src="static/viewer.js" type="module"></script>
-
-
+    }
+  </script>
+  <script src="static/interpolation.js" type="module"></script>
+  <script src="static/threejs_utils.js" type="module"></script>
+  <script src="static/viewer.js" type="module"></script>
 </body>
 </html>

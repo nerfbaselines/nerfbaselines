@@ -113,7 +113,7 @@ class _Feed:
         return self._render(self.feedid, **copy.deepcopy(self.feed_params))
 
 
-def _run_viewer_server(request_queue, output_queue, datasets):
+def _run_viewer_server(request_queue, output_queue, *args, **kwargs):
     output_queues = {}
 
     def render_fn(feedid, **kwargs):
@@ -148,7 +148,7 @@ def _run_viewer_server(request_queue, output_queue, datasets):
             logging.exception(e)
             logging.error(e)
 
-    app = _build_flake_app(render_fn, datasets)
+    app = _build_flake_app(render_fn, *args, **kwargs)
     multiplex_thread = threading.Thread(target=_multiplex_queues, args=(output_queue, output_queues), daemon=True)
     multiplex_thread.start()
     try:
@@ -157,7 +157,9 @@ def _run_viewer_server(request_queue, output_queue, datasets):
         multiplex_thread.join()
 
 
-def _build_flake_app(render_fn, datasets):
+def _build_flake_app(render_fn, 
+                     datasets,
+                     dataset_metadata=None):
     app = Flask(__name__)
     _feed_states = {}
 
@@ -165,6 +167,18 @@ def _build_flake_app(render_fn, datasets):
     def index():
         return render_template("index.html")
     del index
+
+    @app.route("/info", methods=["GET"])
+    def info():
+        info = {
+            "status": "running",
+            "method": {},
+        }
+        dataset_metadata_ = dataset_metadata or {}
+        if dataset_metadata_.get("viewer_transform") is not None:
+            info["viewer_transform"] = dataset_metadata_["viewer_transform"][:3, :4].flatten().tolist()
+        return jsonify(info)
+    del info
 
     @app.route("/get-state", methods=["POST", "GET"])
     def get_state():
@@ -347,7 +361,13 @@ def run_viewer(model=None, train_dataset=None, test_dataset=None, nb_info=None):
                     "exception": e
                 })
 
-    process = multiprocessing.Process(target=_run_viewer_server, args=(request_queue, output_queue, {"train": train_dataset, "test": test_dataset}), daemon=True)
+    process = multiprocessing.Process(target=_run_viewer_server, args=(
+        request_queue, 
+        output_queue, 
+    ), kwargs=dict(
+        datasets={"train": train_dataset, "test": test_dataset},
+        dataset_metadata=train_dataset["metadata"],
+    ), daemon=True)
     process.start()
 
     try:

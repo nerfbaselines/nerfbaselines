@@ -22,205 +22,6 @@ const state = {
 };
 
 
-class HTTPRemote {
-  constructor(baseUrl) {
-    this._baseUrl = baseUrl;
-  }
-
-  load_dataset_point_cloud(dataset) {
-    const ply_url = `${this._baseUrl}/datasets/${encodeURIComponent(dataset)}/point_cloud.ply`;
-  }
-}
-
-class HTTPRenderer {
-  constructor(baseUrl) {
-    this._baseUrl = baseUrl;
-    // Generate uuid
-    this.state = null;
-    this.onUpdateFrame = null;
-    this.onUpdateState = null;
-
-  }
-
-  async updateRenderParams(renderParams) {
-    await fetch(`${this._baseUrl}/set-feed-params?feedid=${this.state.feedid}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(renderParams),
-    });
-  }
-
-  async _run(reader) {
-    const boundary = "frame"; // Boundary from server response
-    const boundaryBytes = new TextEncoder().encode(`--${boundary}`);
-    const headerSeparator = new Uint8Array([13, 10, 13, 10]); // "\r\n\r\n"
-
-    let buffer = new Uint8Array(0);
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      // Concatenate new data into buffer
-      const tempBuffer = new Uint8Array(buffer.length + value.length);
-      tempBuffer.set(buffer);
-      tempBuffer.set(value, buffer.length);
-      buffer = tempBuffer;
-
-      // Process all frames in the current buffer
-      while (true) {
-        const boundaryIndex = this._findSequence(buffer, boundaryBytes);
-        if (boundaryIndex === -1) break;
-
-        const headerEndIndex = this._findSequence(buffer, headerSeparator, boundaryIndex + boundaryBytes.length);
-        if (headerEndIndex === -1) break;
-
-        const frameStart = headerEndIndex + headerSeparator.length;
-        const nextBoundaryIndex = this._findSequence(buffer, boundaryBytes, frameStart);
-        if (nextBoundaryIndex === -1) break;
-
-        const frameData = buffer.slice(frameStart, nextBoundaryIndex);
-
-        // Create a Blob and update the image element
-        const blob = new Blob([frameData], { type: "image/jpeg" });
-        const image = new Image();
-        image.src = URL.createObjectURL(blob);
-        image.onload = () => {
-          if (this.onUpdateFrame) {
-            this.onUpdateFrame(image);
-          }
-        };
-
-        // Remove processed data from the buffer
-        buffer = buffer.slice(nextBoundaryIndex);
-      }
-    }
-  }
-
-  async _run_polling() {
-    while (this._running) {
-      try {
-        const response = await fetch(`/get-state?poll=${this.state.version}&feedid=${this.state.feedid}`);
-        if (!response.ok) {
-            throw new Error("Network response was not ok");
-        }
-        const data = await response.json();
-        const oldVersion = this.state.version;
-        if (data) {
-          this.state = Object.assign(this.state, data);
-        }
-        if (this.state.version != oldVersion && this.onUpdateState) {
-          this.onUpdateState(data);
-        }
-      } catch (error) {
-        console.error("Error fetching updates:", error);
-
-        // Retry after a delay in case of an error
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-    }
-  }
-
-
-  async start() {
-    this.state = {};
-    const setFeedResponse = await fetch(this._baseUrl + "/set-feed-params", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        width: viewport.clientWidth,
-        height: viewport.clientHeight,
-      }),
-    }).then((response) => response.json());
-    if (setFeedResponse.status !== "ok") throw exception("Failed to set feed params");
-    this.state.feedid = setFeedResponse.feedid;
-    this.state.version = 0;
-    // const response = await fetch(`${this._baseUrl}/video-feed?feedid=${this.state.feedid}`);
-    // if (!response.body) {
-    //   throw new Error("ReadableStream not yet supported in this browser");
-    // }
-    // const reader = response.body.getReader();
-
-
-    // NOTE: We start the async loop here
-    this._running = true;
-    //this._run();
-    // this._run(reader).catch((err) => {
-    //   console.error("Error:", err);
-    // });
-    //this._run_polling().catch((err) => {
-    //  console.error("Error:", err);
-    //});
-  }
-
-  async _updateSingle() {
-    const response = await fetch(`${this._baseUrl}/render?width=${viewport.clientWidth}&height=${viewport.clientHeight}`);
-    // Read response as blob
-    const blob = await response.blob();
-    const image = new Image();
-    image.src = URL.createObjectURL(blob);
-    image.onload = () => {
-      if (this.onUpdateFrame) {
-        this.onUpdateFrame(image);
-      }
-    };
-  }
-
-  _run() {
-    let lastUpdate = Date.now() - 1;
-
-    const run = () => {
-      this._updateSingle().then(() => {
-        if (this._running) {
-          const wait = Math.max(0, 1000 / 30 - (Date.now() - lastUpdate));
-          lastUpdate = Date.now();
-          setTimeout(() => run(), wait);
-        }
-      });
-    };
-    run();
-  }
-
-  _findSequence(buffer, sequence, startIndex = 0) {
-    for (let i = startIndex; i <= buffer.length - sequence.length; i++) {
-      let found = true;
-      for (let j = 0; j < sequence.length; j++) {
-        if (buffer[i + j] !== sequence[j]) {
-          found = false;
-          break;
-        }
-      }
-      if (found) return i;
-    }
-    return -1;
-  }
-}
-
-const lastFrames = {};
-function draw() {
-  // Will be defined later
-}
-window._draw = draw;
-
-async function start() {
-  const renderer = new HTTPRenderer("http://localhost:5001");
-  await renderer.start();
-
-  renderer.onUpdateFrame = (frame) => {
-    lastFrames[0] = frame;
-    window._draw();
-  };
-  // renderer.onUpdateState = (state) => {
-  //   console.log("State:", renderer.state, state);
-  // };
-  renderers.push(renderer);
-}
-
-start();
 
 window.addEventListener("resize", async () => {
   draw();
@@ -268,213 +69,7 @@ void main() {
     gl_FragColor = vec4(vColor, 1.0);
 }`
 
-class ThreeJSRenderer {
-  constructor(viewport) {
-    this._R_threecam_cam = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI, 0.0, 0.0));
-    this._backgroundTexture = null;
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setSize(viewport.clientWidth, viewport.clientHeight);
-    viewport.appendChild(this.renderer.domElement);
-    const width = viewport.clientWidth;
-    const height = viewport.clientHeight;
-
-    this._camera = new THREE.PerspectiveCamera( 70, width / height, 0.01, 10 );
-    this._camera.position.z = 1;
-
-    this.scene = new THREE.Scene();
-
-    const geometry = new THREE.BoxGeometry( 0.2, 0.2, 0.2 );
-    const material = new THREE.MeshNormalMaterial();
-
-    this._mesh = new THREE.Mesh( geometry, material );
-    this.scene.add(this._mesh);
-
-    this._controls = new OrbitControls(this._camera, viewport);
-    this._controls.listenToKeyEvents(window);
-
-
-    this._controls.enableDamping = true; // an animation loop is required when either damping or auto-rotation are enabled
-   	this._controls.dampingFactor = 0.05;
-		this._controls.screenSpacePanning = false;
-		this._controls.maxPolarAngle = Math.PI / 2;
-
-    this._enabled = true;
-    this.renderer.setAnimationLoop((time) => this._animate(time));
-    window.addEventListener("resize", () => this._resize());
-
-    this._mouse_interactions = new MouseInteractions(this.renderer, this._camera, this.scene);
-  }
-
-  set_enabled(enabled) {
-    this._enabled = enabled;
-    this._controls.enabled = enabled;
-  }
-
-  _addPointCloud({ points, colors, pointball_norm = 2.0}) {
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.Float16BufferAttribute(points, 3));
-    geometry.computeBoundingSphere();
-    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3, true));
-
-    const material = new THREE.ShaderMaterial({ 
-      uniforms: {
-        scale: { value: 10.0 },
-        point_ball_norm: { value: pointball_norm },
-      },
-      vertexShader: _point_cloud_vertex_shader,
-      fragmentShader: _point_cloud_fragment_shader,
-    });
-    material.vertexColors = true;
-
-    const three_points = new THREE.Points(geometry, material)
-    this.scene.add(three_points);
-
-    return {
-      remove: () => {
-        this.scene.remove(three_points);
-        material.dispose();
-        geometry.dispose();
-      },
-    };
-  }
-
-  add_trajectory_curve({ points, color }) {
-    const geometry = new LineSegmentsGeometry();
-    const material = new LineMaterial({
-      color: color,
-      linewidth: 4,
-    });
-
-    function setPositions(points) {
-      if (points.length < 2) return;
-      const segment_points = [];
-      for (let i = 0; i < points.length; i++) {
-        segment_points.push(points[i].x, points[i].y, points[i].z);
-        segment_points.push(points[i].x, points[i].y, points[i].z);
-      }
-      segment_points.splice(0, 3);
-      segment_points.splice(segment_points.length - 3, 3);
-      geometry.setPositions(segment_points);
-    }
-    setPositions(points);
-    const segments = new LineSegments2(geometry, material);
-    this.scene.add(segments);
-    return {
-      remove: () => {
-        this.scene.remove(segments);
-        geometry.dispose();
-        material.dispose();
-      },
-      update: setPositions,
-    };
-  }
-
-  add_camera_frustum({ fov, aspect, scale, color, quaternion, position }) {
-    const imageTexture = undefined;
-
-    scale = scale || 1;
-    let y = Math.tan(fov / 2.0);
-    let x = y * aspect;
-    let z = 1.0;
-
-    const volumeScale = Math.cbrt((x * y * z) / 3.0);
-    x /= volumeScale;
-    y /= volumeScale;
-    z /= volumeScale;
-    x *= scale;
-    y *= scale;
-    z *= scale;
-
-    const frustumPoints = [
-      // Rectangle.
-      [-1, -1, 1],
-      [1, -1, 1],
-      [1, -1, 1],
-      [1, 1, 1],
-      [1, 1, 1],
-      [-1, 1, 1],
-      [-1, 1, 1],
-      [-1, -1, 1],
-      // Lines to origin.
-      [-1, -1, 1],
-      [0, 0, 0],
-      [0, 0, 0],
-      [1, -1, 1],
-      // Lines to origin.
-      [-1, 1, 1],
-      [0, 0, 0],
-      [0, 0, 0],
-      [1, 1, 1],
-      // Up direction indicator.
-      // Don't overlap with the image if the image is present.
-      [0.0, -1.2, 1.0],
-      imageTexture === undefined ? [0.0, -0.9, 1.0] : [0.0, -1.0, 1.0],
-    ].map((xyz) => [xyz[0] * x, xyz[1] * y, xyz[2] * z]);
-    const geometry = new LineSegmentsGeometry();
-    geometry.setPositions(frustumPoints.flat())
-    const material = new LineMaterial({
-      color: color,
-      linewidth: 4,
-      resolution: new THREE.Vector2(viewport.clientWidth, viewport.clientHeight),
-    });
-    // Attach material to geometry.
-    const segments = new LineSegments2(geometry, material);
-
-    // Return group
-    const group = new THREE.Group();
-    group.add(segments);
-    group.position.copy(position);
-    group.quaternion.copy(quaternion);
-    group.remove = () => {
-      this.scene.remove(group);
-      geometry.dispose();
-      material.dispose();
-    }
-    this.scene.add(group);
-    return group;
-  }
-
-  _resize() {
-    const width = viewport.clientWidth;
-    const height = viewport.clientHeight;
-    this._camera.aspect = width / height;
-    this._camera.updateProjectionMatrix();
-    this._drawBackground();
-    this.renderer.setSize(width, height);
-  }
-
-  _animate(time) {
-    if (this._enabled) {
-      this._mouse_interactions.update();
-      if (!this._mouse_interactions.isCaptured())
-        this._controls.update();
-      this.renderer.render(this.scene, this._camera);
-    }
-  }
-
-  _drawBackground() {
-    if (this._backgroundTexture === null) {
-      this._backgroundTexture = new THREE.Texture(lastFrames[0]);
-      this.scene.background = this._backgroundTexture;
-    } else if (this._backgroundTexture.image.width !== lastFrames[0].width || this._backgroundTexture.image.height !== lastFrames[0].height) {
-      // Dispose the old texture
-      this._backgroundTexture.dispose();
-      this._backgroundTexture = new THREE.Texture(lastFrames[0]);
-      this.scene.background = this._backgroundTexture;
-    } else {
-      this._backgroundTexture.image = lastFrames[0];
-    }
-    this._backgroundTexture.needsUpdate = true;
-  }
-
-  getCameraPose() {
-    const quaternion = this._camera.quaternion.clone().multiply(this._R_threecam_cam);
-    return {
-      quaternion: quaternion,
-      position: this._camera.position.clone(),
-    };
-  }
-}
+const _R_threecam_cam = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI, 0.0, 0.0));
 
 
 function _attach_camera_path_selected_keyframe_pivot_controls(viewer) {
@@ -488,7 +83,7 @@ function _attach_camera_path_selected_keyframe_pivot_controls(viewer) {
     selected_keyframe = undefined;
     if (camera_path_selected_keyframe === undefined) {
       if (pivot_controls) {
-        viewer.threejs_renderer.scene.remove(pivot_controls);
+        viewer.scene.remove(pivot_controls);
         pivot_controls.dispose();
         pivot_controls = undefined;
       }
@@ -499,7 +94,7 @@ function _attach_camera_path_selected_keyframe_pivot_controls(viewer) {
       pivot_controls = new PivotControls({
         scale: 0.2,
       });
-      viewer.threejs_renderer.scene.add(pivot_controls);
+      viewer.scene.add(pivot_controls);
       pivot_controls.addEventListener("drag", (e) => {
         const matrix = e.matrix;
         // Decompose matrix into quaternion and position
@@ -565,7 +160,7 @@ function _attach_camera_path_keyframes(viewer) {
           viewer._gui_state.camera_path_selected_keyframe = keyframe.id;
           viewer.notifyChange({ property: "camera_path_selected_keyframe" });
         });
-        viewer.threejs_renderer.scene.add(frustum);
+        viewer.scene.add(frustum);
       } else {
         frustum.position.copy(keyframe.position);
         frustum.quaternion.copy(keyframe.quaternion);
@@ -578,7 +173,7 @@ function _attach_camera_path_keyframes(viewer) {
     // Remove old keyframes
     for (const keyframe_id in keyframe_frustums) {
       if (new_keyframe_frustums[keyframe_id] === undefined) {
-        viewer.threejs_renderer.scene.remove(keyframe_frustums[keyframe_id]);
+        viewer.scene.remove(keyframe_frustums[keyframe_id]);
         keyframe_frustums[keyframe_id].dispose();
       }
     }
@@ -648,7 +243,7 @@ function _attach_camera_path_curve(viewer) {
         !camera_path_trajectory || 
         camera_path_trajectory.positions.length === 0) {
       if (trajectory_curve) {
-        viewer.threejs_renderer.scene.remove(trajectory_curve);
+        viewer.scene.remove(trajectory_curve);
         trajectory_curve.dispose();
         trajectory_curve = undefined;
       }
@@ -660,7 +255,7 @@ function _attach_camera_path_curve(viewer) {
           positions: camera_path_trajectory.positions,
           color: trajectory_curve_color,
         });
-        viewer.threejs_renderer.scene.add(trajectory_curve);
+        viewer.scene.add(trajectory_curve);
       } else {
         // Update trajectory
         trajectory_curve.setPositions(camera_path_trajectory.positions);
@@ -688,7 +283,7 @@ function _attach_player_frustum(viewer) {
 
     if (!camera_path_trajectory || camera_path_trajectory.positions.length === 0) {
       if (player_frustum !== undefined) {
-        viewer.threejs_renderer.scene.remove(player_frustum);
+        viewer.scene.remove(player_frustum);
         player_frustum.dispose();
         player_frustum = undefined;
       }
@@ -701,7 +296,7 @@ function _attach_player_frustum(viewer) {
     const quaternion = new THREE.Quaternion().copy(quaternions[frame]);
     const fov = fovs[frame];
     if (player_frustum) {
-      viewer.threejs_renderer.scene.remove(player_frustum);
+      viewer.scene.remove(player_frustum);
       player_frustum.dispose();
       player_frustum = undefined;
     }
@@ -714,15 +309,241 @@ function _attach_player_frustum(viewer) {
       scale: 0.1,
       color: player_frustum_color,
     });
-    viewer.threejs_renderer.scene.add(player_frustum);
+    viewer.scene.add(player_frustum);
   });
 }
 
 
-class Viewer extends THREE.EventDispatcher {
-  constructor(viewport) {
+class HTTPRenderer extends THREE.EventDispatcher {
+  constructor({ url }) {
     super();
-    this.threejs_renderer = new ThreeJSRenderer(viewport);
+    this.url = url;
+    this._num_errors = 0;
+    this._running = true;
+  }
+
+  start() {
+    let lastUpdate = Date.now() - 1;
+
+    const _updateSingle = async () => {
+      try {
+        const response = await fetch(`${this.url}?width=${viewport.clientWidth}&height=${viewport.clientHeight}`);
+        // Read response as blob
+        const blob = await response.blob();
+        const image = new Image();
+        image.src = URL.createObjectURL(blob);
+        image.onload = () => {
+          this._num_errors = 0;
+          if (!this._running) return;
+          this.dispatchEvent({ type: "frame", image });
+        };
+        image.onerror = (error) => {
+          console.error("Error loading image:", error);
+          if (!this._running) return;
+          this.dispatchEvent({ type: "error", error });
+        }
+      } catch (error) {
+        this._num_errors++;
+        console.error("Error fetching image:", error);
+        if (!this._running) return;
+        this.dispatchEvent({ type: "error", error });
+      }
+    };
+
+    const run = () => {
+      _updateSingle().then(() => {
+        if (this._running && this._num_errors < 10) {
+          const wait = Math.max(0, 1000 / 30 - (Date.now() - lastUpdate));
+          lastUpdate = Date.now();
+          setTimeout(() => run(), wait);
+        }
+      });
+    };
+    run();
+  }
+
+  dispose() {
+    this._running = false;
+  }
+}
+
+
+class DatasetManager {
+  constructor({
+    viewer,
+    url,
+  }) {
+    this.viewer = viewer;
+    this.scene = viewer.transformed_scene;
+    this.url = url;
+    this._disposed = true;
+
+    const state = viewer._gui_state;
+    this._train_cameras = new THREE.Group();
+    this._train_cameras.visible = !!state.dataset_show_train_cameras;
+    this._test_cameras = new THREE.Group();
+    this._test_cameras.visible = !!state.dataset_show_test_cameras;
+    this._pointcloud = new THREE.Group();
+    this._pointcloud.visible = !!state.dataset_show_pointcloud;
+    this.scene.add(this._train_cameras);
+    this.scene.add(this._test_cameras);
+    this.scene.add(this._pointcloud);
+    this._disposed = false;
+    this._on_viewer_change = this._on_viewer_change.bind(this);
+    viewer.addEventListener("change", this._on_viewer_change);
+
+    this._load_cameras("test");
+    this._load_cameras("train");
+    this._load_pointcloud();
+  }
+
+  _on_viewer_change({ property, state }) {
+    if (property === undefined || property === 'dataset_show_pointcloud')
+      this._pointcloud.visible = state.dataset_show_pointcloud;
+    if (property === undefined || property === 'dataset_show_train_cameras')
+      this._train_cameras.visible = state.dataset_show_train_cameras;
+    if (property === undefined || property === 'dataset_show_test_cameras')
+      this._test_cameras.visible = state.dataset_show_test_cameras;
+  }
+  
+  dispose() {
+    if (this._disposed) return;
+    this._disposed = true;
+    this.viewer.removeEventListener("change", this._on_viewer_change);
+    this.scene.remove(this._train_cameras);
+    this.scene.remove(this._test_cameras);
+    this.scene.remove(this._pointcloud);
+  }
+
+  _load_cameras(split) {
+    // Load dataset train/test frustums
+    const trainCamerasLoader = new THREE.FileLoader();
+    trainCamerasLoader.setResponseType('json'); // Ensures the result is parsed as JSON
+    trainCamerasLoader.load(
+      `${this.url}/${split}.json`,
+      (result) => {
+        if (this._disposed) return;
+        const { cameras } = result;
+        this.viewer._gui_state[`dataset_has_${split}_cameras`] = true;
+        this.viewer.notifyChange({ property: `dataset_has_${split}_cameras` });
+        let i = 0;
+        for (const camera of cameras) {
+          const pose = camera.pose; // Assuming pose is a flat array representing a 3x4 matrix
+          if (pose.length !== 12) {
+            console.error('Invalid pose array. Expected 12 elements for 3x4 matrix.');
+            continue;
+          }
+
+          const poseMatrix = new THREE.Matrix4();
+          poseMatrix.set(
+            pose[0], pose[1], pose[2], pose[3],
+            pose[4], pose[5], pose[6], pose[7],
+            pose[8], pose[9], pose[10], pose[11],
+            0, 0, 0, 1 // Add the last row to make it a full 4x4 matrix
+          );
+
+          // Optional: Decompose the pose matrix into position, quaternion, and scale
+          const position = new THREE.Vector3();
+          const quaternion = new THREE.Quaternion();
+          const scale = new THREE.Vector3();
+          poseMatrix.decompose(position, quaternion, scale);
+
+          const [fx, fy, cx, cy] = camera.intrinsics;
+          const [width, height] = camera.image_size;
+
+          const frustum = new CameraFrustum({ 
+            fov: Math.atan2(cy, fy) * 2,
+            aspect: width / height,
+            position,
+            quaternion,
+            scale: 0.1,
+            color: dataset_frustum_color,
+            hasImage: true,
+          });
+
+          // Replace image_path extension with .jpg
+          new THREE.TextureLoader().load(`${this.url}/thumbnails/${split}/${i}.jpg`, (texture) => {
+            frustum.setImageTexture(texture);
+          });
+          this[`_${split}_cameras`].add(frustum);
+          i++;
+        }
+      },
+      undefined,
+      (error) => {
+        console.error('An error occurred while loading the cameras:', error);
+      }
+    );
+  }
+
+  _load_pointcloud() {
+    // Load PLY file
+    const loader = new PLYLoader();
+    loader.load(`${this.url}/pointcloud.ply`, (geometry) => {
+      if (this._disposed) return;
+      this.viewer._gui_state.dataset_has_pointcloud = true;
+      this.viewer.notifyChange({ property: 'dataset_has_pointcloud' });
+      geometry.setAttribute('color', geometry.getAttribute('color'));
+      geometry.computeBoundingSphere();
+
+      const material = new THREE.ShaderMaterial({ 
+        uniforms: {
+          scale: { value: 10.0 },
+          point_ball_norm: { value: 2.0 },
+        },
+        vertexShader: _point_cloud_vertex_shader,
+        fragmentShader: _point_cloud_fragment_shader,
+      });
+      material.vertexColors = geometry.hasAttribute('color');
+
+      const points = new THREE.Points(geometry, material);
+      this._pointcloud.add(points);
+    }, undefined, (error) => {
+        console.error('An error occurred while loading the PLY file:', error);
+    });
+  }
+}
+
+
+class Viewer extends THREE.EventDispatcher {
+  constructor({ 
+    viewport, 
+    viewer_transform,
+  }) {
+    super();
+    this._backgroundTexture = null;
+    const width = viewport.clientWidth;
+    const height = viewport.clientHeight;
+    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer.setSize(width, height);
+    viewport.appendChild(this.renderer.domElement);
+
+    this.camera = new THREE.PerspectiveCamera( 70, width / height, 0.01, 10 );
+    this.camera.position.z = 1;
+
+    this.scene = new THREE.Scene();
+
+    this.controls = new OrbitControls(this.camera, viewport);
+    this.controls.listenToKeyEvents(window);
+
+    this.controls.enableDamping = true; // an animation loop is required when either damping or auto-rotation are enabled
+   	this.controls.dampingFactor = 0.05;
+		this.controls.screenSpacePanning = false;
+		this.controls.maxPolarAngle = Math.PI / 2;
+
+    this._enabled = true;
+    this.renderer.setAnimationLoop((time) => this._animate(time));
+    window.addEventListener("resize", () => this._resize());
+
+    this.mouse_interactions = new MouseInteractions(this.renderer, this.camera, this.scene);
+
+    this.transformed_scene = new THREE.Group();
+    this.scene.add(this.transformed_scene);
+    this.transformed_scene.applyMatrix4(viewer_transform);
+    // Switch OpenCV to ThreeJS coordinate system
+    this.transformed_scene.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI/2));
+
+
     this._preview_canvas = document.createElement("canvas");
     this._preview_canvas.style.width = "100%";
     this._preview_canvas.style.height = "100%";
@@ -736,12 +557,14 @@ class Viewer extends THREE.EventDispatcher {
 
     this._gui_state = state;
     this._gui_state.camera_path_keyframes = [];
+    this._is_preview_mode = false;
 
     this._camera_path = null;
 
     this._trajectory_curve = undefined;
     this._keyframe_frustums = {};
     this._player_frustum = undefined;
+    this._last_frames = {};
 
     this._on_camera_path_change_callbacks = [];
     this._on_gui_change_callbacks = [];
@@ -756,6 +579,58 @@ class Viewer extends THREE.EventDispatcher {
     _attach_player_frustum(this);
   }
 
+  set_http_renderer(url) {
+    if (this.http_renderer) {
+      this.http_renderer.dispose();
+      this.http_renderer = null;
+    }
+
+    // Connect HTTP renderer
+    this.http_renderer = new HTTPRenderer({ url });
+    this.http_renderer.addEventListener("frame", ({ image }) => {
+      this._last_frames[0] = image;
+    });
+    this.http_renderer.start();
+  }
+
+  set_dataset(url) {
+    if (this.dataset_manager) {
+      this.dataset_manager.dispose();
+      this.dataset_manager = null;
+    }
+    // Add DatasetManager
+    this.dataset_manager = new DatasetManager({ 
+      viewer: this, 
+      url,
+    });
+  }
+
+  _resize() {
+    const width = viewport.clientWidth;
+    const height = viewport.clientHeight;
+    this.camera.aspect = width / height;
+    this.camera.updateProjectionMatrix();
+    this._draw_background();
+    this.renderer.setSize(width, height);
+  }
+
+  _animate(time) {
+    if (!this._is_preview_mode) {
+      this.mouse_interactions.update();
+      if (!this.mouse_interactions.isCaptured())
+        this.controls.update();
+      this.renderer.render(this.scene, this.camera);
+    }
+  }
+
+  _get_camera_pose() {
+    const quaternion = this.camera.quaternion.clone().multiply(_R_threecam_cam);
+    return {
+      quaternion: quaternion,
+      position: this.camera.position.clone(),
+    };
+  }
+
   notifyChange(props) {
     this.dispatchEvent({ 
       ...props,
@@ -764,15 +639,29 @@ class Viewer extends THREE.EventDispatcher {
     });
   }
 
-  clear_keyframes() {
+  delete_all_keyframes() {
     this._gui_state.camera_path_selected_keyframe = undefined;
     this.notifyChange({ property: "camera_path_selected_keyframe" });
     this._gui_state.camera_path_keyframes = [];
     this.notifyChange({ property: "camera_path_keyframes" });
   }
 
+  delete_keyframe(keyframe_id) {
+    this._gui_state.camera_path_keyframes = this._gui_state.camera_path_keyframes.filter((keyframe) => keyframe.id !== keyframe_id);
+    if (this._gui_state.camera_path_selected_keyframe === keyframe_id) {
+      this._gui_state.camera_path_selected_keyframe = undefined;
+      this.notifyChange({ property: "camera_path_selected_keyframe" });
+    }
+    this.notifyChange({ property: "camera_path_keyframes" });
+  }
+
+  delete_selected_keyframe() {
+    if (this._gui_state.camera_path_selected_keyframe === undefined) return;
+    this.delete_keyframe(this._gui_state.camera_path_selected_keyframe);
+  }
+
   add_keyframe() {
-    const { quaternion, position } = this.threejs_renderer.getCameraPose();
+    const { quaternion, position } = this._get_camera_pose();
     const id = _keyframe_counter++;
     this._gui_state.camera_path_keyframes.push({
       id,
@@ -780,8 +669,6 @@ class Viewer extends THREE.EventDispatcher {
       position,
     });
     this.notifyChange({ property: "camera_path_keyframes" });
-    this._gui_state.camera_path_selected_keyframe = id;
-    this.notifyChange({ property: "camera_path_selected_keyframe" });
   }
 
   clear_selected_keyframe() {
@@ -807,9 +694,10 @@ class Viewer extends THREE.EventDispatcher {
       const { 
         preview_is_preview_mode,
       } = state;
-      this.threejs_renderer.set_enabled(!preview_is_preview_mode);
-      this.threejs_renderer.renderer.domElement.style.display = preview_is_preview_mode ? "none" : "block";
-      this._preview_canvas.style.display = preview_is_preview_mode ? "block" : "none";
+      this._is_preview_mode = preview_is_preview_mode;
+      this.controls.enabled = !this._is_preview_mode;
+      this.renderer.domElement.style.display = this._is_preview_mode ? "none" : "block";
+      this._preview_canvas.style.display = this._is_preview_mode ? "block" : "none";
     });
   }
 
@@ -939,10 +827,21 @@ class Viewer extends THREE.EventDispatcher {
 
   _draw_background() {
     if (!this._gui_state.preview_is_preview_mode) {
-      this.threejs_renderer._drawBackground();
+      if (this._backgroundTexture === null) {
+        this._backgroundTexture = new THREE.Texture(this._last_frames[0]);
+        this.scene.background = this._backgroundTexture;
+      } else if (this._backgroundTexture.image.width !== this._last_frames[0].width || this._backgroundTexture.image.height !== this._last_frames[0].height) {
+        // Dispose the old texture
+        this._backgroundTexture.dispose();
+        this._backgroundTexture = new THREE.Texture(this._last_frames[0]);
+        this.scene.background = this._backgroundTexture;
+      } else {
+        this._backgroundTexture.image = this._last_frames[0];
+      }
+      this._backgroundTexture.needsUpdate = true;
     } else {
       // Manually draw the background to the canvas
-      const image = lastFrames[0];
+      const image = this._last_frames[0];
       if (image === undefined) return;
       const { width, height } = this._preview_canvas;
       this._preview_context.drawImage(image, 0, 0, width, height);
@@ -952,8 +851,6 @@ class Viewer extends THREE.EventDispatcher {
 
 
 // Attach GUI
-document.getElementById("button_add_keyframe").addEventListener("click", () => viewer.add_keyframe());
-document.getElementById("button_clear_keyframes").addEventListener("click", () => viewer.clear_keyframes());
 document.querySelectorAll('.row > input[type="range"] + input[type="number"]').forEach((numberInput) => {
   const rangeInput = numberInput.previousElementSibling;
   rangeInput.addEventListener("input", () => {
@@ -965,129 +862,33 @@ document.querySelectorAll('.row > input[type="range"] + input[type="number"]').f
   });
 });
 
-const viewer = new Viewer(viewport);
-viewer.attach_gui(document.querySelector('.controls'));
-viewer.add_keyframe();
-window._draw = () => viewer._draw_background();
 
-
-class DatasetManager {
-  constructor({
-    viewer,
-    url,
-  }) {
-    this.viewer = viewer;
-    this.scene = viewer.threejs_renderer.scene;
-    this.url = url;
-
-    this._train_cameras = new THREE.Group();
-    this._train_cameras.visible = !!state.dataset_show_train_cameras;
-    this._test_cameras = new THREE.Group();
-    this._test_cameras.visible = !!state.dataset_show_test_cameras;
-    this._pointcloud = new THREE.Group();
-    this._pointcloud.visible = !!state.dataset_show_pointcloud;
-    this.scene.add(this._train_cameras);
-    this.scene.add(this._test_cameras);
-    this.scene.add(this._pointcloud);
-    viewer.addEventListener("change", ({ property, state }) => {
-      if (property === undefined || property === 'dataset_show_pointcloud')
-        this._pointcloud.visible = state.dataset_show_pointcloud;
-      if (property === undefined || property === 'dataset_show_train_cameras')
-        this._train_cameras.visible = state.dataset_show_train_cameras;
-      if (property === undefined || property === 'dataset_show_test_cameras')
-        this._test_cameras.visible = state.dataset_show_test_cameras;
-    });
-
-    this._load_cameras("test");
-    this._load_cameras("train");
-    this._load_pointcloud();
+function makeMatrix4(elements) {
+  if (!elements || elements.length !== 12) {
+    raise("Invalid elements array. Expected 12 elements.");
   }
-
-  _load_cameras(split) {
-    // Load dataset train/test frustums
-    const trainCamerasLoader = new THREE.FileLoader();
-    trainCamerasLoader.setResponseType('json'); // Ensures the result is parsed as JSON
-    trainCamerasLoader.load(
-      `${this.url}/${split}.json`,
-      (result) => {
-        const { cameras } = result;
-        this.viewer._gui_state[`dataset_has_${split}_cameras`] = true;
-        this.viewer.notifyChange({ property: `dataset_has_${split}_cameras` });
-        let i = 0;
-        for (const camera of cameras) {
-          const pose = camera.pose; // Assuming pose is a flat array representing a 3x4 matrix
-          if (pose.length !== 12) {
-            console.error('Invalid pose array. Expected 12 elements for 3x4 matrix.');
-            continue;
-          }
-
-          const poseMatrix = new THREE.Matrix4();
-          poseMatrix.set(
-            pose[0], pose[1], pose[2], pose[3],
-            pose[4], pose[5], pose[6], pose[7],
-            pose[8], pose[9], pose[10], pose[11],
-            0, 0, 0, 1 // Add the last row to make it a full 4x4 matrix
-          );
-
-          // Optional: Decompose the pose matrix into position, quaternion, and scale
-          const position = new THREE.Vector3();
-          const quaternion = new THREE.Quaternion();
-          const scale = new THREE.Vector3();
-          poseMatrix.decompose(position, quaternion, scale);
-
-          const [fx, fy, cx, cy] = camera.intrinsics;
-          const [width, height] = camera.image_size;
-
-          const frustum = new CameraFrustum({ 
-            fov: Math.atan2(cy, fy) * 2,
-            aspect: width / height,
-            position,
-            quaternion,
-            scale: 0.1,
-            color: dataset_frustum_color,
-            hasImage: true,
-          });
-
-          // Replace image_path extension with .jpg
-          new THREE.TextureLoader().load(`${this.url}/thumbnails/${split}/${i}.jpg`, (texture) => {
-            frustum.setImageTexture(texture);
-          });
-          this[`_${split}_cameras`].add(frustum);
-          i++;
-        }
-      },
-      undefined,
-      (error) => {
-        console.error('An error occurred while loading the cameras:', error);
-      }
-    );
-  }
-
-  _load_pointcloud() {
-    // Load PLY file
-    const loader = new PLYLoader();
-    loader.load(`${this.url}/pointcloud.ply`, (geometry) => {
-      this.viewer._gui_state.dataset_has_pointcloud = true;
-      this.viewer.notifyChange({ property: 'dataset_has_pointcloud' });
-      geometry.setAttribute('color', geometry.getAttribute('color'));
-      geometry.computeBoundingSphere();
-
-      const material = new THREE.ShaderMaterial({ 
-        uniforms: {
-          scale: { value: 10.0 },
-          point_ball_norm: { value: 2.0 },
-        },
-        vertexShader: _point_cloud_vertex_shader,
-        fragmentShader: _point_cloud_fragment_shader,
-      });
-      material.vertexColors = geometry.hasAttribute('color');
-
-      const points = new THREE.Points(geometry, material);
-      this._pointcloud.add(points);
-    }, undefined, (error) => {
-        console.error('An error occurred while loading the PLY file:', error);
-    });
-  }
+  return new THREE.Matrix4().set(
+    elements[0], elements[1], elements[2], elements[3],
+    elements[4], elements[5], elements[6], elements[7],
+    elements[8], elements[9], elements[10], elements[11],
+    0, 0, 0, 1,
+  );
 }
 
-const dataset_manager = new DatasetManager({ viewer, url: "http://localhost:5001/dataset" });
+fetch("http://localhost:5001/info")
+  .then(response => response.json())
+  .then(data => {
+    let viewer_transform = undefined;
+    if (data.viewer_transform) {
+      viewer_transform = makeMatrix4(data.viewer_transform);
+    } else {
+      viewer_transform = new THREE.Matrix4();
+    }
+    const viewer = new Viewer({
+      viewport,
+      viewer_transform,
+    });
+    viewer.attach_gui(document.querySelector('.controls'));
+    viewer.set_http_renderer("http://localhost:5001/render");
+    viewer.set_dataset("http://localhost:5001/dataset");
+  });
