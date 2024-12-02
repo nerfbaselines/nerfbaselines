@@ -18,6 +18,7 @@
   --border-color: #424242;
   --primary-background-color: #242424;
   --secondary-background-color: #2e2e2e;
+  --progress-track-color: #616161;
 }
 body {
   font-family: 'Roboto', sans-serif;
@@ -188,6 +189,25 @@ html, body {
 .viewport {
   flex: 1;
   overflow: hidden;
+  position: relative;
+}
+
+.viewport-slider {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 8px;
+  height: calc(max(200vh, 200vw));
+
+  cursor: ew-resize;
+  background-color: var(--progress-track-color);
+  border: 1px solid var(--secondary-color);
+  opacity: 0.2;
+  transition: opacity 0.2s;
+}
+
+.viewport-slider:hover {
+  opacity: 1.0;
 }
 
 /* Control logic */
@@ -229,10 +249,12 @@ html, body {
   font-size: 1.2em;
 }
 
-.dialog-header > div {
+.dialog-header > div,
+.notification-header > div {
   flex: 1;
 }
-.dialog-header > i.ti-x {
+.dialog-header > i.ti-x,
+.notification-header > i.ti-x {
   cursor: pointer;
   font-size: 1.2rem;
 
@@ -240,7 +262,8 @@ html, body {
   padding: 1rem;
   margin: -1rem;
 }
-.dialog-header > i.ti-x:hover {
+.dialog-header > i.ti-x:hover,
+.notification-header > i.ti-x:hover {
   color: var(--highlight-color);
 }
 
@@ -255,10 +278,72 @@ html, body {
   width: 100%;
 }
 
+.notifications {
+  font-size: 0.8rem;
+  position: absolute;
+  overflow: hidden;
+  width: 45ch;
+  left: 0px;
+  top: 0px;
+  max-height: 100%;
+}
+
+.notification {
+  border: 1px solid var(--border-color);
+  padding: 0.5rem;
+  margin: 0.5rem;
+  border-radius: 0.3rem;
+  background-color: var(--primary-background-color);
+  color: var(--secondary-color);
+  min-height: 2em;
+  position: relative;
+}
+
+.notification-header {
+  display: flex;
+  color: var(--primary-color);
+}
+
+.progress {
+  background-color: var(--progress-track-color);
+  color: var(--primary-background-color);
+  border-radius: 4px;
+  height: 8px;
+  width: 100%;
+  margin: 4px 0;
+  --progress: 50%;
+}
+
+.progress::after {
+  content: '';
+  display: block;
+  background-color: var(--theme-color);
+  border-radius: 4px;
+  height: 100%;
+  width: var(--progress);
+}
+
 </style>
 
 <main>
     <div class="viewport">
+    </div>
+
+    <div class="notifications">
+      <div class="notification">
+        <div class="notification-header">
+          <div>something happened</div>
+          <i class="ti ti-x" onclick="this.closest('.dialog').classList.remove('dialog-open')"></i>
+        </div>
+        some detailed text of the notification
+      </div>
+      <div class="notification">
+        <div class="notification-header">
+          <div>something happened</div>
+          <i class="ti ti-x" onclick="this.closest('.dialog').classList.remove('dialog-open')"></i>
+        </div>
+        <div class="progress"></div>
+      </div>
     </div>
 
     <div class="controls">
@@ -328,14 +413,18 @@ html, body {
           <fieldset id="folder-split-screen">
             <legend>Split screen</legend>
             <div class="row checkbox">
-              <label for="output_split">Enable</label>
-              <input type="checkbox" id="output_split" name="output_split" data-enable-if="has_output_split" disabled>
+              <label for="split_enabled">Enable</label>
+              <input type="checkbox" id="split_enabled" name="split_enabled" data-enable-if="has_output_split" disabled>
             </div>
 
             <div class="row slider">
-              <label for="split_percentage">Split percentage</label>
-              <input type="range" id="split_percentage" min="0" max="1" step="0.01" value="0.5" data-enable-if="has_output_split" disabled>
-              <div class="input-hint">Where to split</div>
+              <label for="split_percentage">Split point</label>
+              <input type="range" id="split_percentage" name="split_percentage" min="0.05" max="0.95" step="0.01" value="0.5" data-enable-if="has_output_split" disabled>
+            </div>
+
+            <div class="row slider">
+              <label for="split_tilt">Split tilt</label>
+              <input type="range" id="split_tilt" name="split_tilt" min="-90" max="90" step="1" value="0" data-enable-if="has_output_split" disabled>
             </div>
 
             <div class="row dropdown">

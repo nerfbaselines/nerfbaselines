@@ -66,7 +66,8 @@ def viewer_command(checkpoint: str, data, backend_name, port=6006):
         run_viewer(method, 
                    train_dataset=train_dataset, 
                    test_dataset=test_dataset, 
-                   nb_info=nb_info)
+                   nb_info=nb_info,
+                   port=port)
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import math
 import os
 from contextlib import ExitStack, contextmanager
 import multiprocessing
@@ -12,6 +13,7 @@ from flask import Flask, request, jsonify, render_template, Response, send_file
 import numpy as np
 from PIL import Image, ImageDraw
 import nerfbaselines
+from nerfbaselines.utils import image_to_srgb, visualize_depth, apply_colormap
 
 pcs = set()
 candidates = []
@@ -85,7 +87,7 @@ def bouncing_ball_frame(time, width=400, height=400, **kwargs):
     return frame
 
 
-def _run_viewer_server(request_queue, output_queue, *args, **kwargs):
+def _run_viewer_server(request_queue, output_queue, port, *args, **kwargs):
     output_queues = {}
 
     def render_fn(feedid, **kwargs):
@@ -99,7 +101,7 @@ def _run_viewer_server(request_queue, output_queue, *args, **kwargs):
         out = output_queues[feedid].get()
         out_type = out.pop("type")
         if out_type == "error":
-            raise RuntimeError(out["error"]) from out["exception"]
+            raise RuntimeError(out["error"])
         elif out_type == "end":
             raise SystemExit(0)
         return out["result"]
@@ -124,18 +126,20 @@ def _run_viewer_server(request_queue, output_queue, *args, **kwargs):
     multiplex_thread = threading.Thread(target=_multiplex_queues, args=(output_queue, output_queues), daemon=True)
     multiplex_thread.start()
     try:
-        app.run(host="0.0.0.0", port=5001)
+        app.run(host="0.0.0.0", port=port)
+    except Exception as e:
+        logging.exception(e)
     finally:
         multiplex_thread.join()
 
 
 def _build_flake_app(render_fn, 
                      datasets,
+                     model_info=None,
                      dataset_metadata=None):
     # Create debug app
     app = Flask(__name__)
     # Set it to debug mode
-    app.debug = True
     _feed_states = {}
 
     @app.errorhandler(500)
@@ -163,7 +167,8 @@ def _build_flake_app(render_fn,
             info["viewer_transform"] = dataset_metadata_["viewer_transform"][:3, :4].flatten().tolist()
         if dataset_metadata_.get("viewer_initial_pose") is not None:
             info["viewer_initial_pose"] = dataset_metadata_["viewer_initial_pose"][:3, :4].flatten().tolist()
-        info["output_types"] = ["color", "depth"]
+        if model_info is not None:
+            info["output_types"] = model_info.get("supported_outputs", ("color",))
         return jsonify(info)
     del info
 
@@ -192,14 +197,26 @@ def _build_flake_app(render_fn,
 
     @app.route("/render", methods=["POST"])
     def render():
-        req = request.args
+        req = request.json
+        if "image_size" not in req:
+            return jsonify({"status": "error", "message": "Invalid request, missing image_size"}), 400
+        if "pose" not in req:
+            return jsonify({"status": "error", "message": "Invalid request, missing pose"}), 400
+        if "intrinsics" not in req:
+            return jsonify({"status": "error", "message": "Invalid request, missing intrinsics"}), 400
+        if "output_type" not in req:
+            return jsonify({"status": "error", "message": "Invalid request, missing output_type"}), 400
         image_size = tuple(map(int, req.get("image_size").split(",")))
         pose = np.array(list(map(float, req.get("pose").split(","))), dtype=np.float32).reshape(3, 4)
         intrinsics = np.array(list(map(float, req.get("intrinsics").split(","))), dtype=np.float32)
         frame_bytes = render_fn(threading.get_ident(), 
                                 pose=pose, 
                                 image_size=image_size, 
-                                intrinsics=intrinsics)
+                                intrinsics=intrinsics,
+                                output_type=req.get("output_type"),
+                                split_percentage=float(req.get("split_percentage", 0.5)),
+                                split_tilt=float(req.get("split_tilt", 0)),
+                                split_output_type=req.get("split_output_type"))
         return Response(frame_bytes, mimetype="image/jpeg")
     del render
 
@@ -292,27 +309,104 @@ def _build_flake_app(render_fn,
     return app
 
 
-def run_viewer(model=None, train_dataset=None, test_dataset=None, nb_info=None):
+def combine_outputs(o1, o2, *, split_percentage=0.5, split_tilt=0):
+    """
+    Combines two outputs o1 and o2 with a tilted splitting line.
+    NOTE: It writes to the first output array in-place.
+    
+    Args:
+        o1 (np.ndarray): First output array.
+        o2 (np.ndarray): Second output array.
+        split_percentage (float): Percentage along the width where the split starts (0 to 1).
+        split_tilt (float): Angle in degrees to tilt the split line (-45 to 45).
+    
+    Returns:
+        np.ndarray: Combined output array with the tilt applied.
+    """
+    assert o1.shape == o2.shape, f"Output shapes do not match: {o1.shape} vs {o2.shape}"
+    height, width = o1.shape[:2]
+    split_percentage_ = split_percentage if split_percentage is not None else 0.5
+
+    tilt_radians = split_tilt * math.pi / 180
+    split_dir = [math.cos(tilt_radians), math.sin(tilt_radians)]
+    y, x = np.indices((height, width))
+    proj = (x-width/2) * split_dir[0] + (y-height/2) * split_dir[1]
+    split_dir_len = width/2*abs(split_dir[0]) + height/2*abs(split_dir[1])
+    split_mask = proj > (split_percentage_*2-1) * split_dir_len
+
+    # Apply the split mask
+    result = o1
+    result[split_mask] = o2[split_mask]
+    return result
+
+
+def run_viewer(model=None, train_dataset=None, test_dataset=None, nb_info=None, port=5001):
     request_queue = multiprocessing.Queue()
     output_queue = multiprocessing.Queue()
 
+    # Prepare information
+    output_types_map = None
+    model_info = None
+    if model is not None:
+        model_info = model.get_info()
+        output_types_map = {
+            x if isinstance(x, str) else x["name"]: {"name": x, "type": x} if isinstance(x, str) else x for x in model_info.get("supported_outputs", ("color",))}
+    default_background_color = (nb_info or {}).get("dataset_metadata", {}).get("background_color", (0, 0, 0))
+    default_background_color = np.array(default_background_color, dtype=np.uint8)
+    default_expected_depth_scale = (nb_info or {}).get("dataset_metadata", {}).get("expected_depth_scale", 0.5)
+
+    def format_output(output, name, *, background_color=None, expected_depth_scale=None):
+        name = name or "color"
+        rtype_spec = output_types_map.get(name)
+        if rtype_spec is None:
+            raise ValueError(f"Unknown output type: {name}")
+        if background_color is None:
+            background_color = default_background_color
+        if expected_depth_scale is None:
+            expected_depth_scale = default_expected_depth_scale
+        rtype = rtype_spec.get("type", name)
+        if rtype == "color":
+            output = image_to_srgb(output, np.uint8, color_space="srgb", allow_alpha=False, background_color=background_color)
+        elif rtype == "depth":
+            # Blend depth with correct color pallete
+            output = visualize_depth(output, expected_scale=expected_depth_scale)
+        elif rtype == "accumulation":
+            output = apply_colormap(output, pallete="coolwarm")
+        return output
+
     def render(feedid,
-               pose=None,
-               image_size=None,
-               intrinsics=None,
+               pose,
+               image_size,
+               intrinsics,
+               output_type,
+               split_output_type,
+               split_percentage,
+               split_tilt,
                **kwargs):
-        # image_size = np.array(image_size, dtype=np.int32)
+        del kwargs
         camera = nerfbaselines.new_cameras(
             poses=pose,
             intrinsics=np.array(intrinsics, dtype=np.float32),
             camera_models=0,
             image_sizes=image_size,
         )
-        options = { "output_type_dtypes": { "color": "uint8" } }
+        output_types = (output_type,)
+        if split_output_type is not None:
+            output_types = output_types + (split_output_type,)
+        options = { "output_type_dtypes": { "color": "uint8" },
+                    "outputs": output_types }
                     #"embedding": embedding,
-                   # "outputs": output_types }
         outputs = model.render(camera, options=options)
-        frame = outputs["color"]
+        # Format first output
+        frame = format_output(outputs[output_type], output_type)
+        if split_output_type is not None:
+            # Format second output
+            split_frame = format_output(outputs[split_output_type], split_output_type)
+
+            # Combine the two outputs
+            frame = combine_outputs(frame, split_frame, 
+                                    split_percentage=split_percentage,
+                                    split_tilt=split_tilt)
         return frame
 
     def update_step():
@@ -332,6 +426,7 @@ def run_viewer(model=None, train_dataset=None, test_dataset=None, nb_info=None):
                     "result": frame_bytes,
                 })
             except Exception as e:
+                logging.exception(e)
                 output_queue.put({
                     "type": "error",
                     "feedid": feedid,
@@ -345,6 +440,8 @@ def run_viewer(model=None, train_dataset=None, test_dataset=None, nb_info=None):
     ), kwargs=dict(
         datasets={"train": train_dataset, "test": test_dataset},
         dataset_metadata=train_dataset["metadata"],
+        model_info=model_info,
+        port=port,
     ), daemon=True)
     process.start()
 

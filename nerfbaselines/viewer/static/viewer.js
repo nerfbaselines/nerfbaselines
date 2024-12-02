@@ -27,7 +27,6 @@ const state = {
 
 
 window.addEventListener("resize", async () => {
-  draw();
   for (const renderer of renderers) {
     await renderer.updateRenderParams({
       width: viewport.clientWidth,
@@ -324,11 +323,83 @@ function _attach_player_frustum(viewer) {
 }
 
 
+function _attach_viewport_split_slider(viewer) {
+  const div = document.createElement("div");
+  div.className = "viewport-slider";
+  div.style.position = "absolute";
+  div.style.top = "0";
+  div.style.left = "50%";
+  viewport.appendChild(div);
+
+  let startPoint = undefined;
+  div.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    div.setPointerCapture(e.pointerId);
+    startPoint = { x: e.clientX, y: e.clientY, split_percentage: viewer._gui_state.split_percentage };
+  });
+  div.addEventListener("pointermove", (e) => {
+    if (!startPoint) return;
+    const deltaX = e.clientX - startPoint.x;
+    const deltaY = e.clientY - startPoint.y;
+    const { split_percentage, split_tilt } = viewer._gui_state;
+
+    // Compute delta split percentage
+    const tiltRadians = split_tilt * Math.PI / 180;
+    const splitDir = [Math.cos(tiltRadians), Math.sin(tiltRadians)];
+    const width = viewport.clientWidth;
+    const height = viewport.clientHeight;
+    const splitDirLen = width / 2 * Math.abs(splitDir[0]) + height / 2 * Math.abs(splitDir[1]);
+    const absDelta = deltaX * splitDir[0] + deltaY * splitDir[1];
+    const delta = absDelta / splitDirLen / 2;
+
+    viewer._gui_state.split_percentage = Math.min(0.95, Math.max(0.05, startPoint.split_percentage + delta));
+    viewer.notifyChange({ property: 'split_percentage' });
+  });
+  div.addEventListener("pointerup", (e) => {
+    startPoint = undefined;
+    e.preventDefault();
+    div.releasePointerCapture(e.pointerId);
+  });
+
+  function update({
+    split_enabled,
+    split_percentage,
+    split_tilt,
+  }) {
+    div.style.display = split_enabled ? "block" : "none";
+
+    // Compute position
+    const tiltRadians = split_tilt * Math.PI / 180;
+    const splitDir = [Math.cos(tiltRadians), Math.sin(tiltRadians)];
+    const width = viewport.clientWidth;
+    const height = viewport.clientHeight;
+    const splitDirLen = width / 2 * Math.abs(splitDir[0]) + height / 2 * Math.abs(splitDir[1]);
+    const left = width / 2 + splitDir[0] * splitDirLen * (split_percentage*2-1);
+    const top = height / 2 + splitDir[1] * splitDirLen * (split_percentage*2-1);
+    div.style.left = `${left}px`;
+    div.style.top = `${top}px`;
+    div.style.transform = `translate(-50%, -50%) rotate(${split_tilt}deg)`;
+    div.style.cursor = tiltRadians > Math.PI / 4 && tiltRadians < 3 * Math.PI / 4 ? "ns-resize" : "ew-resize";
+  }
+
+  viewer.addEventListener("change", ({ property, state }) => {
+    if (property === undefined || 
+        property === 'split_enabled' ||
+        property === 'split_percentage' ||
+        property === 'split_tilt') {
+      update(state);
+    }
+  });
+  update(viewer._gui_state);
+}
+
+
 class HTTPRenderer extends THREE.EventDispatcher {
-  constructor({ url, get_camera_params }) {
+  constructor({ url, get_camera_params, state }) {
     super();
     this.url = url;
     this.get_camera_params = get_camera_params;
+    this.state = state;
     this._num_errors = 0;
     this._running = true;
   }
@@ -346,15 +417,28 @@ class HTTPRenderer extends THREE.EventDispatcher {
           fov,
         } = this.get_camera_params();
         const round = (x) => Math.round(x * 100000) / 100000;
-        const camera_pose = matrix4ToArray(matrix).map(round).join(",");
-        // Fov is in radians
         const focal = height / (2 * Math.tan(THREE.MathUtils.degToRad(fov) / 2));
-        const intrinsics = [focal, focal, width/2, height/2].map(round).join(",");
-        const params = `pose=${camera_pose}&intrinsics=${intrinsics}&image_size=${width},${height}`
+        const request = {
+          pose: matrix4ToArray(matrix).map(round).join(","),
+          intrinsics: [focal, focal, width/2, height/2].map(round).join(","),
+          image_size: `${width},${height}`,
+          output_type: this.state.output_type,
+        };
+        if (state.split_enabled && state.split_output_type) {
+          request.split_output_type = state.split_output_type;
+          request.split_percentage = "" + round(state.split_percentage === undefined ? 0.5 : state.split_percentage);
+          request.split_tilt = "" + round(state.split_tilt || 0.0);
+        }
+        let params = JSON.stringify(request);
         if (params === lastParams) return;
         lastParams = params;
-        const response = await fetch(`${this.url}?${params}`,{
+        const response = await fetch(`${this.url}`,{
           method: "POST",  // Disable caching
+          cache: "no-cache",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: params,
         });
         // Read response as blob
         const blob = await response.blob();
@@ -670,6 +754,7 @@ class Viewer extends THREE.EventDispatcher {
     _attach_camera_path_keyframes(this);
     _attach_camera_path_selected_keyframe_pivot_controls(this);
     _attach_player_frustum(this);
+    _attach_viewport_split_slider(this, viewport);
   }
 
   clear_selected_dataset_image() {
@@ -687,6 +772,7 @@ class Viewer extends THREE.EventDispatcher {
     this.http_renderer = new HTTPRenderer({ 
       url,
       get_camera_params: () => this._get_camera_params(),
+      state: this._gui_state,
     });
     this.http_renderer.addEventListener("frame", ({ image }) => {
       this._last_frames[0] = image;
@@ -1113,7 +1199,7 @@ function matrix4ToArray(matrix) {
   return [e[0], e[4], e[8], e[12], e[1], e[5], e[9], e[13], e[2], e[6], e[10], e[14]];
 }
 
-fetch("http://localhost:5001/info")
+fetch("./info")
   .then(response => response.json())
   .then(data => {
     let viewer_transform = undefined;
@@ -1125,10 +1211,11 @@ fetch("http://localhost:5001/info")
       viewer_initial_pose = makeMatrix4(data.viewer_initial_pose);
     }
 
-    data.output_types = ["color", "depth"];
-    state.output_types = data.output_types || [];
-    state.output_type = (state.output_types || state.output_types.length > 0) ? state.output_types[0] : "";
-    state.split_output_type = (state.output_types || state.output_types.length > 1) ? state.output_types[1] : "";
+    state.output_types = ["color", "depth"];
+    state.has_method = true;
+    //state.output_types = data.output_types || [];
+    //state.output_type = (state.output_types || state.output_types.length > 0) ? state.output_types[0] : undefined;
+    //state.split_output_type = (state.output_types || state.output_types.length > 1) ? state.output_types[1] : undefined;
 
     const viewer = new Viewer({
       viewport,
@@ -1136,6 +1223,6 @@ fetch("http://localhost:5001/info")
       viewer_initial_pose,
     });
     viewer.attach_gui(document.querySelector('.controls'));
-    viewer.set_http_renderer("http://localhost:5001/render");
-    viewer.set_dataset("http://localhost:5001/dataset");
+    viewer.set_http_renderer("./render");
+    //viewer.set_dataset("./dataset");
   });
