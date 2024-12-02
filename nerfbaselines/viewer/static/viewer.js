@@ -365,8 +365,9 @@ function _attach_viewport_split_slider(viewer) {
     split_enabled,
     split_percentage,
     split_tilt,
+    preview_is_preview_mode,
   }) {
-    div.style.display = split_enabled ? "block" : "none";
+    div.style.display = (split_enabled && !preview_is_preview_mode) ? "block" : "none";
 
     // Compute position
     const tiltRadians = split_tilt * Math.PI / 180;
@@ -386,6 +387,7 @@ function _attach_viewport_split_slider(viewer) {
     if (property === undefined || 
         property === 'split_enabled' ||
         property === 'split_percentage' ||
+        property === 'preview_is_preview_mode' ||
         property === 'split_tilt') {
       update(state);
     }
@@ -410,12 +412,13 @@ class HTTPRenderer extends THREE.EventDispatcher {
 
     const _updateSingle = async (next) => {
       try {
-        const width = viewport.clientWidth;
-        const height = viewport.clientHeight;
         let {
           matrix,
           fov,
+          aspect,
         } = this.get_camera_params();
+        const height = viewport.clientHeight;
+        const width = Math.round(height * aspect);
         const round = (x) => Math.round(x * 100000) / 100000;
         const focal = height / (2 * Math.tan(THREE.MathUtils.degToRad(fov) / 2));
         const request = {
@@ -816,6 +819,9 @@ class Viewer extends THREE.EventDispatcher {
   }
 
   _get_camera_params() {
+    if (this._gui_state.preview_camera !== undefined) {
+      return this._gui_state.preview_camera;
+    }
     const pose = this.camera.matrixWorld.clone();
     pose.multiply(_R_threecam_cam);
     pose.premultiply(this.scene.matrixWorld.clone().invert());
@@ -824,6 +830,7 @@ class Viewer extends THREE.EventDispatcher {
     return {
       matrix: pose,
       fov,
+      aspect: this.camera.aspect,
     };
   }
 
@@ -938,14 +945,55 @@ class Viewer extends THREE.EventDispatcher {
 
   _attach_update_preview_mode() {
     this.addEventListener('change', ({ property, state }) => {
-      if (property !== undefined && property !== 'preview_is_preview_mode') return;
-      const { 
-        preview_is_preview_mode,
-      } = state;
-      this._is_preview_mode = preview_is_preview_mode;
-      this.controls.enabled = !this._is_preview_mode;
-      this.renderer.domElement.style.display = this._is_preview_mode ? "none" : "block";
-      this._preview_canvas.style.display = this._is_preview_mode ? "block" : "none";
+      // Update preview mode
+      if (property === undefined || 
+          property !== 'preview_is_preview_mode') {
+        const { 
+          preview_is_preview_mode,
+        } = state;
+        this._is_preview_mode = preview_is_preview_mode;
+        this.controls.enabled = !this._is_preview_mode;
+        this._draw_background();
+        this.renderer.domElement.style.display = this._is_preview_mode ? "none" : "block";
+        this._preview_canvas.style.display = this._is_preview_mode ? "block" : "none";
+      }
+
+      // Update preview camera
+      if (property === undefined ||
+          property === 'camera_path_trajectory' ||
+          property === 'preview_frame' ||
+          property === 'preview_is_preview_mode' ||
+          property === 'render_resolution_1' ||
+          property === 'render_resolution_2') {
+        const { 
+          camera_path_trajectory,
+          preview_frame,
+          preview_is_preview_mode,
+          render_resolution_1,
+          render_resolution_2,
+        } = state;
+
+        let preview_camera = undefined;
+        if (preview_is_preview_mode && camera_path_trajectory && camera_path_trajectory.positions.length > 0) {
+          const { positions, quaternions, fovs } = camera_path_trajectory;
+          const num_frames = positions.length;
+          const frame = Math.min(Math.max(0, Math.floor(preview_frame)), num_frames - 1);
+          const position = new THREE.Vector3().copy(positions[frame]);
+          const quaternion = new THREE.Quaternion().copy(quaternions[frame]);
+          const fov = fovs[frame];
+          const pose = new THREE.Matrix4();
+          pose.compose(position, quaternion, new THREE.Vector3(1, 1, 1));
+          preview_camera = {
+            matrix: pose,
+            fov,
+            aspect: render_resolution_1 / render_resolution_2,
+          };
+        }
+        if (preview_camera !== state.preview_camera) {
+          state.preview_camera = preview_camera;
+          this.notifyChange({ property: 'preview_camera' });
+        }
+      }
     });
   }
 
@@ -1143,6 +1191,7 @@ class Viewer extends THREE.EventDispatcher {
   }
 
   _draw_background() {
+    if (!this._last_frames[0]) return;
     if (!this._gui_state.preview_is_preview_mode) {
       if (this._backgroundTexture === null) {
         this._backgroundTexture = new THREE.Texture(this._last_frames[0]);
@@ -1160,10 +1209,20 @@ class Viewer extends THREE.EventDispatcher {
       this._backgroundTexture.needsUpdate = true;
     } else {
       // Manually draw the background to the canvas
+      // The image will be drawn in the center of the canvas, scaled to fit the canvas
       const image = this._last_frames[0];
       if (image === undefined) return;
       const { width, height } = this._preview_canvas;
-      this._preview_context.drawImage(image, 0, 0, width, height);
+      const imageAspect = image.width / image.height;
+      const canvasAspect = width / height;
+      const scale = imageAspect > canvasAspect ? width / image.width : height / image.height;
+      const scaledWidth = image.width * scale;
+      const scaledHeight = image.height * scale;
+      const x = (width - scaledWidth) / 2;
+      const y = (height - scaledHeight) / 2;
+      this._preview_context.fillStyle = "black";
+      this._preview_context.fillRect(0, 0, width, height);
+      this._preview_context.drawImage(image, x, y, scaledWidth, scaledHeight);
     }
   }
 }
@@ -1211,11 +1270,9 @@ fetch("./info")
       viewer_initial_pose = makeMatrix4(data.viewer_initial_pose);
     }
 
-    state.output_types = ["color", "depth"];
-    state.has_method = true;
-    //state.output_types = data.output_types || [];
-    //state.output_type = (state.output_types || state.output_types.length > 0) ? state.output_types[0] : undefined;
-    //state.split_output_type = (state.output_types || state.output_types.length > 1) ? state.output_types[1] : undefined;
+    state.output_types = data.output_types || [];
+    state.output_type = (state.output_types || state.output_types.length > 0) ? state.output_types[0] : undefined;
+    state.split_output_type = (state.output_types || state.output_types.length > 1) ? state.output_types[1] : undefined;
 
     const viewer = new Viewer({
       viewport,
