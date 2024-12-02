@@ -1,11 +1,14 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { compute_camera_path } from './interpolation.js';
 import { PivotControls, MouseInteractions, CameraFrustum, TrajectoryCurve } from './threejs_utils.js';
+
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+//import { FirstPersonControls } from 'three/addons/controls/FirstPersonControls.js';
+import { FlyControls } from 'three/addons/controls/FlyControls.js';
 
 
 const theme_color = 0xffd369;
@@ -69,7 +72,7 @@ void main() {
     gl_FragColor = vec4(vColor, 1.0);
 }`
 
-const _R_threecam_cam = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI, 0.0, 0.0));
+const _R_threecam_cam = new THREE.Matrix4().makeRotationX(Math.PI);
 
 
 function _attach_camera_path_selected_keyframe_pivot_controls(viewer) {
@@ -141,14 +144,14 @@ function _attach_camera_path_keyframes(viewer) {
   }) {
     const new_keyframe_frustums = {};
     for (const keyframe of camera_path_keyframes) {
-      const fov = render_fov / 180 * Math.PI;
+      const fov = render_fov;
       const aspect = render_resolution_1 / render_resolution_2;
       let frustum = keyframe_frustums[keyframe.id];
 
       if (frustum === undefined) {
         frustum = new CameraFrustum({ 
-          fov: fov,
-          aspect: aspect,
+          fov,
+          aspect,
           position: keyframe.position.clone(), 
           quaternion: keyframe.quaternion.clone(),
           scale: 0.1,
@@ -157,6 +160,13 @@ function _attach_camera_path_keyframes(viewer) {
           originSphereScale: 0.12,
         });
         frustum.addEventListener("click", () => {
+          // If dataset frustum is selected, clear the selection
+          if (viewer._gui_state.dataset_selected_image_id !== undefined) {
+            viewer._gui_state.dataset_selected_image_id = undefined;
+            viewer.notifyChange({ property: 'dataset_selected_image_id' });
+          }
+
+          frustum.focused = true;
           viewer._gui_state.camera_path_selected_keyframe = keyframe.id;
           viewer.notifyChange({ property: "camera_path_selected_keyframe" });
         });
@@ -315,33 +325,55 @@ function _attach_player_frustum(viewer) {
 
 
 class HTTPRenderer extends THREE.EventDispatcher {
-  constructor({ url }) {
+  constructor({ url, get_camera_params }) {
     super();
     this.url = url;
+    this.get_camera_params = get_camera_params;
     this._num_errors = 0;
     this._running = true;
   }
 
   start() {
     let lastUpdate = Date.now() - 1;
+    let lastParams = undefined;
 
-    const _updateSingle = async () => {
+    const _updateSingle = async (next) => {
       try {
-        const response = await fetch(`${this.url}?width=${viewport.clientWidth}&height=${viewport.clientHeight}`);
+        const width = viewport.clientWidth;
+        const height = viewport.clientHeight;
+        let {
+          matrix,
+          fov,
+        } = this.get_camera_params();
+        const round = (x) => Math.round(x * 100000) / 100000;
+        const camera_pose = matrix4ToArray(matrix).map(round).join(",");
+        // Fov is in radians
+        const focal = height / (2 * Math.tan(THREE.MathUtils.degToRad(fov) / 2));
+        const intrinsics = [focal, focal, width/2, height/2].map(round).join(",");
+        const params = `pose=${camera_pose}&intrinsics=${intrinsics}&image_size=${width},${height}`
+        if (params === lastParams) return;
+        lastParams = params;
+        const response = await fetch(`${this.url}?${params}`,{
+          method: "POST",  // Disable caching
+        });
         // Read response as blob
         const blob = await response.blob();
+        const blobSrc = URL.createObjectURL(blob);
         const image = new Image();
-        image.src = URL.createObjectURL(blob);
-        image.onload = () => {
-          this._num_errors = 0;
-          if (!this._running) return;
-          this.dispatchEvent({ type: "frame", image });
-        };
-        image.onerror = (error) => {
-          console.error("Error loading image:", error);
-          if (!this._running) return;
-          this.dispatchEvent({ type: "error", error });
-        }
+        await new Promise((resolve, reject) => {
+          image.onload = () => {
+            resolve();
+          };
+          image.onerror = (error) => {
+            URL.revokeObjectURL(blobSrc);
+            reject(error);
+          };
+          image.src = blobSrc;
+        });
+        this._num_errors = 0;
+        if (!this._running) return;
+        this.dispatchEvent({ type: "frame", image });
+        URL.revokeObjectURL(blobSrc);
       } catch (error) {
         this._num_errors++;
         console.error("Error fetching image:", error);
@@ -374,17 +406,15 @@ class DatasetManager {
     url,
   }) {
     this.viewer = viewer;
-    this.scene = viewer.transformed_scene;
+    this.scene = viewer.scene;
     this.url = url;
     this._disposed = true;
 
     const state = viewer._gui_state;
     this._train_cameras = new THREE.Group();
-    this._train_cameras.visible = !!state.dataset_show_train_cameras;
     this._test_cameras = new THREE.Group();
-    this._test_cameras.visible = !!state.dataset_show_test_cameras;
     this._pointcloud = new THREE.Group();
-    this._pointcloud.visible = !!state.dataset_show_pointcloud;
+    this._update_gui(state);
     this.scene.add(this._train_cameras);
     this.scene.add(this._test_cameras);
     this.scene.add(this._pointcloud);
@@ -392,20 +422,49 @@ class DatasetManager {
     this._on_viewer_change = this._on_viewer_change.bind(this);
     viewer.addEventListener("change", this._on_viewer_change);
 
+    this._frustums = {};
     this._load_cameras("test");
     this._load_cameras("train");
     this._load_pointcloud();
   }
 
-  _on_viewer_change({ property, state }) {
-    if (property === undefined || property === 'dataset_show_pointcloud')
-      this._pointcloud.visible = state.dataset_show_pointcloud;
-    if (property === undefined || property === 'dataset_show_train_cameras')
-      this._train_cameras.visible = state.dataset_show_train_cameras;
-    if (property === undefined || property === 'dataset_show_test_cameras')
-      this._test_cameras.visible = state.dataset_show_test_cameras;
+  _update_gui({ 
+    dataset_show_pointcloud, 
+    dataset_show_train_cameras, 
+    dataset_show_test_cameras,
+    dataset_selected_image_id,
+  }) {
+    this._pointcloud.visible = !!dataset_show_pointcloud;
+    this._train_cameras.visible = !!dataset_show_train_cameras;
+    this._test_cameras.visible = !!dataset_show_test_cameras;
+
+    // Update frustums visibility
+    for (const frustum_id in this._frustums) {
+      const frustum = this._frustums[frustum_id];
+      frustum.focused = frustum_id === state.dataset_selected_image_id;
+    }
+
+    // Clear selected camera if it is not visible
+    if (!dataset_show_train_cameras && dataset_selected_image_id?.startsWith('train')) {
+      this.viewer._gui_state.dataset_selected_image_id = undefined;
+      this.viewer.notifyChange({ property: 'dataset_selected_image_id' });
+    }
+    if (!dataset_show_test_cameras && dataset_selected_image_id?.startsWith('test')) {
+      this.viewer._gui_state.dataset_selected_image_id = undefined;
+      this.viewer.notifyChange({ property: 'dataset_selected_image_id' });
+    }
   }
-  
+
+  _on_viewer_change({ property, state }) {
+    if (property === undefined || 
+        property === 'dataset_show_pointcloud' ||
+        property === 'dataset_show_train_cameras' ||
+        property === 'dataset_show_test_cameras' ||
+        property === 'dataset_selected_image_id') {
+      this._update_gui(state);
+    }
+  }
+
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
@@ -413,6 +472,9 @@ class DatasetManager {
     this.scene.remove(this._train_cameras);
     this.scene.remove(this._test_cameras);
     this.scene.remove(this._pointcloud);
+    for (const frustum of this._frustums) {
+      frustum.dispose();
+    }
   }
 
   _load_cameras(split) {
@@ -450,24 +512,50 @@ class DatasetManager {
 
           const [fx, fy, cx, cy] = camera.intrinsics;
           const [width, height] = camera.image_size;
+          const fov = THREE.MathUtils.radToDeg(2 * Math.atan2(cy, fy));
+          const aspect = width / height;
 
           const frustum = new CameraFrustum({ 
-            fov: Math.atan2(cy, fy) * 2,
-            aspect: width / height,
+            fov,
+            aspect,
             position,
             quaternion,
             scale: 0.1,
             color: dataset_frustum_color,
             hasImage: true,
+            interactive: true,
+          });
+          const id = `${split}/${i}`;
+          this._frustums[id] = frustum;
+          frustum.addEventListener("click", () => {
+            // If camera path frustum is selected, clear the selection
+            if (this.viewer._gui_state.camera_path_selected_keyframe !== undefined) {
+              this.viewer._gui_state.camera_path_selected_keyframe = undefined;
+              this.viewer.notifyChange({ property: 'camera_path_selected_keyframe' });
+            }
+
+            frustum.focused = true;
+            this.viewer._gui_state.dataset_selected_image_id = id;
+            this.viewer.notifyChange({ property: 'dataset_selected_image_id' });
           });
 
           // Replace image_path extension with .jpg
-          new THREE.TextureLoader().load(`${this.url}/thumbnails/${split}/${i}.jpg`, (texture) => {
+          new THREE.TextureLoader().load(`${this.url}/images/${split}/${i}.jpg?size=64`, (texture) => {
+            texture.colorSpace = THREE.SRGBColorSpace;
             frustum.setImageTexture(texture);
           });
           this[`_${split}_cameras`].add(frustum);
+          this.viewer._gui_state.dataset_images = this.viewer._gui_state.dataset_images || {};
+          this.viewer._gui_state.dataset_images[id] = {
+            id,
+            index: i,
+            split,
+            image_name: camera.image_name,
+            image_url: `${this.url}/images/${split}/${i}.jpg`,
+          };
           i++;
         }
+        this.viewer.notifyChange({ property: 'dataset_images' });
       },
       undefined,
       (error) => {
@@ -509,6 +597,7 @@ class Viewer extends THREE.EventDispatcher {
   constructor({ 
     viewport, 
     viewer_transform,
+    viewer_initial_pose,
   }) {
     super();
     this._backgroundTexture = null;
@@ -521,11 +610,10 @@ class Viewer extends THREE.EventDispatcher {
     this.camera = new THREE.PerspectiveCamera( 70, width / height, 0.01, 10 );
     this.camera.position.z = 1;
 
-    this.scene = new THREE.Scene();
+    this.renderer_scene = new THREE.Scene();
 
-    this.controls = new OrbitControls(this.camera, viewport);
+    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.listenToKeyEvents(window);
-
     this.controls.enableDamping = true; // an animation loop is required when either damping or auto-rotation are enabled
    	this.controls.dampingFactor = 0.05;
 		this.controls.screenSpacePanning = false;
@@ -535,13 +623,18 @@ class Viewer extends THREE.EventDispatcher {
     this.renderer.setAnimationLoop((time) => this._animate(time));
     window.addEventListener("resize", () => this._resize());
 
-    this.mouse_interactions = new MouseInteractions(this.renderer, this.camera, this.scene);
+    this.mouse_interactions = new MouseInteractions(this.renderer, this.camera, this.renderer_scene);
 
-    this.transformed_scene = new THREE.Group();
-    this.scene.add(this.transformed_scene);
-    this.transformed_scene.applyMatrix4(viewer_transform);
+    this.scene = new THREE.Group();
+    this.renderer_scene.add(this.scene);
+    if (viewer_transform) {
+      this.scene.applyMatrix4(viewer_transform);
+    }
     // Switch OpenCV to ThreeJS coordinate system
-    this.transformed_scene.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI/2));
+    this.scene.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI/2));
+    // if (viewer_initial_pose) {
+    //   this.camera.applyMatrix4(viewer_initial_pose);
+    // }
 
 
     this._preview_canvas = document.createElement("canvas");
@@ -579,6 +672,11 @@ class Viewer extends THREE.EventDispatcher {
     _attach_player_frustum(this);
   }
 
+  clear_selected_dataset_image() {
+    this._gui_state.dataset_selected_image_id = undefined;
+    this.notifyChange({ property: 'dataset_selected_image_id' });
+  }
+
   set_http_renderer(url) {
     if (this.http_renderer) {
       this.http_renderer.dispose();
@@ -586,11 +684,19 @@ class Viewer extends THREE.EventDispatcher {
     }
 
     // Connect HTTP renderer
-    this.http_renderer = new HTTPRenderer({ url });
+    this.http_renderer = new HTTPRenderer({ 
+      url,
+      get_camera_params: () => this._get_camera_params(),
+    });
     this.http_renderer.addEventListener("frame", ({ image }) => {
       this._last_frames[0] = image;
+      this._draw_background();
     });
     this.http_renderer.start();
+
+    // Update state
+    this._gui_state.has_method = true;
+    this.notifyChange({ property: 'has_method' });
   }
 
   set_dataset(url) {
@@ -619,15 +725,19 @@ class Viewer extends THREE.EventDispatcher {
       this.mouse_interactions.update();
       if (!this.mouse_interactions.isCaptured())
         this.controls.update();
-      this.renderer.render(this.scene, this.camera);
+      this.renderer.render(this.renderer_scene, this.camera);
     }
   }
 
-  _get_camera_pose() {
-    const quaternion = this.camera.quaternion.clone().multiply(_R_threecam_cam);
+  _get_camera_params() {
+    const pose = this.camera.matrixWorld.clone();
+    pose.multiply(_R_threecam_cam);
+    pose.premultiply(this.scene.matrixWorld.clone().invert());
+    // const fovRadians = THREE.MathUtils.degToRad(fov);
+    const fov = this.camera.fov;
     return {
-      quaternion: quaternion,
-      position: this.camera.position.clone(),
+      matrix: pose,
+      fov,
     };
   }
 
@@ -636,6 +746,15 @@ class Viewer extends THREE.EventDispatcher {
       ...props,
       type: "change", 
       state: this._gui_state 
+    });
+  }
+
+  addComputedProperty({ name, getter, dependencies }) {
+    this._gui_state[name] = getter(this._gui_state);
+    this.addEventListener("change", ({ property, state }) => {
+      if (property !== undefined && !dependencies.includes(property)) return;
+      state[name] = getter(state);
+      this.notifyChange({ property: name });
     });
   }
 
@@ -661,7 +780,11 @@ class Viewer extends THREE.EventDispatcher {
   }
 
   add_keyframe() {
-    const { quaternion, position } = this._get_camera_pose();
+    const { matrix } = this._get_camera_params();
+    const quaternion = new THREE.Quaternion();
+    const position = new THREE.Vector3();
+    const scale = new THREE.Vector3();
+    matrix.decompose(position, quaternion, scale);
     const id = _keyframe_counter++;
     this._gui_state.camera_path_keyframes.push({
       id,
@@ -677,14 +800,53 @@ class Viewer extends THREE.EventDispatcher {
   }
 
   _attach_computed_properties() {
-    this.addEventListener("change", ({ property, state }) => {
-      if (property === undefined || property === 'camera_path_selected_keyframe') {
-        state.camera_path_selected_keyframe_natural_index = 
-          state.camera_path_keyframes.findIndex((keyframe) => keyframe.id === state.camera_path_selected_keyframe) + 1;
-        this.notifyChange({ property: 'camera_path_selected_keyframe_natural_index' });
-        state.camera_path_has_selected_keyframe = state.camera_path_selected_keyframe !== undefined;
-        this.notifyChange({ property: 'camera_path_has_selected_keyframe' });
+    this.addComputedProperty({
+      name: "camera_path_selected_keyframe_natural_index",
+      dependencies: ["camera_path_keyframes", "camera_path_selected_keyframe"],
+      getter: ({ camera_path_keyframes, camera_path_selected_keyframe }) => {
+        return camera_path_keyframes.findIndex((keyframe) => keyframe.id === camera_path_selected_keyframe) + 1;
       }
+    });
+    this.addComputedProperty({
+      name: "camera_path_has_selected_keyframe",
+      dependencies: ["camera_path_selected_keyframe"],
+      getter: ({ camera_path_selected_keyframe }) => camera_path_selected_keyframe !== undefined
+    });
+    this.addComputedProperty({
+      name: "has_output_split",
+      dependencies: ["has_method", "output_types"],
+      getter: ({ has_method, output_types }) => has_method && output_types && output_types.length > 1
+    });
+
+    // Add dataset's computed properties
+    this.addComputedProperty({
+      name: "dataset_has_selected_camera",
+      dependencies: ["dataset_selected_image_id"],
+      getter: ({ dataset_selected_image_id }) => dataset_selected_image_id !== undefined,
+    });
+
+    this.addComputedProperty({
+      name: "dataset_selected_image_index",
+      dependencies: ["dataset_selected_image_id"],
+      getter: ({ dataset_selected_image_id }) => dataset_selected_image_id?.split("/")[1],
+    });
+
+    this.addComputedProperty({
+      name: "dataset_selected_image_split",
+      dependencies: ["dataset_selected_image_id"],
+      getter: ({ dataset_selected_image_id }) => dataset_selected_image_id?.split("/")[0],
+    });
+
+    this.addComputedProperty({
+      name: "dataset_selected_image_name",
+      dependencies: ["dataset_images", "dataset_selected_image_id"],
+      getter: ({ dataset_images, dataset_selected_image_id }) => dataset_images?.[dataset_selected_image_id]?.image_name || "",
+    });
+
+    this.addComputedProperty({
+      name: "dataset_selected_image_url",
+      dependencies: ["dataset_images", "dataset_selected_image_id"],
+      getter: ({ dataset_images, dataset_selected_image_id }) => dataset_images?.[dataset_selected_image_id]?.image_url || "",
     });
   }
 
@@ -766,7 +928,11 @@ class Viewer extends THREE.EventDispatcher {
         }
       });
       const { name, value, type, checked } = element;
-      state[name] = getValue(element);
+      if (state[name] === undefined) {
+        state[name] = getValue(element);
+      } else {
+        setValue(element, state[name]);
+      }
       if (name === "preview_frame" && type === "range") {
         // Update maximum when the camera path changes
         this.addEventListener("change", ({ property, trigger, state }) => {
@@ -792,6 +958,59 @@ class Viewer extends THREE.EventDispatcher {
       this.addEventListener("change", ({ property, trigger }) => {
         if (property !== name && property !== undefined) return;
         element.textContent = state[name];
+      });
+    });
+
+    function bindOptionsOutputTypes(element) {
+      function updateOptions() {
+        const selectedValue = state[element.name];
+        // Clear all options
+        const oldOptions = {};
+        Array.from(element.children).forEach((option) => {
+          oldOptions[option.value] = option;
+          element.removeChild(option);
+        });
+
+        // Add new options
+        const output_types = state.output_types || ["not set"];
+        for (const value of output_types) {
+          const option = oldOptions[value] || document.createElement("option");
+          option.value = value;
+          option.textContent = value;
+          if (value === selectedValue) option.selected = true;
+          element.appendChild(option);
+        }
+      }
+
+      this.addEventListener("change", ({ property, trigger, state }) => {
+        if (property !== "output_types" && property !== undefined) return;
+        updateOptions();
+      });
+
+      updateOptions();
+    }
+    document.getElementsByName("output_type").forEach(bindOptionsOutputTypes.bind(this));
+    document.getElementsByName("split_output_type").forEach(bindOptionsOutputTypes.bind(this));
+
+    root.querySelectorAll("select[data-bind-options]").forEach(element => {
+      const name = element.getAttribute("data-bind-options");
+      this.addEventListener("change", ({ property, trigger }) => {
+        if (property !== name && property !== undefined) return;
+        // Update options
+        // Clear all options
+        const oldOptions = {};
+        element.childNodes.forEach((option) => {
+          oldOptions[option.value] = option;
+          element.removeChild(option);
+        });
+
+        // Add new options
+        for (const value of state[name]) {
+          const option = oldOptions[value] || document.createElement("option");
+          option.value = value;
+          option.textContent = value;
+          element.appendChild(option);
+        }
       });
     });
 
@@ -822,6 +1041,18 @@ class Viewer extends THREE.EventDispatcher {
         }
       });
     });
+
+    // data-bind-attr has the form "attribute:property"
+    root.querySelectorAll("[data-bind-attr]").forEach(element => {
+      const [attr, name] = element.getAttribute("data-bind-attr").split(":");
+      this.addEventListener("change", ({ property, trigger }) => {
+        if (property !== name && property !== undefined) return;
+        element.setAttribute(attr, state[name]);
+      });
+      if (state[name] !== undefined)
+        element.setAttribute(attr, state[name]);
+    });
+
     this.notifyChange({ property: null, trigger: 'init' });
   }
 
@@ -829,12 +1060,14 @@ class Viewer extends THREE.EventDispatcher {
     if (!this._gui_state.preview_is_preview_mode) {
       if (this._backgroundTexture === null) {
         this._backgroundTexture = new THREE.Texture(this._last_frames[0]);
-        this.scene.background = this._backgroundTexture;
+        this._backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+        this.renderer_scene.background = this._backgroundTexture;
       } else if (this._backgroundTexture.image.width !== this._last_frames[0].width || this._backgroundTexture.image.height !== this._last_frames[0].height) {
         // Dispose the old texture
         this._backgroundTexture.dispose();
         this._backgroundTexture = new THREE.Texture(this._last_frames[0]);
-        this.scene.background = this._backgroundTexture;
+        this._backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+        this.renderer_scene.background = this._backgroundTexture;
       } else {
         this._backgroundTexture.image = this._last_frames[0];
       }
@@ -875,18 +1108,32 @@ function makeMatrix4(elements) {
   );
 }
 
+function matrix4ToArray(matrix) {
+  const e = matrix.elements;
+  return [e[0], e[4], e[8], e[12], e[1], e[5], e[9], e[13], e[2], e[6], e[10], e[14]];
+}
+
 fetch("http://localhost:5001/info")
   .then(response => response.json())
   .then(data => {
     let viewer_transform = undefined;
+    let viewer_initial_pose = undefined;
     if (data.viewer_transform) {
       viewer_transform = makeMatrix4(data.viewer_transform);
-    } else {
-      viewer_transform = new THREE.Matrix4();
     }
+    if (data.viewer_initial_pose) {
+      viewer_initial_pose = makeMatrix4(data.viewer_initial_pose);
+    }
+
+    data.output_types = ["color", "depth"];
+    state.output_types = data.output_types || [];
+    state.output_type = (state.output_types || state.output_types.length > 0) ? state.output_types[0] : "";
+    state.split_output_type = (state.output_types || state.output_types.length > 1) ? state.output_types[1] : "";
+
     const viewer = new Viewer({
       viewport,
       viewer_transform,
+      viewer_initial_pose,
     });
     viewer.attach_gui(document.querySelector('.controls'));
     viewer.set_http_renderer("http://localhost:5001/render");

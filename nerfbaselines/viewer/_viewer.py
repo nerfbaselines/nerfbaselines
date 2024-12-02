@@ -1,3 +1,4 @@
+import os
 from contextlib import ExitStack, contextmanager
 import multiprocessing
 import threading
@@ -84,35 +85,6 @@ def bouncing_ball_frame(time, width=400, height=400, **kwargs):
     return frame
 
 
-class _Feed:
-    def __init__(self, feedid, render):
-        self.feedid = feedid
-        self.version = 0
-        self._feed_params = {}
-        self._state = {}
-        self._render = render
-
-    @property
-    def feed_params(self):
-        return self._feed_params
-
-    @feed_params.setter
-    def feed_params(self, value):
-        self._feed_params = value
-
-    @property
-    def state(self):
-        return self._state
-
-    @state.setter
-    def state(self, value):
-        self._state = value
-        self.version += 1
-
-    def render(self):
-        return self._render(self.feedid, **copy.deepcopy(self.feed_params))
-
-
 def _run_viewer_server(request_queue, output_queue, *args, **kwargs):
     output_queues = {}
 
@@ -160,8 +132,20 @@ def _run_viewer_server(request_queue, output_queue, *args, **kwargs):
 def _build_flake_app(render_fn, 
                      datasets,
                      dataset_metadata=None):
+    # Create debug app
     app = Flask(__name__)
+    # Set it to debug mode
+    app.debug = True
     _feed_states = {}
+
+    @app.errorhandler(500)
+    def handle_500_error(e):
+        app.logger.error(f"Server Error: {e}", exc_info=True)  # Log the error with traceback
+        return jsonify({
+            "error": "Internal Server Error",
+            "message": "An unexpected error occurred. Please try again later."
+        }), 500
+    del handle_500_error
 
     @app.route("/")
     def index():
@@ -177,6 +161,9 @@ def _build_flake_app(render_fn,
         dataset_metadata_ = dataset_metadata or {}
         if dataset_metadata_.get("viewer_transform") is not None:
             info["viewer_transform"] = dataset_metadata_["viewer_transform"][:3, :4].flatten().tolist()
+        if dataset_metadata_.get("viewer_initial_pose") is not None:
+            info["viewer_initial_pose"] = dataset_metadata_["viewer_initial_pose"][:3, :4].flatten().tolist()
+        info["output_types"] = ["color", "depth"]
         return jsonify(info)
     del info
 
@@ -203,25 +190,16 @@ def _build_flake_app(render_fn,
         })
     del get_state
 
-    @app.route("/set-feed-params", methods=["POST"])
-    def set_feed_params():
-        feedid = request.args.get("feedid")
-        if feedid is None:
-            feedid = str(uuid.uuid4())
-        if feedid not in _feed_states:
-            _feed_states[feedid] = _Feed(feedid, render_fn)
-        _feed_states[feedid].feed_params.update(request.json)
-        return jsonify({"status": "ok", "feedid": feedid})
-    del set_feed_params
-
-    @app.route("/render")
+    @app.route("/render", methods=["POST"])
     def render():
         req = request.args
-        width = int(req.get("width", 256))
-        height = int(req.get("height", 256))
-        frame_bytes = render_fn(threading.get_ident(),
-                                width=width, 
-                                height=height)
+        image_size = tuple(map(int, req.get("image_size").split(",")))
+        pose = np.array(list(map(float, req.get("pose").split(","))), dtype=np.float32).reshape(3, 4)
+        intrinsics = np.array(list(map(float, req.get("intrinsics").split(","))), dtype=np.float32)
+        frame_bytes = render_fn(threading.get_ident(), 
+                                pose=pose, 
+                                image_size=image_size, 
+                                intrinsics=intrinsics)
         return Response(frame_bytes, mimetype="image/jpeg")
     del render
 
@@ -245,23 +223,26 @@ def _build_flake_app(render_fn,
         if datasets.get(split) is None:
             return jsonify({"status": "error", "message": "Dataset not found"}), 404
         nb_cameras = datasets[split].get("cameras")
+        root_path = datasets[split].get("image_paths_root")
+        if root_path is None:
+            root_path = os.path.commonpath(datasets[split]["image_paths"])
         cameras = [{
             "pose": pose[:3, :4].flatten().tolist(),
             "intrinsics": intrinsics.tolist(),
             "image_size": image_size.tolist(),
-        } for _, (pose, intrinsics, image_size) in enumerate(zip(
+            "image_name": os.path.relpath(image_path, root_path)
+        } for _, (pose, intrinsics, image_size, image_path) in enumerate(zip(
             nb_cameras.poses, 
             nb_cameras.intrinsics, 
-            nb_cameras.image_sizes))]
+            nb_cameras.image_sizes,
+            datasets[split]["image_paths"]))]
         return jsonify({
             "cameras": cameras
         })
     del dataset_cameras
 
-    @app.route("/dataset/thumbnails/<string:split>/<int:idx>.jpg")
-    def dataset_thumbnail(split, idx):
-        max_img_size = 64
-
+    @app.route("/dataset/images/<string:split>/<int:idx>.jpg")
+    def dataset_images(split, idx):
         from nerfbaselines.datasets import dataset_index_select, dataset_load_features
         from nerfbaselines.utils import image_to_srgb
 
@@ -274,9 +255,12 @@ def _build_flake_app(render_fn,
         dataset_slice = dataset_load_features(dataset_index_select(dataset, [idx]))
         image = dataset_slice["images"][0]
 
-        W, H = image.shape[:2]
-        downsample_factor = max(1, min(W//max_img_size, H//max_img_size))
-        image = image[::downsample_factor, ::downsample_factor]
+        max_img_size = request.args.get("size")
+        if max_img_size is not None:
+            W, H = image.shape[:2]
+            downsample_factor = max(1, min(W//int(max_img_size), H//int(max_img_size)))
+            image = image[::downsample_factor, ::downsample_factor]
+
         image = image_to_srgb(image, 
                               dtype=np.uint8, 
                               color_space="srgb", 
@@ -286,7 +270,7 @@ def _build_flake_app(render_fn,
         output.seek(0)
         return send_file(output, mimetype="image/jpeg")
 
-    del dataset_thumbnail
+    del dataset_images
 
     @app.route("/video-feed")
     def video_feed():
@@ -318,20 +302,16 @@ def run_viewer(model=None, train_dataset=None, test_dataset=None, nb_info=None):
                intrinsics=None,
                **kwargs):
         # image_size = np.array(image_size, dtype=np.int32)
-
-        pose = nb_info["dataset_metadata"]["viewer_initial_pose"]
-        image_size = np.array((256, 256), dtype=np.int32)
-        if intrinsics is None:
-            w, h = image_size
-            intrinsics = np.array([w/2, w/2, w/2, h/2], dtype=np.float32)
         camera = nerfbaselines.new_cameras(
-            poses=np.array(pose, dtype=np.float32),
+            poses=pose,
             intrinsics=np.array(intrinsics, dtype=np.float32),
             camera_models=0,
             image_sizes=image_size,
         )
-        outputs = model.render(camera)
-        outputs = model.render(camera)
+        options = { "output_type_dtypes": { "color": "uint8" } }
+                    #"embedding": embedding,
+                   # "outputs": output_types }
+        outputs = model.render(camera, options=options)
         frame = outputs["color"]
         return frame
 
@@ -341,9 +321,7 @@ def run_viewer(model=None, train_dataset=None, test_dataset=None, nb_info=None):
         if req_type == "render":
             feedid = req.pop("feedid")
             try:
-                # frame = render(feedid, **req)
-
-                frame = bouncing_ball_frame(time=time.time()*10, **req)
+                frame = render(feedid, **req)
                 with io.BytesIO() as output, Image.fromarray(frame) as img:
                     img.save(output, format="JPEG")
                     output.seek(0)

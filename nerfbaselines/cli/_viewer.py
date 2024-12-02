@@ -4,8 +4,10 @@ import logging
 from pathlib import Path
 import click
 
-from nerfbaselines.viewer import run_viser_viewer
+# from nerfbaselines.viewer import run_viser_viewer
+from nerfbaselines.viewer._viewer import run_viewer
 from nerfbaselines import get_method_spec, build_method_class
+from nerfbaselines.datasets import load_dataset
 from nerfbaselines import backends
 from nerfbaselines.io import open_any_directory, deserialize_nb_info
 from ._common import click_backend_option, NerfBaselinesCliCommand
@@ -52,8 +54,19 @@ def viewer_command(checkpoint: str, data, backend_name, port=6006):
         else:
             logging.info("Starting viewer without method")
 
+        train_dataset = None
+        test_dataset = None
+        if data is not None:
+            train_dataset = load_dataset(
+                data, split="train", features=("points3D_xyz", "points3D_rgb"), load_features=False)
+            test_dataset = load_dataset(
+                data, split="test", features=("points3D_xyz", "points3D_rgb"), load_features=False)
+
         # Start the viewer
-        run_viser_viewer(method, port=port, data=data, nb_info=nb_info)
+        run_viewer(method, 
+                   train_dataset=train_dataset, 
+                   test_dataset=test_dataset, 
+                   nb_info=nb_info)
 
 
 if __name__ == "__main__":

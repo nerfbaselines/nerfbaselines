@@ -804,10 +804,10 @@ export class CameraFrustum extends THREE.Group {
   _updateColor() {
     if (this._hover || this._focused) {
       this.material.color.set(this._hoveredColor);
-      this.originSphereMaterial.color.set(this._hoveredColor);
+      this.originSphereMaterial?.color.set(this._hoveredColor);
     } else {
       this.material.color.set(this._color);
-      this.originSphereMaterial.color.set(this._color);
+      this.originSphereMaterial?.color.set(this._color);
     }
   }
 
@@ -841,7 +841,8 @@ export class CameraFrustum extends THREE.Group {
   }
 
   _computeXyz() {
-    let y = Math.tan(this.fov / 2.0);
+    const fovRad = THREE.MathUtils.degToRad(this.fov);
+    let y = Math.tan(fovRad / 2.0);
     let x = y * this.aspect;
     let z = 1.0;
 
@@ -898,6 +899,7 @@ export class CameraFrustum extends THREE.Group {
       toneMapped: false,
       map: texture,
     });
+    imageMaterial.needsUpdate = true;
     const mesh = new THREE.Mesh(imageGeometry, imageMaterial)
     mesh.position.set(0.0, 0.0, z * 0.999999);
     mesh.rotation.set(Math.PI, 0.0, 0.0);

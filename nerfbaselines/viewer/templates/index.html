@@ -244,6 +244,17 @@ html, body {
   color: var(--highlight-color);
 }
 
+.info-fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3rem 0.6rem;
+  margin: 0 0.5rem;
+}
+
+.info-fields > img {
+  width: 100%;
+}
+
 </style>
 
 <main>
@@ -275,6 +286,22 @@ html, body {
         </div>
       </div>
 
+      <div class="dialog" data-bind-class="dialog-open:dataset_has_selected_camera">
+        <div class="dialog-header">
+          <div>Dataset image <span data-bind="dataset_selected_image_id"></span></div>
+          <i class="ti ti-x" data-action="clear_selected_dataset_image"></i>
+        </div>
+        <div class="row info-fields">
+          <strong>Camera ID:</strong><span data-bind="dataset_selected_image_index"></span>
+          <strong>Split:</strong><span data-bind="dataset_selected_image_split"></span>
+          <strong>Image name:</strong><span data-bind="dataset_selected_image_name"></span>
+          <strong>Image:</strong><img data-bind-attr="src:dataset_selected_image_url" />
+        </div>
+        <div class="row">
+          <button data-action="clear_selected_dataset_image">Close</button>
+        </div>
+      </div>
+
       <div class="tabs">
         <input type="radio" id="tab-1" name="accordion-1" checked>
         <input type="radio" id="tab-2" name="accordion-1">
@@ -288,12 +315,12 @@ html, body {
             <legend>Render options</legend>
             <div class="row slider">
               <label for="max-res">Max res</label>
-              <input type="range" id="max-res" min="64" max="2048" value="100">
+              <input type="range" id="max-res" min="64" max="2048" value="100" data-enable-if="has_method" disabled>
             </div>
 
             <div class="row dropdown">
-              <label for="output-type">Output type</label>
-              <select id="output-type">
+              <label for="output_type">Output type</label>
+              <select id="output_type" name="output_type" data-enable-if="has_method" disabled>
                 <option value="not set">not set</option>
               </select>
             </div>
@@ -302,18 +329,18 @@ html, body {
             <legend>Split screen</legend>
             <div class="row checkbox">
               <label for="output_split">Enable</label>
-              <input type="checkbox" id="output_split" name="output_split">
+              <input type="checkbox" id="output_split" name="output_split" data-enable-if="has_output_split" disabled>
             </div>
 
             <div class="row slider">
               <label for="split_percentage">Split percentage</label>
-              <input type="range" id="split_percentage" min="0" max="1" step="0.01" value="0.5">
+              <input type="range" id="split_percentage" min="0" max="1" step="0.01" value="0.5" data-enable-if="has_output_split" disabled>
               <div class="input-hint">Where to split</div>
             </div>
 
             <div class="row dropdown">
-              <label for="output-render-split">Output render split</label>
-              <select id="output-render-split">
+              <label for="split_output_type">Output render split</label>
+              <select id="split_output_type" name="split_output_type" data-enable-if="has_output_split" disabled>
                 <option value="not set">not set</option>
               </select>
               <div class="input-hint">The second output</div>
@@ -334,9 +361,6 @@ html, body {
               <input type="checkbox" id="dataset_show_pointcloud" name="dataset_show_pointcloud" data-enable-if="dataset_has_pointcloud" disabled checked>
             </div>
           </fieldset>
-          <div class="row">
-            <button id="reset-camera">Reset up direction</button>
-          </div>
         </div>
         <div class="tab panel">
           <div class="row">
