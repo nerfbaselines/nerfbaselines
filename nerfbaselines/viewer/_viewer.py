@@ -178,6 +178,8 @@ def _build_flake_app(render_fn,
         info = {
             "status": "running",
             "method": {},
+            "dataset_url": f"{request.url_root}dataset",
+            "dataset_parts": [],
         }
         dataset_metadata_ = dataset_metadata or {}
         if dataset_metadata_.get("viewer_transform") is not None:
@@ -186,6 +188,12 @@ def _build_flake_app(render_fn,
             info["viewer_initial_pose"] = dataset_metadata_["viewer_initial_pose"][:3, :4].flatten().tolist()
         if model_info is not None:
             info["output_types"] = model_info.get("supported_outputs", ("color",))
+        if datasets.get("train") is not None:
+            info["dataset_parts"].append("train")
+            if datasets["train"].get("points3D_xyz") is not None:
+                info["dataset_parts"].append("pointcloud")
+        if datasets.get("test") is not None:
+            info["dataset_parts"].append("test")
         return jsonify(info)
     del info
 

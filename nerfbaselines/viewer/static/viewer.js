@@ -559,6 +559,7 @@ class DatasetManager {
   constructor({
     viewer,
     url,
+    parts,
   }) {
     this.viewer = viewer;
     this.scene = viewer.scene;
@@ -580,9 +581,18 @@ class DatasetManager {
     this._progress = {};
     this._frustums = {};
     this._update_notification();
-    this._load_cameras("test");
-    this._load_cameras("train");
-    this._load_pointcloud();
+    if (parts === undefined || parts.includes("test"))
+      this._load_cameras("test");
+    else
+      this._progress.test_loaded = this._progress.test_total = 1;
+    if (parts === undefined || parts.includes("train"))
+      this._load_cameras("train");
+    else
+      this._progress.train_loaded = this._progress.train_total = 1;
+    if (parts === undefined || parts.includes("pointcloud"))
+      this._load_pointcloud();
+    else
+      this._progress.pointcloud_loaded = this._progress.pointcloud_total = 1;
   }
 
   _update_notification() {
@@ -913,7 +923,7 @@ class Viewer extends THREE.EventDispatcher {
     this.notifyChange({ property: 'has_method' });
   }
 
-  set_dataset(url) {
+  set_dataset({ url, parts }) {
     if (this.dataset_manager) {
       this.dataset_manager.dispose();
       this.dataset_manager = undefined;
@@ -922,6 +932,7 @@ class Viewer extends THREE.EventDispatcher {
     this.dataset_manager = new DatasetManager({ 
       viewer: this, 
       url,
+      parts,
     });
   }
 
@@ -1760,5 +1771,10 @@ fetch("./info")
     });
     viewer.attach_gui(document.querySelector('.controls'));
     viewer.set_http_renderer("./render");
-    viewer.set_dataset("./dataset");
+    if (data.dataset_url) {
+      viewer.set_dataset({
+        url: data.dataset_url, 
+        parts: data.dataset_parts
+      });
+    }
   });
