@@ -6,6 +6,7 @@ import click
 
 # from nerfbaselines.viewer import run_viser_viewer
 from nerfbaselines.viewer._viewer import run_viewer
+from nerfbaselines.viewer._viser import run_viser_viewer
 from nerfbaselines import get_method_spec, build_method_class
 from nerfbaselines.datasets import load_dataset
 from nerfbaselines import backends
@@ -68,6 +69,10 @@ def viewer_command(checkpoint: str, data, backend_name, port=6006):
                    test_dataset=test_dataset, 
                    nb_info=nb_info,
                    port=port)
+        # run_viser_viewer(method, 
+        #                  data, 
+        #                  port=6006,
+        #                  nb_info=nb_info)
 
 
 if __name__ == "__main__":

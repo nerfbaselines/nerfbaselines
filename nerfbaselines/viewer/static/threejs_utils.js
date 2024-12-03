@@ -93,7 +93,7 @@ class AxisArrow extends THREE.Group {
 
   _addPointerInteractions({ coneWidth, coneLength, cylinderLength, hoveredColor, axis, direction, onDragStart, onDrag, onDragEnd }) {
     const setHover = buildSetHover(this.group, hoveredColor);
-    let clickInfo = null;
+    let clickInfo = undefined;
 
     // Invisible mesh for raycasting
     const mesh = new THREE.Mesh(
@@ -126,7 +126,7 @@ class AxisArrow extends THREE.Group {
     
     mesh.addEventListener('pointerup', (e) => {
       e.stopPropagation();
-      clickInfo = null;
+      clickInfo = undefined;
       onDragEnd();
       e.releasePointerCapture(e.pointerId);
     });
@@ -216,7 +216,7 @@ class AxisRotator extends THREE.Group {
 
   _addPointerInteractions({ geometry, linewidth, hoveredColor, axis, onDragStart, onDrag, onDragEnd }) {
     const setHover = buildSetHover(this, hoveredColor);
-    let clickInfo = null;
+    let clickInfo = undefined;
 
     // Add invisible mesh
     const invisibleMaterial = new LineMaterial({
@@ -275,7 +275,7 @@ class AxisRotator extends THREE.Group {
 
     mesh.addEventListener('pointerup', (e) => {
       e.stopPropagation();
-      clickInfo = null;
+      clickInfo = undefined;
       onDragEnd();
       e.releasePointerCapture(e.pointerId);
     });
@@ -375,7 +375,7 @@ class PlaneSlider extends THREE.Group {
 
   _addPointerInteractions({ mesh, hoveredColor, axis, onDragStart, onDrag, onDragEnd }) {
     const setHover = buildSetHover(this, hoveredColor);
-    let clickInfo = null;
+    let clickInfo = undefined;
 
     mesh.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
@@ -417,7 +417,7 @@ class PlaneSlider extends THREE.Group {
 
     mesh.addEventListener('pointerup', (e) => {
       e.stopPropagation();
-      clickInfo = null;
+      clickInfo = undefined;
       onDragEnd();
       e.releasePointerCapture(e.pointerId);
     });
@@ -570,7 +570,7 @@ export class MouseInteractions {
     this._raycaster = new THREE.Raycaster();
     this._pointer = new THREE.Vector2();
     this._currentlyIntersected = [];
-    this._currentEvent = null;
+    this._currentEvent = undefined;
 
     document.addEventListener('pointermove', this._onPointerMove.bind(this));
     document.addEventListener('pointerdown', this._onPointerDown.bind(this));
@@ -705,7 +705,7 @@ export class MouseInteractions {
       event.ray = this._raycaster.ray;
       this._dispatchIntersected(event, this._currentlyIntersected);
     }
-    this._currentEvent = null;
+    this._currentEvent = undefined;
   }
 }
 

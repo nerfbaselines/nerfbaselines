@@ -42,7 +42,7 @@ class LinearInterpolation {
     } else if (p0 instanceof THREE.Quaternion) {
       return p0.clone().slerp(p1, localt);
     } else if (Array.isArray(p0)) {
-      return zip(p0, p1).map(computeSingle);
+      return zip(p0, p1).map(x => computeSingle(...x));
     } else {
       return computeSingle(p0, p1);
     }
@@ -123,7 +123,7 @@ class KochanekBartelsInterpolation {
           .slerp(p2.clone(), h01)
           .slerp(m1.clone(), h11);
     } else if (Array.isArray(p0)) {
-      return zip(p0, p1, p2, p3).map(computeSingle);
+      return zip(p0, p1, p2, p3).map((x) => computeSingle(...x));
     } else {
       return computeSingle(p0, p1, p2, p3);
     }
@@ -211,10 +211,12 @@ export function compute_camera_path(props) {
   const position_spline = new Interpolation({ vertices: keyframes.map(k => k.position), loop: loop, ...rest_props});
   const quaternion_spline = new Interpolation({ vertices: keyframes.map(k => k.quaternion), loop: loop, ...rest_props});
   const fov_spline = new Interpolation({ vertices: keyframes.map(k => k.fov || default_fov), loop: loop, ...rest_props });
+  const weights_spline = new Interpolation({ vertices: keyframes.map((_, i) => onehot(i, keyframes.length)), loop: loop, ...rest_props });
 
   const gtime = Array.from({ length: num_frames }, (_, i) => (i / (num_frames-1)));
   const positions = gtime.map(t => position_spline.evaluate(t));
   const quaternions = gtime.map(t => quaternion_spline.evaluate(t));
   const fovs = gtime.map(t => fov_spline.evaluate(t));
-  return { positions, quaternions, fovs };
+  const weights = gtime.map(t => weights_spline.evaluate(t));
+  return { positions, quaternions, fovs, weights };
 }

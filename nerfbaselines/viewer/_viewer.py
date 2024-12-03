@@ -1,3 +1,6 @@
+import json
+import subprocess
+import tempfile
 import math
 import os
 from contextlib import ExitStack, contextmanager
@@ -142,10 +145,24 @@ def _build_flake_app(render_fn,
     # Set it to debug mode
     _feed_states = {}
 
+    _render_video_tasks = {}
+
+    # Full exception details
+    @app.errorhandler(Exception)
+    def handle_exception(e):
+        app.logger.error(f"Server Error: {e}", exc_info=True)
+        return jsonify({
+            "status": "error",
+            "error": "Internal Server Error",
+            "message": "An unexpected error occurred. Please try again later."
+        }), 500
+    del handle_exception
+
     @app.errorhandler(500)
     def handle_500_error(e):
         app.logger.error(f"Server Error: {e}", exc_info=True)  # Log the error with traceback
         return jsonify({
+            "status": "error",
             "error": "Internal Server Error",
             "message": "An unexpected error occurred. Please try again later."
         }), 500
@@ -209,7 +226,7 @@ def _build_flake_app(render_fn,
         image_size = tuple(map(int, req.get("image_size").split(",")))
         pose = np.array(list(map(float, req.get("pose").split(","))), dtype=np.float32).reshape(3, 4)
         intrinsics = np.array(list(map(float, req.get("intrinsics").split(","))), dtype=np.float32)
-        frame_bytes = render_fn(threading.get_ident(), 
+        frame = render_fn(threading.get_ident(), 
                                 pose=pose, 
                                 image_size=image_size, 
                                 intrinsics=intrinsics,
@@ -217,6 +234,11 @@ def _build_flake_app(render_fn,
                                 split_percentage=float(req.get("split_percentage", 0.5)),
                                 split_tilt=float(req.get("split_tilt", 0)),
                                 split_output_type=req.get("split_output_type"))
+
+        with io.BytesIO() as output, Image.fromarray(frame) as img:
+            img.save(output, format="JPEG")
+            output.seek(0)
+            frame_bytes = output.getvalue()
         return Response(frame_bytes, mimetype="image/jpeg")
     del render
 
@@ -288,6 +310,110 @@ def _build_flake_app(render_fn,
         return send_file(output, mimetype="image/jpeg")
 
     del dataset_images
+
+    @app.route("/video/<string:videoid>", methods=["PUT"])
+    def setup_video(videoid):
+        if videoid not in _render_video_tasks:
+            _render_video_tasks[videoid] = {
+                "status": "pending",
+                "progress": 0,
+            }
+        task = _render_video_tasks[videoid]
+        task["trajectory"] = request.json
+        return jsonify({ "status": "ok" })
+    del setup_video
+
+    @app.route("/video/<string:videoid>.mp4", methods=["GET"])
+    def render_video(videoid):
+        if videoid not in _render_video_tasks:
+            _render_video_tasks[videoid] = {
+                "status": "pending",
+                "progress": 0,
+            }
+        task = _render_video_tasks[videoid]
+        trajectory = task["trajectory"]
+        output_type = "color"
+        # First, we start the rendering if not started yet.
+        def generate():
+            try:
+                import mediapy
+                yield b""
+                startTime = time.time()
+                while task.get("trajectory") is None:
+                    if time.time() - startTime > 8:
+                        raise RuntimeError("Timeout expired waiting for the video to be created")
+                    # Waiting for the video stream to be created
+                    time.sleep(0.1)
+                    yield b""
+
+                with tempfile.NamedTemporaryFile(suffix=".mp4") as f:
+                    width, height = trajectory["image_size"]
+                    with mediapy.VideoWriter(f.name, (height, width), fps=trajectory["fps"], codec="h264") as video:
+                        task["status"] = "running"
+                        task["progress"] = 0
+                        for i, frame in enumerate(trajectory["frames"]):
+                            pose = np.array(frame["pose"], dtype=np.float32).reshape(3, 4)
+                            intrinsics = np.array(frame["intrinsics"], dtype=np.float32)
+                            task["progress"] = i / len(trajectory["frames"])
+                            output = render_fn(
+                                threading.get_ident(),
+                                pose=pose, 
+                                image_size=(width, height), 
+                                intrinsics=intrinsics,
+                                output_type=output_type,
+                                split_percentage=0,
+                                split_tilt=0,
+                                split_output_type=None)
+                            video.add_image(output)
+                        task["progress"] = 1
+                        task["status"] = "done"
+
+                    # Stream generated file
+                    f.seek(0)
+                    while True:
+                        chunk = f.read(8192)
+                        if not chunk:
+                            break
+                        yield chunk
+            except Exception as e:
+                task["status"] = "error"
+                task["progress"] = 1
+                task["progress_message"] = str(e)
+                raise
+        return Response(
+            generate(), 
+            mimetype="video/mp4",
+            headers={"Content-Disposition": f"attachment; filename=video.mp4"})
+    del render_video
+
+    @app.route("/video-progress/<string:videoid>", methods=["POST", "GET"])
+    def get_progress(videoid):
+        if videoid not in _render_video_tasks:
+            _render_video_tasks[videoid] = { 
+                "status": "pending",
+                "progress": 0,
+            }
+
+        task = _render_video_tasks[videoid]
+
+        def generate():
+            last_msg = None
+            while task["status"] == "running" or task["status"] == "pending":
+                msg = json.dumps({
+                    "status": task["status"],
+                    "progress": task["progress"],
+                })
+                if msg != last_msg:
+                    yield f'data: {msg}\n\n'
+                    last_msg = msg
+                time.sleep(0.01)
+            msg = json.dumps({
+                "status": task["status"],
+                "progress": task["progress"],
+            })
+            yield f'data: {msg}\n\n'
+        return Response(generate(), mimetype="text/event-stream")
+    del get_progress
 
     @app.route("/video-feed")
     def video_feed():
@@ -416,14 +542,10 @@ def run_viewer(model=None, train_dataset=None, test_dataset=None, nb_info=None, 
             feedid = req.pop("feedid")
             try:
                 frame = render(feedid, **req)
-                with io.BytesIO() as output, Image.fromarray(frame) as img:
-                    img.save(output, format="JPEG")
-                    output.seek(0)
-                    frame_bytes = output.getvalue()
                 output_queue.put({
                     "type": "result",
                     "feedid": feedid,
-                    "result": frame_bytes,
+                    "result": frame,
                 })
             except Exception as e:
                 logging.exception(e)

@@ -56,6 +56,10 @@ select, input {
 input[type="range"], input[type="checkbox"] {
   height: initial;
 }
+select:disabled, input:disabled {
+  color: var(--secondary-color);
+  cursor: not-allowed;
+}
 
 .row {
   display: flex;
@@ -70,7 +74,7 @@ input[type="range"], input[type="checkbox"] {
   gap: 0.4em;
 }
 
-.row > select, .row > input[type="range"], .row > input[type="number"], .row > button {
+.row > select, .row > input[type="range"], .row > input[type="number"], .row > button, .row > .button {
   flex: 1;
   width: 30%;
 }
@@ -165,15 +169,28 @@ input[type="range"], input[type="checkbox"] {
 	display: block;
 }
 
-button {
+button, .button, .row > .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   height: 2rem;
   flex: 1;
   border: 1px solid var(--border-color);
   background: var(--theme-color);
   color: #333;
+  text-align: center;
+  padding: 0 6px;
+  text-decoration: none;
+  box-sizing: border-box;
+  border-radius: var(--border-radius);
 }
 
-button:hover {
+button {
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+button:hover, .button:hover {
   background: var(--theme-highlight-color);
 }
 
@@ -311,7 +328,10 @@ html, body {
   height: 8px;
   width: 100%;
   margin: 4px 0;
-  --progress: 50%;
+}
+
+.notification .progress {
+  margin-top: 8px;
 }
 
 .progress::after {
@@ -329,22 +349,7 @@ html, body {
     <div class="viewport">
     </div>
 
-    <div class="notifications">
-      <div class="notification">
-        <div class="notification-header">
-          <div>something happened</div>
-          <i class="ti ti-x" onclick="this.closest('.dialog').classList.remove('dialog-open')"></i>
-        </div>
-        some detailed text of the notification
-      </div>
-      <div class="notification">
-        <div class="notification-header">
-          <div>something happened</div>
-          <i class="ti ti-x" onclick="this.closest('.dialog').classList.remove('dialog-open')"></i>
-        </div>
-        <div class="progress"></div>
-      </div>
-    </div>
+    <div class="notifications"></div>
 
     <div class="controls">
       <div class="dialog" id="dialog_camera_path_delete_all">
@@ -515,7 +520,7 @@ html, body {
 
               <div class="row number">
                 <label for="camera_path_duration">Duration (sec)</label>
-                <input type="number" id="camera_path_duration" name="camera_path_duration" min="0.01" max="1e8" step="0.01" value="1">
+                <input type="number" id="camera_path_duration" name="camera_path_duration" min="0.01" max="1e8" step="0.01" value="1" disabled>
                 <div class="input-hint">Total duration of the camera path in seconds.</div>
               </div>
 
@@ -551,11 +556,14 @@ html, body {
           </div>
 
           <div class="row">
-            <button id="button_load_camera_path">Load trajectory</button>
-            <button id="button_export_camera_path">Export trajectory</button>
+            <label class="button">
+              Load trajectory
+              <input type="file" style="display: none" id="input_camera_path" accept=".json">
+            </label>
+            <button id="button_export_camera_path" data-action="save_camera_path">Export trajectory</button>
           </div>
           <div class="row">
-            <button id="button_render_video">Render video</button>
+            <a id="button_render_video" href="#" class="button" download="video.mp4" target="_blank">Render video</a>
           </div>
         </div>
       </div>
