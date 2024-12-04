@@ -561,7 +561,7 @@ export class PivotControls extends THREE.Group {
 
 
 export class MouseInteractions {
-  constructor(renderer, camera, scene) {
+  constructor(renderer, camera, scene, element) {
     this.renderer = renderer;
     this.scene = scene;
     this.camera = camera
@@ -571,10 +571,11 @@ export class MouseInteractions {
     this._pointer = new THREE.Vector2();
     this._currentlyIntersected = [];
     this._currentEvent = undefined;
+    element = element || renderer.domElement;
 
-    document.addEventListener('pointermove', this._onPointerMove.bind(this));
-    document.addEventListener('pointerdown', this._onPointerDown.bind(this));
-    document.addEventListener('pointerup', this._onPointerUp.bind(this));
+    element.addEventListener('pointermove', this._onPointerMove.bind(this));
+    element.addEventListener('pointerdown', this._onPointerDown.bind(this));
+    element.addEventListener('pointerup', this._onPointerUp.bind(this));
 
     this._captureTarget = document.createElement('div');
     this._captureTarget.addEventListener('pointermove', this._onCapturePointerMove.bind(this));

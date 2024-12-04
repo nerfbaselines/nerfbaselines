@@ -26,6 +26,77 @@ const state = {
 };
 
 
+function ppsTracker() {
+  // Initialize sufficient statistics
+  let n = 0;
+  let S_x = 0;
+  let S_y = 0;
+  let S_xx = 0;
+  let S_xy = 0;
+
+  // Measure function to collect statistics
+  const measure = (width, height) => {
+    const startTime = performance.now();
+    return () => {
+      const duration = (performance.now() - startTime) / 1000;
+      const P = width * height;
+
+      // Update running statistics
+      n += 1;
+      S_x += P;
+      S_y += duration;
+      S_xx += P * P;
+      S_xy += P * duration;
+    };
+  };
+
+  // Calculate linear regression parameters (a and b)
+  const getLinearParameters = () => {
+    if (n < 2) {
+      // Not enough data points to compute linear regression
+      return [0, 0];
+    }
+
+    const a = (n * S_xy - S_x * S_y) / (n * S_xx - S_x * S_x + 1e-5);
+    const b = (S_y - a * S_x) / n;
+    return [a, b];
+  };
+
+  // Get recommended number of pixels based on FPS
+  const getNumPixels = (fps) => {
+    if (n < 2) {
+      // Fallback value if no updates available
+      return (30 * 16 * 16) / fps;
+    }
+
+    const [a, b] = getLinearParameters();
+    const pixels = ((1 / fps) - b) / a;
+
+    // Ensure minimum pixel size of 16x16
+    return Math.max(16 * 16, pixels);
+  };
+
+  return { measure, getNumPixels };
+}
+
+
+function computeResolution(rendererResolution, maxResolution) {
+  if (maxResolution === undefined) {
+    return rendererResolution;
+  }
+  const [width, height] = rendererResolution;
+  const aspect = width / height;
+  let widthOut = Math.min(width, maxResolution);
+  let heightOut = Math.min(height, maxResolution);
+  if (widthOut / heightOut > aspect) {
+    widthOut = heightOut * aspect;
+  } else {
+    heightOut = widthOut / aspect;
+  }
+  return [Math.round(widthOut), Math.round(heightOut)];
+}
+
+
 const hash_cyrb53 = (str, seed = 0) => {
   let h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed;
   for(let i = 0, ch; i < str.length; i++) {
@@ -205,13 +276,13 @@ function _attach_camera_path_keyframes(viewer) {
     camera_path_keyframes,
     camera_path_selected_keyframe,
     render_fov,
-    render_resolution_1,
-    render_resolution_2,
+    camera_path_resolution_1,
+    camera_path_resolution_2,
   }) {
     const new_keyframe_frustums = {};
     for (const keyframe of camera_path_keyframes) {
       const fov = render_fov;
-      const aspect = render_resolution_1 / render_resolution_2;
+      const aspect = camera_path_resolution_1 / camera_path_resolution_2;
       let frustum = keyframe_frustums[keyframe.id];
 
       if (frustum === undefined) {
@@ -260,8 +331,8 @@ function _attach_camera_path_keyframes(viewer) {
     if (property === undefined ||
         property === 'camera_path_keyframes' ||
         property === 'render_fov' ||
-        property === 'render_resolution_1' ||
-        property === 'render_resolution_2')
+        property === 'camera_path_resolution_1' ||
+        property === 'camera_path_resolution_2')
         update_keyframe_frustums(state);
 
     if (property === 'camera_path_selected_keyframe') {
@@ -348,13 +419,13 @@ function _attach_player_frustum(viewer) {
     if (property !== undefined &&
         property !== 'camera_path_trajectory' &&
         property !== 'preview_frame' &&
-        property !== 'render_resolution_1' &&
-        property !== 'render_resolution_2') return;
+        property !== 'camera_path_resolution_1' &&
+        property !== 'camera_path_resolution_2') return;
     const { 
       camera_path_trajectory,
       preview_frame,
-      render_resolution_1,
-      render_resolution_2,
+      camera_path_resolution_1,
+      camera_path_resolution_2,
     } = state;
 
     if (!camera_path_trajectory || camera_path_trajectory.positions.length === 0) {
@@ -379,7 +450,7 @@ function _attach_player_frustum(viewer) {
 
     player_frustum = new CameraFrustum({ 
       fov: fov,
-      aspect: render_resolution_1 / render_resolution_2,
+      aspect: camera_path_resolution_1 / camera_path_resolution_2,
       position,
       quaternion,
       scale: 0.1,
@@ -472,6 +543,7 @@ class HTTPRenderer extends THREE.EventDispatcher {
     this.state = state;
     this._num_errors = 0;
     this._running = true;
+    this.ppsTracker = ppsTracker();
   }
 
   start() {
@@ -485,8 +557,9 @@ class HTTPRenderer extends THREE.EventDispatcher {
           fov,
           aspect,
         } = this.get_camera_params();
-        const height = viewport.clientHeight;
-        const width = Math.round(height * aspect);
+        let height = viewport.clientHeight;
+        let width = Math.round(height * aspect);
+        [width, height] = computeResolution([width, height], this.state.render_resolution);
         const round = (x) => Math.round(x * 100000) / 100000;
         const focal = height / (2 * Math.tan(THREE.MathUtils.degToRad(fov) / 2));
         const request = {
@@ -503,6 +576,7 @@ class HTTPRenderer extends THREE.EventDispatcher {
         let params = JSON.stringify(request);
         if (params === lastParams) return;
         lastParams = params;
+        const measure = this.ppsTracker.measure(width, height);
         const response = await fetch(`${this.url}`,{
           method: "POST",  // Disable caching
           cache: "no-cache",
@@ -525,6 +599,7 @@ class HTTPRenderer extends THREE.EventDispatcher {
           };
           image.src = blobSrc;
         });
+        measure();
         this._num_errors = 0;
         if (!this._running) return;
         this.dispatchEvent({ type: "frame", image });
@@ -828,11 +903,10 @@ class Viewer extends THREE.EventDispatcher {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setSize(width, height);
     viewport.appendChild(this.renderer.domElement);
-
     this.camera = new THREE.PerspectiveCamera( 70, width / height, 0.01, 10 );
     this.camera.position.z = 1;
-
     this.renderer_scene = new THREE.Scene();
+    this.mouse_interactions = new MouseInteractions(this.renderer, this.camera, this.renderer_scene, viewport);
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.listenToKeyEvents(window);
@@ -844,8 +918,6 @@ class Viewer extends THREE.EventDispatcher {
     this._enabled = true;
     this.renderer.setAnimationLoop((time) => this._animate(time));
     window.addEventListener("resize", () => this._resize());
-
-    this.mouse_interactions = new MouseInteractions(this.renderer, this.camera, this.renderer_scene);
 
     this.scene = new THREE.Group();
     this.renderer_scene.add(this.scene);
@@ -893,6 +965,14 @@ class Viewer extends THREE.EventDispatcher {
     _attach_camera_path_selected_keyframe_pivot_controls(this);
     _attach_player_frustum(this);
     _attach_viewport_split_slider(this, viewport);
+
+    this.addEventListener("change", ({ property, state }) => {
+      if (property === undefined || property === 'render_fov') {
+        this.camera.fov = state.render_fov;
+        this.camera.updateProjectionMatrix();
+        this._draw_background();
+      }
+    });
   }
 
   clear_selected_dataset_image() {
@@ -1106,14 +1186,14 @@ class Viewer extends THREE.EventDispatcher {
           property === 'camera_path_trajectory' ||
           property === 'preview_frame' ||
           property === 'preview_is_preview_mode' ||
-          property === 'render_resolution_1' ||
-          property === 'render_resolution_2') {
+          property === 'camera_path_resolution_1' ||
+          property === 'camera_path_resolution_2') {
         const { 
           camera_path_trajectory,
           preview_frame,
           preview_is_preview_mode,
-          render_resolution_1,
-          render_resolution_2,
+          camera_path_resolution_1,
+          camera_path_resolution_2,
         } = state;
 
         let preview_camera = undefined;
@@ -1129,7 +1209,7 @@ class Viewer extends THREE.EventDispatcher {
           preview_camera = {
             matrix: pose,
             fov,
-            aspect: render_resolution_1 / render_resolution_2,
+            aspect: camera_path_resolution_1 / camera_path_resolution_2,
           };
         }
         if (preview_camera !== state.preview_camera) {
@@ -1176,8 +1256,8 @@ class Viewer extends THREE.EventDispatcher {
 
   export_camera_path() {
     const state = this._gui_state;
-    const w = state.render_resolution_1;
-    const h = state.render_resolution_2;
+    const w = state.camera_path_resolution_1;
+    const h = state.camera_path_resolution_2;
     const appearances = [];
     const keyframes = [];
     const supports_transition_duration = (
@@ -1315,7 +1395,7 @@ class Viewer extends THREE.EventDispatcher {
       }
       const def_app = validate_appearance(source.default_appearance);
       state.camera_path_interpolation = interpolation;
-      [state.render_resolution_1, state.render_resolution_2] = data.image_size;
+      [state.camera_path_resolution_1, state.camera_path_resolution_2] = data.image_size;
       if (interpolation === "kochanek-bartels") {
         state.camera_path_framerate = data.fps;
         state.camera_path_tension = source.tension;

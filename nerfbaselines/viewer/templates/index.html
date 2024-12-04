@@ -404,8 +404,14 @@ html, body {
           <fieldset>
             <legend>Render options</legend>
             <div class="row slider">
-              <label for="max-res">Max res</label>
-              <input type="range" id="max-res" min="64" max="2048" value="100" data-enable-if="has_method" disabled>
+              <label for="render_resolution">Max resolution</label>
+              <input type="range" id="render_resolution" name="render_resolution" min="32" max="2048" value="1024" data-enable-if="has_method" disabled>
+            </div>
+
+            <div class="row">
+              <label for="render_fov">FOV</label>
+              <input type="range" id="render_fov" name="render_fov" min="1" max="175" step="1" value="60">
+              <input type="number" id="render_fov_number" name="render_fov_number" min="1" max="175" step="1" value="60">
             </div>
 
             <div class="row dropdown">
@@ -459,12 +465,12 @@ html, body {
         <div class="tab panel">
           <div class="row">
             <label for="render_resolution">Resolution</label>
-            <input type="number" id="render_resolution_1" name="render_resolution_1" min="50" max="10000" step="1" value="1280">
-            <input type="number" id="render_resolution_2" name="render_resolution_2" min="50" max="10000" step="1" value="720">
+            <input type="number" id="camera_path_resolution_1" name="camera_path_resolution_1" min="50" max="10000" step="1" value="1280">
+            <input type="number" id="camera_path_resolution_2" name="camera_path_resolution_2" min="50" max="10000" step="1" value="720">
           </div>
 
           <div class="row">
-            <label for="render_fov">Default FOV</label>
+            <label for="render_fov">FOV</label>
             <input type="range" id="render_fov" name="render_fov" min="1" max="175" step="1" value="60">
             <input type="number" id="render_fov_number" name="render_fov_number" min="1" max="175" step="1" value="60">
           </div>
