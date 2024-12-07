@@ -72,10 +72,10 @@ def _handle_gui_error(server):
             try:
                 return fn(*args, **kwargs)
             except Exception as e:
-                modal = gui.add_gui_modal("Error occured")
+                modal = gui.gui.add_modal("Error occured")
                 with modal:
-                    gui.add_gui_markdown(f"An error occured: \n{e}")
-                    gui.add_gui_button("Close").on_click(lambda _: modal.close())
+                    gui.gui.add_markdown(f"An error occured: \n{e}")
+                    gui.gui.add_button("Close").on_click(lambda _: modal.close())
                 logging.exception(e)
                 return None
         return wrapped
@@ -524,13 +524,13 @@ def _add_keypoint_onclick_callback(server: ViserServer, state, index, handle):
 
         state._temporary_appearance_train_index = keyframe.appearance_train_index
 
-        with server.add_3d_gui_container(
+        with server.scene.add_3d_gui_container(
             "/camera_edit_panel",
             position=keyframe.position,
         ) as camera_edit_panel:
             _camera_edit_panel = camera_edit_panel
-            override_fov = server.add_gui_checkbox("Override FOV", initial_value=keyframe.fov is not None)
-            override_fov_degrees = server.add_gui_slider(
+            override_fov = server.gui.add_checkbox("Override FOV", initial_value=keyframe.fov is not None)
+            override_fov_degrees = server.gui.add_slider(
                 "FOV (degrees)",
                 5.0,
                 175.0,
@@ -546,11 +546,11 @@ def _add_keypoint_onclick_callback(server: ViserServer, state, index, handle):
                     )
                     override_transition_sec.disabled = not override_transition_enabled.value
 
-                override_transition_enabled = server.add_gui_checkbox(
+                override_transition_enabled = server.gui.add_checkbox(
                     "Override transition",
                     initial_value=keyframe.transition_duration is not None,
                 )
-                override_transition_sec = server.add_gui_number(
+                override_transition_sec = server.gui.add_number(
                     "Transition (sec)",
                     initial_value=keyframe.transition_duration
                     if keyframe.transition_duration is not None
@@ -578,7 +578,7 @@ def _add_keypoint_onclick_callback(server: ViserServer, state, index, handle):
                 else:
                     options = (init_val,) + train_image_names
 
-                train_embed_dropdown = server.add_gui_dropdown(
+                train_embed_dropdown = server.gui.add_dropdown(
                     "Appearance from train image",
                     options=options,
                     initial_value=init_val,
@@ -598,9 +598,9 @@ def _add_keypoint_onclick_callback(server: ViserServer, state, index, handle):
                     )
                     state._temporary_appearance_train_index = val
 
-            delete_button = server.add_gui_button("Delete", color="red", icon=viser.Icon.TRASH)
-            go_to_button = server.add_gui_button("Go to")
-            close_button = server.add_gui_button("Close")
+            delete_button = server.gui.add_button("Delete", color="red", icon=viser.Icon.TRASH)
+            go_to_button = server.gui.add_button("Go to")
+            close_button = server.gui.add_button("Close")
 
 
         @override_fov.on_update
@@ -626,10 +626,10 @@ def _add_keypoint_onclick_callback(server: ViserServer, state, index, handle):
         def _(event: viser.GuiEvent) -> None:
             global _camera_edit_panel
             assert event.client is not None
-            with event.client.add_gui_modal("Confirm") as modal:
-                event.client.add_gui_markdown("Delete keyframe?")
-                confirm_button = event.client.add_gui_button("Yes", color="red", icon=viser.Icon.TRASH)
-                exit_button = event.client.add_gui_button("Cancel")
+            with event.client.gui.add_modal("Confirm") as modal:
+                event.client.gui.add_markdown("Delete keyframe?")
+                confirm_button = event.client.gui.add_button("Yes", color="red", icon=viser.Icon.TRASH)
+                exit_button = event.client.gui.add_button("Cancel")
 
                 @confirm_button.on_click
                 @_handle_gui_error(server)
@@ -671,7 +671,7 @@ def _add_keypoint_onclick_callback(server: ViserServer, state, index, handle):
 
 
 def _add_keyframe_camera_frustum(server: ViserServer, index: int, keyframe: Keyframe, default_fov: float, aspect: float, visible: bool, move_handle_visible: bool):
-    frustum_handle = server.add_camera_frustum(
+    frustum_handle = server.scene.add_camera_frustum(
         f"/render_cameras/{index}",
         fov=(keyframe.fov if keyframe.fov is not None else default_fov) / 180.0 * math.pi,
         aspect=aspect,
@@ -681,14 +681,14 @@ def _add_keyframe_camera_frustum(server: ViserServer, index: int, keyframe: Keyf
         position=keyframe.position,
         visible=visible,
     )
-    server.add_icosphere(
+    server.scene.add_icosphere(
         f"/render_cameras/{index}/sphere",
         radius=0.03,
         color=(200, 10, 30),
     )
     controls = None
     if move_handle_visible:
-        controls = server.add_transform_controls(
+        controls = server.scene.add_transform_controls(
             f"/keyframe_move/{index}",
             scale=0.4,
             wxyz=keyframe.wxyz,
@@ -951,7 +951,7 @@ def _add_spline_to_camera_path(server: ViserServer, state: ViewerState, interpol
         points = args[0]
         colors = np.array([colorsys.hls_to_rgb(h, 0.5, 1.0) for h in np.linspace(0.0, 1.0, len(points))])
         spline_nodes.append(
-            server.add_spline_catmull_rom(
+            server.scene.add_spline_catmull_rom(
                 "/render_camera_spline",
                 positions=points,
                 color=(220, 220, 220),
@@ -961,7 +961,7 @@ def _add_spline_to_camera_path(server: ViserServer, state: ViewerState, interpol
             )
         )
         spline_nodes.append(
-            server.add_point_cloud(
+            server.scene.add_point_cloud(
                 "/render_camera_spline/points",
                 points=points,
                 colors=colors,
@@ -984,12 +984,12 @@ def _make_train_image_embedding_dropdown(server: ViserServer, state: ViewerState
                                             else "none")),
         lambda x: None if x == "none" else state.image_names_train.index(x) if x in state.image_names_train else None,
     )
-    server.add_gui_dropdown(
+    server.gui.add_dropdown(
         "Appearance from train image",
-        options=state.b.image_names_train.map(lambda x: ("none",) + (x or ())),
+        options=state.b.image_names_train.map(lambda x: ("none",) + (x or ())).get(),
         initial_value=value_binding,
         hint="Select images to visualize embeddings for",
-        disabled=state.b.image_names_train.map(lambda x: len(x) == 0),
+        disabled=state.b.image_names_train.map(lambda x: len(x) == 0).get(),
     )
 
 
@@ -1033,8 +1033,8 @@ class BindableViserServer(ViserServer):
             updatable = ("value", "initial_value", "disabled", "enabled", "visible")
 
             # Capture container_id
-            gui = getattr(self.server, "gui", self.server)
-            container_id = gui._get_container_id()
+            gui = self.server.gui
+            container_id = gui._get_container_uuid()
 
             def _update_component(name, value):
                 nonlocal handle
@@ -1050,13 +1050,13 @@ class BindableViserServer(ViserServer):
                     handle.remove()
                     handle = None
                 _args, _kwargs = _current_args()
-                old_container_id = gui._get_container_id()
+                old_container_id = gui._set_container_uid(container_id)
                 try:
                     # Mock the container_id
-                    gui._set_container_id(container_id)
+                    gui._set_container_uid(container_id)
                     handle = add_gui(*_args, **_kwargs)
                 finally:
-                    gui._set_container_id(old_container_id)
+                    gui._set_container_uid(old_container_id)
                 logging.debug("Creating component", add_gui, name, "->", value)
                 if handle_update is not None:
                     handle.on_update(handle_update)
@@ -1299,10 +1299,10 @@ class ViserViewer:
         self._render_times = deque(maxlen=3)
         self._preview_camera: Any = None
         self.server = BindableViserServer(viser.ViserServer(port=self.port))
-        self.server.world_axes.visible = True
+        self.server.scene.world_axes.visible = True
 
         self.need_update = False
-        self.resolution_slider = self.server.add_gui_slider("Resolution", min=30, max=4096, step=2, initial_value=1024)
+        self.resolution_slider = self.server.gui.add_slider("Resolution", min=30, max=4096, step=2, initial_value=1024)
 
         @self.resolution_slider.on_update
         def _(_):
@@ -1332,7 +1332,7 @@ class ViserViewer:
         self._cancellation_token = None
         init_bg_image = np.array(self.state.background_color, dtype=np.uint8).reshape((1, 1, 3))
         self._initial_background_color = self.state.background_color
-        self.server.set_background_image(init_bg_image)
+        self.server.scene.set_background_image(init_bg_image)
 
         self._current_embedding = None
 
@@ -1350,18 +1350,18 @@ class ViserViewer:
     def _build_render_tab(self):
         server: ViserServer = self.server
 
-        server.add_gui_slider(
+        server.gui.add_slider(
             "Default FOV",
-            initial_value=self.state.b.render_fov,
+            initial_value=self.state.render_fov,
             min=0.1,
             max=175.0,
             step=0.01,
             hint="Field-of-view for rendering, which can also be overridden on a per-keyframe basis.",
         )
 
-        server.add_gui_vector2(
+        server.gui.add_vector2(
             "Resolution",
-            initial_value=self.state.b.render_resolution,
+            initial_value=self.state.render_resolution,
             min=(50, 50),
             max=(10_000, 10_000),
             step=1,
@@ -1371,7 +1371,7 @@ class ViserViewer:
         if self.state.supports_appearance_from_train_images:
             _make_train_image_embedding_dropdown(server, self.state, self.state.b.render_appearance_train_index)
 
-        add_button = server.add_gui_button(
+        add_button = server.gui.add_button(
             "Add Keyframe",
             icon=viser.Icon.PLUS,
             hint="Add a new keyframe at the current pose.",
@@ -1393,7 +1393,7 @@ class ViserViewer:
                 appearance_train_index=apperance_train_index,
             ),)
 
-        clear_keyframes_button = server.add_gui_button(
+        clear_keyframes_button = server.gui.add_button(
             "Clear Keyframes",
             icon=viser.Icon.TRASH,
             hint="Remove all keyframes from the render path.",
@@ -1404,10 +1404,10 @@ class ViserViewer:
         def _(event: viser.GuiEvent) -> None:
             assert event.client_id is not None
             client = server.get_clients()[event.client_id]
-            with client.atomic(), client.add_gui_modal("Confirm") as modal:
-                client.add_gui_markdown("Clear all keyframes?")
-                confirm_button = client.add_gui_button("Yes", color="red", icon=viser.Icon.TRASH)
-                exit_button = client.add_gui_button("Cancel")
+            with client.atomic(), client.gui.add_modal("Confirm") as modal:
+                client.gui.add_markdown("Clear all keyframes?")
+                confirm_button = client.gui.add_button("Yes", color="red", icon=viser.Icon.TRASH)
+                exit_button = client.gui.add_button("Cancel")
 
                 @confirm_button.on_click
                 def _(_) -> None:
@@ -1418,111 +1418,111 @@ class ViserViewer:
                 def _(_) -> None:
                     modal.close()
 
-        server.add_gui_dropdown(
+        server.gui.add_dropdown(
             "Interpolation",
-            initial_value=self.state.b.camera_path_interpolation,
+            initial_value=self.state.camera_path_interpolation,
             options=("kochanek-bartels", "none", "ellipse"),
             hint="Camera path interpolation.")
 
-        server.add_gui_checkbox(
+        server.gui.add_checkbox(
             "Loop",
-            initial_value=self.state.b.camera_path_loop,
-            visible=self.state.b.camera_path_interpolation.map(lambda x: x == "kochanek-bartels"),
+            initial_value=self.state.camera_path_loop,
+            visible=self.state.b.camera_path_interpolation.map(lambda x: x == "kochanek-bartels").get(),
             hint="Add a segment between the first and last keyframes.")
 
-        server.add_gui_slider(
+        server.gui.add_slider(
             "Spline tension",
             min=0.0,
             max=1.0,
-            initial_value=self.state.b.camera_path_tension,
-            visible=self.state.b.camera_path_interpolation.map(lambda x: x == "kochanek-bartels"),
+            initial_value=self.state.camera_path_tension,
+            visible=self.state.b.camera_path_interpolation.map(lambda x: x == "kochanek-bartels").get(),
             step=0.01,
             hint="Tension parameter for adjusting smoothness of spline interpolation.",
         )
 
-        server.add_gui_checkbox(
+        server.gui.add_checkbox(
             "Move keyframes",
-            initial_value=self.state.b.camera_path_move_keyframes,
+            initial_value=self.state.camera_path_move_keyframes,
             hint="Toggle move handles for keyframes in the scene.",
         )
 
-        server.add_gui_checkbox(
+        server.gui.add_checkbox(
             "Show keyframes",
-            initial_value=self.state.b.camera_path_show_keyframes,
+            initial_value=self.state.camera_path_show_keyframes,
             hint="Show keyframes in the scene.",
         )
 
-        server.add_gui_checkbox(
+        server.gui.add_checkbox(
             "Show spline",
-            initial_value=self.state.b.camera_path_show_spline,
-            visible=self.state.b.camera_path_interpolation.map(lambda x: x == "kochanek-bartels"),
+            initial_value=self.state.camera_path_show_spline,
+            visible=self.state.b.camera_path_interpolation.map(lambda x: x == "kochanek-bartels").get(),
             hint="Show camera path spline in the scene.",
         )
 
-        playback_folder = server.add_gui_folder("Playback")
-        preview_disabled_b = self._camera_path_binding.map(lambda x: x is None or x[0].shape[0] <= 1)
+        playback_folder = server.gui.add_folder("Playback")
+        preview_disabled_b = self._camera_path_binding.map(lambda x: x is None or x[0].shape[0] <= 1).get()
         with playback_folder:
-            play_button = server.add_gui_button(
+            play_button = server.gui.add_button(
                 "Play", 
                 icon=viser.Icon.PLAYER_PLAY,
                 disabled=preview_disabled_b,
-                visible=self.state.b.preview_is_playing.map(lambda x: not x))
+                visible=self.state.b.preview_is_playing.map(lambda x: not x).get())
             play_button.on_click(lambda _: setattr(self.state, "preview_is_playing", True))
-            pause_button = server.add_gui_button("Pause", 
+            pause_button = server.gui.add_button("Pause", 
                 icon=viser.Icon.PLAYER_PAUSE, 
-                visible=self.state.b.preview_is_playing)
+                visible=self.state.preview_is_playing)
             pause_button.on_click(lambda _: setattr(self.state, "preview_is_playing", False))
-            preview_render_button = server.add_gui_button(
+            preview_render_button = server.gui.add_button(
                 "Preview Render", 
                 hint="Show a preview of the render in the viewport.",
                 disabled=preview_disabled_b,
-                visible=self.state.b.preview_render.map(lambda x: not x),
+                visible=self.state.b.preview_render.map(lambda x: not x).get(),
             )
             preview_render_button.on_click(lambda _: setattr(self.state, "preview_render", True))
-            preview_render_stop_button = server.add_gui_button(
+            preview_render_stop_button = server.gui.add_button(
                 "Exit Render Preview", 
                 color="red", 
-                visible=self.state.b.preview_render)
+                visible=self.state.preview_render)
             preview_render_stop_button.on_click(lambda _: setattr(self.state, "preview_render", False))
-            server.add_gui_number(
+            server.gui.add_number(
                 "Transition (sec)",
                 min=0.001,
                 max=30.0,
                 step=0.001,
-                initial_value=self.state.b.camera_path_default_transition_duration,
+                initial_value=self.state.camera_path_default_transition_duration,
                 hint="Time in seconds between each keyframe, which can also be overridden on a per-transition basis.",
             )
-            server.add_gui_number(
+            server.gui.add_number(
                 "FPS", min=0.1, max=240.0, step=1e-2, 
-                visible=self.state.b.camera_path_interpolation.map(lambda x: x != "none"),
-                initial_value=self.state.b.camera_path_framerate)
-            framerate_buttons = server.add_gui_button_group(
+                visible=self.state.b.camera_path_interpolation.map(lambda x: x != "none").get(),
+                initial_value=self.state.camera_path_framerate)
+            framerate_buttons = server.gui.add_button_group(
                 "",
                 ("24", "30", "60"),
-                visible=self.state.b.camera_path_interpolation.map(lambda x: x != "none"))
+                visible=self.state.b.camera_path_interpolation.map(lambda x: x != "none").get())
             framerate_buttons.on_click(lambda _: self.state.b.camera_path_framerate.update(float(framerate_buttons.value)))
-            server.add_gui_number(
+            server.gui.add_number(
                 "Duration (sec)",
                 min=0.0,
                 max=1e8,
                 step=0.001,
                 disabled=True,
-                initial_value=state_compute_duration(self.state.b),
+                initial_value=state_compute_duration(self.state.b).get(),
             )
 
-            server.add_gui_slider(
+            server.gui.add_slider(
                 "Preview frame",
                 min=0,
                 step=1,
-                initial_value=self.state.b.preview_current_frame,
+                initial_value=self.state.preview_current_frame,
                 # Place right after the pause button.
                 order=preview_render_stop_button.order + 0.01,
                 disabled=preview_disabled_b,
-                max=self._camera_path_binding.map(lambda x: x[0].shape[0] - 1 if x is not None else 1),
+                max=self._camera_path_binding.map(lambda x: x[0].shape[0] - 1 if x is not None else 1).get(),
             )
 
         # add button for loading existing path
-        load_camera_path_button = server.add_gui_upload_button(
+        load_camera_path_button = server.gui.add_upload_button(
             "Load trajectory", icon=viser.Icon.FILE_UPLOAD, hint="Load an existing camera path."
         )
 
@@ -1537,7 +1537,7 @@ class ViserViewer:
                 trajectory = load_trajectory(file)
             self.state.load_trajectory(trajectory, self.transform)
 
-        export_button = server.add_gui_button(
+        export_button = server.gui.add_button(
             "Export trajectory",
             icon=viser.Icon.FILE_EXPORT,
             hint="Export trajectory file.",
@@ -1557,7 +1557,7 @@ class ViserViewer:
             # now write the json file
             self.server.send_file_download("trajectory.json", data)
 
-        render_button = server.add_gui_button(
+        render_button = server.gui.add_button(
             "Render video",
             color="green",
             icon=viser.Icon.CAMERA,
@@ -1571,7 +1571,7 @@ class ViserViewer:
             assert event.client_id is not None
 
             gui = server.get_clients()[event.client_id]
-            modal = gui.add_gui_modal("Rendering video")
+            modal = gui.gui.add_modal("Rendering video")
             trajectory = self.state.get_trajectory(self._inv_transform)
             def _send_video(data):
                 modal.close()
@@ -1587,35 +1587,35 @@ class ViserViewer:
     def _build_control_panel(self):
         state = self.state
         server = self.server
-        with server.add_gui_folder("Render Options"):
-            server.add_gui_slider(
+        with server.gui.add_folder("Render Options"):
+            server.gui.add_slider(
                 "Max res",
                 64,
                 2048,
                 100,
-                state.b.resolution,
+                state.resolution,
                 hint="Maximum resolution to render in viewport",
             )
-            server.add_gui_dropdown(
+            server.gui.add_dropdown(
                 "Output type",
-                state.b.output_type_options.map(lambda x: x or ("not set",)),
-                initial_value=state.b.output_type,
+                state.b.output_type_options.map(lambda x: x or ("not set",)).get(),
+                initial_value=state.output_type,
                 hint="The output to render",
             )
-            server.add_gui_rgb("Background color", state.b.background_color, hint="Color of the background")
+            server.gui.add_rgb("Background color", state.background_color, hint="Color of the background")
 
         # split options
-        with server.add_gui_folder("Split Screen"):#, visible=state.b.output_type_options.map(lambda x: len(x) > 1)):
-            server.add_gui_checkbox(
+        with server.gui.add_folder("Split Screen"):#, visible=state.b.output_type_options.map(lambda x: len(x) > 1)):
+            server.gui.add_checkbox(
                 "Enable",
-                initial_value=state.b.output_split,
+                initial_value=state.output_split,
                 hint="Render two outputs",
             )
-            server.add_gui_slider("Split percentage", initial_value=state.b.split_percentage, min=0.0, max=1.0, step=0.01, hint="Where to split")
-            server.add_gui_dropdown(
+            server.gui.add_slider("Split percentage", initial_value=state.split_percentage, min=0.0, max=1.0, step=0.01, hint="Where to split")
+            server.gui.add_dropdown(
                 "Output render split",
-                options=state.b.output_type_options.map(lambda x: x or ("not set",)),
-                initial_value=state.b.split_output_type,
+                options=state.b.output_type_options.map(lambda x: x or ("not set",)).get(),
+                initial_value=state.split_output_type,
                 hint="The second output",
             )
 
@@ -1624,7 +1624,7 @@ class ViserViewer:
             for client in server.get_clients().values():
                 client.camera.up_direction = vtf.SO3(client.camera.wxyz) @ np.array([0.0, -1.0, 0.0])
 
-        server.add_gui_button(
+        server.gui.add_button(
             label="Reset Up Direction",
             icon=viser.Icon.ARROW_BIG_UP_LINES,
             color="gray",
@@ -1632,24 +1632,24 @@ class ViserViewer:
         ).on_click(_reset_camera_cb)
 
     def _build_gui(self):
-        self.server.configure_theme(
+        self.server.gui.configure_theme(
             control_layout="collapsible",
             dark_mode=True,
             brand_color=(255, 211, 105),
         )
-        self.server.add_gui_text("FPS", initial_value=self.state.b.fps, disabled=True)
+        self.server.gui.add_text("FPS", initial_value=self.state.fps, disabled=True)
 
-        tabs = self.server.add_gui_tab_group()
+        tabs = self.server.gui.add_tab_group()
         with tabs.add_tab("Control", viser.Icon.SETTINGS):
             self._build_control_panel()
 
             # Add toggles to show/hide cameras
-            self.server.add_gui_checkbox(label="Show train cams", 
-                                         initial_value=self.state.b.show_train_cameras)
-            self.server.add_gui_checkbox(label="Show test cams", 
-                                         initial_value=self.state.b.show_test_cameras)
-            self.server.add_gui_checkbox(label="Show input PC", 
-                                         initial_value=self.state.b.show_input_points)
+            self.server.gui.add_checkbox(label="Show train cams", 
+                                         initial_value=self.state.show_train_cameras)
+            self.server.gui.add_checkbox(label="Show test cams", 
+                                         initial_value=self.state.show_test_cameras)
+            self.server.gui.add_checkbox(label="Show input PC", 
+                                         initial_value=self.state.show_input_points)
 
         with tabs.add_tab("Render", viser.Icon.CAMERA):
             self._build_render_tab()
@@ -1730,7 +1730,7 @@ class ViserViewer:
                 points *= scale
                 if rgb is None:
                     rgb = np.full((len(points), 3), 255, dtype=np.uint8)
-                pc = self.server.add_point_cloud(
+                pc = self.server.scene.add_point_cloud(
                     "/initial-point-cloud",
                      points=points,
                      colors=rgb,
@@ -1778,7 +1778,7 @@ class ViserViewer:
                     pos, quat = get_position_quaternion(c2w)
                     W, H = cam.image_sizes.tolist()
                     fy = cam.intrinsics[1]
-                    handle = self.server.add_camera_frustum(
+                    handle = self.server.scene.add_camera_frustum(
                         f"/dataset-{split}/{path}/frustum",
                         fov=2 * np.arctan2(H / 2, fy),
                         aspect=W / H,
@@ -1815,7 +1815,7 @@ class ViserViewer:
             quat = quats[self.state.preview_current_frame % len(quats)]
             fov = fovs[self.state.preview_current_frame % len(fovs)]
             if preview_camera_handle is None:
-                preview_camera_handle = self.server.add_camera_frustum(
+                preview_camera_handle = self.server.scene.add_camera_frustum(
                     "/preview_camera",
                     fov=fov / 180 * math.pi,
                     aspect=self.state.render_resolution[0] / self.state.render_resolution[1],
@@ -1899,7 +1899,7 @@ class ViserViewer:
 
         def _show_hide_preview_render(preview_render):
             # Hide all scene nodes when we're previewing the render.
-            self.server.set_global_scene_node_visibility(not preview_render)
+            self.server.scene.set_global_visibility(not preview_render)
 
         self.state.b.preview_render.on_update(_show_hide_preview_render)
         _show_hide_preview_render(self.state.b.preview_render.get())
@@ -2084,7 +2084,7 @@ class ViserViewer:
                     continue
 
                 interval = perf_counter() - start
-                client.set_background_image(render, format="jpeg")
+                client.scene.set_background_image(render, format="jpeg")
                 self._render_state[client.client_id] = min(self._render_state.get(client.client_id, 0), render_state + 1)
 
                 if render_state == 1 or len(self._render_times) < assert_not_none(self._render_times.maxlen):
