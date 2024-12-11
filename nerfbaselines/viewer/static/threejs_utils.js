@@ -736,7 +736,17 @@ export class CameraFrustum extends THREE.Group {
     this._pointerdown = false;
     this._focused = false;
     this._hoveredColor = hoveredColor;
-    this._color = color;
+    this._color = new THREE.Color(color);
+
+    Object.defineProperty(this, 'color', {
+      get: () => this._color,
+      set: (value) => {
+        value = new THREE.Color(value);
+        if (value === this._color) return;
+        this._color = value;
+        this._updateColor();
+      },
+    });
 
     // Define fov property
     Object.defineProperty(this, 'fov', {
@@ -771,7 +781,7 @@ export class CameraFrustum extends THREE.Group {
     this.geometry = new LineSegmentsGeometry();
     this._updateGeometry(scale);
     this.material = new LineMaterial({
-      color,
+      color: this.color,
       linewidth,
     });
 
@@ -780,7 +790,7 @@ export class CameraFrustum extends THREE.Group {
 
     if (originSphereScale) {
       const ballGeometry = new THREE.SphereGeometry(originSphereScale*scale, 32, 32);
-      this.originSphereMaterial = new THREE.MeshBasicMaterial({ color });
+      this.originSphereMaterial = new THREE.MeshBasicMaterial({ color: this.color });
       this.originSphere = new THREE.Mesh(ballGeometry, this.originSphereMaterial);
       this.originSphere.visible = !this._focused;
       this.add(this.originSphere);
@@ -936,6 +946,17 @@ export class TrajectoryCurve extends THREE.Group {
     this.lineSegments = undefined;
     this.material = new LineMaterial({ color, linewidth });
     this.setPositions(positions);
+    this._color = new THREE.Color(color);
+
+    Object.defineProperty(this, 'color', {
+      get: () => this._color,
+      set: (value) => {
+        value = new THREE.Color(value);
+        if (value === this._color) return;
+        this._color = value;
+        this.material.color = value;
+      },
+    });
   }
 
   setPositions(points) {

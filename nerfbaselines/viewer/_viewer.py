@@ -1,21 +1,20 @@
 import json
-import subprocess
 import tempfile
 import math
 import os
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack
 import multiprocessing
 import threading
-import copy
 import queue
 import time
 import logging
-import uuid
 import io
 from flask import Flask, request, jsonify, render_template, Response, send_file
 import numpy as np
 from PIL import Image, ImageDraw
 import nerfbaselines
+from nerfbaselines import __version__
+from nerfbaselines.results import get_dataset_info
 from nerfbaselines.utils import image_to_srgb, visualize_depth, apply_colormap
 
 pcs = set()
@@ -139,6 +138,7 @@ def _run_viewer_server(request_queue, output_queue, port, *args, **kwargs):
 def _build_flake_app(render_fn, 
                      datasets,
                      model_info=None,
+                     nb_info=None,
                      dataset_metadata=None):
     # Create debug app
     app = Flask(__name__)
@@ -177,10 +177,15 @@ def _build_flake_app(render_fn,
     def info():
         info = {
             "status": "running",
-            "method": {},
-            "dataset_url": f"{request.url_root}dataset",
+            "method_info": None,
+            "dataset_info": None,
             "dataset_parts": [],
         }
+        if model_info is not None:
+            info["renderer_url"] = f"{request.url_root}render"
+        if datasets.get("train") is not None:
+            info["dataset_url"] = f"{request.url_root}dataset"
+
         dataset_metadata_ = dataset_metadata or {}
         if dataset_metadata_.get("viewer_transform") is not None:
             info["viewer_transform"] = dataset_metadata_["viewer_transform"][:3, :4].flatten().tolist()
@@ -188,12 +193,57 @@ def _build_flake_app(render_fn,
             info["viewer_initial_pose"] = dataset_metadata_["viewer_initial_pose"][:3, :4].flatten().tolist()
         if model_info is not None:
             info["output_types"] = model_info.get("supported_outputs", ("color",))
+
         if datasets.get("train") is not None:
             info["dataset_parts"].append("train")
             if datasets["train"].get("points3D_xyz") is not None:
                 info["dataset_parts"].append("pointcloud")
+
+        if dataset_metadata_:
+            info["dataset_info"] = info["dataset_info"] or {}
+            info["dataset_info"].update({
+                k: v.tolist() if hasattr(v, "tolist") else v for k, v in dataset_metadata_.items()
+                if not k.startswith("viewer_")
+            })
+
+        if dataset_metadata_.get("id") is not None:
+            # Add dataset info
+            dataset_info = None
+            try:
+                dataset_info = get_dataset_info(dataset_metadata_["id"])
+            except Exception:
+                # Perhaps different NB version or custom dataset
+                pass
+            if dataset_info is not None:
+                info["dataset_info"].update(dataset_info)
+
         if datasets.get("test") is not None:
             info["dataset_parts"].append("test")
+        if model_info is not None:
+            info["method_info"] = info["method_info"] or {}
+            info["method_info"]["method_id"] = model_info["method_id"]
+            info["method_info"]["hparams"] = model_info.get("hparams", {})
+            if model_info.get("num_iterations") is not None:
+                info["method_info"]["num_iterations"] = model_info["num_iterations"]
+            if model_info.get("loaded_step") is not None:
+                info["method_info"]["loaded_step"] = model_info["loaded_step"]
+            if model_info.get("loaded_checkpoint") is not None:
+                info["method_info"]["loaded_checkpoint"] = model_info["loaded_checkpoint"]
+            if model_info.get("supported_camera_models") is not None:
+                info["method_info"]["supported_camera_models"] = list(sorted(model_info["supported_camera_models"]))
+            if model_info.get("supported_outputs") is not None:
+                info["method_info"]["supported_outputs"] = list(sorted(model_info["supported_outputs"]))
+
+            # Pull more details from the registry
+            spec = None
+            try:
+                spec = nerfbaselines.get_method_spec(model_info["method_id"])
+            except Exception:
+                pass
+            info["method_info"].update(spec.get("metadata") or {})
+        if nb_info is not None:
+            # Fill in config_overrides, presets, nb_version, and others
+            pass
         return jsonify(info)
     del info
 
@@ -239,6 +289,8 @@ def _build_flake_app(render_fn,
                                 image_size=image_size, 
                                 intrinsics=intrinsics,
                                 output_type=req.get("output_type"),
+                                appearance_weights=req.get("appearance_weights"),
+                                appearance_train_indices=req.get("appearance_train_indices"),
                                 split_percentage=float(req.get("split_percentage", 0.5)),
                                 split_tilt=float(req.get("split_tilt", 0)),
                                 split_output_type=req.get("split_output_type"))
@@ -418,6 +470,7 @@ def _build_flake_app(render_fn,
             msg = json.dumps({
                 "status": task["status"],
                 "progress": task["progress"],
+                "message": task.get("progress_message"),
             })
             yield f'data: {msg}\n\n'
         return Response(generate(), mimetype="text/event-stream")
@@ -516,20 +569,36 @@ def run_viewer(model=None, train_dataset=None, test_dataset=None, nb_info=None, 
                split_output_type,
                split_percentage,
                split_tilt,
+               appearance_weights=None,
+               appearance_train_indices=None,
                **kwargs):
         del kwargs
         camera = nerfbaselines.new_cameras(
             poses=pose,
             intrinsics=np.array(intrinsics, dtype=np.float32),
-            camera_models=0,
-            image_sizes=image_size,
+            camera_models=np.array(0, dtype=np.int32),
+            image_sizes=np.array(image_size, dtype=np.int32),
         )
         output_types = (output_type,)
         if split_output_type is not None:
             output_types = output_types + (split_output_type,)
+        embedding = None
+        if appearance_weights is not None and appearance_train_indices is not None:
+            if sum(appearance_weights, start=0) < 1e-6:
+                app_tuples = [(0, 0)]
+            else:
+                app_tuples = [(idx, weight) for idx, weight in zip(appearance_train_indices, appearance_weights) if weight > 0]
+            try:
+                embeddings = [model.get_train_embedding(idx) for idx, _ in app_tuples]
+            except AttributeError:
+                pass
+            except NotImplementedError:
+                pass
+            if embeddings is not None and all(x is not None for x in embeddings):
+                embedding = sum(x * alpha for (_, alpha), x in zip(app_tuples, embeddings))
         options = { "output_type_dtypes": { "color": "uint8" },
-                    "outputs": output_types }
-                    #"embedding": embedding,
+                    "outputs": output_types,
+                    "embedding": embedding }
         outputs = model.render(camera, options=options)
         # Format first output
         frame = format_output(outputs[output_type], output_type)
@@ -571,6 +640,7 @@ def run_viewer(model=None, train_dataset=None, test_dataset=None, nb_info=None, 
         datasets={"train": train_dataset, "test": test_dataset},
         dataset_metadata=train_dataset["metadata"],
         model_info=model_info,
+        nb_info=nb_info,
         port=port,
     ), daemon=True)
     process.start()

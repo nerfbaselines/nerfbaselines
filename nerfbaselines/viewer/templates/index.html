@@ -3,347 +3,10 @@
 <head>
   <title>Viewer</title>
   <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+  <link href="./static/styles.css" rel="stylesheet" />
   <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.7.0/dist/tabler-icons.min.css" rel="stylesheet">
 </head>
 <body>
-<style>
-:root {
-  --theme-color: #ffd369;
-  --theme-highlight-color: #ffdf7e;
-  --primary-color: #c9c9c9;
-  --highlight-color: #fff;
-  --secondary-color: #828282;
-  --border-radius: 0.1rem;
-
-  --border-color: #424242;
-  --primary-background-color: #242424;
-  --secondary-background-color: #2e2e2e;
-  --progress-track-color: #616161;
-}
-body {
-  font-family: 'Roboto', sans-serif;
-}
-* {
-  box-sizing: border-box;
-  accent-color: var(--theme-color);
-}
-
-main {
-  display: flex;
-  flex-direction: row;
-  height: 100%;
-}
-
-.controls {
-  display: flex;
-  justify-content: center;
-  width: 45ch;
-  background: var(--primary-background-color);
-  color: var(--primary-color);
-  max-width: 100%;
-  overflow-y: auto;
-  font-size: 0.8rem;
-  padding: 0 0.6rem;
-}
-
-select, input {
-  height: 1.625rem;
-  color: var(--primary-color);
-  border: 1px solid var(--border-color);
-  border-radius: var(--border-radius);
-  background: var(--secondary-background-color);
-}
-input[type="range"], input[type="checkbox"] {
-  height: initial;
-}
-select:disabled, input:disabled {
-  color: var(--secondary-color);
-  cursor: not-allowed;
-}
-
-.row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0 0.4rem;
-  padding-bottom: 0.6rem;
-}
-.row > label {
-  width: 40%;
-  display: block;
-  gap: 0.4em;
-}
-
-.row > select, .row > input[type="range"], .row > input[type="number"], .row > button, .row > .button {
-  flex: 1;
-  width: 30%;
-}
-
-.row > input[type="range"] + input[type="number"] {
-  max-width: 20%;
-  flex: 1 0 auto;
-}
-
-.row:last-child {
-  margin-bottom: 0;
-}
-
-.controls fieldset {
-  border: 1px solid var(--border-color);
-  border-radius: var(--border-radius);
-  margin: 0.3rem 0 0.6rem 0;
-  padding: 0.5rem 0.5rem 0 0.5rem;
-}
-.controls legend {
-  color: var(--secondary-color);
-  cursor: default;
-}
-/*hint is secondary color*/
-.input-hint {
-  color: var(--secondary-color);
-  font-size: 0.8rem;
-  flex-basis: 100%;
-}
-
-.toggle-group {
-  display: flex;
-  border: 1px solid var(--border-color);
-  border-radius: var(--border-radius);
-}
-
-.toggle-group > button {
-  background: none;
-  border: none;
-  border-right: 1px solid var(--border-color);
-  color: var(--secondary-color);
-  height: 1.625rem;
-}
-.toggle-group > button:hover {
-  color: var(--primary-highlight-color);
-  background: var(--secondary-background-color);
-}
-.toggle-group > button:last-child {
-  border-right: none;
-}
-
-.panel {
-  display: flex;
-  flex-direction: column;
-  margin: 0 1ch;
-}
-.tabs, .dialog {
-  width: 100%;
-}
-.tabs [type="radio"] {
-	display: none;
-}
-
-.tabs .tabs-header {
-  display: flex;
-  align-items: stretch;
-  list-style: none;
-  padding: 0;
-  margin: 0 0 0.6rem 0;
-  border-bottom: 1px solid var(--border-color);
-}
-.tabs .tabs-header > label {
-  padding: 1rem;
-}
-.tabs [type="radio"]:nth-of-type(1):checked ~ .tabs-header label:nth-of-type(1),
-.tabs [type="radio"]:nth-of-type(2):checked ~ .tabs-header label:nth-of-type(2),
-.tabs [type="radio"]:nth-of-type(3):checked ~ .tabs-header label:nth-of-type(3),
-.tabs [type="radio"]:nth-of-type(4):checked ~ .tabs-header label:nth-of-type(4),
-.tabs [type="radio"]:nth-of-type(5):checked ~ .tabs-header label:nth-of-type(5) {
-  color: var(--highlight-color);
-  border-bottom: 3px solid var(--theme-color);
-  margin-bottom: -1px;
-}
-
-.tabs .tab {
-  display: none;
-}
-.tabs [type="radio"]:nth-of-type(1):checked ~ .tab:nth-of-type(1),
-.tabs [type="radio"]:nth-of-type(2):checked ~ .tab:nth-of-type(2),
-.tabs [type="radio"]:nth-of-type(3):checked ~ .tab:nth-of-type(3),
-.tabs [type="radio"]:nth-of-type(4):checked ~ .tab:nth-of-type(4) {
-	display: block;
-}
-
-button, .button, .row > .button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 2rem;
-  flex: 1;
-  border: 1px solid var(--border-color);
-  background: var(--theme-color);
-  color: #333;
-  text-align: center;
-  padding: 0 6px;
-  text-decoration: none;
-  box-sizing: border-box;
-  border-radius: var(--border-radius);
-}
-
-button {
-  appearance: none;
-  -webkit-appearance: none;
-}
-
-button:hover, .button:hover {
-  background: var(--theme-highlight-color);
-}
-
-
-html, body {
-  margin: 0;
-  padding: 0;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  position: relative;
-}
-.viewport {
-  flex: 1;
-  overflow: hidden;
-  position: relative;
-}
-
-.viewport-slider {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  width: 8px;
-  height: calc(max(200vh, 200vw));
-
-  cursor: ew-resize;
-  background-color: var(--progress-track-color);
-  border: 1px solid var(--secondary-color);
-  opacity: 0.2;
-  transition: opacity 0.2s;
-}
-
-.viewport-slider:hover {
-  opacity: 1.0;
-}
-
-/* Control logic */
-#button_play, #button_pause, #button_preview_render_stop, #button_preview_render {
-  display: none;
-}
-#preview_is_playing:not(:checked) ~ #button_play,
-#preview_is_playing:checked ~ #button_pause {
-  display: block;
-}
-
-#preview_is_preview_mode:not(:checked) ~ #button_preview_render,
-#preview_is_preview_mode:checked ~ #button_preview_render_stop {
-  display: block;
-}
-
-.dialog {
-  display: none;
-}
-
-.dialog.dialog-open {
-  display: block;
-}
-
-.dialog.dialog-open ~ .tabs {
-  display: none;
-}
-
-/* Hide all dialogs except the first one that is open */
-.dialog.dialog-open ~ .dialog.dialog-open {
-  display: none;
-}
-
-.dialog-header {
-  margin: 0 0 0.6rem 0;
-  padding: 1rem;
-  border-bottom: 1px solid var(--border-color);
-  display: flex;
-  font-size: 1.2em;
-}
-
-.dialog-header > div,
-.notification-header > div {
-  flex: 1;
-}
-.dialog-header > i.ti-x,
-.notification-header > i.ti-x {
-  cursor: pointer;
-  font-size: 1.2rem;
-
-  /* Enlarge clickable area */
-  padding: 1rem;
-  margin: -1rem;
-}
-.dialog-header > i.ti-x:hover,
-.notification-header > i.ti-x:hover {
-  color: var(--highlight-color);
-}
-
-.info-fields {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.3rem 0.6rem;
-  margin: 0 0.5rem;
-}
-
-.info-fields > img {
-  width: 100%;
-}
-
-.notifications {
-  font-size: 0.8rem;
-  position: absolute;
-  overflow: hidden;
-  width: 45ch;
-  left: 0px;
-  top: 0px;
-  max-height: 100%;
-}
-
-.notification {
-  border: 1px solid var(--border-color);
-  padding: 0.5rem;
-  margin: 0.5rem;
-  border-radius: 0.3rem;
-  background-color: var(--primary-background-color);
-  color: var(--secondary-color);
-  min-height: 2em;
-  position: relative;
-}
-
-.notification-header {
-  display: flex;
-  color: var(--primary-color);
-}
-
-.progress {
-  background-color: var(--progress-track-color);
-  color: var(--primary-background-color);
-  border-radius: 4px;
-  height: 8px;
-  width: 100%;
-  margin: 4px 0;
-}
-
-.notification .progress {
-  margin-top: 8px;
-}
-
-.progress::after {
-  content: '';
-  display: block;
-  background-color: var(--theme-color);
-  border-radius: 4px;
-  height: 100%;
-  width: var(--progress);
-}
-
-</style>
 
 <main>
     <div class="viewport">
@@ -352,6 +15,41 @@ html, body {
     <div class="notifications"></div>
 
     <div class="controls">
+      <div class="dialog" id="settings_dialog">
+        <div class="dialog-header">
+          <div>Settings</div>
+          <i class="ti ti-x" onclick="this.closest('.dialog').classList.remove('dialog-open')"></i>
+        </div>
+        <fieldset>
+          <legend>Colors</legend>
+          <div class="row">
+            <label for="theme_color">Theme</label>
+            <input type="color" id="theme_color" name="theme_color" value="#ffd369">
+          </div>
+          <div class="row">
+            <label for="trajectory_curve_color">Trajectory curve</label>
+            <input type="color" id="trajectory_curve_color" name="trajectory_curve_color" value="#ffd369">
+          </div>
+          <div class="row">
+            <label for="player_frustum_color">Player frustum</label>
+            <input type="color" id="player_frustum_color" name="player_frustum_color" value="#20df80">
+          </div>
+          <div class="row">
+            <label for="keyframe_frustum_color">Keyframe frustum</label>
+            <input type="color" id="keyframe_frustum_color" name="keyframe_frustum_color" value="#ff0000">
+          </div>
+          <div class="row">
+            <label for="dataset_frustum_color">Dataset frustum</label>
+            <input type="color" id="dataset_frustum_color" name="dataset_frustum_color" value="#d3d3d3">
+          </div>
+        </fieldset>
+        <div class="row">
+          <button data-action="reset_settings">Reset settings</button>
+        </div>
+      </div>
+
+
+      
       <div class="dialog" id="dialog_camera_path_delete_all">
         <div class="dialog-header">
           <div>Confirm deletion</div>
@@ -371,7 +69,37 @@ html, body {
           <div>Editing keyframe <span data-bind="camera_path_selected_keyframe_natural_index"></span></div>
           <i class="ti ti-x" data-action="clear_selected_keyframe"></i>
         </div>
+        <div class="row" data-visible-if="camera_path_selected_keyframe_in_transition_visible">
+          <label for="camera_path_selected_keyframe_in_transition">In-transition (s)</label>
+          <input type="number" id="camera_path_selected_keyframe_in_transition" name="camera_path_selected_keyframe_in_transition" min="0.001" max="30" step="0.001" value="1" data-enable-if="camera_path_selected_keyframe_override_in_transition" disabled>
+          <input type="checkbox" name="camera_path_selected_keyframe_override_in_transition" />
+        </div>
+        <div class="row" data-visible-if="camera_path_selected_keyframe_out_transition_visible">
+          <label for="camera_path_selected_keyframe_out_transition">Out-transition (s)</label>
+          <input type="number" id="camera_path_selected_keyframe_out_transition" name="camera_path_selected_keyframe_out_transition" min="0.001" max="30" step="0.001" value="1" data-enable-if="camera_path_selected_keyframe_override_out_transition" disabled>
+          <input type="checkbox" name="camera_path_selected_keyframe_override_out_transition" />
+        </div>
         <div class="row">
+          <label for="camera_path_selected_keyframe_fov">FOV</label>
+          <input type="number" id="camera_path_selected_keyframe_fov" name="camera_path_selected_keyframe_fov" min="1" max="175" step="1" value="60" data-enable-if="camera_path_selected_keyframe_override_fov" disabled>
+          <input type="checkbox" name="camera_path_selected_keyframe_override_fov" />
+        </div>
+        <div class="row" data-visible-if="dataset_train_appearance_options" style="justify-content: end">
+          <label for="camera_path_selected_keyframe_appearance_train_index">Appearance</label>
+          <select 
+                 id="camera_path_selected_keyframe_appearance_train_index" 
+                 name="camera_path_selected_keyframe_appearance_train_index"
+                 data-enable-if="camera_path_selected_keyframe_override_appearance_train_index"
+                 data-options="dataset_train_appearance_options"
+                 disabled>
+          </select>
+          <input type="checkbox" 
+                 data-enable-if="render_appearance_train_index" disabled
+                 name="camera_path_selected_keyframe_override_appearance_train_index" />
+          <img class="appearance-preview" data-visible-if="camera_path_selected_keyframe_appearance_url" data-bind-attr="src:camera_path_selected_keyframe_appearance_url" style="display: none" />
+        </div>
+        <div class="row">
+          <button data-action="set_camera_to_selected_keyframe">Navigate</button>
           <button data-action="delete_selected_keyframe">Delete</button>
         </div>
       </div>
@@ -385,20 +113,43 @@ html, body {
           <strong>Camera ID:</strong><span data-bind="dataset_selected_image_index"></span>
           <strong>Split:</strong><span data-bind="dataset_selected_image_split"></span>
           <strong>Image name:</strong><span data-bind="dataset_selected_image_name"></span>
+          <strong>Pose:</strong>
+          <pre data-bind="dataset_selected_image_pose" 
+               style="font-size: 0.65rem; font-family: monospace; margin: 0; padding: 0 0 0 1rem; overflow: scroll; grid-column: 1 / 3;"></pre>
+          <strong>Resolution:</strong>
+          <span>
+            <span data-bind="dataset_selected_width"></span> x
+            <span data-bind="dataset_selected_height"></span>
+          </span>
+          <strong>Intrinsics:</strong>
+          <span style="grid-column: 1 / 3; padding: 0 0 0 1rem;">
+            fx=<span data-bind="dataset_selected_fx"></span><br/>
+            fy=<span data-bind="dataset_selected_fy"></span><br/>
+            cx=<span data-bind="dataset_selected_cx"></span><br/>
+            cy=<span data-bind="dataset_selected_cy"></span>
+          </span>
           <strong>Image:</strong><img data-bind-attr="src:dataset_selected_image_url" />
         </div>
         <div class="row">
+          <button data-action="set_camera_to_selected_dataset_image">Navigate</button>
           <button data-action="clear_selected_dataset_image">Close</button>
         </div>
       </div>
 
       <div class="tabs">
-        <input type="radio" id="tab-1" name="accordion-1" checked>
-        <input type="radio" id="tab-2" name="accordion-1">
+        <input type="radio" id="tab-1" value="control" name="main_tabs" checked>
+        <input type="radio" id="tab-2" value="trajectory" name="main_tabs">
+        <input type="radio" id="tab-3" value="info" name="main_tabs">
 
         <span class="tabs-header">
           <label for="tab-1">Control</label>
           <label for="tab-2">Trajectory</label>
+          <label for="tab-3">Info</label>
+          <div class="tabs-icons">
+            <a onclick="document.getElementById('settings_dialog').classList.add('dialog-open')">
+              <i class="ti ti-settings" ></i>
+            </a>
+          </div>
         </span>
         <div class="tab panel">
           <fieldset>
@@ -406,19 +157,56 @@ html, body {
             <div class="row slider">
               <label for="render_resolution">Max resolution</label>
               <input type="range" id="render_resolution" name="render_resolution" min="32" max="2048" value="1024" data-enable-if="has_method" disabled>
+              <input type="number" id="render_resolution_number" name="render_resolution" min="32" max="2048" step="1" value="1024" disabled data-enable-if="has_method">
+            </div>
+
+            <div class="row">
+              <label for="prerender_enabled">Pre-render</label>
+              <input type="checkbox" id="prerender_enabled" name="prerender_enabled" disabled data-enable-if="has_method">
+              <div class="input-hint">Renders faster at lower res. when moving.</div>
+            </div>
+
+            <div class="row" data-visible-if="prerender_enabled">
+              <label for="prerender_resolution">Pre-render res.</label>
+              <input type="range" id="prerender_resolution" name="prerender_resolution" min="1" max="512" step="1" value="100" disabled data-enable-if="prerender_enabled">
+              <input type="number" id="prerender_resolution_number" name="prerender_resolution" min="1" max="512" step="1" value="100" disabled data-enable-if="prerender_enabled">
             </div>
 
             <div class="row">
               <label for="render_fov">FOV</label>
               <input type="range" id="render_fov" name="render_fov" min="1" max="175" step="1" value="60">
-              <input type="number" id="render_fov_number" name="render_fov_number" min="1" max="175" step="1" value="60">
+              <input type="number" id="render_fov_number" name="render_fov" min="1" max="175" step="1" value="60">
             </div>
 
-            <div class="row dropdown">
-              <label for="output_type">Output type</label>
-              <select id="output_type" name="output_type" data-enable-if="has_method" disabled>
-                <option value="not set">not set</option>
+            <div class="row" style="justify-content: end">
+              <label for="render_appearance_train_index_1">Appearance</label>
+              <select id="render_appearance_train_index_1" 
+                name="render_appearance_train_index"
+                data-enable-if="dataset_train_appearance_options"
+                data-options="dataset_train_appearance_options_with_default"
+                disabled>
               </select>
+              <img class="appearance-preview" data-visible-if="render_appearance_image_url" data-bind-attr="src:render_appearance_image_url"  style="display: none" />
+              <div class="input-hint">Appearance of one of the train image.</div>
+            </div>
+
+            <div class="row">
+              <label for="output_type">Output type</label>
+              <select id="output_type" name="output_type" data-enable-if="has_method" data-options="output_types" disabled>
+              </select>
+            </div>
+
+            <div class="row">
+              <label for="camera_pose">Camera pose</label>
+              <textarea 
+                  rows=3 
+                  id="camera_pose" 
+                  name="camera_pose" 
+                  style="flex-basis:100%; font-size: 0.65rem"
+                  onfocus="this.hasFocus=true"
+                  oninput="this.hasFocus=true"
+                  onchange="viewer.set_camera({ matrix: this.value });"
+                  onblur="this.hasFocus=false"></textarea>
             </div>
           </fieldset>
           <fieldset id="folder-split-screen">
@@ -440,8 +228,7 @@ html, body {
 
             <div class="row dropdown">
               <label for="split_output_type">Output render split</label>
-              <select id="split_output_type" name="split_output_type" data-enable-if="has_output_split" disabled>
-                <option value="not set">not set</option>
+              <select id="split_output_type" name="split_output_type" data-enable-if="has_output_split" data-options="output_types" disabled>
               </select>
               <div class="input-hint">The second output</div>
             </div>
@@ -470,16 +257,20 @@ html, body {
           </div>
 
           <div class="row">
-            <label for="render_fov">FOV</label>
-            <input type="range" id="render_fov" name="render_fov" min="1" max="175" step="1" value="60">
-            <input type="number" id="render_fov_number" name="render_fov_number" min="1" max="175" step="1" value="60">
+            <label for="camera_path_default_fov">FOV</label>
+            <input type="range" id="camera_path_default_fov" name="camera_path_default_fov" min="1" max="175" step="1" value="60">
+            <input type="number" id="camera_path_default_fov_number" name="camera_path_default_fov" min="1" max="175" step="1" value="60">
           </div>
 
-          <div class="row">
-            <label for="render_appearance_train_index">Appearance</label>
-            <select id="render_appearance_train_index" name="render_appearance_train_index">
-              <option value="not set">not set</option>
+          <div class="row" style="justify-content: end">
+            <label for="render_appearance_train_index_2">Appearance</label>
+            <select id="render_appearance_train_index_2" 
+                    name="render_appearance_train_index"
+                    data-enable-if="dataset_train_appearance_options"
+                    data-options="dataset_train_appearance_options_with_default"
+                    disabled>
             </select>
+            <img class="appearance-preview" data-visible-if="render_appearance_image_url"  data-bind-attr="src:render_appearance_image_url"   style="display: none" />
             <div class="input-hint">Appearance of one of the train image.</div>
           </div>
 
@@ -489,7 +280,7 @@ html, body {
                title="Add a new keyframe at the current pose.">Add keyframe</button>
             <button 
                onclick="document.getElementById('dialog_camera_path_delete_all').classList.add('dialog-open')"
-               title="Remove all keyframes from the render path.">Clear keyframes</button>
+               title="Remove all keyframes from the render path." data-enable-if="camera_path_keyframes" disabled>Clear keyframes</button>
           </div>
 
           <fieldset>
@@ -501,7 +292,7 @@ html, body {
               <div class="row row-group">
                 <input type="checkbox" id="preview_is_playing" name="preview_is_playing" style="display: none" />
                 <input type="checkbox" id="preview_is_preview_mode" name="preview_is_preview_mode" style="display: none" />
-                <button id="button_play" onclick="var el=document.getElementById('preview_is_playing'); el.checked = true; el.dispatchEvent(new Event('change'))">Play</button>
+                <button id="button_play" onclick="var el=document.getElementById('preview_is_playing'); el.checked = true; el.dispatchEvent(new Event('change'))" data-enable-if="camera_path_trajectory" disabled>Play</button>
                 <button id="button_pause" onclick="var el=document.getElementById('preview_is_playing'); el.checked = false; el.dispatchEvent(new Event('change'))">Pause</button>
                 <button id="button_preview_render" onclick="var el=document.getElementById('preview_is_preview_mode'); el.checked = true; el.dispatchEvent(new Event('change'))">Preview render</button>
                 <button id="button_preview_render_stop" onclick="var el=document.getElementById('preview_is_preview_mode'); el.checked = false; el.dispatchEvent(new Event('change'))">Exit render preview</button>
@@ -524,7 +315,7 @@ html, body {
               </div>
 
 
-              <div class="row number">
+              <div class="row">
                 <label for="camera_path_duration">Duration (sec)</label>
                 <input type="number" id="camera_path_duration" name="camera_path_duration" min="0.01" max="1e8" step="0.01" value="1" disabled>
                 <div class="input-hint">Total duration of the camera path in seconds.</div>
@@ -551,7 +342,7 @@ html, body {
 
           <div class="row">
             <label for="camera_path_tension">Spline tension</label>
-            <input type="range" id="camera_path_tension" name="camera_path_tension" min="0" max="1" step="0.01" value="0.5">
+            <input type="range" id="camera_path_tension" name="camera_path_tension" min="0" max="1" step="0.01" value="0">
             <div class="input-hint">Tension parameter for adjusting smoothness of spline interpolation.</div>
           </div>
 
@@ -566,15 +357,40 @@ html, body {
               Load trajectory
               <input type="file" style="display: none" id="input_camera_path" accept=".json">
             </label>
-            <button id="button_export_camera_path" data-action="save_camera_path">Export trajectory</button>
+            <button id="button_export_camera_path" data-action="save_camera_path" data-enable-if="camera_path_trajectory" disabled>Export trajectory</button>
           </div>
           <div class="row">
-            <a id="button_render_video" href="#" class="button" download="video.mp4" target="_blank">Render video</a>
+            <a id="button_render_video" href="#" class="button" download="video.mp4" target="_blank" data-enable-if="camera_path_trajectory" data-disabled="disabled">Render video</a>
           </div>
+        </div>
+
+        <!-- Training tab -->
+        <div class="tab panel">
+          <div class="row info-fields" data-visible-if="method_info" id="method_info" style="display: none">
+          </div>
+          <fieldset data-visible-if="method_info" style="display: none">
+            <legend>Model hyperparameters</legend>
+            <div class="row info-fields" id="method_hparams">
+            </div>
+          </fieldset>
+          <fieldset data-visible-if="dataset_info" style="display: none">
+            <legend>Dataset</legend>
+            <div class="row info-fields" id="dataset_info">
+            </div>
+          </fieldset>
         </div>
       </div>
     </div>
   </main>
+  <!--<script type="importmap">
+    {
+      "imports": {
+        "three": "./static/third-party/three.module.min.js",
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "./static/third-party/",
+      }
+    }
+  </script>-->
   <script type="importmap">
     {
       "imports": {

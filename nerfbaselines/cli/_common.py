@@ -466,16 +466,20 @@ def warn_if_newer_version_available():
         pass
 
     if latest_version_str is None:
-        r = requests.get("https://pypi.org/pypi/nerfbaselines/json")
-        r.raise_for_status()
-        latest_version_str = r.json()["info"]["version"]
         try:
-            os.makedirs(NB_PREFIX, exist_ok=True)
-            with open(os.path.join(NB_PREFIX, ".latest-version-cache"), "w") as f:
-                f.write(f"{latest_version_str}\n{time.time()}")
-            logging.debug("Updated latest version cache")
-        except Exception as e:
-            logging.exception(e)
+            r = requests.get("https://pypi.org/pypi/nerfbaselines/json")
+            r.raise_for_status()
+            latest_version_str = r.json()["info"]["version"]
+            try:
+                os.makedirs(NB_PREFIX, exist_ok=True)
+                with open(os.path.join(NB_PREFIX, ".latest-version-cache"), "w") as f:
+                    f.write(f"{latest_version_str}\n{time.time()}")
+                logging.debug("Updated latest version cache")
+            except Exception as e:
+                logging.exception(e)
+        except Exception:
+            # No network connection
+            return
     logging.debug(f"Latest version: {latest_version_str}, current version: {__version__}")
 
     latest_version = version.parse(latest_version_str)

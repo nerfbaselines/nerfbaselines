@@ -71,7 +71,7 @@ def viewer_command(checkpoint: str, data, backend_name, port=6006):
                    port=port)
         # run_viser_viewer(method, 
         #                  data, 
-        #                  port=6006,
+        #                  port=port,
         #                  nb_info=nb_info)
 
 

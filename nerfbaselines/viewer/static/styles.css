@@ -1,0 +1,388 @@
+:root {
+  --theme-color: #ffd369;
+  --theme-highlight-color: #ffdf7e;
+  --primary-color: #c9c9c9;
+  --highlight-color: #fff;
+  --secondary-color: #828282;
+  --border-radius: 0.1rem;
+
+  --border-color: #424242;
+  --primary-background-color: #242424;
+  --secondary-background-color: #2e2e2e;
+  --progress-track-color: #616161;
+  --link-color: #1772d0;
+}
+
+a {
+  color: var(--link-color);
+}
+body {
+  font-family: 'Roboto', sans-serif;
+}
+* {
+  box-sizing: border-box;
+  accent-color: var(--theme-color);
+}
+
+main {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+}
+
+.controls {
+  display: flex;
+  justify-content: center;
+  width: 45ch;
+  background: var(--primary-background-color);
+  color: var(--primary-color);
+  max-width: 100%;
+  overflow-y: auto;
+  font-size: 0.8rem;
+  padding: 0 0.6rem;
+}
+
+select, input, textarea {
+  color: var(--primary-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--secondary-background-color);
+}
+select, input {
+  height: 1.625rem;
+}
+input[type="range"], input[type="checkbox"] {
+  height: initial;
+}
+select:disabled, input:disabled, textarea:disabled {
+  color: var(--secondary-color);
+  cursor: not-allowed;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 0.4rem;
+  padding-bottom: 0.6rem;
+}
+.row > label {
+  width: 40%;
+  display: block;
+  gap: 0.4em;
+  align-self: start;
+  line-height: 1.625rem;
+  height: 1.625rem;
+}
+
+.row > label ~ * {
+  flex: 1;
+  width: 30%;
+}
+
+.row > label ~ [type="checkbox"] {
+  flex: 0;
+  width: initial;
+}
+
+.row > input[type="range"] + input[type="number"] {
+  max-width: 20%;
+  flex: 1 0 auto;
+}
+
+.row:last-child {
+  margin-bottom: 0;
+}
+
+.controls fieldset {
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  margin: 0.3rem 0 0.6rem 0;
+  padding: 0.5rem 0.5rem 0 0.5rem;
+}
+.controls legend {
+  color: var(--secondary-color);
+  cursor: default;
+}
+/*hint is secondary color*/
+.controls .input-hint {
+  color: var(--secondary-color);
+  font-size: 0.8rem;
+  flex-basis: 100%;
+}
+
+.toggle-group {
+  display: flex;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+}
+
+.toggle-group > button {
+  background: none;
+  border: none;
+  border-right: 1px solid var(--border-color);
+  color: var(--secondary-color);
+  height: 1.625rem;
+}
+.toggle-group > button:hover {
+  color: var(--primary-highlight-color);
+  background: var(--secondary-background-color);
+}
+.toggle-group > button:last-child {
+  border-right: none;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  margin: 0 1ch;
+}
+.tabs, .dialog {
+  width: 100%;
+}
+.tabs [type="radio"] {
+	display: none;
+}
+
+.tabs .tabs-header {
+  display: flex;
+  align-items: stretch;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.6rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+.tabs .tabs-header > label {
+  padding: 1rem;
+  text-align: center;
+}
+.tabs .tabs-icons {
+  display: flex;
+  align-items: center;
+  font-size: 1.3rem;
+  margin: 0 0.7rem 0 0;
+  flex: 1 0 auto;
+  justify-content: flex-end;
+}
+.tabs .tabs-icons a {
+  color: inherit;
+  cursor: pointer;
+  padding: 0.3rem;
+}
+.tabs .tabs-icons a:hover {
+  color: var(--highlight-color);
+}
+.tabs [type="radio"]:nth-of-type(1):checked ~ .tabs-header label:nth-of-type(1),
+.tabs [type="radio"]:nth-of-type(2):checked ~ .tabs-header label:nth-of-type(2),
+.tabs [type="radio"]:nth-of-type(3):checked ~ .tabs-header label:nth-of-type(3),
+.tabs [type="radio"]:nth-of-type(4):checked ~ .tabs-header label:nth-of-type(4),
+.tabs [type="radio"]:nth-of-type(5):checked ~ .tabs-header label:nth-of-type(5) {
+  color: var(--highlight-color);
+  border-bottom: 3px solid var(--theme-color);
+  margin-bottom: -1px;
+}
+
+.tabs .tab {
+  display: none;
+}
+.tabs [type="radio"]:nth-of-type(1):checked ~ .tab:nth-of-type(1),
+.tabs [type="radio"]:nth-of-type(2):checked ~ .tab:nth-of-type(2),
+.tabs [type="radio"]:nth-of-type(3):checked ~ .tab:nth-of-type(3),
+.tabs [type="radio"]:nth-of-type(4):checked ~ .tab:nth-of-type(4) {
+	display: block;
+}
+
+button, .button, .row > .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 2rem;
+  flex: 1;
+  border: 1px solid var(--border-color);
+  background: var(--theme-color);
+  color: #333;
+  text-align: center;
+  padding: 0 6px;
+  text-decoration: none;
+  box-sizing: border-box;
+  border-radius: var(--border-radius);
+}
+
+button:disabled, .button[data-disabled], .row > .button[data-disabled],
+button:disabled:hover, .button[data-disabled]:hover, .row > .button[data-disabled]:hover {
+  background-color: var(--secondary-background-color);
+  color: var(--secondary-color);
+  cursor: not-allowed;
+}
+
+button {
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+button:hover, .button:hover {
+  background: var(--theme-highlight-color);
+}
+
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+.viewport {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.viewport-slider {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 8px;
+  height: calc(max(200vh, 200vw));
+
+  cursor: ew-resize;
+  background-color: var(--progress-track-color);
+  border: 1px solid var(--secondary-color);
+  opacity: 0.2;
+  transition: opacity 0.2s;
+}
+
+.viewport-slider:hover {
+  opacity: 1.0;
+}
+
+/* Control logic */
+#button_play, #button_pause, #button_preview_render_stop, #button_preview_render {
+  display: none;
+}
+#preview_is_playing:not(:checked) ~ #button_play,
+#preview_is_playing:checked ~ #button_pause {
+  display: block;
+}
+
+#preview_is_preview_mode:not(:checked) ~ #button_preview_render,
+#preview_is_preview_mode:checked ~ #button_preview_render_stop {
+  display: block;
+}
+
+.dialog {
+  display: none;
+}
+
+.dialog.dialog-open {
+  display: block;
+}
+
+.dialog.dialog-open ~ .tabs {
+  display: none;
+}
+
+/* Hide all dialogs except the first one that is open */
+.dialog.dialog-open ~ .dialog.dialog-open {
+  display: none;
+}
+
+.dialog-header {
+  margin: 0 0 0.6rem 0;
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  font-size: 1.2em;
+}
+
+.dialog-header > div,
+.notification-header > div {
+  flex: 1;
+}
+.dialog-header > i.ti-x,
+.notification-header > i.ti-x {
+  cursor: pointer;
+  font-size: 1.2rem;
+
+  /* Enlarge clickable area */
+  padding: 1rem;
+  margin: -1rem;
+}
+.dialog-header > i.ti-x:hover,
+.notification-header > i.ti-x:hover {
+  color: var(--highlight-color);
+}
+
+.info-fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3rem 0.6rem;
+  margin: 0 0.5rem;
+}
+
+fieldset > .info-fields {
+  margin: 0;
+}
+
+.info-fields > img {
+  width: 100%;
+}
+
+.notifications {
+  font-size: 0.8rem;
+  position: absolute;
+  overflow: hidden;
+  width: 45ch;
+  left: 0px;
+  top: 0px;
+  max-height: 100%;
+}
+
+.notification {
+  border: 1px solid var(--border-color);
+  padding: 0.5rem;
+  margin: 0.5rem;
+  border-radius: 0.3rem;
+  background-color: var(--primary-background-color);
+  color: var(--secondary-color);
+  min-height: 2em;
+  position: relative;
+}
+
+.notification-header {
+  display: flex;
+  color: var(--primary-color);
+}
+
+.progress {
+  background-color: var(--progress-track-color);
+  color: var(--primary-background-color);
+  border-radius: 4px;
+  height: 8px;
+  width: 100%;
+  margin: 4px 0;
+}
+
+.notification .progress {
+  margin-top: 8px;
+}
+
+.progress::after {
+  content: '';
+  display: block;
+  background-color: var(--theme-color);
+  border-radius: 4px;
+  height: 100%;
+  width: var(--progress);
+}
+
+.appearance-preview {
+  aspect-ratio: 1.5;
+  object-fit: contain;
+  max-height: fit-content;
+  flex-basis: 100% !important;
+  max-width: calc(60% - 0.4rem);
+  margin-top: 0.2rem;
+}
+
