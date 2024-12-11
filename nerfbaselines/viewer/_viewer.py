@@ -1,3 +1,4 @@
+import struct
 import json
 import tempfile
 import math
@@ -17,10 +18,80 @@ from nerfbaselines import __version__
 from nerfbaselines.results import get_dataset_info
 from nerfbaselines.utils import image_to_srgb, visualize_depth, apply_colormap
 
+from functools import wraps
+from flask import Blueprint, request, Response, current_app
+from simple_websocket import Server, ConnectionClosed
+
 pcs = set()
 candidates = []
 
 TEMPLATES_AUTO_RELOAD = True
+
+
+def websocket_route(app, path, **kwargs):
+    """Decorator to create a WebSocket route.
+
+    The decorated function will be invoked when a WebSocket client
+    establishes a connection, with a WebSocket connection object passed
+    as an argument. Example::
+
+        @sock.route('/ws')
+        def websocket_route(ws):
+            # The ws object has the following methods:
+            # - ws.send(data)
+            # - ws.receive(timeout=None)
+            # - ws.close(reason=None, message=None)
+
+    If the route has variable components, the ``ws`` argument needs to be
+    included before them.
+
+    :param path: the URL associated with the route.
+    :param bp: the blueprint on which to register the route. If not given,
+               the route is attached directly to the Flask application
+               instance. When a blueprint is used, the application is
+               responsible for the blueprint's registration.
+    :param kwargs: additional route options. See the Flask documentation
+                   for the ``app.route`` decorator for details.
+    """
+    def decorator(f):
+        @wraps(f)
+        def websocket_route(*args, **kwargs):  # pragma: no cover
+            ws = Server(request.environ, **current_app.config.get(
+                'SOCK_SERVER_OPTIONS', {}))
+            try:
+                f(ws, *args, **kwargs)
+            except ConnectionClosed:
+                pass
+            try:
+                ws.close()
+            except:  # noqa: E722
+                pass
+
+            class WebSocketResponse(Response):
+                def __call__(self, *args, **kwargs):
+                    if ws.mode == 'eventlet':
+                        try:
+                            from eventlet.wsgi import WSGI_LOCAL
+                            ALREADY_HANDLED = []
+                        except ImportError:
+                            from eventlet.wsgi import ALREADY_HANDLED
+                            WSGI_LOCAL = None
+
+                        if hasattr(WSGI_LOCAL, 'already_handled'):
+                            WSGI_LOCAL.already_handled = True
+                        return ALREADY_HANDLED
+                    elif ws.mode == 'gunicorn':
+                        raise StopIteration()
+                    elif ws.mode == 'werkzeug':
+                        return super().__call__(*args, **kwargs)
+                    else:
+                        return []
+
+            return WebSocketResponse()
+
+        kwargs['websocket'] = True
+        app.route(path, **kwargs)(websocket_route)
+    return decorator
 
 
 def create_ply_bytes(points3D_xyz, points3D_rgb=None):
@@ -173,6 +244,116 @@ def _build_flake_app(render_fn,
         return render_template("index.html")
     del index
 
+    def render(req):
+        if "image_size" not in req:
+            raise ValueError("Invalid request, missing image_size")
+        if "pose" not in req:
+            raise ValueError("Invalid request, missing pose")
+        if "intrinsics" not in req:
+            raise ValueError("Invalid request, missing intrinsics")
+        if "output_type" not in req:
+            raise ValueError("Invalid request, missing output_type")
+        image_size = tuple(map(int, req.get("image_size").split(",")))
+        pose = np.array(list(map(float, req.get("pose").split(","))), dtype=np.float32).reshape(3, 4)
+        intrinsics = np.array(list(map(float, req.get("intrinsics").split(","))), dtype=np.float32)
+        frame = render_fn(threading.get_ident(), 
+                                pose=pose, 
+                                image_size=image_size, 
+                                intrinsics=intrinsics,
+                                output_type=req.get("output_type"),
+                                appearance_weights=req.get("appearance_weights"),
+                                appearance_train_indices=req.get("appearance_train_indices"),
+                                split_percentage=float(req.get("split_percentage", 0.5)),
+                                split_tilt=float(req.get("split_tilt", 0)),
+                                split_output_type=req.get("split_output_type"))
+
+        with io.BytesIO() as output, Image.fromarray(frame) as img:
+            img.save(output, format="JPEG")
+            output.seek(0)
+            frame_bytes = output.getvalue()
+        return frame_bytes
+
+    images_cache = {}
+
+    def get_dataset_image(req):
+        if "split" not in req:
+            raise ValueError("Invalid request, missing split")
+        if "idx" not in req:
+            raise ValueError("Invalid request, missing idx")
+        idx = int(req["idx"])
+        split = req["split"]
+        max_img_size = req.get("max_img_size")
+        if (split, idx, max_img_size) in images_cache:
+            return images_cache[(split, idx, max_img_size)]
+
+        from nerfbaselines.datasets import dataset_index_select, dataset_load_features
+        from nerfbaselines.utils import image_to_srgb
+
+        if datasets.get(split) is None:
+            return jsonify({"status": "error", "message": "Dataset not found"}), 404
+        dataset = datasets[split]
+        if not (0 <= idx < len(dataset["cameras"])): 
+            return jsonify({"status": "error", "message": "Image not found in the dataset"}), 404
+
+        dataset_slice = dataset_load_features(dataset_index_select(dataset, [idx]))
+        image = dataset_slice["images"][0]
+
+        will_cache = False
+        if max_img_size is not None:
+            W, H = image.shape[:2]
+            downsample_factor = max(1, min(W//int(max_img_size), H//int(max_img_size)))
+            image = image[::downsample_factor, ::downsample_factor]
+            if max_img_size < 200:
+                will_cache = True
+
+        image = image_to_srgb(image, 
+                              dtype=np.uint8, 
+                              color_space="srgb", 
+                              background_color=(dataset.get("metadata") or {}).get("background_color"))
+        with io.BytesIO() as output:
+            Image.fromarray(image).save(output, format="JPEG")
+            output.seek(0)
+            out = output.getvalue()
+        if will_cache:
+            images_cache[(split, idx, max_img_size)] = out
+        return out
+
+
+    def _handle_websocket_message(req):
+        thread = req.pop("thread")
+        try:
+            type = req.pop("type")
+            if type == "render":
+                frame_bytes = render(req)
+                return {"status": "ok", "payload": frame_bytes, "thread": thread}
+            elif type == "get_dataset_image":
+                image_bytes = get_dataset_image(req)
+                return {"status": "ok", "payload": image_bytes, "thread": thread}
+            else:
+                raise ValueError(f"Invalid message type: {type}")
+        except Exception as e:
+            return {"status": "error", "message": str(e), "thread": thread}
+
+    @app.route("/websocket", websocket=True)
+    def websocket():
+        ws = Server.accept(request.environ)
+        try:
+            while True:
+                reqdata = ws.receive()
+                req = json.loads(reqdata)
+                msg = _handle_websocket_message(req)
+                payload = msg.pop("payload", None)
+                if payload is None:
+                    ws.send(json.dumps(msg))
+                else:
+                    msg_bytes = json.dumps(msg).encode("utf-8")
+                    message_length = len(msg_bytes)
+                    ws.send(struct.pack(f"!I", message_length) + msg_bytes + payload)
+        except ConnectionClosed:
+            pass
+        return ''
+    del websocket
+
     @app.route("/info", methods=["GET"])
     def info():
         info = {
@@ -271,36 +452,14 @@ def _build_flake_app(render_fn,
     del get_state
 
     @app.route("/render", methods=["POST"])
-    def render():
+    def _render_route():
         req = request.json
-        if "image_size" not in req:
-            return jsonify({"status": "error", "message": "Invalid request, missing image_size"}), 400
-        if "pose" not in req:
-            return jsonify({"status": "error", "message": "Invalid request, missing pose"}), 400
-        if "intrinsics" not in req:
-            return jsonify({"status": "error", "message": "Invalid request, missing intrinsics"}), 400
-        if "output_type" not in req:
-            return jsonify({"status": "error", "message": "Invalid request, missing output_type"}), 400
-        image_size = tuple(map(int, req.get("image_size").split(",")))
-        pose = np.array(list(map(float, req.get("pose").split(","))), dtype=np.float32).reshape(3, 4)
-        intrinsics = np.array(list(map(float, req.get("intrinsics").split(","))), dtype=np.float32)
-        frame = render_fn(threading.get_ident(), 
-                                pose=pose, 
-                                image_size=image_size, 
-                                intrinsics=intrinsics,
-                                output_type=req.get("output_type"),
-                                appearance_weights=req.get("appearance_weights"),
-                                appearance_train_indices=req.get("appearance_train_indices"),
-                                split_percentage=float(req.get("split_percentage", 0.5)),
-                                split_tilt=float(req.get("split_tilt", 0)),
-                                split_output_type=req.get("split_output_type"))
-
-        with io.BytesIO() as output, Image.fromarray(frame) as img:
-            img.save(output, format="JPEG")
-            output.seek(0)
-            frame_bytes = output.getvalue()
+        try:
+            frame_bytes = render(req)
+        except ValueError as e:
+            return jsonify({"status": "error", "message": str(e)}), 400
         return Response(frame_bytes, mimetype="image/jpeg")
-    del render
+    del _render_route
 
     @app.route("/dataset/pointcloud.ply")
     def dataset_pointcloud():
@@ -341,35 +500,18 @@ def _build_flake_app(render_fn,
     del dataset_cameras
 
     @app.route("/dataset/images/<string:split>/<int:idx>.jpg")
-    def dataset_images(split, idx):
-        from nerfbaselines.datasets import dataset_index_select, dataset_load_features
-        from nerfbaselines.utils import image_to_srgb
-
-        if datasets.get(split) is None:
-            return jsonify({"status": "error", "message": "Dataset not found"}), 404
-        dataset = datasets[split]
-        if not (0 <= idx < len(dataset["cameras"])): 
-            return jsonify({"status": "error", "message": "Image not found in the dataset"}), 404
-
-        dataset_slice = dataset_load_features(dataset_index_select(dataset, [idx]))
-        image = dataset_slice["images"][0]
-
-        max_img_size = request.args.get("size")
-        if max_img_size is not None:
-            W, H = image.shape[:2]
-            downsample_factor = max(1, min(W//int(max_img_size), H//int(max_img_size)))
-            image = image[::downsample_factor, ::downsample_factor]
-
-        image = image_to_srgb(image, 
-                              dtype=np.uint8, 
-                              color_space="srgb", 
-                              background_color=(dataset.get("metadata") or {}).get("background_color"))
-        output = io.BytesIO()
-        Image.fromarray(image).save(output, format="JPEG")
-        output.seek(0)
-        return send_file(output, mimetype="image/jpeg")
-
-    del dataset_images
+    def _get_dataset_image_route(split, idx):
+        try:
+            max_img_size = request.args.get("size")
+            if max_img_size is not None and max_img_size != "":
+                max_img_size = int(max_img_size)
+            else:
+                max_img_size = None
+            image_bytes = get_dataset_image({"split": split, "idx": idx, "max_img_size": max_img_size})
+        except ValueError as e:
+            return jsonify({"status": "error", "message": str(e)}), 400
+        return Response(image_bytes, mimetype="image/jpeg")
+    del _get_dataset_image_route
 
     @app.route("/video/<string:videoid>", methods=["PUT"])
     def setup_video(videoid):

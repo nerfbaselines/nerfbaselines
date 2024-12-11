@@ -84,18 +84,14 @@
           <input type="number" id="camera_path_selected_keyframe_fov" name="camera_path_selected_keyframe_fov" min="1" max="175" step="1" value="60" data-enable-if="camera_path_selected_keyframe_override_fov" disabled>
           <input type="checkbox" name="camera_path_selected_keyframe_override_fov" />
         </div>
-        <div class="row" data-visible-if="dataset_train_appearance_options" style="justify-content: end">
+        <div class="row" style="justify-content: end">
           <label for="camera_path_selected_keyframe_appearance_train_index">Appearance</label>
           <select 
-                 id="camera_path_selected_keyframe_appearance_train_index" 
-                 name="camera_path_selected_keyframe_appearance_train_index"
-                 data-enable-if="camera_path_selected_keyframe_override_appearance_train_index"
-                 data-options="dataset_train_appearance_options"
-                 disabled>
+             id="camera_path_selected_keyframe_appearance_train_index" 
+             name="camera_path_selected_keyframe_appearance_train_index"
+             data-enable-if="dataset_train_appearance_options"
+             data-options="dataset_train_appearance_options">
           </select>
-          <input type="checkbox" 
-                 data-enable-if="render_appearance_train_index" disabled
-                 name="camera_path_selected_keyframe_override_appearance_train_index" />
           <img class="appearance-preview" data-visible-if="camera_path_selected_keyframe_appearance_url" data-bind-attr="src:camera_path_selected_keyframe_appearance_url" style="display: none" />
         </div>
         <div class="row">
@@ -183,7 +179,7 @@
               <select id="render_appearance_train_index_1" 
                 name="render_appearance_train_index"
                 data-enable-if="dataset_train_appearance_options"
-                data-options="dataset_train_appearance_options_with_default"
+                data-options="dataset_train_appearance_options"
                 disabled>
               </select>
               <img class="appearance-preview" data-visible-if="render_appearance_image_url" data-bind-attr="src:render_appearance_image_url"  style="display: none" />
@@ -260,18 +256,6 @@
             <label for="camera_path_default_fov">FOV</label>
             <input type="range" id="camera_path_default_fov" name="camera_path_default_fov" min="1" max="175" step="1" value="60">
             <input type="number" id="camera_path_default_fov_number" name="camera_path_default_fov" min="1" max="175" step="1" value="60">
-          </div>
-
-          <div class="row" style="justify-content: end">
-            <label for="render_appearance_train_index_2">Appearance</label>
-            <select id="render_appearance_train_index_2" 
-                    name="render_appearance_train_index"
-                    data-enable-if="dataset_train_appearance_options"
-                    data-options="dataset_train_appearance_options_with_default"
-                    disabled>
-            </select>
-            <img class="appearance-preview" data-visible-if="render_appearance_image_url"  data-bind-attr="src:render_appearance_image_url"   style="display: none" />
-            <div class="input-hint">Appearance of one of the train image.</div>
           </div>
 
           <div class="row">

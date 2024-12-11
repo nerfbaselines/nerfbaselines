@@ -65,60 +65,6 @@ class SettingsManager {
 }
 
 
-function ppsTracker() {
-  // Initialize sufficient statistics
-  let n = 0;
-  let S_x = 0;
-  let S_y = 0;
-  let S_xx = 0;
-  let S_xy = 0;
-
-  // Measure function to collect statistics
-  const measure = (width, height) => {
-    const startTime = performance.now();
-    return () => {
-      const duration = (performance.now() - startTime) / 1000;
-      const P = width * height;
-
-      // Update running statistics
-      n += 1;
-      S_x += P;
-      S_y += duration;
-      S_xx += P * P;
-      S_xy += P * duration;
-    };
-  };
-
-  // Calculate linear regression parameters (a and b)
-  const getLinearParameters = () => {
-    if (n < 2) {
-      // Not enough data points to compute linear regression
-      return [0, 0];
-    }
-
-    const a = (n * S_xy - S_x * S_y) / (n * S_xx - S_x * S_x + 1e-5);
-    const b = (S_y - a * S_x) / n;
-    return [a, b];
-  };
-
-  // Get recommended number of pixels based on FPS
-  const getNumPixels = (fps) => {
-    if (n < 2) {
-      // Fallback value if no updates available
-      return (30 * 16 * 16) / fps;
-    }
-
-    const [a, b] = getLinearParameters();
-    const pixels = ((1 / fps) - b) / a;
-
-    // Ensure minimum pixel size of 16x16
-    return Math.max(16 * 16, pixels);
-  };
-
-  return { measure, getNumPixels };
-}
-
-
 function computeResolution(rendererResolution, maxResolution) {
   if (maxResolution === undefined) {
     return rendererResolution;
@@ -593,127 +539,126 @@ function _attach_viewport_split_slider(viewer) {
   update(viewer._gui_state);
 }
 
-
-class HTTPRenderer extends THREE.EventDispatcher {
-  constructor({ url, get_camera_params, state }) {
-    super();
+class WebSocketEndpoint {
+  constructor({ url, update_notification }) {
     this.url = url;
-    this.get_camera_params = get_camera_params;
-    this.state = state;
-    this._num_errors = 0;
-    this._running = true;
-    this.ppsTracker = ppsTracker();
+    this._socket = undefined;
+    this._subscriptions = {};
+    this._thread_counter = 0;
   }
 
-  start() {
-    let lastUpdate = Date.now() - 1;
-    let lastParams = undefined;
-    let wasFullRender = false;
+  _on_message(message) {
+    const { thread, status } = message;
+    const [ resolve, reject ] = this._subscriptions[thread];
+    if (thread === undefined || this._subscriptions[thread] === undefined) {
+      console.error("Invalid thread id:", thread);
+      update_notification({
+        header: "Invalid thread id",
+        detail: `Received message with invalid thread id: ${thread}`,
+        type: "error",
+        closeable: true,
+      });
+      return;
+    }
+    delete this._subscriptions[thread];
+    if (status === "error") {
+      reject(message);
+    } else {
+      resolve(message);
+    }
+  }
 
-    const _get_params = ({ resolution, width, height, fov, matrix, ...rest }) => {
-      [width, height] = computeResolution([width, height], resolution);
-      const round = (x) => Math.round(x * 100000) / 100000;
-      const focal = height / (2 * Math.tan(THREE.MathUtils.degToRad(fov) / 2));
-      const request = {
-        pose: matrix4ToArray(matrix).map(round).join(","),
-        intrinsics: [focal, focal, width/2, height/2].map(round).join(","),
-        image_size: `${width},${height}`,
-        output_type: this.state.output_type,
-        ...rest
-      };
-      if (state.split_enabled && state.split_output_type) {
-        request.split_output_type = state.split_output_type;
-        request.split_percentage = "" + round(state.split_percentage === undefined ? 0.5 : state.split_percentage);
-        request.split_tilt = "" + round(state.split_tilt || 0.0);
-      }
-      return JSON.stringify(request);
-    };
-
-    const _updateSingle = async (next) => {
-      try {
-        let cameraParams = this.get_camera_params();
-        let height = viewport.clientHeight;
-        let width = Math.round(height * cameraParams.aspect);
-        let params;
-        if (this.state.prerender_enabled) {
-          if (wasFullRender) {
-            params = _get_params({ 
-              resolution: this.state.render_resolution, 
-              width, height, ...cameraParams });
-            if (params !== lastParams) {
-              params = _get_params({ 
-                resolution: this.state.prerender_resolution, 
-                width, height, ...cameraParams });
-              wasFullRender = false;
-            }
-          } else {
-            params = _get_params({ 
-              resolution: this.state.prerender_resolution, 
-              width, height, ...cameraParams });
-            if (params === lastParams) {
-              params = _get_params({ 
-                resolution: this.state.render_resolution, 
-                width, height, ...cameraParams });
-              wasFullRender = true;
-            }
-          }
-        } else {
-          params = _get_params({ 
-            resolution: this.state.render_resolution, 
-            width, height, ...cameraParams });
-        }
-        if (params === lastParams) return;
-        lastParams = params;
-        const measure = this.ppsTracker.measure(width, height);
-        const response = await fetch(`${this.url}`,{
-          method: "POST",  // Disable caching
-          cache: "no-cache",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: params,
-        });
-        // Read response as blob
-        const blob = await response.blob();
-        const blobSrc = URL.createObjectURL(blob);
-        const image = new Image();
-        await new Promise((resolve, reject) => {
-          image.onload = () => {
-            resolve();
-          };
-          image.onerror = (error) => {
-            URL.revokeObjectURL(blobSrc);
-            reject(error);
-          };
-          image.src = blobSrc;
-        });
-        measure();
-        this._num_errors = 0;
-        if (!this._running) return;
-        this.dispatchEvent({ type: "frame", image });
-        URL.revokeObjectURL(blobSrc);
-      } catch (error) {
-        this._num_errors++;
-        console.error("Error fetching image:", error);
-        if (!this._running) return;
-        this.dispatchEvent({ type: "error", error });
-      }
-    };
-
-    const run = () => {
-      _updateSingle().then(() => {
-        if (this._running && this._num_errors < 10) {
-          const wait = Math.max(0, 1000 / 30 - (Date.now() - lastUpdate));
-          lastUpdate = Date.now();
-          setTimeout(() => run(), wait);
+  async _ensure_socket() {
+    if (this._socket === undefined) {
+      this._socket = await new Promise((resolve, reject) => {
+        try {
+          const socket = new WebSocket(this.url + "/websocket");
+          socket.binaryType = "blob";
+          socket.addEventListener("open", () => {
+            console.log("WebSocket connection established");
+            resolve(socket);
+          });
+        } catch (error) {
+          reject(error);
         }
       });
-    };
-    run();
+      this._socket.addEventListener("close", () => {
+        console.log("WebSocket connection closed");
+        this._socket = undefined;
+      });
+      this._socket.addEventListener("error", (error) => {
+        console.error("WebSocket error:", error);
+        update_notification({
+          id: "websocket",
+          header: "WebSocket error",
+          detail: error.message,
+          type: "error",
+          closeable: true,
+        });
+      });
+      this._socket.addEventListener("message", async (event) => {
+        let message;
+        if (event.data instanceof Blob) {
+          const blob = event.data;
+          const headerLength = new DataView(await blob.slice(0, 4).arrayBuffer()).getUint32(0, false);
+          message = JSON.parse(await blob.slice(4, 4 + headerLength).text());
+          // Read binnary buffers
+          if (blob.size > 4 + headerLength) {
+            message.payload = blob.slice(4 + headerLength);
+          }
+        } else {
+          message = JSON.parse(event.data);
+        }
+        this._on_message(message);
+      });
+    }
   }
 
-  dispose() {
-    this._running = false;
+  async render(params) {
+    await this._ensure_socket();
+    this._thread_counter++;
+    const message = await new Promise((resolve, reject) => {
+      this._subscriptions[this._thread_counter] = [resolve, reject];
+      this._socket.send(JSON.stringify({
+        thread: this._thread_counter,
+        type: "render",
+        ...params,
+      }));
+    });
+    return await createImageBitmap(message.payload, { imageOrientation: "flipY" });
+    // const response = await fetch(`${this.url}/render`,{
+    //   method: "POST",  // Disable caching
+    //   cache: "no-cache",
+    //   headers: {
+    //     "Content-Type": "application/json",
+    //   },
+    //   body: params,
+    // });
+    // // Read response as blob
+    // const blob = await response.blob();
+    // return await createImageBitmap(blob, { imageOrientation: "flipY" });
+  }
+}
+
+class HTTPEndpoint {
+  constructor({ url }) {
+    this.url = url;
+  }
+
+  async render(params) {
+    const response = await fetch(`${this.url}/render`,{
+      method: "POST",  // Disable caching
+      cache: "no-cache",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(params),
+    });
+
+
+    // Read response as blob
+    const blob = await response.blob();
+    return await createImageBitmap(blob, { imageOrientation: "flipY" });
   }
 }
 
@@ -721,9 +666,11 @@ class HTTPRenderer extends THREE.EventDispatcher {
 class DatasetManager {
   constructor({
     viewer,
+    endpoint,
     url,
     parts,
   }) {
+    this.endpoint = endpoint;
     this.viewer = viewer;
     this.scene = viewer.scene;
     this.url = url;
@@ -856,7 +803,7 @@ class DatasetManager {
         this._progress[`${split}_loaded`] = 0;
         this._progress[`${split}_total`] = cameras.length;
         let i = 0;
-        const appearance_options = [];
+        const appearance_options = [{label: "default", value: ""}];
         for (const camera of cameras) {
           const pose = camera.pose; // Assuming pose is a flat array representing a 3x4 matrix
           if (pose.length !== 12) {
@@ -933,12 +880,6 @@ class DatasetManager {
           i++;
         }
         this.viewer.notifyChange({ property: 'dataset_images' });
-
-        this.viewer._gui_state[`dataset_${split}_appearance_options_with_default`] = [
-          {label: "default", value: ""}, 
-          ...appearance_options];
-        this.viewer.notifyChange({ property: `dataset_${split}_appearance_options_with_default` });
-
         this.viewer._gui_state[`dataset_${split}_appearance_options`] = appearance_options;
         this.viewer.notifyChange({ property: `dataset_${split}_appearance_options` });
       },
@@ -1009,17 +950,16 @@ function _attach_selected_keyframe_details(viewer) {
 
   const updateSelectedKeyframe = (state) => {
     const { dataset_images, camera_path_keyframes, 
-            camera_path_selected_keyframe, camera_path_loop, render_appearance_train_index } = state;
+            camera_path_selected_keyframe, camera_path_loop } = state;
     const { keyframe, nextKeyframe, keyframeIndex } = getKeyframes(state);
     const def = x => x !== undefined && x !== null;
     const change = {
       camera_path_selected_keyframe_natural_index: keyframeIndex + 1,
       camera_path_has_selected_keyframe: def(camera_path_selected_keyframe),
       camera_path_selected_keyframe_appearance_train_index: def(keyframe?.appearance_train_index) ? 
-        keyframe.appearance_train_index : state.render_appearance_train_index,
-      camera_path_selected_keyframe_appearance_url:  
-        dataset_images?.[`train/${def(keyframe?.appearance_train_index) ? keyframe.appearance_train_index : render_appearance_train_index }`]?.image_url,
-      camera_path_selected_keyframe_override_appearance_train_index: def(keyframe?.appearance_train_index),
+        keyframe.appearance_train_index : "",
+      camera_path_selected_keyframe_appearance_url: def(keyframe?.appearance_train_index) ?
+        dataset_images?.[`train/${keyframe.appearance_train_index}`]?.image_url : "",
       camera_path_selected_keyframe_fov: def(keyframe?.fov) ? keyframe.fov : state.camera_path_default_fov,
       camera_path_selected_keyframe_override_fov: def(keyframe?.fov),
       camera_path_selected_keyframe_override_in_transition: def(keyframe?.transition_duration),
@@ -1047,19 +987,6 @@ function _attach_selected_keyframe_details(viewer) {
         }
       } else {
         keyframe.fov = undefined;
-        viewer.notifyChange({ property: "camera_path_keyframes" });
-      }
-      return
-    }
-
-    if (property === "camera_path_selected_keyframe_override_appearance_train_index" && keyframe) {
-      if (state.camera_path_selected_keyframe_override_appearance_train_index) {
-        if (keyframe?.appearance_train_index === undefined) {
-          keyframe.appearance_train_index = state.render_appearance_train_index;
-          viewer.notifyChange({ property: "camera_path_keyframes" });
-        }
-      } else {
-        keyframe.appearance_train_index = undefined;
         viewer.notifyChange({ property: "camera_path_keyframes" });
       }
       return
@@ -1116,10 +1043,22 @@ function _attach_selected_keyframe_details(viewer) {
     }
 
     if (property === "camera_path_selected_keyframe_appearance_train_index" && keyframe) {
-      if (state.camera_path_selected_keyframe_override_appearance_train_index) {
-        keyframe.appearance_train_index = state.camera_path_selected_keyframe_appearance_train_index;
-        viewer.notifyChange({ property: "camera_path_keyframes" });
+      const index = state.camera_path_selected_keyframe_appearance_train_index === "" ? 
+        undefined : parseInt(state.camera_path_selected_keyframe_appearance_train_index);
+      keyframe.appearance_train_index = index;
+      for (const k of state.camera_path_keyframes) {
+        if (keyframe.appearance_train_index !== undefined) {
+          // Fill in missing appearance_train_index
+          if (k.appearance_train_index === undefined) {
+            k.appearance_train_index = keyframe.appearance_train_index;
+          }
+        } else {
+          // Clear appearance_train_index since it is 
+          // not allowed to interpolate default appearance
+          k.appearance_train_index = undefined;
+        }
       }
+      viewer.notifyChange({ property: "camera_path_keyframes" });
       return;
     }
 
@@ -1136,8 +1075,7 @@ function _attach_selected_keyframe_details(viewer) {
         property === "camera_path_selected_keyframe" ||
         property === "camera_path_loop" ||
         property === "camera_path_default_transition_duration" ||
-        property === "dataset_images" ||
-        property === "render_appearance_train_index")
+        property === "dataset_images")
       updateSelectedKeyframe(state);
   });
   updateSelectedKeyframe(viewer._gui_state);
@@ -1149,9 +1087,13 @@ class Viewer extends THREE.EventDispatcher {
     viewport, 
     viewer_transform,
     viewer_initial_pose,
+    url,
+    endpoint,
   }) {
     super();
+    this.endpoint = endpoint;
     this._backgroundTexture = undefined;
+    this.viewport = viewport;
     const width = viewport.clientWidth;
     const height = viewport.clientHeight;
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -1299,23 +1241,105 @@ class Viewer extends THREE.EventDispatcher {
     this.set_camera({ matrix });
   }
 
-  set_http_renderer(url) {
-    if (this.http_renderer) {
-      this.http_renderer.dispose();
-      this.http_renderer = undefined;
+  _get_render_params() {
+    const state = this._gui_state;
+
+    const _get_params = ({ resolution, width, height, fov, matrix, ...rest }) => {
+      [width, height] = computeResolution([width, height], resolution);
+      const round = (x) => Math.round(x * 100000) / 100000;
+      const focal = height / (2 * Math.tan(THREE.MathUtils.degToRad(fov) / 2));
+      const request = {
+        pose: matrix4ToArray(matrix).map(round).join(","),
+        intrinsics: [focal, focal, width/2, height/2].map(round).join(","),
+        image_size: `${width},${height}`,
+        output_type: state.output_type,
+        ...rest
+      };
+      if (state.split_enabled && state.split_output_type) {
+        request.split_output_type = state.split_output_type;
+        request.split_percentage = "" + round(state.split_percentage === undefined ? 0.5 : state.split_percentage);
+        request.split_tilt = "" + round(state.split_tilt || 0.0);
+      }
+      return request;
     }
 
+    let cameraParams = this._get_camera_params();
+    let height = this.viewport.clientHeight;
+    let width = Math.round(height * cameraParams.aspect);
+    let params, paramsJSON;
+    if (state.prerender_enabled) {
+      if (this._was_full_render) {
+        params = _get_params({ 
+          resolution: state.render_resolution, 
+          width, height, ...cameraParams });
+        paramsJSON = JSON.stringify(params);
+        if (paramsJSON !== this._last_render_params) {
+          params = _get_params({ 
+            resolution: state.prerender_resolution, 
+            width, height, ...cameraParams });
+          paramsJSON = JSON.stringify(params);
+          this._was_full_render = false;
+        }
+      } else {
+        params = _get_params({ 
+          resolution: state.prerender_resolution, 
+          width, height, ...cameraParams });
+        paramsJSON = JSON.stringify(params);
+        if (paramsJSON === this._last_render_params) {
+          params = _get_params({ 
+            resolution: state.render_resolution, 
+            width, height, ...cameraParams });
+          paramsJSON = JSON.stringify(params);
+          this._was_full_render = true;
+        }
+      }
+    } else {
+      params = _get_params({ 
+        resolution: state.render_resolution, 
+        width, height, ...cameraParams });
+      paramsJSON = JSON.stringify(params);
+    }
+    if (paramsJSON === this._last_render_params) return;
+    this._last_render_params = paramsJSON;
+    return params;
+  }
+
+  start_renderer() {
     // Connect HTTP renderer
-    this.http_renderer = new HTTPRenderer({ 
-      url,
-      get_camera_params: () => this._get_camera_params(),
-      state: this._gui_state,
-    });
-    this.http_renderer.addEventListener("frame", ({ image }) => {
-      this._last_frames[0] = image;
-      this._draw_background();
-    });
-    this.http_renderer.start();
+
+    let lastUpdate = Date.now() - 1;
+    const run = async () => {
+      while (true) {
+        try {
+          const params = this._get_render_params();
+          if (params !== undefined) {
+            const image = await this.endpoint.render(params);
+            this.dispatchEvent({ type: "frame", image });
+            this._last_frames[0] = image;
+            this._draw_background();
+          }
+
+          // Wait
+          const wait = Math.max(0, 1000 / 30 - (Date.now() - lastUpdate));
+          lastUpdate = Date.now();
+          if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+        } catch (error) {
+          console.error("Error updating single frame:", error.message);
+          this._update_notification({
+            header: "Error rendering frame",
+            detail: error.message,
+            type: "error",
+            id: "renderer",
+            closeable: true,
+          });
+        }
+      }
+      update_single().then(() => {
+      }).catch((error) => {
+      });
+    };
+
+    run();
 
     // Update state
     this._gui_state.has_method = true;
@@ -1330,6 +1354,7 @@ class Viewer extends THREE.EventDispatcher {
     // Add DatasetManager
     this.dataset_manager = new DatasetManager({ 
       viewer: this, 
+      endpoint: this.endpoint,
       url,
       parts,
     });
@@ -1371,8 +1396,12 @@ class Viewer extends THREE.EventDispatcher {
     const fov = this.camera.fov;
     let appearance_train_indices = undefined;
     let appearance_weights = undefined;
-    if (this._gui_state.render_appearance_train_index !== undefined &&  
-        this._gui_state.render_appearance_train_index !== "") {
+    if (this._gui_state.selected_camera_path_keyframe_appearance_train_index !== undefined &&
+        this._gui_state.selected_camera_path_keyframe_appearance_train_index !== "") {
+      appearance_train_indices = [parseInt(this._gui_state.selected_camera_path_keyframe_appearance_train_index)];
+      appearance_weights = [1]
+    } else if (this._gui_state.render_appearance_train_index !== undefined &&  
+               this._gui_state.render_appearance_train_index !== "") {
       appearance_train_indices = [parseInt(this._gui_state.render_appearance_train_index)];
       appearance_weights = [1]
     }
@@ -1564,9 +1593,6 @@ class Viewer extends THREE.EventDispatcher {
             if (x.appearance_train_index !== undefined && x.appearance_train_index !== "") {
               return parseInt(x.appearance_train_index);
             }
-            if (render_appearance_train_index !== undefined && render_appearance_train_index !== "") {
-              return parseInt(render_appearance_train_index);
-            }
             return undefined;
           });
           if (appearance_train_indices.some(x => x === undefined)) {
@@ -1688,9 +1714,6 @@ class Viewer extends THREE.EventDispatcher {
       interpolation: state.camera_path_interpolation,
       keyframes,
       default_fov: state.camera_path_default_fov,
-      default_appearance: state.render_appearance_train_index === undefined ? undefined : {
-        "embedding_train_index": state.render_appearance_train_index,
-      },
     };
     let fps = state.camera_path_framerate;
     if (source.interpolation === "kochanek-bartels") {
@@ -1760,7 +1783,6 @@ class Viewer extends THREE.EventDispatcher {
         }
         return appearance;
       }
-      const def_app = validate_appearance(source.default_appearance);
       state.camera_path_interpolation = interpolation;
       [state.camera_path_resolution_1, state.camera_path_resolution_2] = data.image_size;
       if (interpolation === "kochanek-bartels") {
@@ -1776,9 +1798,6 @@ class Viewer extends THREE.EventDispatcher {
         default_transition_duration,
       } = source;
       state.camera_path_default_fov = default_fov;
-      if (def_app) {
-        state.render_appearance_train_index = def_app.embedding_train_index;
-      }
       if (source.default_transition_duration !== undefined && source.default_transition_duration !== null) {
         state.camera_path_default_transition_duration = default_transition_duration;
       }
@@ -2241,7 +2260,10 @@ class Viewer extends THREE.EventDispatcher {
       const y = (height - scaledHeight) / 2;
       this._preview_context.fillStyle = "black";
       this._preview_context.fillRect(0, 0, width, height);
-      this._preview_context.drawImage(image, x, y, scaledWidth, scaledHeight);
+      this._preview_context.save();
+      this._preview_context.scale(1, -1);
+      this._preview_context.drawImage(image, x, -(y + scaledHeight), scaledWidth, scaledHeight);
+      this._preview_context.restore();
     }
   }
 }
@@ -2339,12 +2361,16 @@ fetch("./info")
       viewport,
       viewer_transform,
       viewer_initial_pose,
+      endpoint: new WebSocketEndpoint({ 
+        url: ".",
+        update_notification: (notification) => {
+          viewer._update_notification(notification);
+        }
+      }),
     });
     window.viewer = viewer;
     viewer.attach_gui(document.querySelector('.controls'));
-    if (data.renderer_url) {
-      viewer.set_http_renderer(data.renderer_url);
-    }
+    viewer.start_renderer();
     if (data.dataset_url) {
       viewer.set_dataset({
         url: data.dataset_url, 
