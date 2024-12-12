@@ -471,7 +471,6 @@ def _build_flake_app(render_fn,
         if points3D_xyz is None:
             return jsonify({"status": "error", "message": "No pointcloud in dataset"}), 404
         output = create_ply_bytes(points3D_xyz, points3D_rgb)
-        # return send_file(output, mimetype="application/octet-stream")
         return send_file(output, download_name="pointcloud.ply", as_attachment=True)
         # return create_and_send_ply(points3D_xyz, points3D_rgb)
     del dataset_pointcloud
