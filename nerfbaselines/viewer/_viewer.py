@@ -20,7 +20,7 @@ from nerfbaselines.utils import image_to_srgb, visualize_depth, apply_colormap
 
 from functools import wraps
 from flask import Blueprint, request, Response, current_app
-from simple_websocket import Server, ConnectionClosed
+from ._websocket import Server, ConnectionClosed
 
 pcs = set()
 candidates = []
