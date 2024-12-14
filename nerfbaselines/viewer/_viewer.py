@@ -18,80 +18,13 @@ from nerfbaselines import __version__
 from nerfbaselines.results import get_dataset_info
 from nerfbaselines.utils import image_to_srgb, visualize_depth, apply_colormap
 
-from functools import wraps
-from flask import Blueprint, request, Response, current_app
-from ._websocket import Server, ConnectionClosed
+from flask import request, Response
+from ._websocket import flask_websocket_route
 
 pcs = set()
 candidates = []
 
 TEMPLATES_AUTO_RELOAD = True
-
-
-def websocket_route(app, path, **kwargs):
-    """Decorator to create a WebSocket route.
-
-    The decorated function will be invoked when a WebSocket client
-    establishes a connection, with a WebSocket connection object passed
-    as an argument. Example::
-
-        @sock.route('/ws')
-        def websocket_route(ws):
-            # The ws object has the following methods:
-            # - ws.send(data)
-            # - ws.receive(timeout=None)
-            # - ws.close(reason=None, message=None)
-
-    If the route has variable components, the ``ws`` argument needs to be
-    included before them.
-
-    :param path: the URL associated with the route.
-    :param bp: the blueprint on which to register the route. If not given,
-               the route is attached directly to the Flask application
-               instance. When a blueprint is used, the application is
-               responsible for the blueprint's registration.
-    :param kwargs: additional route options. See the Flask documentation
-                   for the ``app.route`` decorator for details.
-    """
-    def decorator(f):
-        @wraps(f)
-        def websocket_route(*args, **kwargs):  # pragma: no cover
-            ws = Server(request.environ, **current_app.config.get(
-                'SOCK_SERVER_OPTIONS', {}))
-            try:
-                f(ws, *args, **kwargs)
-            except ConnectionClosed:
-                pass
-            try:
-                ws.close()
-            except:  # noqa: E722
-                pass
-
-            class WebSocketResponse(Response):
-                def __call__(self, *args, **kwargs):
-                    if ws.mode == 'eventlet':
-                        try:
-                            from eventlet.wsgi import WSGI_LOCAL
-                            ALREADY_HANDLED = []
-                        except ImportError:
-                            from eventlet.wsgi import ALREADY_HANDLED
-                            WSGI_LOCAL = None
-
-                        if hasattr(WSGI_LOCAL, 'already_handled'):
-                            WSGI_LOCAL.already_handled = True
-                        return ALREADY_HANDLED
-                    elif ws.mode == 'gunicorn':
-                        raise StopIteration()
-                    elif ws.mode == 'werkzeug':
-                        return super().__call__(*args, **kwargs)
-                    else:
-                        return []
-
-            return WebSocketResponse()
-
-        kwargs['websocket'] = True
-        app.route(path, **kwargs)(websocket_route)
-    return decorator
 
 
 def create_ply_bytes(points3D_xyz, points3D_rgb=None):
@@ -334,24 +267,39 @@ def _build_flake_app(render_fn,
         except Exception as e:
             return {"status": "error", "message": str(e), "thread": thread}
 
-    @app.route("/websocket", websocket=True)
-    def websocket():
-        ws = Server.accept(request.environ)
-        try:
-            while True:
-                reqdata = ws.receive()
-                req = json.loads(reqdata)
-                msg = _handle_websocket_message(req)
-                payload = msg.pop("payload", None)
-                if payload is None:
-                    ws.send(json.dumps(msg))
-                else:
-                    msg_bytes = json.dumps(msg).encode("utf-8")
-                    message_length = len(msg_bytes)
-                    ws.send(struct.pack(f"!I", message_length) + msg_bytes + payload)
-        except ConnectionClosed:
-            pass
-        return ''
+    # @app.route("/websocket", websocket=True)
+    # def websocket():
+    #     ws = Server.accept(request.environ)
+    #     try:
+    #         while True:
+    #             reqdata = ws.receive()
+    #             req = json.loads(reqdata)
+    #             msg = _handle_websocket_message(req)
+    #             payload = msg.pop("payload", None)
+    #             if payload is None:
+    #                 ws.send(json.dumps(msg))
+    #             else:
+    #                 msg_bytes = json.dumps(msg).encode("utf-8")
+    #                 message_length = len(msg_bytes)
+    #                 ws.send(struct.pack(f"!I", message_length) + msg_bytes + payload)
+    #     except ConnectionClosed:
+    #         pass
+    #     return ''
+    # del websocket
+
+    @flask_websocket_route(app, "/websocket")
+    def websocket(ws):
+        while True:
+            reqdata = ws.receive()
+            req = json.loads(reqdata)
+            msg = _handle_websocket_message(req)
+            payload = msg.pop("payload", None)
+            if payload is None:
+                ws.send(json.dumps(msg))
+            else:
+                msg_bytes = json.dumps(msg).encode("utf-8")
+                message_length = len(msg_bytes)
+                ws.send(struct.pack(f"!I", message_length) + msg_bytes + payload)
     del websocket
 
     @app.route("/info", methods=["GET"])

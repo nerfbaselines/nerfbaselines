@@ -9,7 +9,7 @@ from enum import Enum, IntEnum
 from collections import deque
 from codecs import getincrementaldecoder
 from typing import Optional, Union, Generator, Tuple, Deque, NamedTuple, Generic, List, TypeVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import selectors
 from time import time
 
@@ -1506,6 +1506,11 @@ class Server:
         return keep_going
 
 
+#
+# End of licensed code
+#
+
+
 def http_handshake(headers, extensions):
     """
     HTTP handshake for WebSocket connections.
@@ -1595,6 +1600,7 @@ def flask_websocket_route(app, *args, **kwargs):
 
             class WebSocketResponse(Response):
                 def __call__(self, *args, **kwargs):
+                    del kwargs
                     if mode == 'eventlet':
                         try:
                             from eventlet.wsgi import WSGI_LOCAL
@@ -1609,12 +1615,13 @@ def flask_websocket_route(app, *args, **kwargs):
                     elif mode == 'gunicorn':
                         raise StopIteration()
                     elif mode == 'werkzeug':
+                        # A hack to prevent Werkzeug from sending the response
+                        # NOTE: This hack is very dirty and may not work in future versions of Werkzeug
                         start_response = args[1]
-                        try:
-                            start_response(object(), headers)
-                        except Exception:
-                            pass
-                        # return super().__call__(*args, **kwargs)
+                        write = start_response(object(), headers)
+                        try: write(b'')
+                        except Exception: pass
+                        return []
                     else:
                         return []
 
@@ -1624,75 +1631,15 @@ def flask_websocket_route(app, *args, **kwargs):
 
 
 if __name__ == "__main__":
-    from flask import Flask, request, Response
+    # Testing code for websocket
+    from flask import Flask
     app = Flask(__name__)
 
-    @app.route("/websocket", websocket=True)
-    def websocket():
-        extensions = [PerMessageDeflate()]
-        status, setup_message, headers = http_handshake(request.headers, extensions)
-        if status != 101:
-            return Response(setup_message, status=status, headers=headers)
-        sock, mode = _get_sock(request.environ)
-
-        # Send handshake message
-        message = b'HTTP/1.1 101 \r\n'
-        for key, value in headers:
-            message += f'{key}: {value}\r\n'.encode()
-        message += b'\r\n'
-        sock.send(message)
-
-        try:
-            # Start the server pulling thread
-            ws = Server(sock, extensions=extensions)
-
-            def generate():
-                while True:
-                    ws.send('hi')
-                    print(ws.receive())
-                    ws.close()
-                    # ws.send('hi')
-                    
-
-            generate()
-            # response = Response(generate(), status=101, headers=headers)
-            # response.headers["Connection"] = "Upgrade"
-            # response.headers.pop("Content-Type")
-            # return response
-        except ConnectionClosed:
-            pass
-        try:
-            ws.close()
-        except:  # noqa: E722
-            pass
-
-        class WebSocketResponse(Response):
-            def __call__(self, *args, **kwargs):
-                if mode == 'eventlet':
-                    try:
-                        from eventlet.wsgi import WSGI_LOCAL
-                        ALREADY_HANDLED = []
-                    except ImportError:
-                        from eventlet.wsgi import ALREADY_HANDLED
-                        WSGI_LOCAL = None
-
-                    if hasattr(WSGI_LOCAL, 'already_handled'):
-                        WSGI_LOCAL.already_handled = True
-                    return ALREADY_HANDLED
-                elif mode == 'gunicorn':
-                    raise StopIteration()
-                elif mode == 'werkzeug':
-                    # A hack to prevent Werkzeug from sending the response
-                    # NOTE: This hack is very dirty and may not work in future versions of Werkzeug
-                    start_response = args[1]
-                    write = start_response(object(), headers)
-                    try: write(b'')
-                    except Exception: pass
-                    return []
-                else:
-                    return []
-
-        return WebSocketResponse()
+    @flask_websocket_route(app, "/websocket")
+    def websocket(ws):
+        while True:
+            ws.send('hi')
+            print(ws.receive())
     del websocket
 
     @app.route("/index.html")
@@ -1725,7 +1672,7 @@ socket.addEventListener("message", async (event) => {
   console.log(event.data);
     await socket.send("Hello, WebSocket!");
     console.log("Message sent");
-    //socket.close();
+    socket.close();
 });
 };
 main();
@@ -1733,28 +1680,3 @@ main();
 </html>'''
 
     app.run(host="0.0.0.0", port=5002)
-
-
-#         def generate():
-#             try:
-#                 fn(ws)
-#             except ConnectionClosed:
-#                 pass
-#             try:
-#                 ws.close()
-#             except:  # noqa: E722
-#                 pass
-#             print('Connection closed')    
-#             return b''
-#         return Response()
-# 
-#         while True:
-#             reqdata = ws.receive()
-#             print(reqdata)
-#             # payload = msg.pop("payload", None)
-#             # if payload is None:
-#             #     ws.send(json.dumps(msg))
-#             # else:
-#             #     msg_bytes = json.dumps(msg).encode("utf-8")
-#             #     message_length = len(msg_bytes)
-#             #     ws.send(struct.pack(f"!I", message_length) + msg_bytes + payload)
