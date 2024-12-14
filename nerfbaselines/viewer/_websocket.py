@@ -1,3 +1,5 @@
+import logging
+import threading
 import struct
 import hashlib
 import os
@@ -1478,14 +1480,9 @@ def client_extensions_handshake(accepted: Iterable[str], supported):
 class H11Handshake:
     """A Handshake implementation for HTTP/1.1 connections."""
 
-    def __init__(self, connection_type: ConnectionType) -> None:
-        self.client = connection_type is ConnectionType.CLIENT
+    def __init__(self) -> None:
         self._state = ConnectionState.CONNECTING
-
-        if self.client:
-            self._h11_connection = h11.Connection(h11.CLIENT)
-        else:
-            self._h11_connection = h11.Connection(h11.SERVER)
+        self._h11_connection = h11.Connection(h11.SERVER)
 
         self._connection: Optional[Connection] = None
         self._events: Deque[Event] = deque()
@@ -1519,9 +1516,7 @@ class H11Handshake:
         :rtype: bytes
         """
         data = b""
-        if isinstance(event, Request):
-            data += self._initiate_connection(event)
-        elif isinstance(event, AcceptConnection):
+        if isinstance(event, AcceptConnection):
             data += self._accept(event)
         elif isinstance(event, RejectConnection):
             data += self._reject(event)
@@ -1556,38 +1551,8 @@ class H11Handshake:
             ):
                 break
 
-            if self.client:
-                if isinstance(event, h11.InformationalResponse):
-                    if event.status_code == 101:
-                        self._events.append(self._establish_client_connection(event))
-                    else:
-                        self._events.append(
-                            RejectConnection(
-                                headers=list(event.headers),
-                                status_code=event.status_code,
-                                has_body=False,
-                            )
-                        )
-                        self._state = ConnectionState.CLOSED
-                elif isinstance(event, h11.Response):
-                    self._state = ConnectionState.REJECTING
-                    self._events.append(
-                        RejectConnection(
-                            headers=list(event.headers),
-                            status_code=event.status_code,
-                            has_body=True,
-                        )
-                    )
-                elif isinstance(event, h11.Data):
-                    self._events.append(
-                        RejectData(data=event.data, body_finished=False)
-                    )
-                elif isinstance(event, h11.EndOfMessage):
-                    self._events.append(RejectData(data=b"", body_finished=True))
-                    self._state = ConnectionState.CLOSED
-            else:
-                if isinstance(event, h11.Request):
-                    self._events.append(self._process_connection_request(event))
+            if isinstance(event, h11.Request):
+                self._events.append(self._process_connection_request(event))
 
     def events(self) -> Generator[Event, None, None]:
         """Return a generator that provides any events that have been generated
@@ -1595,11 +1560,11 @@ class H11Handshake:
 
         :returns: a generator that yields H11 events.
         """
+        print("H11Handshake.events", self._events)
         while self._events:
             yield self._events.popleft()
 
     # Server mode methods
-
     def _process_connection_request(  # noqa: MC0001
         self, event: h11.Request
     ) -> Request:
@@ -1712,10 +1677,7 @@ class H11Handshake:
         response = h11.InformationalResponse(
             status_code=101, headers=headers + event.extra_headers
         )
-        self._connection = Connection(
-            ConnectionType.CLIENT if self.client else ConnectionType.SERVER,
-            event.extensions,
-        )
+        self._connection = Connection(ConnectionType.SERVER, event.extensions)
         self._state = ConnectionState.OPEN
         return self._h11_connection.send(response) or b""
 
@@ -1748,126 +1710,11 @@ class H11Handshake:
             self._state = ConnectionState.CLOSED
         return data
 
-    # Client mode methods
-
-    def _initiate_connection(self, request: Request) -> bytes:
-        self._initiating_request = request
-        self._nonce = base64.b64encode(os.urandom(16))
-
-        headers = [
-            (b"Host", request.host.encode("idna")),
-            (b"Upgrade", WEBSOCKET_UPGRADE),
-            (b"Connection", b"Upgrade"),
-            (b"Sec-WebSocket-Key", self._nonce),
-            (b"Sec-WebSocket-Version", WEBSOCKET_VERSION),
-        ]
-
-        if request.subprotocols:
-            headers.append(
-                (
-                    b"Sec-WebSocket-Protocol",
-                    (", ".join(request.subprotocols)).encode("ascii"),
-                )
-            )
-
-        if request.extensions:
-            offers: Dict[str, Union[str, bool]] = {}
-            for e in request.extensions:
-                offers[e.name] = e.offer()
-            extensions = []
-            for name, params in offers.items():
-                bname = name.encode("ascii")
-                if isinstance(params, bool):
-                    if params:
-                        extensions.append(bname)
-                else:
-                    extensions.append(b"%s; %s" % (bname, params.encode("ascii")))
-            if extensions:
-                headers.append((b"Sec-WebSocket-Extensions", b", ".join(extensions)))
-
-        upgrade = h11.Request(
-            method=b"GET",
-            target=request.target.encode("ascii"),
-            headers=headers + request.extra_headers,
-        )
-        return self._h11_connection.send(upgrade) or b""
-
-    def _establish_client_connection(
-        self, event: h11.InformationalResponse
-    ) -> AcceptConnection:  # noqa: MC0001
-        # _establish_client_connection is always called after _initiate_connection.
-        assert self._initiating_request is not None
-        assert self._nonce is not None
-
-        accept = None
-        connection_tokens = None
-        accepts: List[str] = []
-        subprotocol = None
-        upgrade = b""
-        headers = []
-        for name, value in event.headers:
-            name = name.lower()
-            if name == b"connection":
-                connection_tokens = _split_comma_header(value)
-                continue  # Skip appending to headers
-            elif name == b"sec-websocket-extensions":
-                accepts = _split_comma_header(value)
-                continue  # Skip appending to headers
-            elif name == b"sec-websocket-accept":
-                accept = value
-                continue  # Skip appending to headers
-            elif name == b"sec-websocket-protocol":
-                subprotocol = value.decode("ascii")
-                continue  # Skip appending to headers
-            elif name == b"upgrade":
-                upgrade = value
-                continue  # Skip appending to headers
-            headers.append((name, value))
-
-        if connection_tokens is None or not any(
-            token.lower() == "upgrade" for token in connection_tokens
-        ):
-            raise RemoteProtocolError(
-                "Missing header, 'Connection: Upgrade'", event_hint=RejectConnection()
-            )
-        if upgrade.lower() != WEBSOCKET_UPGRADE:
-            raise RemoteProtocolError(
-                f"Missing header, 'Upgrade: {WEBSOCKET_UPGRADE.decode()}'",
-                event_hint=RejectConnection(),
-            )
-        accept_token = base64.b64encode(
-            hashlib.sha1(self._nonce + ACCEPT_GUID).digest())
-        if accept != accept_token:
-            raise RemoteProtocolError("Bad accept token", event_hint=RejectConnection())
-        if subprotocol is not None:
-            if subprotocol not in self._initiating_request.subprotocols:
-                raise RemoteProtocolError(
-                    f"unrecognized subprotocol {subprotocol}",
-                    event_hint=RejectConnection(),
-                )
-        extensions = client_extensions_handshake(accepts, self._initiating_request.extensions)
-
-        self._connection = Connection(
-            ConnectionType.CLIENT if self.client else ConnectionType.SERVER,
-            extensions,
-            self._h11_connection.trailing_data[0],
-        )
-        self._state = ConnectionState.OPEN
-        return AcceptConnection(
-            extensions=extensions, extra_headers=headers, subprotocol=subprotocol
-        )
-
-    def __repr__(self) -> str:
-        return "{}(client={}, state={})".format(
-            self.__class__.__name__, self.client, self.state
-        )
-
 
 class WSConnection:
-    def __init__(self, connection_type: ConnectionType) -> None:
-        self.client = connection_type is ConnectionType.CLIENT
-        self.handshake = H11Handshake(connection_type)
-        self.connection: Optional[Connection] = None
+    def __init__(self, extensions) -> None:
+        self.handshake = H11Handshake()
+        self.connection = Connection(ConnectionType.SERVER, extensions)
 
     @property
     def state(self) -> ConnectionState:
@@ -1939,13 +1786,41 @@ class ConnectionClosed(SimpleWebsocketError):
         super().__init__(f'Connection closed: {reason} {message or ""}')
 
 
-class Base:
-    def __init__(self, sock=None, connection_type=None, receive_bytes=4096,
-                 ping_interval=None, max_message_size=None,
-                 thread_class=None, event_class=None, selector_class=None):
-        #: The name of the subprotocol chosen for the WebSocket connection.
-        self.subprotocol = None
+def _get_sock(environ):
+    mode = 'unknown'
+    sock = None
+    if 'werkzeug.socket' in environ:
+        # extract socket from Werkzeug's WSGI environment
+        sock = environ.get('werkzeug.socket')
+        mode = 'werkzeug'
+    elif 'gunicorn.socket' in environ:
+        # extract socket from Gunicorn WSGI environment
+        sock = environ.get('gunicorn.socket')
+        mode = 'gunicorn'
+    elif 'eventlet.input' in environ:  # pragma: no cover
+        # extract socket from Eventlet's WSGI environment
+        sock = environ.get('eventlet.input').get_socket()
+        mode = 'eventlet'
+    elif environ.get('SERVER_SOFTWARE', '').startswith(
+            'gevent'):  # pragma: no cover
+        # extract socket from Gevent's WSGI environment
+        wsgi_input = environ['wsgi.input']
+        if not hasattr(wsgi_input, 'raw') and hasattr(wsgi_input, 'rfile'):
+            wsgi_input = wsgi_input.rfile
+        if hasattr(wsgi_input, 'raw'):
+            sock = wsgi_input.raw._sock
+            try:
+                sock = sock.dup()
+            except NotImplementedError:
+                pass
+            mode = 'gevent'
+    if sock is None:
+        raise RuntimeError('Cannot obtain socket from WSGI environment.')
+    return sock, mode
 
+
+class Server:
+    def __init__(self, sock, receive_bytes=4096, ping_interval=None, max_message_size=None, extensions=None):
         self.sock = sock
         self.receive_bytes = receive_bytes
         self.ping_interval = ping_interval
@@ -1954,35 +1829,15 @@ class Base:
         self.input_buffer = []
         self.incoming_message = None
         self.incoming_message_len = 0
-        self.connected = False
-        self.is_server = (connection_type == ConnectionType.SERVER)
+        self.connected = True
         self.close_reason = CloseReason.NO_STATUS_RCVD
         self.close_message = None
 
-        if thread_class is None:
-            import threading
-            thread_class = threading.Thread
-        if event_class is None:  # pragma: no branch
-            import threading
-            event_class = threading.Event
-        if selector_class is None:
-            selector_class = selectors.DefaultSelector
-        self.selector_class = selector_class
-        self.event = event_class()
+        self.event = threading.Event()
+        self.ws = Connection(ConnectionType.SERVER, extensions=extensions)
 
-        self.ws = WSConnection(connection_type)
-        self.handshake()
-
-        if not self.connected:  # pragma: no cover
-            raise ConnectionError()
-        self.thread = thread_class(target=self._thread)
-        self.thread.name = self.thread.name.replace(
-            '(_thread)', '(simple_websocket.Base._thread)')
+        self.thread = threading.Thread(target=self._thread)
         self.thread.start()
-
-    def handshake(self):  # pragma: no cover
-        # to be implemented by subclasses
-        pass
 
     def send(self, data):
         """Send data over the WebSocket connection.
@@ -2038,18 +1893,11 @@ class Base:
             pass
         self.connected = False
 
-    def choose_subprotocol(self, request):  # pragma: no cover
-        del request
-        # The method should return the subprotocol to use, or ``None`` if no
-        # subprotocol is chosen. Can be overridden by subclasses that implement
-        # the server-side of the WebSocket protocol.
-        return None
-
     def _thread(self):
         sel = None
         if self.ping_interval:
             next_ping = time() + self.ping_interval
-            sel = self.selector_class()
+            sel = self.selectors.DefaultSelector()
             try:
                 sel.register(self.sock, selectors.EVENT_READ, True)
             except ValueError:  # pragma: no cover
@@ -2089,13 +1937,11 @@ class Base:
         for event in self.ws.events():
             try:
                 if isinstance(event, Request):
-                    self.subprotocol = self.choose_subprotocol(event)
                     out_data += self.ws.send(AcceptConnection(
-                        subprotocol=self.subprotocol,
+                        subprotocol=None,
                         extensions=[PerMessageDeflate()]))
                 elif isinstance(event, CloseConnection):
-                    if self.is_server:
-                        out_data += self.ws.send(event.response())
+                    out_data += self.ws.send(event.response())
                     self.close_reason = event.code
                     self.close_message = event.reason
                     self.connected = False
@@ -2163,125 +2009,196 @@ class Base:
         return keep_going
 
 
-class Server(Base):
-    """This class implements a WebSocket server.
-
-    Instead of creating an instance of this class directly, use the
-    ``accept()`` class method to create individual instances of the server,
-    each bound to a client request.
+def http_handshake(headers, extensions):
     """
-    def __init__(self, environ, subprotocols=None, receive_bytes=4096,
-                 ping_interval=None, max_message_size=None, thread_class=None,
-                 event_class=None, selector_class=None):
-        self.environ = environ
-        self.subprotocols = subprotocols or []
-        if isinstance(self.subprotocols, str):
-            self.subprotocols = [self.subprotocols]
-        self.mode = 'unknown'
-        sock = None
-        if 'werkzeug.socket' in environ:
-            # extract socket from Werkzeug's WSGI environment
-            sock = environ.get('werkzeug.socket')
-            self.mode = 'werkzeug'
-        elif 'gunicorn.socket' in environ:
-            # extract socket from Gunicorn WSGI environment
-            sock = environ.get('gunicorn.socket')
-            self.mode = 'gunicorn'
-        elif 'eventlet.input' in environ:  # pragma: no cover
-            # extract socket from Eventlet's WSGI environment
-            sock = environ.get('eventlet.input').get_socket()
-            self.mode = 'eventlet'
-        elif environ.get('SERVER_SOFTWARE', '').startswith(
-                'gevent'):  # pragma: no cover
-            # extract socket from Gevent's WSGI environment
-            wsgi_input = environ['wsgi.input']
-            if not hasattr(wsgi_input, 'raw') and hasattr(wsgi_input, 'rfile'):
-                wsgi_input = wsgi_input.rfile
-            if hasattr(wsgi_input, 'raw'):
-                sock = wsgi_input.raw._sock
+    HTTP handshake for WebSocket connections.
+    
+    Notes:
+    * Method must be GET
+    """
+    headers = {k.lower(): v for k, v in headers or []}
+    version = headers.pop("sec-websocket-version", None)
+    upgrade = headers.pop("upgrade", None)
+    key = headers.pop("sec-websocket-key", None)
+    headers.pop("host", None)
+    connection_tokens = headers.pop("connection", None)
+    del connection_tokens
+    extensions_ = headers.pop("sec-websocket-extensions", None)
+    headers.pop("sec-websocket-protocol", None)
+
+    if not version:
+        logging.info("Handshake failed: missing header, Sec-WebSocket-Version")
+        return 400, b"", {}
+    if version != WEBSOCKET_VERSION.decode("ascii"):
+        logging.info(f"Handshake failed: unsupported Sec-WebSocket-Version: {version}")
+        return 426, b"", {}
+    if (upgrade or "").lower() != WEBSOCKET_UPGRADE.decode("ascii"):
+        logging.info(f"Handshake failed: missing header, Upgrade: {WEBSOCKET_UPGRADE}")
+        return 400, b"", {}
+    if key is None:
+        logging.info("Handshake failed: missing header, Sec-WebSocket-Key")
+        return 400, b"", {}
+
+    accept_token = base64.b64encode(
+        hashlib.sha1((key + ACCEPT_GUID.decode("ascii")).encode("ascii")).digest())
+    response_headers = [
+        ("Upgrade", WEBSOCKET_UPGRADE.decode("ascii")),
+        ("Connection", "Upgrade"),
+        ("Sec-WebSocket-Accept", accept_token.decode("ascii")),
+    ]
+
+    websocket_extensions_header = ""
+    for offer in (extensions_ or "").split(","):
+        if not offer: continue
+        name = offer.split(";", 1)[0].strip()
+        for extension in extensions:
+            if extension.name == name:
+                accept = extension.accept(offer)
+                if isinstance(accept, bool):
+                    websocket_extensions_header += f", {name}"
+                elif accept is not None:
+                    websocket_extensions_header += f", {name}; {accept}"
+    if websocket_extensions_header:
+        response_headers.append(("Sec-WebSocket-Extensions", websocket_extensions_header[2:]))
+    return 101, b"", response_headers
+
+
+def flask_websocket_route(app, *args, **kwargs):
+    Response = app.response_class
+    from flask import request, Response
+
+    def wrap(fn):
+        @app.route(*args, websocket=True, **kwargs)
+        def websocket():
+            print("HH", request)
+            status, setup_message, headers = http_handshake(request.headers, extensions)
+            if status != 101:
+                return Response(setup_message, status=status, headers=headers)
+            sock, _ = _get_sock(request.environ)
+            ws = Server(sock)
+            print("mmm11")
+            yield b''
+            print("m1")
+            while True:
+                print("m2")
+                ws.send('hi')
+
+            def generate():
                 try:
-                    sock = sock.dup()
-                except NotImplementedError:
+                    fn(ws)
+                except ConnectionClosed:
                     pass
-                self.mode = 'gevent'
-        if sock is None:
-            raise RuntimeError('Cannot obtain socket from WSGI environment.')
-        super().__init__(sock, connection_type=ConnectionType.SERVER,
-                         receive_bytes=receive_bytes,
-                         ping_interval=ping_interval,
-                         max_message_size=max_message_size,
-                         thread_class=thread_class, event_class=event_class,
-                         selector_class=selector_class)
+                try:
+                    ws.close()
+                except:  # noqa: E722
+                    pass
+                print('Connection closed')    
+                return b''
+            return Response()
+        return websocket
+    return wrap
 
-    @classmethod
-    def accept(cls, environ, subprotocols=None, receive_bytes=4096,
-               ping_interval=None, max_message_size=None, thread_class=None,
-               event_class=None, selector_class=None):
-        """Accept a WebSocket connection from a client.
 
-        :param environ: A WSGI ``environ`` dictionary with the request details.
-                        Among other things, this class expects to find the
-                        low-level network socket for the connection somewhere
-                        in this dictionary. Since the WSGI specification does
-                        not cover where or how to store this socket, each web
-                        server does this in its own different way. Werkzeug,
-                        Gunicorn, Eventlet and Gevent are the only web servers
-                        that are currently supported.
-        :param subprotocols: A list of supported subprotocols, or ``None`` (the
-                             default) to disable subprotocol negotiation.
-        :param receive_bytes: The size of the receive buffer, in bytes. The
-                              default is 4096.
-        :param ping_interval: Send ping packets to clients at the requested
-                              interval in seconds. Set to ``None`` (the
-                              default) to disable ping/pong logic. Enable to
-                              prevent disconnections when the line is idle for
-                              a certain amount of time, or to detect
-                              unresponsive clients and disconnect them. A
-                              recommended interval is 25 seconds.
-        :param max_message_size: The maximum size allowed for a message, in
-                                 bytes, or ``None`` for no limit. The default
-                                 is ``None``.
-        :param thread_class: The ``Thread`` class to use when creating
-                             background threads. The default is the
-                             ``threading.Thread`` class from the Python
-                             standard library.
-        :param event_class: The ``Event`` class to use when creating event
-                            objects. The default is the `threading.Event``
-                            class from the Python standard library.
-        :param selector_class: The ``Selector`` class to use when creating
-                               selectors. The default is the
-                               ``selectors.DefaultSelector`` class from the
-                               Python standard library.
-        """
-        return cls(environ, subprotocols=subprotocols,
-                   receive_bytes=receive_bytes, ping_interval=ping_interval,
-                   max_message_size=max_message_size,
-                   thread_class=thread_class, event_class=event_class,
-                   selector_class=selector_class)
+if __name__ == "__main__":
+    from flask import Flask, request, Response
+    app = Flask(__name__)
 
-    def handshake(self):
-        in_data = b'GET / HTTP/1.1\r\n'
-        for key, value in self.environ.items():
-            if key.startswith('HTTP_'):
-                header = '-'.join([p.capitalize() for p in key[5:].split('_')])
-                in_data += f'{header}: {value}\r\n'.encode()
-        in_data += b'\r\n'
-        self.ws.receive_data(in_data)
-        self.connected = self._handle_events()
+    @app.route("/websocket", websocket=True)
+    def websocket():
+        try:
+            extensions = [PerMessageDeflate()]
+            status, setup_message, headers = http_handshake(request.headers, extensions)
+            if status != 101:
+                return Response(setup_message, status=status, headers=headers)
+            sock, _ = _get_sock(request.environ)
 
-    def choose_subprotocol(self, request):
-        """Choose a subprotocol to use for the WebSocket connection.
+            # Send handshake message
+            message = b'HTTP/1.1 101 \r\n'
+            for key, value in headers:
+                message += f'{key}: {value}\r\n'.encode()
+            message += b'\r\n'
+            sock.send(message)
 
-        The default implementation selects the first protocol requested by the
-        client that is accepted by the server. Subclasses can override this
-        method to implement a different subprotocol negotiation algorithm.
+            # Start the server pulling thread
+            ws = Server(sock, extensions=extensions)
 
-        :param request: A ``Request`` object.
+            def generate():
+                while True:
+                    ws.send('hi')
+                    print(ws.receive())
+                    # ws.send('hi')
+                    
 
-        The method should return the subprotocol to use, or ``None`` if no
-        subprotocol is chosen.
-        """
-        for subprotocol in request.subprotocols:
-            if subprotocol in self.subprotocols:
-                return subprotocol
-        return None
+            generate()
+            # response = Response(generate(), status=101, headers=headers)
+            # response.headers["Connection"] = "Upgrade"
+            # response.headers.pop("Content-Type")
+            # return response
+            breakpoint()
+        except ConnectionClosed:
+            pass
+        return b''
+    del websocket
+
+    @app.route("/index.html")
+    def index():
+        return '''<html>
+<script>
+async function main() {
+let socket = await new Promise((resolve, reject) => {
+    try {
+      const socket = new WebSocket("./websocket");
+      // socket.binaryType = "blob";
+      socket.addEventListener("open", () => {
+        console.log("WebSocket connection established");
+        resolve(socket);
+      });
+    } catch (error) {
+      reject(error);
+    }
+});
+
+window.socket = socket;
+socket.addEventListener("close", () => {
+    console.log("WebSocket connection closed");
+    socket = undefined;
+});
+socket.addEventListener("error", (error) => {
+    console.error("WebSocket error:", error);
+});
+socket.addEventListener("message", async (event) => {
+  console.log(event.data);
+    await socket.send("Hello, WebSocket!");
+    console.log("Message sent");
+});
+};
+main();
+</script>
+</html>'''
+
+    app.run(host="0.0.0.0", port=5002)
+
+
+#         def generate():
+#             try:
+#                 fn(ws)
+#             except ConnectionClosed:
+#                 pass
+#             try:
+#                 ws.close()
+#             except:  # noqa: E722
+#                 pass
+#             print('Connection closed')    
+#             return b''
+#         return Response()
+# 
+#         while True:
+#             reqdata = ws.receive()
+#             print(reqdata)
+#             # payload = msg.pop("payload", None)
+#             # if payload is None:
+#             #     ws.send(json.dumps(msg))
+#             # else:
+#             #     msg_bytes = json.dumps(msg).encode("utf-8")
+#             #     message_length = len(msg_bytes)
+#             #     ws.send(struct.pack(f"!I", message_length) + msg_bytes + payload)
