@@ -8,12 +8,10 @@ import zlib
 from enum import Enum, IntEnum
 from collections import deque
 from codecs import getincrementaldecoder
-from typing import Optional, Union, Generator, Tuple, Deque, NamedTuple, Dict, Iterable, Generic, List, TypeVar
+from typing import Optional, Union, Generator, Tuple, Deque, NamedTuple, Generic, List, TypeVar
 from dataclasses import dataclass, field
 import selectors
 from time import time
-
-import h11
 
 
 # The MIT License (MIT)
@@ -185,138 +183,6 @@ class Event:
     """
 
     pass  # noqa
-
-
-@dataclass(frozen=True)
-class Request(Event):
-    """The beginning of a Websocket connection, the HTTP Upgrade request
-
-    This event is fired when a SERVER connection receives a WebSocket
-    handshake request (HTTP with upgrade header).
-
-    Fields:
-
-    .. attribute:: host
-
-       (Required) The hostname, or host header value.
-
-    .. attribute:: target
-
-       (Required) The request target (path and query string)
-
-    .. attribute:: extensions
-
-       The proposed extensions.
-
-    .. attribute:: extra_headers
-
-       The additional request headers, excluding extensions, host, subprotocols,
-       and version headers.
-
-    .. attribute:: subprotocols
-
-       A list of the subprotocols proposed in the request, as a list
-       of strings.
-    """
-
-    host: str
-    target: str
-    extensions: List = field(default_factory=list)
-    extra_headers: List = field(default_factory=list)
-    subprotocols: List[str] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class AcceptConnection(Event):
-    """The acceptance of a Websocket upgrade request.
-
-    This event is fired when a CLIENT receives an acceptance response
-    from a server. It is also used to accept an upgrade request when
-    acting as a SERVER.
-
-    Fields:
-
-    .. attribute:: extra_headers
-
-       Any additional (non websocket related) headers present in the
-       acceptance response.
-
-    .. attribute:: subprotocol
-
-       The accepted subprotocol to use.
-
-    """
-
-    subprotocol: Optional[str] = None
-    extensions: List = field(default_factory=list)
-    extra_headers: List = field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class RejectConnection(Event):
-    """The rejection of a Websocket upgrade request, the HTTP response.
-
-    The ``RejectConnection`` event sends the appropriate HTTP headers to
-    communicate to the peer that the handshake has been rejected. You may also
-    send an HTTP body by setting the ``has_body`` attribute to ``True`` and then
-    sending one or more :class:`RejectData` events after this one. When sending
-    a response body, the caller should set the ``Content-Length``,
-    ``Content-Type``, and/or ``Transfer-Encoding`` headers as appropriate.
-
-    When receiving a ``RejectConnection`` event, the ``has_body`` attribute will
-    in almost all cases be ``True`` (even if the server set it to ``False``) and
-    will be followed by at least one ``RejectData`` events, even though the data
-    itself might be just ``b""``. (The only scenario in which the caller
-    receives a ``RejectConnection`` with ``has_body == False`` is if the peer
-    violates sends an informational status code (1xx) other than 101.)
-
-    The ``has_body`` attribute should only be used when receiving the event. (It
-    has ) is False the headers must include a
-    content-length or transfer encoding.
-
-    Fields:
-
-    .. attribute:: headers (Headers)
-
-       The headers to send with the response.
-
-    .. attribute:: has_body
-
-       This defaults to False, but set to True if there is a body. See
-       also :class:`~RejectData`.
-
-    .. attribute:: status_code
-
-       The response status code.
-
-    """
-
-    status_code: int = 400
-    headers: List = field(default_factory=list)
-    has_body: bool = False
-
-
-@dataclass(frozen=True)
-class RejectData(Event):
-    """The rejection HTTP response body.
-
-    The caller may send multiple ``RejectData`` events. The final event should
-    have the ``body_finished`` attribute set to ``True``.
-
-    Fields:
-
-    .. attribute:: body_finished
-
-       True if this is the final chunk of the body data.
-
-    .. attribute:: data (bytes)
-
-       (Required) The raw body data.
-
-    """
-
-    data: bytes
-    body_finished: bool = True
 
 
 @dataclass(frozen=True)
@@ -654,8 +520,6 @@ class MessageDecoder:
         return frame
 
 
-CLIENT = ConnectionType.CLIENT
-SERVER = ConnectionType.SERVER
 _XOR_TABLE = [bytes(a ^ b for a in range(256)) for b in range(256)]
 
 
@@ -1037,30 +901,12 @@ class FrameProtocol:
 
 
 class Connection:
-    """
-    A low-level WebSocket connection object.
-
-    This wraps two other protocol objects, an HTTP/1.1 protocol object used
-    to do the initial HTTP upgrade handshake and a WebSocket frame protocol
-    object used to exchange messages and other control frames.
-    """
-
     def __init__(
         self,
         connection_type: ConnectionType,
         extensions = None,
         trailing_data: bytes = b"",
     ) -> None:
-        """
-        Constructor
-
-        :param wsproto.connection.ConnectionType connection_type: Whether this
-            object is on the client- or server-side of a connection.
-            To initialise as a client pass ``CLIENT`` otherwise pass ``SERVER``.
-        :param list extensions: The proposed extensions.
-        :param bytes trailing_data: Data that has been received, but not yet
-            processed.
-        """
         self.client = connection_type is ConnectionType.CLIENT
         self._events: Deque[Event] = deque()
         self._proto = FrameProtocol(self.client, extensions or [])
@@ -1421,329 +1267,6 @@ class PerMessageDeflate:
         return "<{} {}>".format(self.__class__.__name__, "; ".join(descr))
 
 
-def _split_comma_header(value: bytes) -> List[str]:
-    return [piece.decode("ascii").strip() for piece in value.split(b",")]
-
-
-def server_extensions_handshake(requested: Iterable[str], supported) -> Optional[bytes]:
-    """Agree on the extensions to use returning an appropriate header value.
-
-    This returns None if there are no agreed extensions
-    """
-    accepts: Dict[str, Union[bool, bytes]] = {}
-    for offer in requested:
-        name = offer.split(";", 1)[0].strip()
-        for extension in supported:
-            if extension.name == name:
-                accept = extension.accept(offer)
-                if isinstance(accept, bool):
-                    if accept:
-                        accepts[extension.name] = True
-                elif accept is not None:
-                    accepts[extension.name] = accept.encode("ascii")
-
-    if accepts:
-        extensions: List[bytes] = []
-        for name, params in accepts.items():
-            name_bytes = name.encode("ascii")
-            if isinstance(params, bool):
-                assert params
-                extensions.append(name_bytes)
-            else:
-                if params == b"":
-                    extensions.append(b"%s" % (name_bytes))
-                else:
-                    extensions.append(b"%s; %s" % (name_bytes, params))
-        return b", ".join(extensions)
-
-    return None
-
-
-def client_extensions_handshake(accepted: Iterable[str], supported):
-    # This raises RemoteProtocolError is the accepted extension is not
-    # supported.
-    extensions = []
-    for accept in accepted:
-        name = accept.split(";", 1)[0].strip()
-        for extension in supported:
-            if extension.name == name:
-                extension.finalize(accept)
-                extensions.append(extension)
-                break
-        else:
-            raise RemoteProtocolError(
-                f"unrecognized extension {name}", event_hint=RejectConnection()
-            )
-    return extensions
-
-
-class H11Handshake:
-    """A Handshake implementation for HTTP/1.1 connections."""
-
-    def __init__(self) -> None:
-        self._state = ConnectionState.CONNECTING
-        self._h11_connection = h11.Connection(h11.SERVER)
-
-        self._connection: Optional[Connection] = None
-        self._events: Deque[Event] = deque()
-        self._initiating_request: Optional[Request] = None
-        self._nonce: Optional[bytes] = None
-
-    @property
-    def state(self) -> ConnectionState:
-        return self._state
-
-    @property
-    def connection(self) -> Optional[Connection]:
-        """Return the established connection.
-
-        This will either return the connection or raise a
-        LocalProtocolError if the connection has not yet been
-        established.
-
-        :rtype: h11.Connection
-        """
-        return self._connection
-
-    def send(self, event: Event) -> bytes:
-        """Send an event to the remote.
-
-        This will return the bytes to send based on the event or raise
-        a LocalProtocolError if the event is not valid given the
-        state.
-
-        :returns: Data to send to the WebSocket peer.
-        :rtype: bytes
-        """
-        data = b""
-        if isinstance(event, AcceptConnection):
-            data += self._accept(event)
-        elif isinstance(event, RejectConnection):
-            data += self._reject(event)
-        elif isinstance(event, RejectData):
-            data += self._send_reject_data(event)
-        else:
-            raise LocalProtocolError(
-                f"Event {event} cannot be sent during the handshake"
-            )
-        return data
-
-    def receive_data(self, data: Optional[bytes]) -> None:
-        """Receive data from the remote.
-
-        A list of events that the remote peer triggered by sending
-        this data can be retrieved with :meth:`events`.
-
-        :param bytes data: Data received from the WebSocket peer.
-        """
-        self._h11_connection.receive_data(data or b"")
-        while True:
-            try:
-                event = self._h11_connection.next_event()
-            except h11.RemoteProtocolError:
-                raise RemoteProtocolError(
-                    "Bad HTTP message", event_hint=RejectConnection()
-                )
-            if (
-                isinstance(event, h11.ConnectionClosed)
-                or event is h11.NEED_DATA
-                or event is h11.PAUSED
-            ):
-                break
-
-            if isinstance(event, h11.Request):
-                self._events.append(self._process_connection_request(event))
-
-    def events(self) -> Generator[Event, None, None]:
-        """Return a generator that provides any events that have been generated
-        by protocol activity.
-
-        :returns: a generator that yields H11 events.
-        """
-        print("H11Handshake.events", self._events)
-        while self._events:
-            yield self._events.popleft()
-
-    # Server mode methods
-    def _process_connection_request(  # noqa: MC0001
-        self, event: h11.Request
-    ) -> Request:
-        if event.method != b"GET":
-            raise RemoteProtocolError(
-                "Request method must be GET", event_hint=RejectConnection()
-            )
-
-        connection_tokens = None
-        extensions: List[str] = []
-        host = None
-        key = None
-        subprotocols: List[str] = []
-        upgrade = b""
-        version = None
-        headers = []
-        for name, value in event.headers:
-            name = name.lower()
-            if name == b"connection":
-                connection_tokens = _split_comma_header(value)
-            elif name == b"host":
-                host = value.decode("idna")
-                continue  # Skip appending to headers
-            elif name == b"sec-websocket-extensions":
-                extensions.extend(_split_comma_header(value))
-                continue  # Skip appending to headers
-            elif name == b"sec-websocket-key":
-                key = value
-            elif name == b"sec-websocket-protocol":
-                subprotocols.extend(_split_comma_header(value))
-                continue  # Skip appending to headers
-            elif name == b"sec-websocket-version":
-                version = value
-            elif name == b"upgrade":
-                upgrade = value
-            headers.append((name, value))
-        if connection_tokens is None or not any(
-            token.lower() == "upgrade" for token in connection_tokens
-        ):
-            raise RemoteProtocolError(
-                "Missing header, 'Connection: Upgrade'", event_hint=RejectConnection()
-            )
-        if version != WEBSOCKET_VERSION:
-            raise RemoteProtocolError(
-                "Missing header, 'Sec-WebSocket-Version'",
-                event_hint=RejectConnection(
-                    headers=[(b"Sec-WebSocket-Version", WEBSOCKET_VERSION)],
-                    status_code=426 if version else 400,
-                ),
-            )
-        if key is None:
-            raise RemoteProtocolError(
-                "Missing header, 'Sec-WebSocket-Key'", event_hint=RejectConnection()
-            )
-        if upgrade.lower() != WEBSOCKET_UPGRADE:
-            raise RemoteProtocolError(
-                f"Missing header, 'Upgrade: {WEBSOCKET_UPGRADE.decode()}'",
-                event_hint=RejectConnection(),
-            )
-        if host is None:
-            raise RemoteProtocolError(
-                "Missing header, 'Host'", event_hint=RejectConnection()
-            )
-
-        self._initiating_request = Request(
-            extensions=extensions,
-            extra_headers=headers,
-            host=host,
-            subprotocols=subprotocols,
-            target=event.target.decode("ascii"),
-        )
-        return self._initiating_request
-
-    def _accept(self, event: AcceptConnection) -> bytes:
-        # _accept is always called after _process_connection_request.
-        assert self._initiating_request is not None
-
-        request_headers_ = {}
-        for name, value in self._initiating_request.extra_headers:
-            request_headers_.setdefault(name, []).append(value)
-        request_headers = {}
-        for name, values in request_headers_.items():
-            request_headers[name] = b", ".join(values)
-
-        nonce = request_headers[b"sec-websocket-key"]
-        accept_token = base64.b64encode(
-            hashlib.sha1(nonce + ACCEPT_GUID).digest())
-
-        headers = [
-            (b"Upgrade", WEBSOCKET_UPGRADE),
-            (b"Connection", b"Upgrade"),
-            (b"Sec-WebSocket-Accept", accept_token),
-        ]
-
-        if event.subprotocol is not None:
-            if event.subprotocol not in self._initiating_request.subprotocols:
-                raise LocalProtocolError(f"unexpected subprotocol {event.subprotocol}")
-            headers.append(
-                (b"Sec-WebSocket-Protocol", event.subprotocol.encode("ascii"))
-            )
-
-        if event.extensions:
-            accepts = server_extensions_handshake(
-                self._initiating_request.extensions,
-                event.extensions,
-            )
-            if accepts:
-                headers.append((b"Sec-WebSocket-Extensions", accepts))
-
-        response = h11.InformationalResponse(
-            status_code=101, headers=headers + event.extra_headers
-        )
-        self._connection = Connection(ConnectionType.SERVER, event.extensions)
-        self._state = ConnectionState.OPEN
-        return self._h11_connection.send(response) or b""
-
-    def _reject(self, event: RejectConnection) -> bytes:
-        if self.state != ConnectionState.CONNECTING:
-            raise LocalProtocolError(
-                "Connection cannot be rejected in state %s" % self.state
-            )
-
-        headers = list(event.headers)
-        if not event.has_body:
-            headers.append((b"content-length", b"0"))
-        response = h11.Response(status_code=event.status_code, headers=headers)
-        data = self._h11_connection.send(response) or b""
-        self._state = ConnectionState.REJECTING
-        if not event.has_body:
-            data += self._h11_connection.send(h11.EndOfMessage()) or b""
-            self._state = ConnectionState.CLOSED
-        return data
-
-    def _send_reject_data(self, event: RejectData) -> bytes:
-        if self.state != ConnectionState.REJECTING:
-            raise LocalProtocolError(
-                f"Cannot send rejection data in state {self.state}"
-            )
-
-        data = self._h11_connection.send(h11.Data(data=event.data)) or b""
-        if event.body_finished:
-            data += self._h11_connection.send(h11.EndOfMessage()) or b""
-            self._state = ConnectionState.CLOSED
-        return data
-
-
-class WSConnection:
-    def __init__(self, extensions) -> None:
-        self.handshake = H11Handshake()
-        self.connection = Connection(ConnectionType.SERVER, extensions)
-
-    @property
-    def state(self) -> ConnectionState:
-        if self.connection is None:
-            return self.handshake.state
-        return self.connection.state
-
-    def send(self, event: Event) -> bytes:
-        data = b""
-        if self.connection is None:
-            data += self.handshake.send(event)
-            self.connection = self.handshake.connection
-        else:
-            data += self.connection.send(event)
-        return data
-
-    def receive_data(self, data: Optional[bytes]) -> None:
-        if self.connection is None:
-            self.handshake.receive_data(data)
-            self.connection = self.handshake.connection
-        else:
-            self.connection.receive_data(data)
-
-    def events(self) -> Generator[Event, None, None]:
-        yield from self.handshake.events()
-        if self.connection is not None:
-            yield from self.connection.events()
-
-
 # MIT License
 # 
 # Copyright (c) 2021 Miguel Grinberg
@@ -1840,12 +1363,6 @@ class Server:
         self.thread.start()
 
     def send(self, data):
-        """Send data over the WebSocket connection.
-
-        :param data: The data to send. If ``data`` is of type ``bytes``, then
-                     a binary message is sent. Else, the message is sent in
-                     text format.
-        """
         if not self.connected:
             raise ConnectionClosed(self.close_reason, self.close_message)
         if isinstance(data, bytes):
@@ -1855,15 +1372,6 @@ class Server:
         self.sock.send(out_data)
 
     def receive(self, timeout=None):
-        """Receive data over the WebSocket connection.
-
-        :param timeout: Amount of time to wait for the data, in seconds. Set
-                        to ``None`` (the default) to wait indefinitely. Set
-                        to 0 to read without blocking.
-
-        The data received is returned, as ``bytes`` or ``str``, depending on
-        the type of the incoming message.
-        """
         while self.connected and not self.input_buffer:
             if not self.event.wait(timeout=timeout):
                 return None
@@ -1876,13 +1384,6 @@ class Server:
             raise ConnectionClosed(self.close_reason, self.close_message)
 
     def close(self, reason=None, message=None):
-        """Close the WebSocket connection.
-
-        :param reason: A numeric status code indicating the reason of the
-                       closure, as defined by the WebSocket specification. The
-                       default is 1000 (normal closure).
-        :param message: A text message to be sent to the other side.
-        """
         if not self.connected:
             raise ConnectionClosed(self.close_reason, self.close_message)
         out_data = self.ws.send(CloseConnection(
@@ -1936,11 +1437,7 @@ class Server:
         out_data = b''
         for event in self.ws.events():
             try:
-                if isinstance(event, Request):
-                    out_data += self.ws.send(AcceptConnection(
-                        subprotocol=None,
-                        extensions=[PerMessageDeflate()]))
-                elif isinstance(event, CloseConnection):
+                if isinstance(event, CloseConnection):
                     out_data += self.ws.send(event.response())
                     self.close_reason = event.code
                     self.close_message = event.reason
@@ -2070,32 +1567,59 @@ def flask_websocket_route(app, *args, **kwargs):
     def wrap(fn):
         @app.route(*args, websocket=True, **kwargs)
         def websocket():
-            print("HH", request)
+            extensions = [PerMessageDeflate()]
             status, setup_message, headers = http_handshake(request.headers, extensions)
             if status != 101:
                 return Response(setup_message, status=status, headers=headers)
-            sock, _ = _get_sock(request.environ)
-            ws = Server(sock)
-            print("mmm11")
-            yield b''
-            print("m1")
-            while True:
-                print("m2")
-                ws.send('hi')
+            sock, mode = _get_sock(request.environ)
 
-            def generate():
-                try:
-                    fn(ws)
-                except ConnectionClosed:
-                    pass
-                try:
-                    ws.close()
-                except:  # noqa: E722
-                    pass
-                print('Connection closed')    
-                return b''
-            return Response()
-        return websocket
+            # Send handshake message
+            message = b'HTTP/1.1 101 \r\n'
+            for key, value in headers:
+                message += f'{key}: {value}\r\n'.encode()
+            message += b'\r\n'
+            sock.send(message)
+
+            try:
+                # Start the server pulling thread
+                ws = Server(sock, extensions=extensions)
+
+                # Run the user's WebSocket handler
+                fn(ws)
+            except ConnectionClosed:
+                pass
+            try:
+                ws.close()
+            except:  # noqa: E722
+                pass
+
+            class WebSocketResponse(Response):
+                def __call__(self, *args, **kwargs):
+                    if mode == 'eventlet':
+                        try:
+                            from eventlet.wsgi import WSGI_LOCAL
+                            ALREADY_HANDLED = []
+                        except ImportError:
+                            from eventlet.wsgi import ALREADY_HANDLED
+                            WSGI_LOCAL = None
+
+                        if hasattr(WSGI_LOCAL, 'already_handled'):
+                            WSGI_LOCAL.already_handled = True
+                        return ALREADY_HANDLED
+                    elif mode == 'gunicorn':
+                        raise StopIteration()
+                    elif mode == 'werkzeug':
+                        start_response = args[1]
+                        try:
+                            start_response(object(), headers)
+                        except Exception:
+                            pass
+                        # return super().__call__(*args, **kwargs)
+                    else:
+                        return []
+
+            return WebSocketResponse()
+        del websocket
     return wrap
 
 
@@ -2105,20 +1629,20 @@ if __name__ == "__main__":
 
     @app.route("/websocket", websocket=True)
     def websocket():
+        extensions = [PerMessageDeflate()]
+        status, setup_message, headers = http_handshake(request.headers, extensions)
+        if status != 101:
+            return Response(setup_message, status=status, headers=headers)
+        sock, mode = _get_sock(request.environ)
+
+        # Send handshake message
+        message = b'HTTP/1.1 101 \r\n'
+        for key, value in headers:
+            message += f'{key}: {value}\r\n'.encode()
+        message += b'\r\n'
+        sock.send(message)
+
         try:
-            extensions = [PerMessageDeflate()]
-            status, setup_message, headers = http_handshake(request.headers, extensions)
-            if status != 101:
-                return Response(setup_message, status=status, headers=headers)
-            sock, _ = _get_sock(request.environ)
-
-            # Send handshake message
-            message = b'HTTP/1.1 101 \r\n'
-            for key, value in headers:
-                message += f'{key}: {value}\r\n'.encode()
-            message += b'\r\n'
-            sock.send(message)
-
             # Start the server pulling thread
             ws = Server(sock, extensions=extensions)
 
@@ -2126,6 +1650,7 @@ if __name__ == "__main__":
                 while True:
                     ws.send('hi')
                     print(ws.receive())
+                    ws.close()
                     # ws.send('hi')
                     
 
@@ -2134,10 +1659,40 @@ if __name__ == "__main__":
             # response.headers["Connection"] = "Upgrade"
             # response.headers.pop("Content-Type")
             # return response
-            breakpoint()
         except ConnectionClosed:
             pass
-        return b''
+        try:
+            ws.close()
+        except:  # noqa: E722
+            pass
+
+        class WebSocketResponse(Response):
+            def __call__(self, *args, **kwargs):
+                if mode == 'eventlet':
+                    try:
+                        from eventlet.wsgi import WSGI_LOCAL
+                        ALREADY_HANDLED = []
+                    except ImportError:
+                        from eventlet.wsgi import ALREADY_HANDLED
+                        WSGI_LOCAL = None
+
+                    if hasattr(WSGI_LOCAL, 'already_handled'):
+                        WSGI_LOCAL.already_handled = True
+                    return ALREADY_HANDLED
+                elif mode == 'gunicorn':
+                    raise StopIteration()
+                elif mode == 'werkzeug':
+                    # A hack to prevent Werkzeug from sending the response
+                    # NOTE: This hack is very dirty and may not work in future versions of Werkzeug
+                    start_response = args[1]
+                    write = start_response(object(), headers)
+                    try: write(b'')
+                    except Exception: pass
+                    return []
+                else:
+                    return []
+
+        return WebSocketResponse()
     del websocket
 
     @app.route("/index.html")
@@ -2170,6 +1725,7 @@ socket.addEventListener("message", async (event) => {
   console.log(event.data);
     await socket.send("Hello, WebSocket!");
     console.log("Message sent");
+    //socket.close();
 });
 };
 main();
