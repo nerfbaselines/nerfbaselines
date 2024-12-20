@@ -1317,18 +1317,9 @@ class Viewer extends THREE.EventDispatcher {
     if (viewer_transform) {
       this.scene.applyMatrix4(viewer_transform);
     }
-    // Switch OpenCV to ThreeJS coordinate system
-    //this.scene.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI/2));
     if (viewer_initial_pose) {
       const matrix = viewer_initial_pose.clone();
-      //matrix.multiply(new THREE.Matrix4().makeRotationX(-Math.PI/2));
       this.set_camera({ matrix });
-
-      console.log(this.camera.position);
-
-      // For forward-facing scenes
-      // const target = new THREE.Vector3(0, 1, 0).applyMatrix4(viewer_initial_pose);
-      // For object-centric scenes
       const target = new THREE.Vector3(0, 0, 0);
       
       this.controls.target?.copy(target);
@@ -2574,6 +2565,9 @@ fetch("./info")
       viewer_transform,
       viewer_initial_pose,
     });
+    if (state.dataset_info?.type === 'object-centric') {
+      viewer._gui_state.camera_control_mode = 'orbit';
+    }
     window.viewer = viewer;
     viewer.attach_gui(document.querySelector('.controls'));
 
