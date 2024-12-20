@@ -43,6 +43,41 @@
             <input type="color" id="dataset_frustum_color" name="dataset_frustum_color" value="#d3d3d3">
           </div>
         </fieldset>
+        <fieldset>
+          <legend>Camera control</legend>
+          <div class="row">
+            <label for="camera_control_inertia">Inertia</label>
+            <input type="range" id="camera_control_inertia" name="camera_control_inertia" min="0" max="0.99" step="0.01" value="0.6">
+          </div>
+          <div class="row">
+            <label for="camera_control_rotation_sensitivity">Rotation sensitivity</label>
+            <input type="range" id="camera_control_rotation_sensitivity" name="camera_control_rotation_sensitivity" min="0" max="2" step="0.01" value="1.0">
+          </div>
+          <div class="row">
+            <label for="camera_control_rotation_inverted">Rotation inverted</label>
+            <input type="checkbox" id="camera_control_rotation_inverted" name="camera_control_rotation_inverted">
+          </div>
+          <div class="row">
+            <label for="camera_control_pan_sensitivity">Panning sensitivity</label>
+            <input type="range" id="camera_control_pan_sensitivity" name="camera_control_pan_sensitivity" min="0" max="2" step="0.01" value="1.0">
+          </div>
+          <div class="row">
+            <label for="camera_control_pan_inverted">Panning inverted</label>
+            <input type="checkbox" id="camera_control_pan_inverted" name="camera_control_pan_inverted">
+          </div>
+          <div class="row">
+            <label for="camera_control_zoom_sensitivity">Zoom sensitivity</label>
+            <input type="range" id="camera_control_zoom_sensitivity" name="camera_control_zoom_sensitivity" min="0" max="2" step="0.01" value="1.0">
+          </div>
+          <div class="row">
+            <label for="camera_control_zoom_inverted">Zoom inverted</label>
+            <input type="checkbox" id="camera_control_rotation_inverted" name="camera_control_zoom_inverted">
+          </div>
+          <div class="row">
+            <label for="camera_control_key_speed">Keyboard speed</label>
+            <input type="range" id="camera_control_key_speed" name="camera_control_key_speed" min="0" max="2" step="0.01" value="1.0">
+          </div>
+        </fieldset>
         <div class="row">
           <button data-action="reset_settings">Reset settings</button>
         </div>
@@ -148,6 +183,13 @@
           </div>
         </span>
         <div class="tab panel">
+          <div class="row">
+            <label for="camera_control_mode">Control type</label>
+            <select id="camera_control_mode" name="camera_control_mode">
+              <option value="free" selected>free</option>
+              <option value="orbit">orbit</option>
+            </select>
+          </div>
           <fieldset>
             <legend>Render options</legend>
             <div class="row slider">
@@ -242,6 +284,10 @@
             <div class="row">
               <label for="dataset_show_pointcloud">Show input PC</label>
               <input type="checkbox" id="dataset_show_pointcloud" name="dataset_show_pointcloud" data-enable-if="dataset_has_pointcloud" disabled checked>
+            </div>
+            <div class="row">
+              <label for="pointcloud_scale">Point cloud scale</label>
+              <input type="range" id="pointcloud_scale" name="pointcloud_scale" min="0.0001" max="10.0" value="1.0" step="0.00001" data-enable-if="dataset_has_pointcloud" disabled>
             </div>
           </fieldset>
         </div>
@@ -372,14 +418,16 @@
         "three": "./static/third-party/three.module.min.js",
         "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
         "three/addons/": "./static/third-party/",
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
       }
     }
   </script>-->
   <script type="importmap">
     {
       "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        "three": "./static/third-party/three.module.js",
+        "three/addons/": "./static/third-party/"
       }
     }
   </script>

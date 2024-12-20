@@ -669,13 +669,22 @@ export class MouseInteractions {
       const intersectSet = new Set();
       const intersects = 
         this._raycaster.intersectObjects(this.scene.children, true)
+          .filter(x => x.object?.visibleRaycast !== false)
           .sort((a, b) => a.distance - b.distance);
       const newIntersected = [];
       const newIntersectedSet = new Set();
       let propagate = true;
       for (let intersect of intersects) {
         let obj = intersect.object;
+        let visible = true;
         while (obj) {
+          visible = visible && obj.visible;
+          if (!visible) break;
+          obj = obj.parent;
+        }
+        if (!visible) continue;
+        obj = intersect.object;
+        while (obj && obj !== this.scene) {
           if (!newIntersectedSet.has(obj) && 
               obj._listeners && pointEvents.some(type => obj._listeners[type] && 
               obj._listeners[type].length > 0)) {
@@ -786,7 +795,8 @@ export class CameraFrustum extends THREE.Group {
     });
 
     // Attach material to geometry.
-    this.add(new LineSegments2(this.geometry, this.material));
+    const lineSegment = new LineSegments2(this.geometry, this.material);
+    this.add(lineSegment);
 
     if (originSphereScale) {
       const ballGeometry = new THREE.SphereGeometry(originSphereScale*scale, 32, 32);

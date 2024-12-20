@@ -5,246 +5,7 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { compute_camera_path } from './interpolation.js';
 import { PivotControls, MouseInteractions, CameraFrustum, TrajectoryCurve } from './threejs_utils.js';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { FirstPersonControls } from 'three/addons/controls/FirstPersonControls.js';
-import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
-
-
-const _euler = new THREE.Euler( 0, 0, 0, 'YXZ' );
-const _vector = new THREE.Vector3();
-
-const _changeEvent = { type: 'change' };
-const _lockEvent = { type: 'lock' };
-const _unlockEvent = { type: 'unlock' };
-
-const _PI_2 = Math.PI / 2;
-
-class FPSControls extends THREE.Controls {
-	constructor(camera, domElement = null) {
-		super(camera, domElement);
-
-		this.isLocked = false;
-
-		// Set to constrain the pitch of the camera
-		// Range is 0 to Math.PI radians
-		this.minPolarAngle = 0; // radians
-		this.maxPolarAngle = Math.PI; // radians
-
-		this.pointerSpeed = 1.0;
-
-    this._captureTarget = document.createElement("div");
-
-		// event listeners
-		this._onMouseMove = this._onMouseMove.bind( this );
-    this._onPointerDown = this._onPointerDown.bind( this );
-    this._onPointerUp = this._onPointerUp.bind( this );
-    this._onKeyDown = this._onKeyDown.bind( this );
-    this._onKeyUp = this._onKeyUp.bind( this );
-
-    this.moveForward = false;
-    this.moveBackward = false;
-    this.moveUp = false;
-    this.moveDown = false;
-    this.moveLeft = false;
-    this.moveRight = false;
-
-		if (this.domElement !== null) this.connect();
-	}
-
-	connect() {
-		this.domElement.addEventListener('pointerdown', this._onPointerDown);
-		this._captureTarget.addEventListener('mousemove', this._onMouseMove);
-		this._captureTarget.addEventListener('pointerup', this._onPointerUp);
-    this.domElement.ownerDocument.addEventListener('keydown', this._onKeyDown);
-    this.domElement.ownerDocument.addEventListener('keyup', this._onKeyUp);
-	}
-
-	disconnect() {
-		this.domElement.removeEventListener('pointerdown', this._onPointerDown);
-		this._captureTarget.removeEventListener('mousemove', this._onMouseMove);
-		this._captureTarget.removeEventListener('pointerup', this._onPointerUp);
-    this.domElement.ownerDocument.removeEventListener('keydown', this._onKeyDown);
-    this.domElement.ownerDocument.removeEventListener('keyup', this._onKeyUp);
-	}
-
-	dispose() {
-		this.disconnect();
-	}
-
-	getDirection(v) {
-		return v.set( 0, 0, - 1 ).applyQuaternion( this.object.quaternion );
-	}
-
-	moveForward(distance) {
-		if ( this.enabled === false ) return;
-
-		// move forward parallel to the xz-plane
-		// assumes camera.up is y-up
-
-		const camera = this.object;
-
-		_vector.setFromMatrixColumn( camera.matrix, 0 );
-
-		_vector.crossVectors( camera.up, _vector );
-
-		camera.position.addScaledVector( _vector, distance );
-	}
-
-	moveRight(distance) {
-		if ( this.enabled === false ) return;
-
-		const camera = this.object;
-		_vector.setFromMatrixColumn( camera.matrix, 0 );
-		camera.position.addScaledVector( _vector, distance );
-	}
-
-  _onKeyDown(event) {
-    switch (event.code) {
-        case 'ArrowUp':
-        case 'KeyW':
-            this.moveForward = true;
-            break;
-        case 'ArrowLeft':
-        case 'KeyA':
-            this.moveLeft = true;
-            break;
-        case 'ArrowDown':
-        case 'KeyS':
-            this.moveBackward = true;
-            break;
-        case 'ArrowRight':
-        case 'KeyD':
-            this.moveRight = true;
-            break;
-        case 'Space':
-            this.moveUp = true;
-            break;
-        case 'ShiftLeft':
-            this.moveDown = true;
-            break;
-    }
-  }
-
-  _onKeyUp(event) {
-    switch (event.code) {
-        case 'ArrowUp':
-        case 'KeyW':
-            this.moveForward = false;
-            break;
-        case 'ArrowLeft':
-        case 'KeyA':
-            this.moveLeft = false;
-            break;
-        case 'ArrowDown':
-        case 'KeyS':
-            this.moveBackward = false;
-            break;
-        case 'ArrowRight':
-        case 'KeyD':
-            this.moveRight = false;
-            break;
-        case 'Space':
-            this.moveUp = false;
-            break;
-        case 'ShiftLeft':
-            this.moveDown = false;
-            break;
-    }
-  }
-
-  _onMouseMove(event) {
-    if ( this.enabled === false || this.isLocked === false ) return;
-    console.log(event);
-
-    const camera = this.object;
-    _euler.setFromQuaternion( camera.quaternion );
-
-    _euler.y -= event.movementX * 0.002 * this.pointerSpeed;
-    _euler.x -= event.movementY * 0.002 * this.pointerSpeed;
-
-    _euler.x = Math.max( _PI_2 - this.maxPolarAngle, Math.min( _PI_2 - this.minPolarAngle, _euler.x ) );
-
-    camera.quaternion.setFromEuler( _euler );
-
-    this.dispatchEvent( _changeEvent );
-
-  }
-
-  _onPointerDown(e) {
-    // Capture pointer
-    this.isLocked = true;
-    this._captureTarget.setPointerCapture(e.pointerId);
-  }
-
-  _onPointerUp(e) {
-    // Release pointer
-    this.isLocked = false;
-    this._captureTarget.releasePointerCapture(e.pointerId);
-  }
-}
-
-let CreativeControls = {};
-CreativeControls.Controls = (camera, dom, menu, blocker) => {
-    const controls = new PointerLockControls(camera, dom);
-
-
-    document.addEventListener('keydown', onKeyDown);
-    document.addEventListener('keyup', onKeyUp);
-
-
-    return controls;
-}
-
-CreativeControls.velocity = new THREE.Vector3();
-CreativeControls.direction = new THREE.Vector3();
-CreativeControls.prevTime = performance.now();
-
-CreativeControls.update = (controls, speed) => {
-    const time = performance.now();
-
-    if(!speed) {
-        speed = new Vector3(200.0, 200.0, 200.0);
-    }
-
-    if (controls.isLocked === true ) {
-        const delta = (time - CreativeControls.prevTime) / 1000;
-
-        
-        CreativeControls.velocity.x -= CreativeControls.velocity.x * 10.0 * delta;
-        CreativeControls.velocity.z -= CreativeControls.velocity.z * 10.0 * delta;
-        CreativeControls.velocity.y -= CreativeControls.velocity.y * 10.0 * delta;
-        
-
-        CreativeControls.direction.z = Number( CreativeControls.moveForward ) - Number( CreativeControls.moveBackward );
-        CreativeControls.direction.x = Number( CreativeControls.moveRight ) - Number( CreativeControls.moveLeft );
-        CreativeControls.direction.y = Number( CreativeControls.moveDown ) - Number( CreativeControls.moveUp );
-        CreativeControls.direction.normalize(); // this ensures consistent movements in all directions
-
-        if ( CreativeControls.moveForward || CreativeControls.moveBackward ) CreativeControls.velocity.z -= CreativeControls.direction.z * speed.z * delta;
-        if ( CreativeControls.moveLeft || CreativeControls.moveRight ) CreativeControls.velocity.x -= CreativeControls.direction.x * speed.x * delta;
-        if ( CreativeControls.moveUp || CreativeControls.moveDown ) CreativeControls.velocity.y -= CreativeControls.direction.y * speed.y * delta;
-
-        controls.moveRight( - CreativeControls.velocity.x * delta );
-        controls.moveForward( - CreativeControls.velocity.z * delta );
-        
-
-        controls.getObject().position.y += ( CreativeControls.velocity.y * delta ); // up down
-
-    }
-
-    CreativeControls.prevTime = time;
-
-}
-
-
-
-
-
-
-
-
-
-
+import { ViewerControls } from './controls.js';
 
 
 const notification_autoclose = 5000;
@@ -283,6 +44,15 @@ class SettingsManager {
       dataset_show_train_cameras: false,
       dataset_show_test_cameras: true,
       dataset_show_pointcloud: true,
+
+      camera_control_inertia: 0.6,
+      camera_control_rotation_sensitivity: 1.0,
+      camera_control_pan_sensitivity: 1.0,
+      camera_control_zoom_sensitivity: 1.0,
+
+      camera_control_rotation_inverted: false,
+      camera_control_pan_inverted: false,
+      camera_control_zoom_inverted: false,
     }
   }
 
@@ -784,7 +554,7 @@ function _attach_viewport_split_slider(viewer) {
   update(viewer._gui_state);
 }
 
-class WebSocketEndpoint {
+class WebSocketRenderer {
   constructor({ url, update_notification }) {
     this.url = url;
     this._socket = undefined;
@@ -885,7 +655,7 @@ class WebSocketEndpoint {
   }
 }
 
-class HTTPEndpoint {
+class HTTPRenderer {
   constructor({ url }) {
     this.url = url;
   }
@@ -931,11 +701,9 @@ async function promise_parallel_n(tasks, num_parallel) {
 class DatasetManager {
   constructor({
     viewer,
-    endpoint,
     url,
     parts,
   }) {
-    this.endpoint = endpoint;
     this.viewer = viewer;
     this.scene = viewer.scene;
     this.url = url;
@@ -1005,6 +773,11 @@ class DatasetManager {
   }
 
   _on_viewer_change({ property, state }) {
+    if ((property === undefined || property === 'pointcloud_scale') && this._pointcloud) {
+      for (const point of this._pointcloud.children) {
+        point.material.uniforms.scale.value = state.pointcloud_scale;
+      }
+    }
     if (property === undefined || 
         property === 'dataset_show_pointcloud' ||
         property === 'dataset_show_train_cameras' ||
@@ -1309,7 +1082,7 @@ class DatasetManager {
 
       const material = new THREE.ShaderMaterial({ 
         uniforms: {
-          scale: { value: 10.0 },
+          scale: { value: this.viewer._gui_state.pointcloud_scale },
           point_ball_norm: { value: 2.0 },
         },
         vertexShader: _point_cloud_vertex_shader,
@@ -1485,16 +1258,40 @@ function _attach_selected_keyframe_details(viewer) {
 }
 
 
+function _attach_camera_control(viewer) {
+  viewer.addEventListener("change", ({ property, state }) => {
+    if (property === undefined || property === 'camera_control_mode') {
+      viewer.controls.mode = state.camera_control_mode;
+      viewer.controls.resetDamping();
+    }
+
+    if (property === undefined || property === 'camera_control_inertia' || property === 'prerender_enabled') {
+      // If pre-render is enabled, disable damping
+      viewer.controls.enableDamping = !state.prerender_enabled && state.camera_control_inertia > 0;
+      viewer.controls.dampingFactor = 1 - state.camera_control_inertia ** (1/2);
+      viewer.controls.resetDamping();
+    }
+    const trans = x => Math.exp((x-1)*2.5);
+    if (property === undefined || property === 'camera_control_rotation_sensitivity' || property === 'camera_control_rotation_inverted')
+      viewer.controls.rotateSpeed = trans(state.camera_control_rotation_sensitivity) * (state.camera_control_rotation_inverted ? -1 : 1);
+    if (property === undefined || property === 'camera_control_pan_sensitivity' || property === 'camera_control_pan_inverted')
+      viewer.controls.panSpeed = trans(state.camera_control_pan_sensitivity) * (state.camera_control_pan_inverted ? -1 : 1);
+    if (property === undefined || property === 'camera_control_zoom_sensitivity' || property === 'camera_control_zoom_inverted')
+      viewer.controls.zoomSpeed = trans((state.camera_control_zoom_sensitivity-1)*2+0.5) * (state.camera_control_zoom_inverted ? -1 : 1);
+    if (property === undefined || property === 'camera_control_key_speed')
+      viewer.controls.keyPanSpeed = viewer.controls.keyRotateSpeed = 7 * trans(state.camera_control_key_speed);
+  });
+}
+
+
 class Viewer extends THREE.EventDispatcher {
   constructor({ 
     viewport, 
     viewer_transform,
     viewer_initial_pose,
     url,
-    endpoint,
   }) {
     super();
-    this.endpoint = endpoint;
     this._backgroundTexture = undefined;
     this.viewport = viewport;
     const width = viewport.clientWidth;
@@ -1503,21 +1300,13 @@ class Viewer extends THREE.EventDispatcher {
     this.renderer.setSize(width, height);
     viewport.appendChild(this.renderer.domElement);
     this.camera = new THREE.PerspectiveCamera( 70, width / height, 0.01, 10 );
+    this.camera.up = new THREE.Vector3(0, 0, 1);
+    console.log(this.camera.up);
     this.renderer_scene = new THREE.Scene();
     this.mouse_interactions = new MouseInteractions(this.renderer, this.camera, this.renderer_scene, viewport);
 
-    // this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    // this.controls.listenToKeyEvents(window);
-    // this.controls.enableDamping = true; // an animation loop is required when either damping or auto-rotation are enabled
-   	// this.controls.dampingFactor = 0.05;
-		// this.controls.screenSpacePanning = false;
-		// this.controls.maxPolarAngle = Math.PI / 2;
-    // this.controls = new FirstPersonControls(this.camera, this.renderer.domElement);
-    this.controls = new PointerLockControls(this.camera, this.renderer.domElement);
-    this.renderer.domElement.addEventListener("pointerdown", () => {
-      this.controls.lock();
-    });
-
+    this.controls = new ViewerControls(this.camera, this.renderer.domElement);
+    this.controls.listenToKeyEvents(window);
 
     this._enabled = true;
     this.renderer.setAnimationLoop((time) => this._animate(time));
@@ -1529,19 +1318,21 @@ class Viewer extends THREE.EventDispatcher {
       this.scene.applyMatrix4(viewer_transform);
     }
     // Switch OpenCV to ThreeJS coordinate system
-    this.scene.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI/2));
+    //this.scene.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI/2));
     if (viewer_initial_pose) {
       const matrix = viewer_initial_pose.clone();
-      matrix.multiply(new THREE.Matrix4().makeRotationX(-Math.PI/2));
+      //matrix.multiply(new THREE.Matrix4().makeRotationX(-Math.PI/2));
       this.set_camera({ matrix });
 
+      console.log(this.camera.position);
+
       // For forward-facing scenes
-      const target = new THREE.Vector3(0, 1, 0).applyMatrix4(viewer_initial_pose);
+      // const target = new THREE.Vector3(0, 1, 0).applyMatrix4(viewer_initial_pose);
       // For object-centric scenes
-      // const target = new THREE.Vector3(0, 0, 0).applyMatrix4(viewer_initial_pose);
+      const target = new THREE.Vector3(0, 0, 0);
       
       this.controls.target?.copy(target);
-      //this.controls.update();
+      this.controls.update();
     }
 
     this._preview_canvas = document.createElement("canvas");
@@ -1568,6 +1359,7 @@ class Viewer extends THREE.EventDispatcher {
     this._last_frames = {};
 
     this._attach_computed_properties();
+    _attach_camera_control(this);
     _attach_camera_path(this);
     this._attach_preview_is_playing();
     this._attach_update_preview_mode();
@@ -1583,15 +1375,6 @@ class Viewer extends THREE.EventDispatcher {
         this.camera.fov = state.render_fov;
         this.camera.updateProjectionMatrix();
         this._draw_background();
-      }
-    });
-
-    // If pre-render is enabled, disable damping
-    this.addEventListener("change", ({ property, state }) => {
-      if (property === undefined || property === 'prerender_enabled') {
-        // Disable/enable dumping
-        if (this.controls)
-          this.controls.enableDamping = !state.prerender_enabled;
       }
     });
   }
@@ -1722,16 +1505,18 @@ class Viewer extends THREE.EventDispatcher {
     return params;
   }
 
-  start_renderer() {
+  set_frame_renderer(frame_renderer) {
     // Connect HTTP renderer
-
+    if (this.frame_renderer)
+      throw new Error("Frame renderer is already set.")
+    this.frame_renderer = frame_renderer;
     let lastUpdate = Date.now() - 1;
     const run = async () => {
       while (true) {
         try {
           const params = this._get_render_params();
           if (params !== undefined) {
-            const image = await this.endpoint.render(params);
+            const image = await this.frame_renderer.render(params);
             this.dispatchEvent({ type: "frame", image });
             this._last_frames[0] = image;
             this._draw_background();
@@ -1772,7 +1557,6 @@ class Viewer extends THREE.EventDispatcher {
     // Add DatasetManager
     this.dataset_manager = new DatasetManager({ 
       viewer: this, 
-      endpoint: this.endpoint,
       url,
       parts,
     });
@@ -2789,16 +2573,18 @@ fetch("./info")
       viewport,
       viewer_transform,
       viewer_initial_pose,
-      endpoint: new WebSocketEndpoint({ 
-        url: ".",
-        update_notification: (notification) => {
-          viewer._update_notification(notification);
-        }
-      }),
     });
     window.viewer = viewer;
     viewer.attach_gui(document.querySelector('.controls'));
-    viewer.start_renderer();
+
+    if (data.renderer_websocket_url) {
+      viewer.set_frame_renderer(new WebSocketRenderer({ 
+        url: data.renderer_websocket_url,
+        update_notification: (notification) => {
+          viewer._update_notification(notification);
+        }
+      }));
+    }
     if (data.dataset_url) {
       viewer.set_dataset({
         url: data.dataset_url, 

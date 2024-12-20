@@ -267,26 +267,6 @@ def _build_flake_app(render_fn,
         except Exception as e:
             return {"status": "error", "message": str(e), "thread": thread}
 
-    # @app.route("/websocket", websocket=True)
-    # def websocket():
-    #     ws = Server.accept(request.environ)
-    #     try:
-    #         while True:
-    #             reqdata = ws.receive()
-    #             req = json.loads(reqdata)
-    #             msg = _handle_websocket_message(req)
-    #             payload = msg.pop("payload", None)
-    #             if payload is None:
-    #                 ws.send(json.dumps(msg))
-    #             else:
-    #                 msg_bytes = json.dumps(msg).encode("utf-8")
-    #                 message_length = len(msg_bytes)
-    #                 ws.send(struct.pack(f"!I", message_length) + msg_bytes + payload)
-    #     except ConnectionClosed:
-    #         pass
-    #     return ''
-    # del websocket
-
     @flask_websocket_route(app, "/websocket")
     def websocket(ws):
         while True:
@@ -311,7 +291,7 @@ def _build_flake_app(render_fn,
             "dataset_parts": [],
         }
         if model_info is not None:
-            info["renderer_url"] = f"{request.url_root}render"
+            info["renderer_websocket_url"] = f"./websocket"
         if datasets.get("train") is not None:
             info["dataset_url"] = f"{request.url_root}dataset"
 
