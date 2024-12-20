@@ -36,7 +36,7 @@ class SettingsManager {
   _get_default_settings() {
     return {
       theme_color: "#ffd369",
-      trajectory_curve_color: "#ffd369",
+      trajectory_curve_color: "#6bffe6",
       player_frustum_color: "#20df80",
       keyframe_frustum_color: "#ff0000",
       dataset_frustum_color: "#d3d3d3",
@@ -172,11 +172,6 @@ async function saveAs(blob, opts) {
     await writable.close();
   }
 }
-
-
-
-// Implement WebRTC
-
 
 const _point_cloud_vertex_shader = `
 precision mediump float;
@@ -641,17 +636,6 @@ class WebSocketRenderer {
       }));
     });
     return await createImageBitmap(message.payload, { imageOrientation: "flipY" });
-    // const response = await fetch(`${this.url}/render`,{
-    //   method: "POST",  // Disable caching
-    //   cache: "no-cache",
-    //   headers: {
-    //     "Content-Type": "application/json",
-    //   },
-    //   body: params,
-    // });
-    // // Read response as blob
-    // const blob = await response.blob();
-    // return await createImageBitmap(blob, { imageOrientation: "flipY" });
   }
 }
 

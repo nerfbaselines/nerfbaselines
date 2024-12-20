@@ -5,8 +5,7 @@ from pathlib import Path
 import click
 
 # from nerfbaselines.viewer import run_viser_viewer
-from nerfbaselines.viewer._viewer import run_viewer
-from nerfbaselines.viewer._viser import run_viser_viewer
+from nerfbaselines.viewer import Viewer
 from nerfbaselines import get_method_spec, build_method_class
 from nerfbaselines.datasets import load_dataset
 from nerfbaselines import backends
@@ -64,15 +63,11 @@ def viewer_command(checkpoint: str, data, backend_name, port=6006):
                 data, split="test", features=("points3D_xyz", "points3D_rgb"), load_features=False)
 
         # Start the viewer
-        run_viewer(method, 
-                   train_dataset=train_dataset, 
-                   test_dataset=test_dataset, 
-                   nb_info=nb_info,
-                   port=port)
-        # run_viser_viewer(method, 
-        #                  data, 
-        #                  port=port,
-        #                  nb_info=nb_info)
+        Viewer(model=method, 
+               train_dataset=train_dataset, 
+               test_dataset=test_dataset, 
+               nb_info=nb_info,
+               port=port)
 
 
 if __name__ == "__main__":

@@ -337,7 +337,7 @@ def _dataset_rescale_intrinsics(dataset: Dataset, image_sizes: np.ndarray):
 
 
 def dataset_load_features(
-    dataset: UnloadedDataset, features=None, supported_camera_models=None
+    dataset: UnloadedDataset, features=None, supported_camera_models=None, show_progress=True
 ) -> Dataset:
     if features is None:
         features = frozenset(("color",))
@@ -353,7 +353,7 @@ def dataset_load_features(
         logging.info(f"Loading images from {image_paths_root}")
 
     i = 0
-    for p in tqdm(dataset["image_paths"], desc="loading images", dynamic_ncols=True):
+    for p in tqdm(dataset["image_paths"], desc="loading images", dynamic_ncols=True, disable=not show_progress):
         if str(p).endswith(".bin"):
             assert dataset["metadata"]["color_space"] == "linear"
             with open(p, "rb") as f:
