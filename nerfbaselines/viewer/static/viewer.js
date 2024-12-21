@@ -1903,7 +1903,7 @@ class Viewer extends THREE.EventDispatcher {
     } else if (source.interpolation === "linear") {
       source.is_cycle = state.camera_path_loop;
       source.default_transition_duration = state.camera_path_default_transition_duration;
-    } else if (source.interpolation === "none" || source.interpolation === "ellipse") {
+    } else if (source.interpolation === "none" || source.interpolation === "circle") {
       source.default_transition_duration = state.camera_path_default_transition_duration;
       if (source.interpolation === "none") {
         fps = 1.0 / state.camera_path_default_transition_duration;
@@ -1954,8 +1954,8 @@ class Viewer extends THREE.EventDispatcher {
       const {
         interpolation,
       } = source;
-      if (source.type !== "interpolation" || ["none", "kochanek-bartels", "ellipse", "linear"].indexOf(interpolation) === -1) {
-        throw new Error("Trajectory does not contain 'source' with 'type' set to 'interpolation' and 'interpolation' set to 'none', 'linear', 'kochanek-bartels', or 'ellipse'. It is not editable.");
+      if (source.type !== "interpolation" || ["none", "kochanek-bartels", "circle", "linear"].indexOf(interpolation) === -1) {
+        throw new Error("Trajectory does not contain 'source' with 'type' set to 'interpolation' and 'interpolation' set to 'none', 'linear', 'kochanek-bartels', or 'circle'. It is not editable.");
       }
       function validate_appearance(appearance) {
         if (appearance && appearance.embedding_train_index === undefined) {
@@ -2392,10 +2392,8 @@ class Viewer extends THREE.EventDispatcher {
         if (!event.defaultPrevented) notification.dispatchEvent(event);
         if (!event.defaultPrevented) close();
       });
-      if (onclose) {
-        notification._onclose = onclose;
-      }
     }
+    notification._onclose = onclose;
     notification.className = `notification notification-${type}`;
     notification.style.setProperty("--progress", `${progress * 100}%`);
     notification.querySelector(".notification-header div").textContent = header;

@@ -213,7 +213,7 @@ def run_flask_server(request_queue,
         if not (0 <= idx < len(dataset["cameras"])): 
             return jsonify({"status": "error", "message": "Image not found in the dataset"}), 404
 
-        dataset_slice = dataset_load_features(dataset_index_select(dataset, [idx]), _show_progress=False)
+        dataset_slice = dataset_load_features(dataset_index_select(dataset, [idx]), show_progress=False)
         image = dataset_slice["images"][0]
 
         will_cache = False

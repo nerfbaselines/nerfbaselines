@@ -84,6 +84,7 @@ class LinearInterpolation {
   constructor({ vertices, loop = false }) {
     this.vertices = vertices
     this.loop = loop;
+    this.evaluate = this.evaluate.bind(this);
   }
 
   evaluate(t) {
@@ -125,6 +126,7 @@ class KochanekBartelsInterpolation {
     this.continuity = continuity;
     this.bias = bias;
     this.loop = loop;
+    this.evaluate = this.evaluate.bind(this);
   }
 
   evaluate(t) {
@@ -218,67 +220,6 @@ class KochanekBartelsInterpolation {
 }
 
 
-function interpolate_ellipse(camera_path_keyframes, num_frames) {
-  /*
-  if (num_frames <= 0 || camera_path_keyframes.length < 3) {
-    return undefined;
-  }
-
-  const centroid = camera_path_keyframes.reduce(
-    (acc, x) => acc.add(x), new THREE.Vector3()).multiplyScalar(1/camera_path_keyframes.length);
-  const centered_pointas = camera_path_keyframes.map(x => x.position.clone().sub(centroid));
-
-  // Singular Value Decomposition (SVD)
-  const [U, S, Vt] = np.linalg.svd(centered_points);
-  const normal_vector = Vt[Vt.length-1];
-
-  // Project the points onto the plane
-  const projection_matrix = THREE.Matrix3.eye(3) - THREE.outer(normal_vector, normal_vector)
-  const projected_points = centered_points.map(x => x.multiply(projection_matrix));
-
-  // Now, we have points in a 2D plane, fit a circle in 2D
-  const A = np.c_[2*projected_points[:,0], 2*projected_points[:,1], np.ones(projected_points.shape[0])]
-  const b = projected_points.map(x => x.x^2 + x.y^2 + x.z^2);
-  const x = np.linalg.lstsq(A, b, rcond=None)[0]
-  const center_2d = x[:2]
-  const radius = np.sqrt(x[2] + np.sum(center_2d**2))
-
-  // Reproject the center back to 3D
-  const angles = np.linspace(0, 2*Math.PI, int(num_frames), endpoint=False)
-  const points_array = angles.map(angle => {
-    let position = [center_2d[0] + radius * Math.cos(angle),
-                      center_2d[1] + radius * Math.sin(angle)];
-    position = position.multiply(projection_matrix[:2, :2].T);
-    let position3 = new THREE.Vector3(position[0], position[1], 0);
-    return position3.add(centroid);
-  });
-
-  poses = np.stack([get_c2w(k.position, k.wxyz) for k in camera_path_keyframes], axis=0)
-  directions, origins = poses[:, :3, 2:3], poses[:, :3, 3:4]
-  m = np.eye(3) - directions * np.transpose(directions, [0, 2, 1])
-  mt_m = np.transpose(m, [0, 2, 1]) @ m
-  focus_pt = np.linalg.inv(mt_m.mean(0)) @ (mt_m @ origins).mean(0)[:, 0]
-
-  // Compute camera orientation
-  let oriented_normal = undefined;
-  const quaternions = points_array.map(x => {
-    const dirz = focus_pt.clone().sub(x).normalize();
-    if (oriented_normal === undefined)
-      oriented_normal = normal_vector.dot(dirz) > 0 ? normal_vector.clone().multiplyScalar(-1) : normal_vector;
-    dirx = dirz.clone().cross(oriented_normal);
-    diry = dirz.clone().cross(dirx);
-    R = np.stack([dirx, diry, dirz], axis=-1)
-    return THREE.Quaternion().fromRotationMatrix(R);
-  };
-
-  // TODO: implement rest
-  fovs = np.full(num_frames, render_fov, dtype=np.float32)
-  weights = _onehot(0, len(camera_path_keyframes))[np.newaxis].repeat(num_frames, axis=0)
-  return points_array, orientation_array, fovs, weights
-  */
-}
-
-
 function pchip_interpolate(x, xValues, yValues) {
   const n = xValues.length;
   if (n < 2) throw new Error("At least two points are required for interpolation.");
@@ -335,12 +276,17 @@ export function compute_camera_path(props) {
     interpolation = 'none', 
     ...rest_props 
   } = props;
+  const k_positions = keyframes.map(k => k.position);
+  const k_quaternions = keyframes.map(k => k.quaternion);
+  const k_fovs = keyframes.map(k => k.fov || default_fov);
+  const k_weights = keyframes.map((_, i) => onehot(i, keyframes.length));
+
   if (interpolation === 'none') {
     return {
-      positions: keyframes.map(k => k.position),
-      quaternions: keyframes.map(k => k.quaternion),
-      fovs: keyframes.map(k => k.fov || default_fov),
-      weights: keyframes.map((_, i) => onehot(i, keyframes.length))
+      positions: k_positions,
+      quaternions: k_quaternions,
+      fovs: k_fovs,
+      weights: k_weights,
     };
   }
 
@@ -358,20 +304,365 @@ export function compute_camera_path(props) {
   }, []);
   const total_duration = transition_times_cumsum[transition_times_cumsum.length - 1];
   const num_frames = Math.floor(total_duration * framerate);
+  
+  if (interpolation === 'circle') {
+    const up = new THREE.Vector3(0, 0, 0);
+    k_quaternions.forEach((q, i) => up.add(new THREE.Vector3(0, 1, 0).applyQuaternion(q)));
+    up.normalize();
+    const { center, normal, radius, points2D, center2D } = fitCircleToPoints3D({ points: k_positions, up });
+    let angles = points2D.map(p => Math.atan2(p.y - center2D.y, p.x - center2D.x));
+    angles = angles.map(x => (x - angles[0] + 3 * Math.PI) % (2 * Math.PI) - Math.PI);
+    let angleDiffs = angles.map((x, i) => (angles[(i+1)%angles.length]-x+5*Math.PI) % (2*Math.PI)-Math.PI);
+
+    // Unify winding direction
+    const angleDiffsPos = angleDiffs.map(x => (x >= 0)? x : (2*Math.PI+x));
+    const angleDiffsNeg = angleDiffs.map(x => (-x >= 0)? x : (-2*Math.PI+x));
+    if (angleDiffsPos.reduce((a,x) => a+Math.abs(x), 0) < angleDiffsNeg.reduce((a,x) => a+Math.abs(x), 0)) {
+      angleDiffs = angleDiffsPos;
+    } else {
+      angleDiffs = angleDiffsNeg;
+    }
+
+    // Create an elliptical path
+    const positions = [];
+    const quaternions = [];
+    const fovs = [];
+    const weights = [];
+
+    const angleStep = 2 * Math.PI / (num_frames - 1);
+    let q = new THREE.Quaternion();
+    let v = new THREE.Vector3();
+    let m = new THREE.Matrix4();
+
+    const start = keyframes[0].position.clone().sub(center).cross(normal).cross(normal).multiplyScalar(-1).normalize();
+    for (let i = 0; i < num_frames; i++) {
+      const t = i / (num_frames - 1);
+
+      let segment, localt;
+      const n = keyframes.length;
+      if (!loop) {
+        segment = Math.floor(t * (n - 1));
+        localt = (t * (n - 1)) % 1;
+      } else {
+        segment = Math.floor(t * n);
+        localt = (t * n) % 1;
+      }
+
+      const angle = angles[segment%angles.length] + angleDiffs[segment%angles.length] * localt;
+      q.setFromAxisAngle(normal, angle);
+      const point = start.clone().applyQuaternion(q).multiplyScalar(radius).add(center);
+      // const point = new THREE.Vector3(radius, 0, 0).applyQuaternion(q).add(center);
+      m.lookAt(center, point, normal).decompose(v, q, v);
+
+      positions.push(point);
+      quaternions.push(q.clone());
+      fovs.push(keyframes[0].fov || default_fov);
+      weights.push(onehot(0, keyframes.length));
+    }
+
+    return { positions, quaternions, fovs, weights };
+  }
+
 
   const Interpolation = {
     'linear': LinearInterpolation,
     'kochanek-bartels': KochanekBartelsInterpolation,
   }[interpolation];
-  const position_spline = new Interpolation({ vertices: keyframes.map(k => k.position), loop: loop, ...rest_props});
-  const quaternion_spline = new Interpolation({ vertices: keyframes.map(k => k.quaternion), loop: loop, ...rest_props});
-  const fov_spline = new Interpolation({ vertices: keyframes.map(k => k.fov || default_fov), loop: loop, ...rest_props });
-  const weights_spline = new Interpolation({ vertices: keyframes.map((_, i) => onehot(i, keyframes.length)), loop: loop, ...rest_props });
+  const position_spline = new Interpolation({ vertices: k_positions, loop: loop, ...rest_props}).evaluate;
+  const quaternion_spline = new Interpolation({ vertices: k_quaternions, loop: loop, ...rest_props}).evaluate;
+  const fov_spline = new Interpolation({ vertices: k_fovs, loop: loop, ...rest_props }).evaluate;
+  const weights_spline = new Interpolation({ vertices: k_weights, loop: loop, ...rest_props }).evaluate;
 
   const gtime = Array.from({ length: num_frames }, (_, i) => (i / (num_frames-1)));
-  const positions = gtime.map(t => position_spline.evaluate(t));
-  const quaternions = gtime.map(t => quaternion_spline.evaluate(t));
-  const fovs = gtime.map(t => fov_spline.evaluate(t));
-  const weights = gtime.map(t => weights_spline.evaluate(t));
+  const positions = gtime.map(t => position_spline(t));
+  const quaternions = gtime.map(t => quaternion_spline(t));
+  const fovs = gtime.map(t => fov_spline(t));
+  const weights = gtime.map(t => weights_spline(t));
   return { positions, quaternions, fovs, weights };
 }
+
+
+// Circle interpolation
+// 1. Compute the best-fitting plane
+function computeBestFitPlane(points) {
+  // Compute centroid
+  let centroid = new THREE.Vector3();
+  for (let p of points) {
+    centroid.add(p);
+  }
+  centroid.multiplyScalar(1 / points.length);
+
+  // Compute covariance matrix
+  let xx = 0, xy = 0, xz = 0;
+  let yy = 0, yz = 0, zz = 0;
+
+  for (let p of points) {
+    let x = p.x - centroid.x;
+    let y = p.y - centroid.y;
+    let z = p.z - centroid.z;
+
+    xx += x * x;
+    xy += x * y;
+    xz += x * z;
+    yy += y * y;
+    yz += y * z;
+    zz += z * z;
+  }
+
+  xx /= points.length;
+  xy /= points.length;
+  xz /= points.length;
+  yy /= points.length;
+  yz /= points.length;
+  zz /= points.length;
+
+  // Form the covariance matrix
+  let cov = new THREE.Matrix3();
+  cov.set(xx, xy, xz,
+          xy, yy, yz,
+          xz, yz, zz);
+
+  let { eigenvalues, eigenvectors } = eigenDecomposition3x3(cov);
+
+  // Find the smallest eigenvalue index
+  let minIndex = 0;
+  for (let i = 1; i < 3; i++) {
+    if (eigenvalues[i] < eigenvalues[minIndex]) minIndex = i;
+  }
+
+  // The normal of the best-fitting plane is the eigenvector with the smallest eigenvalue.
+  let normal = eigenvectors[minIndex];
+  return { centroid, normal };
+}
+
+function eigenDecomposition3x3(matrix) {
+    if (!(matrix instanceof THREE.Matrix3)) {
+        throw new Error("Input must be a THREE.Matrix3 object.");
+    }
+
+    // Extract elements from the THREE.Matrix3 object
+    const elements = matrix.elements;
+
+    // Convert to a standard 2D array for easier manipulation
+    const A = [
+        [elements[0], elements[1], elements[2]],
+        [elements[3], elements[4], elements[5]],
+        [elements[6], elements[7], elements[8]]
+    ];
+
+    // Helper function: Calculate eigenvalues using the characteristic polynomial
+    function computeEigenvalues(matrix) {
+        const a = matrix[0][0], b = matrix[0][1], c = matrix[0][2];
+        const d = matrix[1][0], e = matrix[1][1], f = matrix[1][2];
+        const g = matrix[2][0], h = matrix[2][1], i = matrix[2][2];
+
+        // Compute coefficients of the characteristic polynomial: det(A - λI)
+        const p1 = -(a + e + i); // -trace(A)
+        const p2 = a * e + a * i + e * i - b * d - c * g - f * h; // sum of 2x2 determinants
+        const p3 = -(
+            a * (e * i - f * h) -
+            b * (d * i - f * g) +
+            c * (d * h - e * g)
+        ); // -det(A)
+
+        // Solve the cubic equation λ^3 + p1λ^2 + p2λ + p3 = 0 for eigenvalues
+        return solveCubicEquation(1, p1, p2, p3);
+    }
+
+    // Helper function: Solve a cubic equation using numerical methods
+    function solveCubicEquation(a, b, c, d) {
+        // Normalize coefficients
+        b /= a; c /= a; d /= a;
+
+        const p = (3 * c - b * b) / 3;
+        const q = (2 * b * b * b - 9 * b * c + 27 * d) / 27;
+        const delta = (q * q) / 4 + (p * p * p) / 27;
+
+        if (delta > 0) {
+            // One real root
+            const sqrtDelta = Math.sqrt(delta);
+            const u = Math.cbrt(-q / 2 + sqrtDelta);
+            const v = Math.cbrt(-q / 2 - sqrtDelta);
+            return [u + v - b / 3];
+        } else if (delta === 0) {
+            // All roots real, at least two are equal
+            const u = Math.cbrt(-q / 2);
+            return [2 * u - b / 3, -u - b / 3];
+        } else {
+            // Three distinct real roots
+            const r = Math.sqrt(-(p * p * p) / 27);
+            const phi = Math.acos(-q / (2 * r));
+            const root1 = 2 * Math.cbrt(r) * Math.cos(phi / 3) - b / 3;
+            const root2 = 2 * Math.cbrt(r) * Math.cos((phi + 2 * Math.PI) / 3) - b / 3;
+            const root3 = 2 * Math.cbrt(r) * Math.cos((phi + 4 * Math.PI) / 3) - b / 3;
+            return [root1, root2, root3];
+        }
+    }
+
+    // Compute eigenvalues
+    const eigenvalues = computeEigenvalues(A);
+
+    // Helper function: Compute eigenvectors for a given eigenvalue
+    function computeEigenvector(matrix, eigenvalue) {
+        const size = matrix.length;
+        const m = matrix.map((row, i) =>
+            row.map((val, j) => (i === j ? val - eigenvalue : val))
+        );
+
+        const v3 = 1.0;
+        // Now we solve:
+        // v1*m[0][0] + v2*m[1][0] = -v3*m[2][0]
+        // v1*m[0][1] + v2*m[1][1] = -v3*m[2][1]
+        const c = -m[1][0] / m[1][1];
+        const v1 = -v3 * (m[2][0] + m[2][1]*c) / (m[0][0] + m[0][1]*c);
+        const v2 = -(v3 * m[2][1] + v1 * m[0][1]) / m[1][1];
+        return new THREE.Vector3(v1, v2, v3).normalize();
+    }
+
+    // Compute eigenvectors for each eigenvalue
+    const eigenvectors = eigenvalues.map((λ) => computeEigenvector(A, λ));
+
+    return {
+        eigenvalues,
+        eigenvectors
+    };
+}
+
+// 2. Project points onto the best-fit plane
+function projectPointsOntoPlane(points, centroid, normal) {
+  // Create an orthonormal basis (u,v) for the plane
+  // u is perpendicular to normal and arbitrary axis
+  let arbitrary = new THREE.Vector3(1,0,0);
+  if (Math.abs(normal.dot(arbitrary)) > 0.9) {
+    arbitrary.set(0,1,0);
+  }
+  let u = new THREE.Vector3().crossVectors(normal, arbitrary).normalize();
+  let v = new THREE.Vector3().crossVectors(normal, u).normalize();
+
+  let projectedPoints = [];
+  for (let p of points) {
+    let diff = new THREE.Vector3().subVectors(p, centroid);
+    let x = diff.dot(u);
+    let y = diff.dot(v);
+    projectedPoints.push({x, y});
+  }
+
+  return { projectedPoints, u, v };
+}
+
+// 3. Fit a circle in 2D
+// Using a linear least squares approach to circle fitting:
+// We solve the system for A,B,C in x² + y² + A x + B y + C = 0.
+function fitCircle2D(projectedPoints) {
+  let X = [], Y = [], Z = [];
+
+  for (let pt of projectedPoints) {
+    let {x, y} = pt;
+    X.push(x);
+    Y.push(y);
+    Z.push(x*x + y*y);
+  }
+
+  // We want to solve:
+  // [X Y 1][A  ] = [-Z]
+  //      [B  ]
+  //      [C  ]
+  //
+  // i.e. M * param = -Z
+  // param = (A,B,C)
+
+  let M = [0,0,0, 0,0,0, 0,0,0];
+  let R = [0,0,0];
+
+  let n = projectedPoints.length;
+  for (let i=0; i<n; i++) {
+    M[0] += X[i]*X[i]; M[1] += X[i]*Y[i]; M[2] += X[i];
+    M[3] += X[i]*Y[i]; M[4] += Y[i]*Y[i]; M[5] += Y[i];
+    M[6] += X[i];    M[7] += Y[i];    M[8] += 1;
+
+    R[0] += X[i]*Z[i];
+    R[1] += Y[i]*Z[i];
+    R[2] += Z[i];
+  }
+
+  // Solve M * [A;B;C] = -R
+  // We need to invert M and multiply by -R
+  let invM = invert3x3(M);
+  if (!invM) {
+    throw new Error("Matrix inversion failed. Points may be degenerate.");
+  }
+
+  let param = [
+    -(invM[0]*R[0] + invM[1]*R[1] + invM[2]*R[2]),
+    -(invM[3]*R[0] + invM[4]*R[1] + invM[5]*R[2]),
+    -(invM[6]*R[0] + invM[7]*R[1] + invM[8]*R[2])
+  ];
+
+  let A = param[0], B = param[1], C = param[2];
+  let xC = -A/2;
+  let yC = -B/2;
+  let r = Math.sqrt(xC*xC + yC*yC - C);
+
+  return {xC, yC, r};
+}
+
+// Invert a 3x3 matrix given as array [m11,m12,m13,m21,m22,m23,m31,m32,m33]
+function invert3x3(m) {
+  let det = m[0]*(m[4]*m[8]-m[5]*m[7]) - m[1]*(m[3]*m[8]-m[5]*m[6]) + m[2]*(m[3]*m[7]-m[4]*m[6]);
+  if (Math.abs(det)<1e-14) return null;
+
+  let invDet = 1.0/det;
+  let inv = [
+    (m[4]*m[8]-m[5]*m[7])*invDet,
+    (m[2]*m[7]-m[1]*m[8])*invDet,
+    (m[1]*m[5]-m[2]*m[4])*invDet,
+    (m[5]*m[6]-m[3]*m[8])*invDet,
+    (m[0]*m[8]-m[2]*m[6])*invDet,
+    (m[2]*m[3]-m[0]*m[5])*invDet,
+    (m[3]*m[7]-m[4]*m[6])*invDet,
+    (m[1]*m[6]-m[0]*m[7])*invDet,
+    (m[0]*m[4]-m[1]*m[3])*invDet
+  ];
+  return inv;
+}
+
+// 4. Map the 2D circle back to 3D
+function circle2DTo3D(xC, yC, r, centroid, u, v) {
+  let center3D = new THREE.Vector3().addVectors(
+    centroid,
+    new THREE.Vector3().addScaledVector(u, xC).addScaledVector(v, yC)
+  );
+  return { center3D, radius: r };
+}
+
+// Example usage:
+function fitCircleToPoints3D({ points, up }) {
+  // Compute the best-fitting plane
+  let { centroid, normal } = computeBestFitPlane(points);
+  if (normal.dot(up) < 0) {
+    normal.negate();
+  }
+
+  // Project onto plane
+  let { projectedPoints, u, v } = projectPointsOntoPlane(points, centroid, normal);
+
+  // Fit circle in 2D
+  let {xC, yC, r} = fitCircle2D(projectedPoints);
+
+  // Map back to 3D
+  let {center3D, radius} = circle2DTo3D(xC, yC, r, centroid, u, v);
+
+  // 'center' is a THREE.Vector3 for the circle center
+  // 'normal' is a THREE.Vector3 for the circle normal
+  // 'radius' is the radius of the best fitting circle
+  return { 
+    center: center3D,
+    normal, 
+    radius, 
+    points2D: projectedPoints.map(({x, y}) => new THREE.Vector2(x, y)),
+    center2D: new THREE.Vector2(xC, yC),
+  };
+}
+
+window.eigenDecomposition3x3 = eigenDecomposition3x3;
+window.THREE = THREE;
