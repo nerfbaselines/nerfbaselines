@@ -160,6 +160,8 @@ class Viewer:
         options = { "output_type_dtypes": { "color": "uint8" },
                     "outputs": output_types,
                     "embedding": embedding }
+        if model is None:
+            raise RuntimeError("No model was loaded for rendering")
         outputs = model.render(camera, options=options)
         # Format first output
         frame = self._format_output(outputs[output_type], output_type)

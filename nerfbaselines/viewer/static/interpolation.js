@@ -1,3 +1,8 @@
+/*
+ Currently, there are the following bugs:
+ - Interpolation for fov and weights needs to ignore undefined values. Also, we need to support grid which does not start from 0.
+
+ */
 import * as THREE from 'three';
 
 
@@ -80,28 +85,72 @@ function deCasteljauQuaternions(controlPoints, t) {
 }
 
 
+function bisectRight(arr, x) {
+  let left = 0;
+  let right = arr.length;
+
+  while (left < right) {
+    const mid = Math.floor((left + right) / 2);
+    if (x < arr[mid]) {
+      right = mid;
+    } else {
+      left = mid + 1;
+    }
+  }
+  return left;
+}
+
+
+function getLocalTime(grid, t) {
+  const maxT = grid[grid.length - 1];
+  t = Math.min(Math.max(t, 0), maxT);
+  if (t > maxT - 1e-6) {
+    return { segment: grid.length - 2, localt: 1 };
+  }
+  let segment = bisectRight(grid, t) - 1;
+  segment = Math.min(segment, grid.length - 2);
+  const localt = (t - grid[segment]) / (grid[segment + 1] - grid[segment]);
+  return { segment, localt };
+}
+
+
+function cumsum(arr) {
+  const out = [0];
+  arr.forEach((x, i) => out.push(out[i] + x));
+  return out;
+}
+
+
 class LinearInterpolation {
-  constructor({ vertices, loop = false }) {
+  constructor({ vertices, grid }) {
     this.vertices = vertices
-    this.loop = loop;
     this.evaluate = this.evaluate.bind(this);
+    this.grid = grid;
+  }
+
+  static getSegmentLengths({ positions, loop }) {
+    const n = positions.length;
+    if (n === 0) return [];
+    if (n === 1) return [0];
+
+    const out = [];
+    const maxI = loop ? n : n - 1;
+    for (let i = 1; i <= maxI; i++) {
+      const p0 = positions[i - 1];
+      const p1 = positions[i % positions.length];
+      const length = p0.distanceTo(p1);
+      out.push(length);
+    }
+    return out;
   }
 
   evaluate(t) {
     const n = this.vertices.length;
     if (n < 2) return this.vertices[0];
 
-    let segment, localt;
-    if (!this.loop) {
-      segment = Math.floor(t * (n - 1));
-      localt = (t * (n - 1)) % 1;
-    } else {
-      segment = Math.floor(t * n);
-      localt = (t * n) % 1;
-    }
-    const clamp_seg = (x) => Math.min(Math.max(x, 0), n - 1);
-    const p0 = this.vertices[this.loop ? segment % n : clamp_seg(segment)];
-    const p1 = this.vertices[this.loop ? (segment + 1) % n : clamp_seg(segment + 1)];
+    const { segment, localt } = getLocalTime(this.grid, t);
+    const p0 = this.vertices[segment % n];
+    const p1 = this.vertices[(segment + 1) % n];
 
     function computeSingle(x0, x1) {
       return x0 + (x1 - x0) * localt;
@@ -120,34 +169,54 @@ class LinearInterpolation {
 
 
 class KochanekBartelsInterpolation {
-  constructor({ vertices, tension = 0, continuity = 0, bias = 0, loop = false }) {
+  constructor({ vertices, tension = 0, continuity = 0, bias = 0, grid }) {
     this.vertices = vertices;
     this.tension = tension;
     this.continuity = continuity;
     this.bias = bias;
-    this.loop = loop;
+    this.grid = grid;
+    this.loop = vertices.length < grid.length;
     this.evaluate = this.evaluate.bind(this);
   }
 
+  static getSegmentLengths({ positions, loop = false, ...kwargs}) {
+    const n = positions.length;
+    if (n === 0) return [];
+    if (n === 1) return [0];
+    const maxI = loop ? n : n - 1;
+    const grid = cumsum(Array.from({ length: maxI }, () => 1));
+
+    // Approximate the length of each segment by sampling points along the curve
+    const interpolation = new KochanekBartelsInterpolation({ vertices: positions, grid, ...kwargs });
+    const numSamples = 20;
+    const out = [];
+    for (let i = 1; i <= maxI; i++) {
+      const positions = Array.from({ length: numSamples }, (_, j) => interpolation.evaluate(i - 1 + j / numSamples));
+      const length = positions.reduce((acc, p, j, arr) => {
+        if (j === 0) return acc;
+        return acc + p.distanceTo(arr[j - 1]);
+      }, 0);
+      out.push(length);
+    }
+    return out;
+  }
+
   evaluate(t) {
-    t = Math.min(Math.max(t, 0), 1);
     const n = this.vertices.length;
     if (n < 2) return this.vertices[0];
-
-    let segment, localt;
-    if (!this.loop) {
-      segment = Math.floor(t * (n - 1));
-      localt = (t * (n - 1)) - segment;
-    } else {
-      segment = Math.floor(t * n);
-      localt = (t * n) - segment;
-    }
+    const { segment, localt } = getLocalTime(this.grid, t);
 
     const clamp_seg = (x) => Math.min(Math.max(x, 0), n - 1);
     let p0 = this.vertices[this.loop ? (segment - 1 + n) % n : clamp_seg(segment - 1)];
     let p1 = this.vertices[this.loop ? segment % n : clamp_seg(segment)];
     let p2 = this.vertices[this.loop ? (segment + 1) % n : clamp_seg(segment + 1)];
     let p3 = this.vertices[this.loop ? (segment + 2) % n : clamp_seg(segment + 2)];
+
+    let d0 = segment > 0 ? this.grid[segment] - this.grid[segment-1]:
+      (!this.loop) ? 0 : this.grid[this.grid.length-1] - this.grid[this.grid.length-2];
+    let d1 = this.grid[segment+1] - this.grid[segment];
+    let d2 = segment+2<this.grid.length?this.grid[segment+2] - this.grid[segment+1]:
+      (!this.loop) ? 0 : this.grid[1] - this.grid[0];
 
     const a = (1 - this.tension) * (1 + this.continuity) * (1 + this.bias) / 2;
     const b = (1 - this.tension) * (1 - this.continuity) * (1 - this.bias) / 2;
@@ -168,8 +237,15 @@ class KochanekBartelsInterpolation {
     // m1 is the incoming tangent of p2
 
     function computeSingle(x0, x1, x2, x3) {
-      const m0 = (x1 - x0) * a + (x2 - x1) * b;
-      const m1 = (x2 - x1) * c + (x3 - x2) * d;
+      let m0 = ((x1 - x0) * a * (d1/d0) + (x2 - x1) * b * (d0/d1)) / (d0+d1);
+      let m1 = ((x2 - x1) * c * (d2/d1) + (x3 - x2) * d * (d1/d2)) / (d1+d2);
+      if (!this.loop && n == 2) {
+        m0 = m1 = x2 - x1;
+      } else if (!this.loop && segment == 0) {
+        m0 = 3/2/d1 * (x2 - x1) - m1/2;
+      } else if (!this.loop && segment == n-2) {
+        m1 = 3/2/d1 * (x2 - x1) - m0/2;
+      }
       return h00 * x1 + 
              h01 * x2 +
              h10 * m0 + 
@@ -178,8 +254,15 @@ class KochanekBartelsInterpolation {
     computeSingle = computeSingle.bind(this);
 
     if (p0 instanceof THREE.Vector3 || p0 instanceof THREE.Vector2) {
-      const m0 = p1.clone().sub(p0).multiplyScalar(a).add(p2.clone().sub(p1).multiplyScalar(b));
-      const m1 = p2.clone().sub(p1).multiplyScalar(c).add(p3.clone().sub(p2).multiplyScalar(d));
+      let m0 = p1.clone().sub(p0).multiplyScalar(a * (d1/d0)).add(p2.clone().sub(p1).multiplyScalar(b * d0/d1)).multiplyScalar(1/(d0+d1));
+      let m1 = p2.clone().sub(p1).multiplyScalar(c * (d2/d1)).add(p3.clone().sub(p2).multiplyScalar(d * d1/d2)).multiplyScalar(1/(d1+d2));
+      if (!this.loop && n == 2) {
+        m0 = m1 = p2.clone().sub(p1)
+      } else if (!this.loop && segment == 0) {
+        m0 = p2.clone().sub(p1).multiplyScalar(3/2/d1).sub(m1.clone().multiplyScalar(1/2));
+      } else if (!this.loop && segment == n - 2) {
+        m1 = p2.clone().sub(p1).multiplyScalar(3/2/d1).sub(m0.clone().multiplyScalar(1/2));
+      }
       return p1.clone().multiplyScalar(h00)
         .add(p2.clone().multiplyScalar(h01))
         .add(m0.multiplyScalar(h10))
@@ -194,12 +277,14 @@ class KochanekBartelsInterpolation {
         p2 = new THREE.Quaternion(-p2.x, -p2.y, -p2.z, -p2.w);
       if (p2.dot(p3) < 0)
         p3 = new THREE.Quaternion(-p3.x, -p3.y, -p3.z, -p3.w);
-      const m0_ = logQ(p1.clone().multiply(p0.clone().invert())).multiplyScalar(a)
-             .add(logQ(p2.clone().multiply(p1.clone().invert())).multiplyScalar(b));
-      const m1_ = logQ(p2.clone().multiply(p1.clone().invert())).multiplyScalar(c)
-             .add(logQ(p3.clone().multiply(p2.clone().invert())).multiplyScalar(d));
-      let m0 = expQ(m0_.multiplyScalar(1/3)).multiply(p1);
-      let m1 = expQ(m1_.multiplyScalar(-1/3)).multiply(p2);
+      const m0_ = logQ(p1.clone().multiply(p0.clone().invert())).multiplyScalar(a*d1/d0)
+             .add(logQ(p2.clone().multiply(p1.clone().invert())).multiplyScalar(b*d0/d1))
+             .multiplyScalar(1/(d0+d1));
+      const m1_ = logQ(p2.clone().multiply(p1.clone().invert())).multiplyScalar(c*d2/d1)
+             .add(logQ(p3.clone().multiply(p2.clone().invert())).multiplyScalar(d*d1/d2))
+            .multiplyScalar(1/(d1+d2));
+      let m0 = expQ(m0_.multiplyScalar(d1/3)).multiply(p1);
+      let m1 = expQ(m1_.multiplyScalar(-d1/3)).multiply(p2);
       if (!this.loop && n == 2) {
         // "cubic" spline, degree 3
         const offset = powQ(p2.clone().multiply(p1.clone().invert()), 1/3);
@@ -220,58 +305,235 @@ class KochanekBartelsInterpolation {
 }
 
 
-function pchip_interpolate(x, xValues, yValues) {
-  const n = xValues.length;
-  if (n < 2) throw new Error("At least two points are required for interpolation.");
+class CircleInterpolation {
+  constructor({ positions, quaternions, loop = false }) {
+    const up = new THREE.Vector3(0, 0, 0);
+    quaternions.forEach((q, i) => up.add(new THREE.Vector3(0, 1, 0).applyQuaternion(q)));
+    up.normalize();
+    const { center, normal, radius, points2D, center2D } = fitCircleToPoints3D({ points: positions, up });
+    let angles = points2D.map(p => Math.atan2(p.y - center2D.y, p.x - center2D.x));
+    angles = angles.map(x => (x - angles[0] + 3 * Math.PI) % (2 * Math.PI) - Math.PI);
+    let angleDiffs = angles.map((x, i) => (angles[(i+1)%angles.length]-x+5*Math.PI) % (2*Math.PI)-Math.PI);
 
-  // Step 1: Compute slopes and differences
-  const h = Array(n - 1).fill(0).map((_, i) => xValues[i + 1] - xValues[i]);
-  const slopes = Array(n - 1).fill(0).map((_, i) => (yValues[i + 1] - yValues[i]) / h[i]);
-
-  // Step 2: Compute derivatives
-  const derivatives = Array(n).fill(0);
-  for (let i = 1; i < n - 1; i++) {
-    if (slopes[i - 1] * slopes[i] > 0) {
-      derivatives[i] =
-        (2 * slopes[i - 1] * slopes[i]) /
-        (slopes[i - 1] + slopes[i]);
+    // Unify winding direction
+    const angleDiffsPos = angleDiffs.map(x => (x >= 0)? x : (2*Math.PI+x));
+    const angleDiffsNeg = angleDiffs.map(x => (-x >= 0)? x : (-2*Math.PI+x));
+    if (angleDiffsPos.reduce((a,x) => a+Math.abs(x), 0) < angleDiffsNeg.reduce((a,x) => a+Math.abs(x), 0)) {
+      angleDiffs = angleDiffsPos;
+    } else {
+      angleDiffs = angleDiffsNeg;
     }
-  }
-  derivatives[0] = slopes[0]; // Endpoint derivative
-  derivatives[n - 1] = slopes[n - 2]; // Endpoint derivative
 
-  // Step 3: Interpolation
-  return x.map(value => {
-    let segment = xValues.length - 2;
-    for (let i = 0; i < xValues.length - 1; i++) {
-      if (value >= xValues[i] && value <= xValues[i + 1]) {
-        segment = i;
-        break;
+    this._q = new THREE.Quaternion();
+    this._v = new THREE.Vector3();
+    this._m = new THREE.Matrix4();
+
+    this._start = positions[0].clone().sub(center).cross(normal).cross(normal).multiplyScalar(-1).normalize();
+    this._center = center;
+    this._radius = radius;
+    this._normal = normal;
+    this._angles = angles;
+    this._angleDiffs = angleDiffs;
+    this._n = positions.length;
+    this._segmentLengths = this._getSegmentLengths({ loop });
+    this.grid = cumsum(this._segmentLengths);
+    this.evaluatePosition = this.evaluatePosition.bind(this);
+    this.evaluateQuaternion = this.evaluateQuaternion.bind(this);
+  }
+
+  getSegmentLengths() {
+    return this._segmentLengths;
+  }
+
+  _getSegmentLengths({ loop }) {
+    if (this._n === 0) return [];
+    if (this._n === 1) return [0];
+    const out = [];
+    const maxI = loop ? this._n + 1 : this._n;
+    for (let i = 1; i < maxI; i++) {
+      const length = Math.abs(this._angleDiffs[i-1]) * this._radius;
+      out.push(length);
+    }
+    return out;
+  }
+
+  evaluatePosition(t) {
+    const n = this._n;
+    const { segment, localt } = getLocalTime(this.grid, t);
+
+    const angle = this._angles[segment%this._angles.length] + this._angleDiffs[segment%this._angles.length] * localt;
+    this._q.setFromAxisAngle(this._normal, angle);
+    return this._start.clone().applyQuaternion(this._q).multiplyScalar(this._radius).add(this._center);
+  }
+
+  evaluateQuaternion(t) {
+    const point = this.evaluatePosition(t);
+    this._m.lookAt(this._center, point, this._normal).decompose(this._v, this._q, this._v);
+    return this._q.clone();
+  }
+}
+
+
+class PchipInterpolation {
+  constructor({ x, y }) {
+    const loop = y.length === x.length-1;
+    if (loop) {
+      y = [...y, y[0]];
+    }
+    if (x.length !== y.length) {
+      throw new Error("Input arrays x and y must have the same length.");
+    }
+    this.n = x.length;
+    this.grid = x;
+    this.y = y;
+
+    // Step 1: Compute slopes and differences
+    this.h = Array(this.n - 1).fill(0).map((_, i) => x[i + 1] - x[i]);
+    this.slopes = Array(this.n - 1).fill(0).map((_, i) => (y[i + 1] - y[i]) / this.h[i]);
+
+    // Step 2: Compute derivatives
+    this.derivatives = Array(this.n).fill(0);
+    for (let i = 1; i < this.n - 1; i++) {
+      if (this.slopes[i - 1] * this.slopes[i] > 0) {
+        const sumSlopes = this.slopes[i - 1] + this.slopes[i];
+        if (Math.abs(sumSlopes) > 1e-12) {
+          this.derivatives[i] = (2 * this.slopes[i - 1] * this.slopes[i]) / sumSlopes;
+        }
       }
     }
 
-    const t = (value - xValues[segment]) / h[segment];
+    if (loop) {
+      // Circular derivatives at endpoints
+      if (this.slopes[this.n - 1] * this.slopes[0] > 0) {
+        const sumSlopes = this.slopes[this.n - 1] + this.slopes[0];
+        this.derivatives[0] = (2 * this.slopes[this.n - 1] * this.slopes[0]) / sumSlopes;
+        this.derivatives[this.n - 1] = this.derivatives[0]; // Continuity in loop
+      }
+    } else {
+      // Non-looping endpoint derivatives
+      this.derivatives[0] = this.slopes[0] || 0;
+      this.derivatives[this.n - 1] = this.slopes[this.n - 2] || 0;
+    }
+  }
+
+  evaluate(x) {
+    const { segment, localt } = getLocalTime(this.grid, x);
+    const t = localt;
     const h00 = (1 + 2 * t) * (1 - t) ** 2;
     const h10 = t * (1 - t) ** 2;
     const h01 = t ** 2 * (3 - 2 * t);
     const h11 = t ** 2 * (t - 1);
-
     return (
-      h00 * yValues[segment] +
-      h10 * h[segment] * derivatives[segment] +
-      h01 * yValues[segment + 1] +
-      h11 * h[segment] * derivatives[segment + 1]
+      h00 * this.y[segment] +
+      h10 * this.h[segment] * this.derivatives[segment] +
+      h01 * this.y[segment + 1] +
+      h11 * this.h[segment] * this.derivatives[segment + 1]
     );
+  }
+
+  evaluateIntegral(x) {
+    // 1) If we haven't already, build an array of the *cumulative area* at each knot.
+    if (!this._segmentArea) this._precomputeSegmentAreas();
+
+    // 2) Figure out which segment x is in, plus local fraction t
+    const { segment, localt } = getLocalTime(this.grid, x);
+    // Sum of the full areas from segment 0 up to segment-1
+    const baseArea = this._segmentArea[segment];
+
+    // 3) Add partial area from the start of segment => up to localt
+    const partial = this._partialSegmentArea(segment, localt);
+    return baseArea + partial;
+  }
+
+  getSegmentIntegrals() {
+    if (!this._segmentArea) this._precomputeSegmentAreas();
+    return this._segmentArea;
+  }
+
+  _precomputeSegmentAreas() {
+    const nSeg = this.loop ? this.n : (this.n - 1); 
+    const areas = [0]; // cumulative area
+
+    for (let seg = 0; seg < nSeg; seg++) {
+      const areaSeg = this._partialSegmentArea(seg, 1.0);
+      areas.push(areas[areas.length - 1] + areaSeg);
+    }
+    this._segmentArea = areas;
+  }
+
+  _partialSegmentArea(segment, tEnd) {
+    if (tEnd <= 0) return 0;
+    tEnd = Math.min(tEnd, 1); // clamp to [0..1]
+    const t = tEnd;
+    const H00 = t - t**3 + 0.5*t**4;
+    const H10 = (t**2)/2 - (2*t**3)/3 + (t**4)/4;
+    const H01 = t**3 - 0.5*t**4;
+    const H11 = (t**4)/4 - (t**3)/3;
+    return (
+      H00 * this.y[segment] +
+      H10 * this.h[segment] * this.derivatives[segment] +
+      H01 * this.y[segment + 1] +
+      H11 * this.h[segment] * this.derivatives[segment + 1]
+    ) * this.h[segment];
+  }
+}
+
+
+function _normalize(xs, value=1) {
+  const sum = xs.reduce((a, x) => a + x, 0);
+  return xs.map(x => x * value / sum);
+}
+
+
+function buildTimeDistanceMap({ grid, velocities, duration }) {
+  // Note, we assume we have velocities defined at each knot.
+  // We then want to interpolate the v(t) function, and integrate it to get the distance function.
+  // However, we do not have the times for each know so we have to solve for them.
+  // While parametrizing v(s) would be a solution, this leads to a non-linear differential equation.
+  // Instead, we opt for an iterative approach where we adjust the times to match the distances.
+  const distances = grid.map((x, i) => {
+    if (i == 0) return 0;
+    return x - grid[i - 1];
+  }).slice(1);
+  const totalDistance = grid[grid.length - 1];
+  let evalDistancesSum;
+  let previousEvalDistances = distances;
+  let evalDistances = distances;
+  let interpolator;
+  let velocityMultiplier = 1;
+  let times = distances.map((x, i) => {
+    const velocity = (velocities[i] + velocities[(i+1)%velocities.length]) / 2;
+    return x / velocity;
   });
+  for (let iter = 0; iter < 100; iter++) {
+    times = times.map((x, i) => {
+      return x * (previousEvalDistances[i] / evalDistances[i]);
+    });
+    previousEvalDistances = evalDistances;
+    times = _normalize(times, duration);
+    interpolator = new PchipInterpolation({ x: cumsum(times), y: velocities });
+    const evalDistancesAgg = interpolator.getSegmentIntegrals();
+    evalDistancesSum = evalDistancesAgg[evalDistancesAgg.length - 1];
+    evalDistances = evalDistancesAgg.map((x, i) => i == 0 ? x : x - evalDistancesAgg[i - 1]).slice(1);
+    velocityMultiplier = totalDistance / evalDistancesSum;
+    evalDistances = evalDistances.map(x => x * velocityMultiplier);
+    const error = evalDistances.reduce((a, x, i) => Math.max(a, Math.abs(x - distances[i])), 0);
+    console.log(error);
+    if (error < 1e-6) {
+      break;
+    }
+  }
+  interpolator = new PchipInterpolation({ x: cumsum(times), y: velocities.map(x => x * velocityMultiplier) });
+  return interpolator.evaluateIntegral.bind(interpolator);
 }
 
 
 export function compute_camera_path(props) {
   const { 
     keyframes, 
+    duration,
     loop = false, 
     default_fov = 75, 
-    default_transition_duration = 1, 
     framerate = 30, 
     interpolation = 'none', 
     ...rest_props 
@@ -294,91 +556,53 @@ export function compute_camera_path(props) {
     return undefined;
   }
 
-  let times = keyframes.map(k => k.transition_duration || default_transition_duration);
-  if (!loop) {
-    times.pop();
-  }
-  const transition_times_cumsum = times.reduce((acc, val, i) => {
-    acc.push((acc[i - 1] || 0) + val);
-    return acc;
-  }, []);
-  const total_duration = transition_times_cumsum[transition_times_cumsum.length - 1];
-  const num_frames = Math.floor(total_duration * framerate);
+  const num_frames = Math.floor(duration * framerate);
   
-  if (interpolation === 'circle') {
-    const up = new THREE.Vector3(0, 0, 0);
-    k_quaternions.forEach((q, i) => up.add(new THREE.Vector3(0, 1, 0).applyQuaternion(q)));
-    up.normalize();
-    const { center, normal, radius, points2D, center2D } = fitCircleToPoints3D({ points: k_positions, up });
-    let angles = points2D.map(p => Math.atan2(p.y - center2D.y, p.x - center2D.x));
-    angles = angles.map(x => (x - angles[0] + 3 * Math.PI) % (2 * Math.PI) - Math.PI);
-    let angleDiffs = angles.map((x, i) => (angles[(i+1)%angles.length]-x+5*Math.PI) % (2*Math.PI)-Math.PI);
-
-    // Unify winding direction
-    const angleDiffsPos = angleDiffs.map(x => (x >= 0)? x : (2*Math.PI+x));
-    const angleDiffsNeg = angleDiffs.map(x => (-x >= 0)? x : (-2*Math.PI+x));
-    if (angleDiffsPos.reduce((a,x) => a+Math.abs(x), 0) < angleDiffsNeg.reduce((a,x) => a+Math.abs(x), 0)) {
-      angleDiffs = angleDiffsPos;
-    } else {
-      angleDiffs = angleDiffsNeg;
-    }
-
-    // Create an elliptical path
-    const positions = [];
-    const quaternions = [];
-    const fovs = [];
-    const weights = [];
-
-    const angleStep = 2 * Math.PI / (num_frames - 1);
-    let q = new THREE.Quaternion();
-    let v = new THREE.Vector3();
-    let m = new THREE.Matrix4();
-
-    const start = keyframes[0].position.clone().sub(center).cross(normal).cross(normal).multiplyScalar(-1).normalize();
-    for (let i = 0; i < num_frames; i++) {
-      const t = i / (num_frames - 1);
-
-      let segment, localt;
-      const n = keyframes.length;
-      if (!loop) {
-        segment = Math.floor(t * (n - 1));
-        localt = (t * (n - 1)) % 1;
-      } else {
-        segment = Math.floor(t * n);
-        localt = (t * n) % 1;
-      }
-
-      const angle = angles[segment%angles.length] + angleDiffs[segment%angles.length] * localt;
-      q.setFromAxisAngle(normal, angle);
-      const point = start.clone().applyQuaternion(q).multiplyScalar(radius).add(center);
-      // const point = new THREE.Vector3(radius, 0, 0).applyQuaternion(q).add(center);
-      m.lookAt(center, point, normal).decompose(v, q, v);
-
-      positions.push(point);
-      quaternions.push(q.clone());
-      fovs.push(keyframes[0].fov || default_fov);
-      weights.push(onehot(0, keyframes.length));
-    }
-
-    return { positions, quaternions, fovs, weights };
+  let grid;
+  let position_spline;
+  let quaternion_spline;
+  let fov_spline;
+  let weights_spline;
+  let lengths;
+  let totalDistance;
+  let Interpolation;
+  if (interpolation === 'circle' && k_positions.length >= 3) {
+    const circleInterpolation = new CircleInterpolation({
+      positions: k_positions, quaternions: k_quaternions, loop,
+    });
+    lengths = circleInterpolation.getSegmentLengths();
+    position_spline = circleInterpolation.evaluatePosition;
+    quaternion_spline = circleInterpolation.evaluateQuaternion;
+    Interpolation = LinearInterpolation;
+    grid = cumsum(lengths);
+  } else if (interpolation === 'linear' || (interpolation === 'circle' && k_positions.length < 3)) {
+    Interpolation = LinearInterpolation;
+    lengths = Interpolation.getSegmentLengths({ positions: k_positions, loop });
+    grid = cumsum(lengths);
+    position_spline = new Interpolation({ vertices: k_positions, grid, ...rest_props}).evaluate;
+    quaternion_spline = new Interpolation({ vertices: k_quaternions, grid, ...rest_props}).evaluate;
+  } else if (interpolation === 'kochanek-bartels') {
+    Interpolation = KochanekBartelsInterpolation;
+    lengths = Interpolation.getSegmentLengths({ positions: k_positions, loop: loop, ...rest_props});
+    grid = cumsum(lengths);
+    position_spline = new Interpolation({ vertices: k_positions, grid, ...rest_props}).evaluate;
+    quaternion_spline = new Interpolation({ vertices: k_quaternions, grid, ...rest_props}).evaluate;
+  } else {
+    throw new Error(`Unknown interpolation method: ${interpolation}`);
   }
+  totalDistance = lengths.reduce((a, x) => a + x, 0);
+  fov_spline = new Interpolation({ vertices: k_fovs, grid, ...rest_props }).evaluate;
+  weights_spline = new Interpolation({ vertices: k_weights, grid, ...rest_props }).evaluate;
 
+  const velocities = keyframes.map(x => x.velocity_multiplier || 1);
+  const distanceMap = buildTimeDistanceMap({ grid, velocities: velocities, duration });
 
-  const Interpolation = {
-    'linear': LinearInterpolation,
-    'kochanek-bartels': KochanekBartelsInterpolation,
-  }[interpolation];
-  const position_spline = new Interpolation({ vertices: k_positions, loop: loop, ...rest_props}).evaluate;
-  const quaternion_spline = new Interpolation({ vertices: k_quaternions, loop: loop, ...rest_props}).evaluate;
-  const fov_spline = new Interpolation({ vertices: k_fovs, loop: loop, ...rest_props }).evaluate;
-  const weights_spline = new Interpolation({ vertices: k_weights, loop: loop, ...rest_props }).evaluate;
-
-  const gtime = Array.from({ length: num_frames }, (_, i) => (i / (num_frames-1)));
-  const positions = gtime.map(t => position_spline(t));
-  const quaternions = gtime.map(t => quaternion_spline(t));
-  const fovs = gtime.map(t => fov_spline(t));
-  const weights = gtime.map(t => weights_spline(t));
-  return { positions, quaternions, fovs, weights };
+  const gdist = Array.from({ length: num_frames }, (_, i) => distanceMap(i * duration / (num_frames - 1)));
+  const positions = gdist.map(t => position_spline(t));
+  const quaternions = gdist.map(t => quaternion_spline(t));
+  const fovs = gdist.map(t => fov_spline(t));
+  const weights = gdist.map(t => weights_spline(t));
+  return { positions, quaternions, fovs, weights, distance: totalDistance };
 }
 
 

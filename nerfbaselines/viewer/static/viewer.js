@@ -353,7 +353,7 @@ function _attach_camera_path(viewer) {
         property !== 'camera_path_continuity' &&
         property !== 'camera_path_default_fov' &&
         property !== 'camera_path_framerate' &&
-        property !== 'camera_path_default_transition_duration' &&
+        property !== 'camera_path_duration' &&
         property !== 'camera_path_bias') return;
     const {
       camera_path_keyframes,
@@ -361,7 +361,7 @@ function _attach_camera_path(viewer) {
       camera_path_interpolation,
       camera_path_tension,
       camera_path_default_fov,
-      camera_path_default_transition_duration,
+      camera_path_duration,
       camera_path_framerate,
     } = state;
     state.camera_path_trajectory = undefined;
@@ -372,7 +372,7 @@ function _attach_camera_path(viewer) {
         interpolation: camera_path_interpolation,
         tension: camera_path_tension || 0,
         default_fov: camera_path_default_fov,
-        default_transition_duration: camera_path_default_transition_duration,
+        duration: camera_path_duration,
         framerate: camera_path_framerate,
       });
       if (state?.camera_path_trajectory?.positions?.length === 0)
@@ -1122,12 +1122,7 @@ function _attach_selected_keyframe_details(viewer) {
         dataset_images?.[`train/${keyframe.appearance_train_index}`]?.image_url : "",
       camera_path_selected_keyframe_fov: def(keyframe?.fov) ? keyframe.fov : state.camera_path_default_fov,
       camera_path_selected_keyframe_override_fov: def(keyframe?.fov),
-      camera_path_selected_keyframe_override_in_transition: def(keyframe?.transition_duration),
-      camera_path_selected_keyframe_override_out_transition: def(nextKeyframe?.transition_duration),
-      camera_path_selected_keyframe_in_transition: def(keyframe?.transition_duration) ? keyframe.transition_duration : state.camera_path_default_transition_duration,
-      camera_path_selected_keyframe_out_transition: def(nextKeyframe?.transition_duration) ? nextKeyframe.transition_duration : state.camera_path_default_transition_duration,
-      camera_path_selected_keyframe_in_transition_visible: camera_path_loop || keyframeIndex > 0,
-      camera_path_selected_keyframe_out_transition_visible: camera_path_loop || keyframeIndex < (camera_path_keyframes?.length || 0) - 1,
+      camera_path_selected_keyframe_velocity_multiplier: def(keyframe?.velocity_multiplier) ? keyframe.velocity_multiplier : 1,
     };
     for (const property in change) {
       if (state[property] !== change[property]) {
@@ -1141,7 +1136,7 @@ function _attach_selected_keyframe_details(viewer) {
     const { keyframe, nextKeyframe } = getKeyframes(state);
     if (property === "camera_path_selected_keyframe_override_fov" && keyframe) {
       if (state.camera_path_selected_keyframe_override_fov) {
-        if (keyframe?.fov === undefined) {
+        if (keyframe?.fov === undefined && state.camera_path_default_fov !== undefined) {
           keyframe.fov = state.camera_path_default_fov;
           viewer.notifyChange({ property: "camera_path_keyframes" });
         }
@@ -1152,50 +1147,16 @@ function _attach_selected_keyframe_details(viewer) {
       return
     }
 
-    if (property === "camera_path_selected_keyframe_override_out_transition" && nextKeyframe) {
-      if (state.camera_path_selected_keyframe_override_out_transition) {
-        if (state.camera_path_selected_keyframe_out_transition === undefined) {
-          nextKeyframe.transition_duration = state.camera_path_default_transition_duration;
-          viewer.notifyChange({ property: "camera_path_keyframes" });
-        }
-      } else {
-        nextKeyframe.transition_duration = undefined;
-        viewer.dispatchEvent({ property: "camera_path_keyframes" });
-      }
-      return;
-    }
-
-    if (property === "camera_path_selected_keyframe_override_in_transition" && keyframe) {
-      if (state.camera_path_selected_keyframe_override_in_transition) {
-        if (state.camera_path_selected_keyframe_in_transition === undefined) {
-          keyframe.transition_duration = state.camera_path_default_transition_duration;
-          viewer.notifyChange({ property: "camera_path_keyframes" });
-        }
-      } else {
-        keyframe.transition_duration = undefined;
-        viewer.dispatchEvent({ property: "camera_path_keyframes" });
-      }
-      return;
-    }
-
-    if (property === "camera_path_selected_keyframe_in_transition" && keyframe) {
-      if (state.camera_path_selected_keyframe_override_in_transition) {
-        keyframe.transition_duration = state.camera_path_selected_keyframe_in_transition;
+    if (property === "camera_path_selected_keyframe_velocity_multiplier" && keyframe) {
+      if (state.camera_path_selected_keyframe_velocity_multiplier && keyframe.velocity_multiplier !== state.camera_path_selected_keyframe_velocity_multiplier) {
+        keyframe.velocity_multiplier = state.camera_path_selected_keyframe_velocity_multiplier;
         viewer.notifyChange({ property: "camera_path_keyframes" });
       }
       return;
     }
 
-    if (property === "camera_path_selected_keyframe_out_transition" && nextKeyframe) {
-      if (state.camera_path_selected_keyframe_override_out_transition) {
-        nextKeyframe.transition_duration = state.camera_path_selected_keyframe_out_transition;
-        viewer.notifyChange({ property: "camera_path_keyframes" });
-      }
-      return;
-    }
-    
     if (property === "camera_path_selected_keyframe_fov" && keyframe) {
-      if (state.camera_path_selected_keyframe_override_fov) {
+      if (state.camera_path_selected_keyframe_override_fov && keyframe.fov !== state.camera_path_selected_keyframe_fov) {
         keyframe.fov = state.camera_path_selected_keyframe_fov;
         viewer.notifyChange({ property: "camera_path_keyframes" });
       }
@@ -1203,8 +1164,9 @@ function _attach_selected_keyframe_details(viewer) {
     }
 
     if (property === "camera_path_selected_keyframe_appearance_train_index" && keyframe) {
-      const index = state.camera_path_selected_keyframe_appearance_train_index === "" ? 
-        undefined : parseInt(state.camera_path_selected_keyframe_appearance_train_index);
+      const index = (
+        state.camera_path_selected_keyframe_appearance_train_index === ""
+      ) ?  undefined : parseInt(state.camera_path_selected_keyframe_appearance_train_index);
       keyframe.appearance_train_index = index;
       for (const k of state.camera_path_keyframes) {
         if (keyframe.appearance_train_index !== undefined) {
@@ -1221,20 +1183,14 @@ function _attach_selected_keyframe_details(viewer) {
       viewer.notifyChange({ property: "camera_path_keyframes" });
       return;
     }
-
-    if (property === "camera_path_loop" && (state.camera_path_keyframes?.length || 0) > 0) {
-      if (!state.camera_path_loop && state.camera_path_keyframes[0].transition_duration !== undefined) {
-        state.camera_path_keyframes[0].transition_duration = undefined;
-        viewer.notifyChange({ property: "camera_path_keyframes" });
-      }
-  }});
+  });
 
   viewer.addEventListener("change", ({property, state}) => {
     if (property === undefined ||
         property === "camera_path_keyframes" ||
         property === "camera_path_selected_keyframe" ||
         property === "camera_path_loop" ||
-        property === "camera_path_default_transition_duration" ||
+        property === "camera_path_duration" ||
         property === "dataset_images")
       updateSelectedKeyframe(state);
   });
@@ -1574,7 +1530,8 @@ class Viewer extends THREE.EventDispatcher {
     let appearance_train_indices = undefined;
     let appearance_weights = undefined;
     if (this._gui_state.selected_camera_path_keyframe_appearance_train_index !== undefined &&
-        this._gui_state.selected_camera_path_keyframe_appearance_train_index !== "") {
+        this._gui_state.selected_camera_path_keyframe_appearance_train_index !== ""
+    ) {
       appearance_train_indices = [parseInt(this._gui_state.selected_camera_path_keyframe_appearance_train_index)];
       appearance_weights = [1]
     } else if (this._gui_state.render_appearance_train_index !== undefined &&  
@@ -1613,6 +1570,8 @@ class Viewer extends THREE.EventDispatcher {
     this.notifyChange({ property: "camera_path_selected_keyframe" });
     this._gui_state.camera_path_keyframes = [];
     this.notifyChange({ property: "camera_path_keyframes" });
+    this._gui_state.camera_path_duration = 0;
+    this.notifyChange({ property: "camera_path_duration" });
   }
 
   delete_keyframe(keyframe_id) {
@@ -1621,6 +1580,9 @@ class Viewer extends THREE.EventDispatcher {
       this._gui_state.camera_path_selected_keyframe = undefined;
       this.notifyChange({ property: "camera_path_selected_keyframe" });
     }
+    const n = this._gui_state.camera_path_keyframes.length;
+    this._gui_state.camera_path_duration = n < 1 ? 0 : this._gui_state.camera_path_duration * n / (n+1);
+    this.notifyChange({ property: "camera_path_duration" });
     this.notifyChange({ property: "camera_path_keyframes" });
   }
 
@@ -1636,15 +1598,16 @@ class Viewer extends THREE.EventDispatcher {
     const scale = new THREE.Vector3();
     matrix.decompose(position, quaternion, scale);
     const id = _keyframe_counter++;
-    let appearance_train_index = this._gui_state.camera_path_keyframes.length > 0 ?
-      this._gui_state.camera_path_keyframes[this._gui_state.camera_path_keyframes.length - 1].appearance_train_index : undefined;
     this._gui_state.camera_path_keyframes.push({
       id,
       quaternion,
       position,
       fov: undefined,
-      appearance_train_index,
     });
+    const duration = this._gui_state.camera_path_duration || 0;
+    const n = this._gui_state.camera_path_keyframes.length;
+    this._gui_state.camera_path_duration = (n < 2 && duration == 0) ? 2 : duration * n / (n - 1);
+    this.notifyChange({ property: "camera_path_duration" });
     this.notifyChange({ property: "camera_path_keyframes" });
   }
 
@@ -1659,21 +1622,6 @@ class Viewer extends THREE.EventDispatcher {
       dependencies: ["has_method", "output_types"],
       getter: ({ has_method, output_types }) => has_method && output_types && output_types.length > 1
     });
-    this.addComputedProperty({
-      name: "camera_path_duration",
-      dependencies: ["camera_path_loop", "camera_path_interpolation", "camera_path_keyframes", "camera_path_default_transition_duration"],
-      getter: ({ camera_path_loop, camera_path_interpolation, camera_path_keyframes, camera_path_default_transition_duration }) => {
-        if (camera_path_interpolation === "none")
-          return camera_path_keyframes.length * camera_path_default_transition_duration;
-        return camera_path_keyframes.map((keyframe, i) => {
-          let duration = keyframe.transition_duration === undefined ? 
-            camera_path_default_transition_duration : 
-            keyframe.transition_duration;
-          if (i === 0 && !camera_path_loop)
-            duration = 0;
-          return duration;
-        }).reduce((a, b) => a + b, 0);
-      }});
 
     // Add dataset's computed properties
     this.addComputedProperty({
@@ -1717,7 +1665,8 @@ class Viewer extends THREE.EventDispatcher {
       name: "render_appearance_image_url",
       dependencies: ["dataset_images", "render_appearance_train_index"],
       getter: ({ dataset_images, render_appearance_train_index }) => {
-        if (render_appearance_train_index === undefined || render_appearance_train_index === "") 
+        if (render_appearance_train_index === undefined || 
+            render_appearance_train_index === "") 
           return "";
         const image = dataset_images?.[`train/${render_appearance_train_index}`];
         return image?.image_url || "";
@@ -1770,7 +1719,7 @@ class Viewer extends THREE.EventDispatcher {
           const pose = new THREE.Matrix4();
           let appearance_weights = weights[frame];
           let appearance_train_indices = camera_path_keyframes.map(x => {
-            if (x.appearance_train_index !== undefined && x.appearance_train_index !== "") {
+            if (x.appearance_train_index !== undefined) {
               return parseInt(x.appearance_train_index);
             }
             return undefined;
@@ -1803,13 +1752,13 @@ class Viewer extends THREE.EventDispatcher {
           property !== 'camera_path_trajectory' &&
           property !== 'camera_path_framerate' &&
           property !== 'camera_path_interpolation' &&
-          property !== 'camera_path_default_transition_duration' &&
+          property !== 'camera_path_duration' &&
           property !== 'preview_is_playing') return;
       const {
         camera_path_trajectory,
         camera_path_framerate,
         camera_path_interpolation,
-        camera_path_default_transition_duration,
+        camera_path_duration,
         preview_is_playing,
       } = state;
 
@@ -1820,7 +1769,7 @@ class Viewer extends THREE.EventDispatcher {
       }
 
       if (preview_is_playing) {
-        const fps = camera_path_interpolation === 'none' ? 1 / camera_path_default_transition_duration : camera_path_framerate;
+        const fps = camera_path_interpolation === 'none' ? camera_path_trajectory.positions.length / camera_path_duration : camera_path_framerate;
         const n = camera_path_trajectory ? camera_path_trajectory.positions.length : 0;
         preview_interval = setInterval(() => {
           state.preview_frame = n > 0 ? (state.preview_frame + 1) % n : 0;
@@ -1836,10 +1785,6 @@ class Viewer extends THREE.EventDispatcher {
     const h = state.camera_path_resolution_2;
     const appearances = [];
     const keyframes = [];
-    const supports_transition_duration = (
-      state.camera_path_interpolation === "kochanek-bartels" ||
-      state.camera_path_interpolation === "linear"
-    );
     for (const keyframe of state.camera_path_keyframes) {
       const pose = new THREE.Matrix4();
       pose.compose(keyframe.position, keyframe.quaternion, new THREE.Vector3(1, 1, 1));
@@ -1847,10 +1792,8 @@ class Viewer extends THREE.EventDispatcher {
       const keyframe_dict = {
         pose: matrix4ToArray(pose),
         fov: keyframe.fov,
+        velocity_multiplier: keyframe.velocity_multiplier,
       };
-      if (supports_transition_duration) {
-        keyframe_dict.transition_duration = keyframe.transition_duration;
-      }
       if (keyframe.appearance_train_index !== undefined) {
         keyframe_dict.appearance = appearance = {
           embedding_train_index: keyframe.appearance_train_index,
@@ -1894,22 +1837,21 @@ class Viewer extends THREE.EventDispatcher {
       interpolation: state.camera_path_interpolation,
       keyframes,
       default_fov: state.camera_path_default_fov,
+      duration: state.camera_path_duration,
     };
     let fps = state.camera_path_framerate;
     if (source.interpolation === "kochanek-bartels") {
       source.is_cycle = state.camera_path_loop;
       source.tension = state.camera_path_tension;
-      source.default_transition_duration = state.camera_path_default_transition_duration;
     } else if (source.interpolation === "linear") {
       source.is_cycle = state.camera_path_loop;
-      source.default_transition_duration = state.camera_path_default_transition_duration;
     } else if (source.interpolation === "none" || source.interpolation === "circle") {
-      source.default_transition_duration = state.camera_path_default_transition_duration;
       if (source.interpolation === "none") {
-        fps = 1.0 / state.camera_path_default_transition_duration;
+        fps = 1.0 / state.camera_path_duration;
       }
     }
     const data = {
+      version: 'nerfbaselines-v2',
       camera_model: "pinhole",
       image_size: [w, h],
       fps,
@@ -1925,7 +1867,7 @@ class Viewer extends THREE.EventDispatcher {
   async save_camera_path() {
     try {
       const data = this.export_camera_path();
-      await saveAs(new Blob([JSON.stringify(data)]), { 
+      await saveAs(new Blob([JSON.stringify(data, null, '  ')]), { 
         type: "application/json",
         filename: "camera_path.json",
         extension: "json",
@@ -1943,6 +1885,12 @@ class Viewer extends THREE.EventDispatcher {
 
   load_camera_path(data) {
     try {
+      if (!data) {
+        throw new Error("No data provided");
+      }
+      if (data.version !== "nerfbaselines-v2") {
+        throw new Error(`Unsupported version ${data.version}. Only 'nerfbaselines-v2' is supported`);
+      }
       const state = this._gui_state;
       if (data.camera_model !== "pinhole") {
         throw new Error("Only pinhole camera model is supported");
@@ -1973,14 +1921,14 @@ class Viewer extends THREE.EventDispatcher {
         state.camera_path_framerate = data.fps;
         state.camera_path_loop = source.is_cycle;
       }
+      const correctnull = (x) => (x === null) ? undefined : x;
       const {
         default_fov,
-        default_transition_duration,
+        duration,
       } = source;
-      state.camera_path_default_fov = default_fov;
-      if (source.default_transition_duration !== undefined && source.default_transition_duration !== null) {
-        state.camera_path_default_transition_duration = default_transition_duration;
-      }
+      if (correctnull(default_fov) !== undefined)
+        state.camera_path_default_fov = default_fov;
+      state.camera_path_duration = correctnull(duration) === undefined ? (2*source["keyframes"].length) : duration;
       const keyframes = [];
       for (let k of source["keyframes"]) {
         const matrix = makeMatrix4(k.pose);
@@ -1988,15 +1936,15 @@ class Viewer extends THREE.EventDispatcher {
         const quaternion = new THREE.Quaternion();
         const scale = new THREE.Vector3();
         matrix.decompose(position, quaternion, scale);
-        const appearance = validate_appearance(k.appearance);
+        const appearance = validate_appearance(correctnull(k.appearance));
         const appearance_train_index = appearance ? appearance.embedding_train_index : undefined;
         keyframes.push({
           id: _keyframe_counter++,
           quaternion,
           position,
-          fov: k.fov,
-          transition_duration: k.transition_duration,
+          fov: correctnull(k.fov),
           appearance_train_index,
+          velocity_multiplier: correctnull(k.velocity_multiplier),
         });
       }
       state.camera_path_keyframes = keyframes;
@@ -2111,9 +2059,10 @@ class Viewer extends THREE.EventDispatcher {
             const option = oldOptions[value] || document.createElement("option");
             option.value = value;
             option.textContent = text;
-            if (value === selectedValue) option.selected = true;
+            if (value === selectedValue) option.setAttribute("selected", "");
             element.appendChild(option);
           }
+          element.value = selectedValue;
         }
       }
       this.addEventListener("change", ({ property }) => {
@@ -2250,6 +2199,7 @@ class Viewer extends THREE.EventDispatcher {
                   id,
                   header: "Rendering failed",
                   detail: data.message,
+                  type: "error",
                   closeable: true,
                 });
               } else {
@@ -2276,11 +2226,14 @@ class Viewer extends THREE.EventDispatcher {
 
       button.addEventListener('pointerdown', setupFeed.bind(this));
       button.addEventListener('click', () => {
-        this._update_notification({
-          id: button.getAttribute("data-id"),
-          header: "Rendering video",
-          closeable: false,
-        });
+        const id = button.getAttribute("data-id");
+        if (!this._notifications[id]) {
+          this._update_notification({
+            id,
+            header: "Rendering video",
+            closeable: false,
+          });
+        }
       });
     });
 

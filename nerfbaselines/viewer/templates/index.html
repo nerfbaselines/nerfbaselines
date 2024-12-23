@@ -104,15 +104,9 @@
           <div>Editing keyframe <span data-bind="camera_path_selected_keyframe_natural_index"></span></div>
           <i class="ti ti-x" data-action="clear_selected_keyframe"></i>
         </div>
-        <div class="row" data-visible-if="camera_path_selected_keyframe_in_transition_visible">
-          <label for="camera_path_selected_keyframe_in_transition">In-transition (s)</label>
-          <input type="number" id="camera_path_selected_keyframe_in_transition" name="camera_path_selected_keyframe_in_transition" min="0.001" max="30" step="0.001" value="1" data-enable-if="camera_path_selected_keyframe_override_in_transition" disabled>
-          <input type="checkbox" name="camera_path_selected_keyframe_override_in_transition" />
-        </div>
-        <div class="row" data-visible-if="camera_path_selected_keyframe_out_transition_visible">
-          <label for="camera_path_selected_keyframe_out_transition">Out-transition (s)</label>
-          <input type="number" id="camera_path_selected_keyframe_out_transition" name="camera_path_selected_keyframe_out_transition" min="0.001" max="30" step="0.001" value="1" data-enable-if="camera_path_selected_keyframe_override_out_transition" disabled>
-          <input type="checkbox" name="camera_path_selected_keyframe_override_out_transition" />
+        <div class="row">
+          <label for="camera_path_selected_keyframe_velocity_multiplier">Velocity multiplier</label>
+          <input type="number" id="camera_path_selected_keyframe_velocity_multiplier" name="camera_path_selected_keyframe_velocity_multiplier" min="0.001" max="300" step="0.001" value="1">
         </div>
         <div class="row">
           <label for="camera_path_selected_keyframe_fov">FOV</label>
@@ -328,10 +322,10 @@
                 <button id="button_preview_render_stop" onclick="var el=document.getElementById('preview_is_preview_mode'); el.checked = false; el.dispatchEvent(new Event('change'))">Exit render preview</button>
               </div>
 
-              <div class="row number">
-                <label for="camera_path_default_transition_duration">Transition (sec)</label>
-                <input type="number" id="camera_path_default_transition_duration" name="camera_path_default_transition_duration" min="0.001" max="30" step="0.001" value="1">
-                <div class="input-hint">Time in seconds between each keyframe, which can also be overridden on a per-transition basis.</div>
+              <div class="row">
+                <label for="camera_path_duration">Duration (sec)</label>
+                <input type="number" id="camera_path_duration" name="camera_path_duration" min="0.01" max="1e8" step="0.01" value="0">
+                <div class="input-hint">Total duration of the camera path in seconds.</div>
               </div>
 
               <div class="row number">
@@ -345,11 +339,6 @@
               </div>
 
 
-              <div class="row">
-                <label for="camera_path_duration">Duration (sec)</label>
-                <input type="number" id="camera_path_duration" name="camera_path_duration" min="0.01" max="1e8" step="0.01" value="1" disabled>
-                <div class="input-hint">Total duration of the camera path in seconds.</div>
-              </div>
 
           </fieldset>
 
@@ -372,7 +361,7 @@
 
           <div class="row">
             <label for="camera_path_tension">Spline tension</label>
-            <input type="range" id="camera_path_tension" name="camera_path_tension" min="0" max="1" step="0.01" value="0">
+            <input type="range" id="camera_path_tension" name="camera_path_tension" min="-1" max="1" step="0.01" value="0">
             <div class="input-hint">Tension parameter for adjusting smoothness of spline interpolation.</div>
           </div>
 

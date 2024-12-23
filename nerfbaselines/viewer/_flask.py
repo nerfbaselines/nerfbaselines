@@ -20,11 +20,10 @@ from nerfbaselines.utils import image_to_srgb
 def _make_render_fn(request_queue, output_queue):
     output_queues = {}
     message_counter = threading.local()
-    message_counter.counter = 0
 
     def render_fn(feedid, **kwargs):
-        mid = message_counter.counter
-        message_counter.counter += 1
+        mid = getattr(message_counter, "counter", 0)
+        message_counter.counter = mid + 1
         tid = threading.get_ident()
         feedid = f"{tid}-{mid}"
 

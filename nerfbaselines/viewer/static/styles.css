@@ -5,6 +5,8 @@
   --highlight-color: #fff;
   --secondary-color: #828282;
   --border-radius: 0.1rem;
+  --error-border-color: #E53935;
+  --error-background-color: #3E0F0F;
 
   --border-color: #424242;
   --primary-background-color: #242424;
@@ -366,6 +368,14 @@ fieldset > .info-fields {
 
 .notification .progress {
   margin-top: 8px;
+}
+.notification.notification-error .notification-header {
+  color: var(--highlight-color);
+}
+.notification.notification-error {
+  background-color: var(--error-background-color);
+  border-color: var(--error-border-color);
+  color: var(--primary-color);
 }
 
 .progress::after {
