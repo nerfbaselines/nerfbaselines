@@ -248,8 +248,8 @@ class KochanekBartelsInterpolation {
       }
       return h00 * x1 + 
              h01 * x2 +
-             h10 * m0 + 
-             h11 * m1;
+             h10 * m0 * d1 + 
+             h11 * m1 * d1;
     }
     computeSingle = computeSingle.bind(this);
 
@@ -265,8 +265,8 @@ class KochanekBartelsInterpolation {
       }
       return p1.clone().multiplyScalar(h00)
         .add(p2.clone().multiplyScalar(h01))
-        .add(m0.multiplyScalar(h10))
-        .add(m1.multiplyScalar(h11));
+        .add(m0.multiplyScalar(h10 * d1))
+        .add(m1.multiplyScalar(h11 * d1));
     } else if (p0 instanceof THREE.Quaternion) {
       // Cannonicalize
       if (new THREE.Quaternion().dot(p0) < 0)

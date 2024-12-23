@@ -157,6 +157,9 @@ select:disabled, input:disabled, textarea:disabled {
 .tabs .tabs-header > label {
   padding: 1rem;
   text-align: center;
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
 }
 .tabs .tabs-icons {
   display: flex;

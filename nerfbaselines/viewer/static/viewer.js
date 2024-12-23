@@ -360,6 +360,8 @@ function _attach_camera_path(viewer) {
       camera_path_loop,
       camera_path_interpolation,
       camera_path_tension,
+      camera_path_continuity,
+      camera_path_bias,
       camera_path_default_fov,
       camera_path_duration,
       camera_path_framerate,
@@ -371,6 +373,8 @@ function _attach_camera_path(viewer) {
         loop: camera_path_loop,
         interpolation: camera_path_interpolation,
         tension: camera_path_tension || 0,
+        continuity: camera_path_continuity || 0,
+        bias: camera_path_bias || 0,
         default_fov: camera_path_default_fov,
         duration: camera_path_duration,
         framerate: camera_path_framerate,
@@ -907,7 +911,7 @@ class DatasetManager {
       this.viewer._gui_state[`dataset_has_${split}_cameras`] = true;
       this.viewer.notifyChange({ property: `dataset_has_${split}_cameras` });
       let i = 0;
-      const appearance_options = [{label: "default", value: ""}];
+      const appearance_options = [{label: "none", value: ""}];
       for (const camera of cameras) {
         const pose = camera.pose; // Assuming pose is a flat array representing a 3x4 matrix
         if (pose.length !== 12) {
@@ -1168,18 +1172,6 @@ function _attach_selected_keyframe_details(viewer) {
         state.camera_path_selected_keyframe_appearance_train_index === ""
       ) ?  undefined : parseInt(state.camera_path_selected_keyframe_appearance_train_index);
       keyframe.appearance_train_index = index;
-      for (const k of state.camera_path_keyframes) {
-        if (keyframe.appearance_train_index !== undefined) {
-          // Fill in missing appearance_train_index
-          if (k.appearance_train_index === undefined) {
-            k.appearance_train_index = keyframe.appearance_train_index;
-          }
-        } else {
-          // Clear appearance_train_index since it is 
-          // not allowed to interpolate default appearance
-          k.appearance_train_index = undefined;
-        }
-      }
       viewer.notifyChange({ property: "camera_path_keyframes" });
       return;
     }
@@ -1843,6 +1835,8 @@ class Viewer extends THREE.EventDispatcher {
     if (source.interpolation === "kochanek-bartels") {
       source.is_cycle = state.camera_path_loop;
       source.tension = state.camera_path_tension;
+      source.continuity = state.camera_path_continuity;
+      source.bias = state.camera_path_bias;
     } else if (source.interpolation === "linear") {
       source.is_cycle = state.camera_path_loop;
     } else if (source.interpolation === "none" || source.interpolation === "circle") {
@@ -1915,7 +1909,9 @@ class Viewer extends THREE.EventDispatcher {
       [state.camera_path_resolution_1, state.camera_path_resolution_2] = data.image_size;
       if (interpolation === "kochanek-bartels") {
         state.camera_path_framerate = data.fps;
-        state.camera_path_tension = source.tension;
+        state.camera_path_tension = source.tension || 0;
+        state.camera_path_continuity = source.continuity || 0;
+        state.camera_path_bias = source.bias || 0;
         state.camera_path_loop = source.is_cycle;
       } else if (interpolation === "linear") {
         state.camera_path_framerate = data.fps;
