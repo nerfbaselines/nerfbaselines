@@ -168,6 +168,46 @@ class LinearInterpolation {
 }
 
 
+function reduceGrid(Interpolation, {grid, vertices, defaultValue = undefined, ...kwargs}) {
+  // Reduce the grid to only include vertices that are not null or undefined
+  const loop = vertices.length < grid.length;
+  const maxT = grid[grid.length - 1];
+  let reducedGrid = vertices.map((v, i) => 
+    (v !== undefined && v !== null) ? grid[i] : undefined
+  ).filter(x => x !== undefined);
+  const reducedVertices = vertices.filter(v => v !== undefined && v !== null);
+  if (reducedGrid.length === 0) {
+    return { evaluate: (t) => defaultValue };
+  }
+  if (!loop) {
+    if (reducedGrid[0] > 0) {
+      reducedGrid.unshift(0);
+      reducedVertices.unshift(reducedVertices[0]);
+    }
+    if (reducedGrid[reducedGrid.length - 1] < maxT) {
+      reducedGrid.push(maxT);
+      reducedVertices.push(reducedVertices[reducedVertices.length - 1]);
+    }
+    return new Interpolation({ vertices: reducedVertices, grid: reducedGrid, ...kwargs });
+  } else {
+    const offset = reducedGrid[0];
+    reducedGrid = reducedGrid.map(x => x - offset);
+    reducedGrid.push(maxT);
+    const interpolation = new Interpolation({ 
+      vertices: reducedVertices, 
+      grid: reducedGrid,
+      ...kwargs 
+    });
+    return {
+      evaluate: (t) => {
+        t = (maxT + t - offset) % maxT;
+        return interpolation.evaluate(t);
+      }
+    };
+  }
+}
+
+
 class KochanekBartelsInterpolation {
   constructor({ vertices, tension = 0, continuity = 0, bias = 0, grid }) {
     this.vertices = vertices;
@@ -528,6 +568,20 @@ function buildTimeDistanceMap({ grid, velocities, duration }) {
 }
 
 
+function fixWeights(appearance) {
+  if (appearance.length === 0) return [];
+  if (appearance.length === 1) return [1];
+  const indices = appearance.map((x,i) => [x,i]).sort((a,b) => a[0]<b[0]?1:-1).map(x=>x[1]);
+  const [maxI, secondI] = indices.slice(0, 2);
+  const maxV = Math.max(0, appearance[maxI]);
+  const secondV = Math.max(0, appearance[secondI]);
+  const out = Array.from({ length: appearance.length }, (_, i) => 0);
+  out[maxI] = maxV === 0 ? 0 : maxV / (maxV + secondV);
+  out[secondI] = secondV === 0 ? 0 : secondV / (maxV + secondV);
+  return out;
+}
+
+
 export function compute_camera_path(props) {
   const { 
     keyframes, 
@@ -540,8 +594,11 @@ export function compute_camera_path(props) {
   } = props;
   const k_positions = keyframes.map(k => k.position);
   const k_quaternions = keyframes.map(k => k.quaternion);
-  const k_fovs = keyframes.map(k => k.fov || default_fov);
-  const k_weights = keyframes.map((_, i) => onehot(i, keyframes.length));
+  const k_fovs = keyframes.map(k => k.fov);
+  const num_appearances = keyframes.reduce((a, x) => a + (x.appearance_train_index !== undefined), 0);
+  let app_counter = 0;
+  const k_weights = keyframes.map((k, i) => 
+    k.appearance_train_index === undefined ? undefined : onehot(app_counter++, num_appearances));
 
   if (interpolation === 'none') {
     return {
@@ -591,8 +648,8 @@ export function compute_camera_path(props) {
     throw new Error(`Unknown interpolation method: ${interpolation}`);
   }
   totalDistance = lengths.reduce((a, x) => a + x, 0);
-  fov_spline = new Interpolation({ vertices: k_fovs, grid, ...rest_props }).evaluate;
-  weights_spline = new Interpolation({ vertices: k_weights, grid, ...rest_props }).evaluate;
+  fov_spline = reduceGrid(Interpolation, { vertices: k_fovs, grid, defaultValue: default_fov, ...rest_props }).evaluate;
+  weights_spline = reduceGrid(Interpolation, { vertices: k_weights, grid, defaultValue: [], ...rest_props }).evaluate;
 
   const velocities = keyframes.map(x => x.velocity_multiplier || 1);
   const distanceMap = buildTimeDistanceMap({ grid, velocities: velocities, duration });
@@ -601,8 +658,15 @@ export function compute_camera_path(props) {
   const positions = gdist.map(t => position_spline(t));
   const quaternions = gdist.map(t => quaternion_spline(t));
   const fovs = gdist.map(t => fov_spline(t));
-  const weights = gdist.map(t => weights_spline(t));
-  return { positions, quaternions, fovs, weights, distance: totalDistance };
+  const weights = gdist.map(t => fixWeights(weights_spline(t)));
+  return { 
+    positions, 
+    quaternions, 
+    fovs, 
+    weights, 
+    distance: totalDistance,
+    appearanceTrainIndices: keyframes.map(k => k.appearance_train_index).filter(x => x !== undefined),
+  };
 }
 
 

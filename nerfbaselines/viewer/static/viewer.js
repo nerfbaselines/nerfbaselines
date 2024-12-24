@@ -116,7 +116,7 @@ const hash_cyrb53 = (str, seed = 0) => {
 async function saveAs(blob, opts) {
   const hasFSAccess = 'chooseFileSystemEntries' in window || 'showOpenFilePicker' in window;
   const { type, filename, description, extension } = opts;
-  if (!hasFSAccess) {
+  const fallback = () => {
     var URL = _global.URL || _global.webkitURL
     var a = document.createElementNS('http://www.w3.org/1999/xhtml', 'a')
     a.setAttribute('download', filename);
@@ -124,6 +124,9 @@ async function saveAs(blob, opts) {
     a.setAttribute('href', URL.createObjectURL(blob));
     setTimeout(function () { URL.revokeObjectURL(a.href) }, 4E4); // 40s
     setTimeout(function () { a.click() }, 0);
+  };
+  if (!hasFSAccess) {
+    fallback();
     return
   }
 
@@ -157,7 +160,10 @@ async function saveAs(blob, opts) {
     if (ex.name === 'AbortError') {
       return;
     }
-    throw ex;
+    console.error(ex);
+    console.log("Error saving file, falling back to download.");
+    fallback();
+    return;
   }
   // Write contents to the file.
   if (fileHandle.createWriter) {
@@ -1127,6 +1133,7 @@ function _attach_selected_keyframe_details(viewer) {
       camera_path_selected_keyframe_fov: def(keyframe?.fov) ? keyframe.fov : state.camera_path_default_fov,
       camera_path_selected_keyframe_override_fov: def(keyframe?.fov),
       camera_path_selected_keyframe_velocity_multiplier: def(keyframe?.velocity_multiplier) ? keyframe.velocity_multiplier : 1,
+      camera_path_selected_keyframe_duration: def(keyframe?.duration) ? keyframe.duration : 2,
     };
     for (const property in change) {
       if (state[property] !== change[property]) {
@@ -1154,6 +1161,14 @@ function _attach_selected_keyframe_details(viewer) {
     if (property === "camera_path_selected_keyframe_velocity_multiplier" && keyframe) {
       if (state.camera_path_selected_keyframe_velocity_multiplier && keyframe.velocity_multiplier !== state.camera_path_selected_keyframe_velocity_multiplier) {
         keyframe.velocity_multiplier = state.camera_path_selected_keyframe_velocity_multiplier;
+        viewer.notifyChange({ property: "camera_path_keyframes" });
+      }
+      return;
+    }
+
+    if (property === "camera_path_selected_keyframe_duration" && keyframe) {
+      if (state.camera_path_selected_keyframe_duration && keyframe.duration !== state.camera_path_selected_keyframe_duration) {
+        keyframe.duration = state.camera_path_selected_keyframe_duration;
         viewer.notifyChange({ property: "camera_path_keyframes" });
       }
       return;
@@ -1213,6 +1228,23 @@ function _attach_camera_control(viewer) {
     if (property === undefined || property === 'camera_control_key_speed')
       viewer.controls.keyPanSpeed = viewer.controls.keyRotateSpeed = 7 * trans(state.camera_control_key_speed);
   });
+}
+
+
+function parseBinding(expr) {
+  if (expr.indexOf("==") > 0) {
+    const [name, value] = expr.split("==");
+    return [(state) => state[name] == value, [name]];
+  }
+  if (expr.indexOf("!=") > 0) {
+    const [name, value] = expr.split("!=");
+    return [(state) => state[name] != value, [name]];
+  }
+  if (expr.startsWith("!")) {
+    const name = expr.slice(1);
+    return [(state) => !state[name], [name]];
+  }
+  return [(state) => state[expr], [expr]];
 }
 
 
@@ -1664,6 +1696,17 @@ class Viewer extends THREE.EventDispatcher {
         return image?.image_url || "";
       }
     });
+
+    this.addComputedProperty({
+      name: "camera_path_computed_duration",
+      dependencies: ["camera_path_keyframes", "camera_path_duration", "camera_path_interpolation"],
+      getter: ({ camera_path_keyframes, camera_path_duration, camera_path_interpolation }) => {
+        if (camera_path_interpolation === "none") {
+          return camera_path_keyframes.map(x => x.duration === undefined ? 2 : x.duration).reduce((a, b) => a + b, 0);
+        }
+        return camera_path_duration;
+      }
+    });
   }
 
   _attach_update_preview_mode() {
@@ -1710,15 +1753,10 @@ class Viewer extends THREE.EventDispatcher {
           const fov = fovs[frame];
           const pose = new THREE.Matrix4();
           let appearance_weights = weights[frame];
-          let appearance_train_indices = camera_path_keyframes.map(x => {
-            if (x.appearance_train_index !== undefined) {
-              return parseInt(x.appearance_train_index);
-            }
-            return undefined;
-          });
-          if (appearance_train_indices.some(x => x === undefined)) {
-            appearance_train_indices = undefined;
+          let appearance_train_indices = camera_path_trajectory.appearanceTrainIndices;
+          if (appearance_weights?.length === 0) {
             appearance_weights = undefined;
+            appearance_train_indices = undefined;
           }
           pose.compose(position, quaternion, new THREE.Vector3(1, 1, 1));
           preview_camera = {
@@ -1739,10 +1777,12 @@ class Viewer extends THREE.EventDispatcher {
 
   _attach_preview_is_playing() {
     let preview_interval;
+    let isCancelled = [false];
     this.addEventListener('change', ({ property, state }) => {
       if (property !== undefined &&
           property !== 'camera_path_trajectory' &&
           property !== 'camera_path_framerate' &&
+          property !== 'camera_path_keyframes' &&
           property !== 'camera_path_interpolation' &&
           property !== 'camera_path_duration' &&
           property !== 'preview_is_playing') return;
@@ -1751,22 +1791,34 @@ class Viewer extends THREE.EventDispatcher {
         camera_path_framerate,
         camera_path_interpolation,
         camera_path_duration,
+        camera_path_keyframes,
         preview_is_playing,
       } = state;
 
       // Add preview timer
       if (preview_interval) {
+        isCancelled[0] = true;
+        isCancelled = [false];
         clearInterval(preview_interval);
         preview_interval = undefined;
       }
 
       if (preview_is_playing) {
-        const fps = camera_path_interpolation === 'none' ? camera_path_trajectory.positions.length / camera_path_duration : camera_path_framerate;
-        const n = camera_path_trajectory ? camera_path_trajectory.positions.length : 0;
-        preview_interval = setInterval(() => {
-          state.preview_frame = n > 0 ? (state.preview_frame + 1) % n : 0;
+        let delays;
+        const isCancelledLocal = isCancelled;
+        if (camera_path_interpolation === 'none') {
+          delays = camera_path_keyframes.map(x => 1000 * (x.duration === undefined ? 2 : x.duration));
+        } else {
+          delays = Array.from({ length: camera_path_trajectory?.positions?.length || 0 }, (_, i) => 1000 / camera_path_framerate);
+        }
+        const stepCallback = () => {
+          if (isCancelledLocal[0]) return;
+          state.preview_frame = delays.length > 0 ? (state.preview_frame + 1) % delays.length : 0;
+          preview_interval = setTimeout(stepCallback, delays[state.preview_frame]);
+          if (isCancelledLocal[0]) return;
           this.notifyChange({ property: 'preview_frame' });
-        }, 1000 / fps);
+        };
+        preview_interval = setTimeout(stepCallback, delays[state.preview_frame] || 0);
       }
     });
   }
@@ -1785,6 +1837,7 @@ class Viewer extends THREE.EventDispatcher {
         pose: matrix4ToArray(pose),
         fov: keyframe.fov,
         velocity_multiplier: keyframe.velocity_multiplier,
+        duration: keyframe.duration,
       };
       if (keyframe.appearance_train_index !== undefined) {
         keyframe_dict.appearance = appearance = {
@@ -1797,9 +1850,6 @@ class Viewer extends THREE.EventDispatcher {
       }
     }
 
-    if (appearances.length != 0 && appearances.length != keyframes.length) {
-      throw new Error("Appearances must be set for all keyframes or none");
-    }
     // now populate the camera path:
     const trajectory_frames = this._gui_state.camera_path_trajectory;
     if (!trajectory_frames) {
@@ -1837,12 +1887,8 @@ class Viewer extends THREE.EventDispatcher {
       source.tension = state.camera_path_tension;
       source.continuity = state.camera_path_continuity;
       source.bias = state.camera_path_bias;
-    } else if (source.interpolation === "linear") {
+    } else if (source.interpolation === "linear" || source.interpolation === "circle") {
       source.is_cycle = state.camera_path_loop;
-    } else if (source.interpolation === "none" || source.interpolation === "circle") {
-      if (source.interpolation === "none") {
-        fps = 1.0 / state.camera_path_duration;
-      }
     }
     const data = {
       version: 'nerfbaselines-v2',
@@ -1854,6 +1900,20 @@ class Viewer extends THREE.EventDispatcher {
     };
     if (appearances.length != 0) {
       data.appearances = appearances;
+    }
+    if (source.interpolation === "none") {
+      // Add frame repeats to match target FPS
+      const frame_repeats = [];
+      let time = 0;
+      let nFrames = 0;
+      keyframes.forEach((keyframe, i) => {
+        const duration = keyframe.duration || 2;
+        const numFrames = Math.max(0, Math.round((time + duration) * fps) - nFrames);
+        frame_repeats.push(numFrames);
+        nFrames += numFrames;
+        time = nFrames / fps;
+      });
+      data.frame_repeats = frame_repeats;
     }
     return data
   }
@@ -1908,16 +1968,17 @@ class Viewer extends THREE.EventDispatcher {
       state.camera_path_interpolation = interpolation;
       [state.camera_path_resolution_1, state.camera_path_resolution_2] = data.image_size;
       if (interpolation === "kochanek-bartels") {
-        state.camera_path_framerate = data.fps;
         state.camera_path_tension = source.tension || 0;
         state.camera_path_continuity = source.continuity || 0;
         state.camera_path_bias = source.bias || 0;
         state.camera_path_loop = source.is_cycle;
-      } else if (interpolation === "linear") {
-        state.camera_path_framerate = data.fps;
+      } else if (interpolation === "linear" || interpolation === "circle") {
         state.camera_path_loop = source.is_cycle;
       }
+      state.camera_path_framerate = data.fps;
       const correctnull = (x) => (x === null) ? undefined : x;
+      if (correctnull(data.fps) !== undefined)
+        state.camera_path_framerate = data.fps;
       const {
         default_fov,
         duration,
@@ -1941,6 +2002,7 @@ class Viewer extends THREE.EventDispatcher {
           fov: correctnull(k.fov),
           appearance_train_index,
           velocity_multiplier: correctnull(k.velocity_multiplier),
+          duration: correctnull(k.duration),
         });
       }
       state.camera_path_keyframes = keyframes;
@@ -2069,10 +2131,10 @@ class Viewer extends THREE.EventDispatcher {
     });
 
     root.querySelectorAll("[data-enable-if]").forEach(element => {
-      const name = element.getAttribute("data-enable-if");
+      const [evalFn, dependencies] = parseBinding(element.getAttribute("data-enable-if"));
       this.addEventListener("change", ({ property, state }) => {
-        if (property !== name && property !== undefined) return;
-        let value = state[name];
+        if (property !== undefined && !dependencies.includes(property)) return;
+        let value = evalFn(state);
         if (Array.isArray(value)) value = value.length > 0;
         if (typeof value === "object") value = Object.entries(value).length > 0;
         if (element.tagName.toLowerCase() === "a")
@@ -2083,12 +2145,12 @@ class Viewer extends THREE.EventDispatcher {
     });
 
     root.querySelectorAll("[data-visible-if]").forEach(element => {
-      const name = element.getAttribute("data-visible-if");
+      const [evalFn, dependencies] = parseBinding(element.getAttribute("data-visible-if"));
       let display = element.style.display;
       if (display === "none") display = null;
       this.addEventListener("change", ({ property, state }) => {
-        if (property !== name && property !== undefined) return;
-        element.style.display = state[name] ? display : "none";
+        if (property !== undefined && !dependencies.includes(property)) return;
+        element.style.display = evalFn(state) ? display : "none";
       });
     });
 

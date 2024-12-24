@@ -83,8 +83,6 @@
         </div>
       </div>
 
-
-      
       <div class="dialog" id="dialog_camera_path_delete_all">
         <div class="dialog-header">
           <div>Confirm deletion</div>
@@ -104,9 +102,13 @@
           <div>Editing keyframe <span data-bind="camera_path_selected_keyframe_natural_index"></span></div>
           <i class="ti ti-x" data-action="clear_selected_keyframe"></i>
         </div>
-        <div class="row">
+        <div class="row" data-visible-if="camera_path_interpolation!=none">
           <label for="camera_path_selected_keyframe_velocity_multiplier">Velocity multiplier</label>
           <input type="number" id="camera_path_selected_keyframe_velocity_multiplier" name="camera_path_selected_keyframe_velocity_multiplier" min="0.00001" max="300" step="0.00001" value="1">
+        </div>
+        <div class="row" data-visible-if="camera_path_interpolation==none">
+          <label for="camera_path_selected_keyframe_duration">Duration</label>
+          <input type="number" id="camera_path_selected_keyframe_duration" name="camera_path_selected_keyframe_duration" min="0.01" max="300" step="0.01" value="2">
         </div>
         <div class="row">
           <label for="camera_path_selected_keyframe_fov">FOV</label>
@@ -322,13 +324,18 @@
                 <button id="button_preview_render_stop" onclick="var el=document.getElementById('preview_is_preview_mode'); el.checked = false; el.dispatchEvent(new Event('change'))">Exit render preview</button>
               </div>
 
-              <div class="row">
+              <div class="row" data-visible-if="camera_path_interpolation!=none">
                 <label for="camera_path_duration">Duration (sec)</label>
                 <input type="number" id="camera_path_duration" name="camera_path_duration" min="0.01" max="1e8" step="0.01" value="0">
                 <div class="input-hint">Total duration of the camera path in seconds.</div>
               </div>
+              <div class="row" data-visible-if="camera_path_interpolation==none">
+                <label for="camera_path_computed_duration">Duration (sec)</label>
+                <input type="number" id="camera_path_computed_duration" name="camera_path_computed_duration" min="0.01" max="1e8" step="0.01" value="0" disabled>
+                <div class="input-hint">Total duration of the camera path in seconds.</div>
+              </div>
 
-              <div class="row number">
+              <div class="row">
                 <label for="camera_path_framerate">FPS</label>
                 <input type="number" id="camera_path_framerate" style="flex: 2" name="camera_path_framerate" min="1" max="240" step="1" value="30">
                 <div class="toggle-group" style="flex: 4; display: flex;">
@@ -336,40 +343,38 @@
                   <button onclick="var el=document.getElementById('camera_path_framerate');el.value = 30;el.dispatchEvent(new Event('change'))">30</button>
                   <button onclick="var el=document.getElementById('camera_path_framerate');el.value = 60;el.dispatchEvent(new Event('change'))">60</button>
                 </div>
+                <div class="input-hint" data-visible-if="camera_path_interpolation==none">FPS is only used for video export.</div>
               </div>
-
-
-
           </fieldset>
 
           <div class="row">
             <label for="camera_path_interpolation">Interpolation</label>
             <select id="camera_path_interpolation" name="camera_path_interpolation">
-              <option value="kochanek-bartels">kochanek-bartels</option>
-              <option value="linear">linear</option>
               <option value="none">none</option>
+              <option value="kochanek-bartels" selected>kochanek-bartels</option>
+              <option value="linear">linear</option>
               <option value="circle">circle</option>
             </select>
             <div class="input-hint">Camera path interpolation.</div>
           </div>
 
-          <div class="row">
+          <div class="row" data-visible-if="camera_path_interpolation!=none">
             <label for="camera_path_loop">Loop</label>
             <input type="checkbox" id="camera_path_loop" name="camera_path_loop">
             <div class="input-hint">Add a segment between the first and last keyframes.</div>
           </div>
 
-          <div class="row">
+          <div class="row" data-visible-if="camera_path_interpolation==kochanek-bartels">
             <label for="camera_path_tension">Spline tension</label>
             <input type="range" id="camera_path_tension" name="camera_path_tension" min="-1" max="1" step="0.01" value="0">
             <div class="input-hint">Adjusting spline smoothness.</div>
           </div>
-          <div class="row">
+          <div class="row" data-visible-if="camera_path_interpolation==kochanek-bartels">
             <label for="camera_path_continuity">Spline continuity</label>
             <input type="range" id="camera_path_continuity" name="camera_path_continuity" min="-1" max="1" step="0.01" value="0">
             <div class="input-hint">Adjusting spline continuity.</div>
           </div>
-          <div class="row">
+          <div class="row" data-visible-if="camera_path_interpolation==kochanek-bartels">
             <label for="camera_path_bias">Spline bias</label>
             <input type="range" id="camera_path_bias" name="camera_path_bias" min="-1" max="1" step="0.01" value="0">
             <div class="input-hint">Adjusting spline overshooting.</div>

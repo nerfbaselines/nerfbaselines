@@ -477,7 +477,11 @@ def run_flask_server(request_queue,
                                 split_percentage=0,
                                 split_tilt=0,
                                 split_output_type=None)
-                            video.add_image(output)
+                            if trajectory.get("frame_repeat") is not None:
+                                for _ in range(trajectory["frame_repeat"][i]):
+                                    video.add_image(output)
+                            else:
+                                video.add_image(output)
                         task["progress"] = 1
                         task["status"] = "done"
 
