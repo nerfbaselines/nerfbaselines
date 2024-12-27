@@ -338,7 +338,7 @@ const hash_cyrb53 = (str, seed = 0) => {
 
 
 async function saveAs(blob, opts) {
-  const hasFSAccess = 'chooseFileSystemEntries' in window || 'showOpenFilePicker' in window;
+  const hasFSAccess = 'showOpenFilePicker' in window;
   const { type, filename, description, extension } = opts;
   const fallback = () => {
     var a = document.createElementNS('http://www.w3.org/1999/xhtml', 'a')
@@ -354,31 +354,18 @@ async function saveAs(blob, opts) {
   }
 
   // Create file handle.
-  let fileHandle;
+  let writable = undefined;
   try {
-    if ('showSaveFilePicker' in window) {
-      // For Chrome 86 and later...
-      const opts = {
-        startIn: 'downloads',
-        suggestedName: filename,
-        types: [{
-          description,
-          accept: { [type]: [`.${extension}`]},
-        }],
-      };
-      fileHandle = await window.showSaveFilePicker(opts);
-    } else {
-      // For Chrome 85 and earlier...
-      const opts = {
-        type: 'save-file',
-        accepts: [{
-          description: description,
-          extensions: [extension],
-          mimeTypes: [type],
-        }],
-      };
-      fileHandle = await window.chooseFileSystemEntries(opts);
-    }
+    // For Chrome 86 and later...
+    const opts = {
+      startIn: 'downloads',
+      suggestedName: filename,
+      types: [{
+        description,
+        accept: { [type]: [`.${extension}`]},
+      }],
+    };
+    writable = await (await window.showSaveFilePicker(opts)).createWritable();
   } catch (ex) {
     if (ex.name === 'AbortError') {
       return;
@@ -388,18 +375,11 @@ async function saveAs(blob, opts) {
     fallback();
     return;
   }
-  // Write contents to the file.
-  if (fileHandle.createWriter) {
-    // Support for Chrome 82 and earlier.
-    const writer = await fileHandle.createWriter();
-    await writer.write(0, blob);
-    await writer.close();
-  } else {
-    // For Chrome 83 and later.
-    const writable = await fileHandle.createWritable();
-    await writable.write(blob);
-    await writable.close();
-  }
+
+  // For Chrome 83 and later.
+  await writable.write(blob);
+  await writable.close();
+  writable = undefined;
 }
 
 const _point_cloud_vertex_shader = `
@@ -1970,6 +1950,8 @@ export class Viewer extends THREE.EventDispatcher {
         this.clear_selected_dataset_image();
       if (action === "render_video")
         this.render_video();
+      if (action === "save_camera_path")
+        this.save_camera_path();
     });
   }
 
