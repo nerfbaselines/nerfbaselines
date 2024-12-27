@@ -252,9 +252,10 @@
                   id="camera_pose" 
                   name="camera_pose" 
                   style="flex-basis:100%; font-size: 0.65rem"
+                  data-set-viewer-ref
                   onfocus="this.hasFocus=true"
                   oninput="this.hasFocus=true"
-                  onchange="viewer.set_camera({ matrix: this.value });"
+                  onchange="this.viewer.set_camera({ matrix: this.value });"
                   onblur="this.hasFocus=false"></textarea>
             </div>
           </fieldset>

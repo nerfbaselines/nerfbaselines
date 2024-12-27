@@ -763,6 +763,64 @@ function _attach_viewport_split_slider(viewer) {
   update(viewer.state);
 }
 
+function _attach_fullscreen_mode(viewer) {
+  function closeFullscreen() {
+    if (document.exitFullscreen) {
+      document.exitFullscreen();
+    } else if (document.webkitExitFullscreen) { /* Safari */
+      document.webkitExitFullscreen();
+    } else if (document.msExitFullscreen) { /* IE11 */
+      document.msExitFullscreen();
+    }
+  }
+  var elem = document.documentElement;
+  function openFullscreen() {
+    if (elem.requestFullscreen) {
+      elem.requestFullscreen();
+    } else if (elem.webkitRequestFullscreen) { /* Safari */
+      elem.webkitRequestFullscreen();
+    } else if (elem.msRequestFullscreen) { /* IE11 */
+      elem.msRequestFullscreen();
+    }
+  }
+  elem.addEventListener("fullscreenchange", () => {
+    const newState = !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+    if (viewer.state.viewer_fullscreen !== newState) {
+      viewer.state.viewer_fullscreen = newState
+      viewer.notifyChange({ property: "viewer_fullscreen", origin: elem });
+    }
+  });
+  viewer.addEventListener("change", ({ property, state, origin }) => {
+    if (origin === elem) return;
+    if (property === "viewer_fullscreen") {
+      if (state.viewer_fullscreen) {
+        openFullscreen();
+      } else {
+        closeFullscreen();
+      }
+    }
+  });
+  viewer.addEventListener("action", ({ action }) => {
+    if (action === "viewer_toggle_fullscreen") {
+      viewer.state.viewer_fullscreen = !viewer.state.viewer_fullscreen;
+      viewer.notifyChange({ property: "viewer_fullscreen" });
+    }
+    if (action === "viewer_exit_fullscreen") {
+      if (viewer.state.viewer_fullscreen) {
+        viewer.state.viewer_fullscreen = false;
+        viewer.notifyChange({ property: "viewer_fullscreen" });
+      }
+    }
+    if (action === "viewer_enter_fullscreen") {
+      if (!viewer.state.viewer_fullscreen) {
+        viewer.state.viewer_fullscreen = true;
+        viewer.notifyChange({ property: "viewer_fullscreen" });
+      }
+    }
+  });
+}
+
+
 class HTTPFrameRenderer {
   constructor({ url }) {
     this.url = url;
@@ -1522,6 +1580,7 @@ export class Viewer extends THREE.EventDispatcher {
     this._attach_actions();
     _attach_camera_control(this);
     _attach_camera_path(this);
+    _attach_fullscreen_mode(this);
     this._attach_preview_is_playing();
     this._attach_update_preview_mode();
     _attach_camera_path_curve(this);
@@ -2382,6 +2441,9 @@ export class Viewer extends THREE.EventDispatcher {
         element.dispatchEvent(e);
       }
     }
+    root.querySelectorAll("[data-set-viewer-ref]").forEach(element => {
+      element.viewer = this;
+    });
     root.querySelectorAll("input[name],select[name]").forEach(element => {
       element.addEventListener("change", (event) => {
         if (event.simulated) return;
