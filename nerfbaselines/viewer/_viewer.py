@@ -67,6 +67,7 @@ class Viewer:
         self._train_dataset = train_dataset
         self._test_dataset = test_dataset
         self._run_backend_fn = run_flask_server
+        self._model = model
 
     def run(self):
         """
@@ -105,13 +106,13 @@ class Viewer:
 
     def _format_output(self, output, name, *, background_color=None, expected_depth_scale=None):
         name = name or "color"
-        rtype_spec = self.output_types_map.get(name)
+        rtype_spec = self._output_types_map.get(name)
         if rtype_spec is None:
             raise ValueError(f"Unknown output type: {name}")
         if background_color is None:
-            background_color = self.default_background_color
+            background_color = self._default_background_color
         if expected_depth_scale is None:
-            expected_depth_scale = self.default_expected_depth_scale
+            expected_depth_scale = self._default_expected_depth_scale
         rtype = rtype_spec.get("type", name)
         if rtype == "color":
             output = image_to_srgb(output, np.uint8, color_space="srgb", allow_alpha=False, background_color=background_color)
@@ -150,7 +151,7 @@ class Viewer:
             else:
                 app_tuples = [(idx, weight) for idx, weight in zip(appearance_train_indices, appearance_weights) if weight > 0]
             try:
-                embeddings = [model.get_train_embedding(idx) for idx, _ in app_tuples]
+                embeddings = [self._model.get_train_embedding(idx) for idx, _ in app_tuples]
             except AttributeError:
                 pass
             except NotImplementedError:
@@ -160,9 +161,9 @@ class Viewer:
         options = { "output_type_dtypes": { "color": "uint8" },
                     "outputs": output_types,
                     "embedding": embedding }
-        if model is None:
+        if self._model is None:
             raise RuntimeError("No model was loaded for rendering")
-        outputs = model.render(camera, options=options)
+        outputs = self._model.render(camera, options=options)
         # Format first output
         frame = self._format_output(outputs[output_type], output_type)
         if split_output_type is not None:

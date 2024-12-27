@@ -280,11 +280,11 @@ class KochanekBartelsInterpolation {
       let m0 = ((x1 - x0) * a * (d1/d0) + (x2 - x1) * b * (d0/d1)) / (d0+d1);
       let m1 = ((x2 - x1) * c * (d2/d1) + (x3 - x2) * d * (d1/d2)) / (d1+d2);
       if (!this.loop && n == 2) {
-        m0 = m1 = x2 - x1;
+        m0 = m1 = (x2 - x1)/d1;
       } else if (!this.loop && segment == 0) {
-        m0 = 3/2/d1 * (x2 - x1) - m1/2;
+        m0 = 3/2 * (x2 - x1)/d1 - m1/2;
       } else if (!this.loop && segment == n-2) {
-        m1 = 3/2/d1 * (x2 - x1) - m0/2;
+        m1 = 3/2 * (x2 - x1)/d1 - m0/2;
       }
       return h00 * x1 + 
              h01 * x2 +
@@ -297,7 +297,7 @@ class KochanekBartelsInterpolation {
       let m0 = p1.clone().sub(p0).multiplyScalar(a * (d1/d0)).add(p2.clone().sub(p1).multiplyScalar(b * d0/d1)).multiplyScalar(1/(d0+d1));
       let m1 = p2.clone().sub(p1).multiplyScalar(c * (d2/d1)).add(p3.clone().sub(p2).multiplyScalar(d * d1/d2)).multiplyScalar(1/(d1+d2));
       if (!this.loop && n == 2) {
-        m0 = m1 = p2.clone().sub(p1)
+        m0 = m1 = p2.clone().sub(p1).multiplyScalar(1/d1);
       } else if (!this.loop && segment == 0) {
         m0 = p2.clone().sub(p1).multiplyScalar(3/2/d1).sub(m1.clone().multiplyScalar(1/2));
       } else if (!this.loop && segment == n - 2) {
@@ -558,7 +558,6 @@ function buildTimeDistanceMap({ grid, velocities, duration }) {
     velocityMultiplier = totalDistance / evalDistancesSum;
     evalDistances = evalDistances.map(x => x * velocityMultiplier);
     const error = evalDistances.reduce((a, x, i) => Math.max(a, Math.abs(x - distances[i])), 0);
-    console.log(error);
     if (error < 1e-6) {
       break;
     }

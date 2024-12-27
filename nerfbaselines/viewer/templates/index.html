@@ -78,6 +78,21 @@
             <input type="range" id="camera_control_key_speed" name="camera_control_key_speed" min="0" max="2" step="0.01" value="1.0">
           </div>
         </fieldset>
+        <fieldset>
+          <legend>Render configuration</legend>
+          <div class="row">
+            <label for="camera_path_render_mp4_codec">MP4 codec</label>
+            <input type="text" id="camera_path_render_mp4_codec" name="camera_path_render_mp4_codec">
+          </div>
+          <div class="row">
+            <label for="camera_path_render_webm_codec">WebM codec</label>
+            <input type="text" id="camera_path_render_webm_codec" name="camera_path_render_webm_codec">
+          </div>
+          <div class="row">
+            <label for="camera_path_render_keyframe_interval">Keyframe interval</label>
+            <input type="text" id="camera_path_render_keyframe_interval" name="camera_path_render_keyframe_interval">
+          </div>
+        </fieldset>
         <div class="row">
           <button data-action="reset_settings">Reset settings</button>
         </div>
@@ -381,6 +396,31 @@
           </div>
 
           <div class="row">
+            <label for="camera_path_render_output_type">Output type</label>
+            <select id="camera_path_render_output_type" name="camera_path_render_output_type" data-options="output_types">
+            </select>
+          </div>
+
+          <div class="row">
+            <label>Output format</label>
+            <div class="switch">
+              <label>
+                <input type="radio" name="camera_path_render_format" value="mp4" checked>
+                <span>mp4</span>
+              </label>
+              <label>
+                <input type="radio" name="camera_path_render_format" value="webm">
+                <span>webm</span>
+              </label>
+              <label>
+                <input type="radio" name="camera_path_render_format" value="zip">
+                <span>zip</span>
+              </label>
+            </div>
+            <div class="input-hint">Detailed codec configuration in the settings tab.</div>
+          </div>
+
+          <div class="row">
             <label class="button">
               Load trajectory
               <input type="file" style="display: none" id="input_camera_path" accept=".json">
@@ -388,23 +428,23 @@
             <button id="button_export_camera_path" data-action="save_camera_path" data-enable-if="camera_path_trajectory" disabled>Export trajectory</button>
           </div>
           <div class="row">
-            <a id="button_render_video" href="#" class="button" download="video.mp4" target="_blank" data-enable-if="camera_path_trajectory" data-disabled="disabled">Render video</a>
+            <button data-action="render_video" data-enable-if="camera_path_trajectory" disabled>Render video</a>
           </div>
         </div>
 
         <!-- Training tab -->
         <div class="tab panel">
-          <div class="row info-fields" data-visible-if="method_info" id="method_info" style="display: none">
-          </div>
           <fieldset data-visible-if="method_info" style="display: none">
-            <legend>Model hyperparameters</legend>
-            <div class="row info-fields" id="method_hparams">
-            </div>
+            <legend>Method info</legend>
+            <div class="row info-fields" id="method_info"></div>
           </fieldset>
           <fieldset data-visible-if="dataset_info" style="display: none">
-            <legend>Dataset</legend>
-            <div class="row info-fields" id="dataset_info">
-            </div>
+            <legend>Dataset info</legend>
+            <div class="row info-fields" id="dataset_info"></div>
+          </fieldset>
+          <fieldset data-visible-if="method_info" style="display: none">
+            <legend>Model hyperparameters</legend>
+            <div class="row info-fields" id="method_hparams"></div>
           </fieldset>
         </div>
       </div>
@@ -414,12 +454,61 @@
     {
       "imports": {
         "three": "./static/third-party/three.module.js",
-        "three/addons/": "./static/third-party/"
+        "three/addons/": "./static/third-party/",
+        "webm-muxer": "./static/third-party/webm-muxer.js",
+        "mp4-muxer": "./static/third-party/mp4-muxer.js",
+        "client-zip": "./static/third-party/client-zip.js"
       }
     }
   </script>
-  <script src="static/interpolation.js" type="module"></script>
-  <script src="static/threejs_utils.js" type="module"></script>
   <script src="static/viewer.js" type="module"></script>
+  <script id="viewer-setup" type="application/json">{{ data|safe }}</script>
+  <script>
+// Range input styling
+const rangeInputs = document.querySelectorAll('input[type="range"]')
+function handleInputChange(e) {
+  const { min, max, value } = e.target;
+  let percentage = (1*max > 1*min) ? ((1*value - 1*min) * 100 / (1*max - 1*min)) : 0;
+  e.target.style.backgroundSize = percentage + '% 100%'
+}
+rangeInputs.forEach(input => {
+  input.addEventListener('input', handleInputChange);
+  handleInputChange({target: input});
+});
+  </script>
+  <script type="module">
+  import { Viewer } from './static/viewer.js';
+  const data = JSON.parse(document.getElementById('viewer-setup').textContent);
+  const defaultOutputType = data?.output_types?.length > 0 ? data.output_types[0] : undefined;
+  const state = {
+    output_types: data.output_types || [],
+    output_type: defaultOutputType,
+    split_output_type: defaultOutputType,
+    camera_path_render_output_type: defaultOutputType,
+    method_info: data.method_info || undefined,
+    dataset_info: data.dataset_info || undefined,
+  };
+  if (state.dataset_info?.type === 'object-centric')
+    state.camera_control_mode = 'orbit';
+  const viewer = new Viewer({
+    viewer_transform: data.viewer_transform,
+    viewer_initial_pose: data.viewer_initial_pose,
+    state,
+  });
+  viewer.attach_gui();
+
+  if (data.renderer_websocket_url) {
+    viewer.set_websocket_renderer({
+      url: data.renderer_websocket_url
+    });
+  }
+
+  if (data.dataset_url) {
+    viewer.set_dataset({
+      url: data.dataset_url, 
+      parts: data.dataset_parts
+    });
+  }
+  </script>
 </body>
 </html>

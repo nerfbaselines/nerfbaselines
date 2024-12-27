@@ -63,11 +63,14 @@ def viewer_command(checkpoint: str, data, backend_name, port=6006):
                 data, split="test", features=("points3D_xyz", "points3D_rgb"), load_features=False)
 
         # Start the viewer
-        Viewer(model=method, 
+        viewer = stack.enter_context(
+            Viewer(model=method, 
                train_dataset=train_dataset, 
                test_dataset=test_dataset, 
                nb_info=nb_info,
-               port=port)
+               port=port))
+        logging.info(f"Viewer is running at http://localhost:{port}")
+        viewer.run()
 
 
 if __name__ == "__main__":

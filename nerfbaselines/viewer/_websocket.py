@@ -1159,6 +1159,8 @@ class PerMessageDeflate:
             return None
         else:
             self._enabled = True
+            if not parameters:
+                return True
             return "; ".join(parameters)
 
     def frame_inbound_header(self, proto, opcode, rsv, payload_length):
@@ -1679,4 +1681,4 @@ main();
 </script>
 </html>'''
 
-    app.run(host="0.0.0.0", port=5002)
+    app.run(host="0.0.0.0", port=5010)
