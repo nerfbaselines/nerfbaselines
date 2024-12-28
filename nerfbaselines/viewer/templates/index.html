@@ -20,13 +20,13 @@
           <i class="ti ti-x" onclick="this.closest('.dialog').classList.remove('dialog-open')"></i>
         </div>
         <div class="panel">
-          <p>
+          <p style="text-align:justify">
           NerfBaselines uses CloudFlare to create a tunnel for the local connection.
           This will expose the viewer to the public internet.
           The service is licensed under the following terms:
-          <a href="https://www.cloudflare.com/website-terms/" target="_blank">https://www.cloudflare.com/website-terms/</a>
+          <a href="https://www.cloudflare.com/website-terms/" style="word-break:break-all" target="_blank">https://www.cloudflare.com/website-terms/</a>
           </p>
-          <p>Do you accept the terms and wish to proceed? Note, this will download the cloudflared binary and create the public tunnel.</p>
+          <p style="text-align:justify">Do you accept the terms and wish to proceed? Note, this will download the cloudflared binary and create the public tunnel.</p>
           <div class="row">
             <button 
               onclick="this.closest('.dialog').classList.remove('dialog-open')"
@@ -35,6 +35,93 @@
           </div>
         </div>
       </div>
+
+      <div class="dialog" id="dialog_camera_path_delete_all">
+        <div class="dialog-header">
+          <div>Confirm deletion</div>
+          <i class="ti ti-x" onclick="this.closest('.dialog').classList.remove('dialog-open')"></i>
+        </div>
+        <div class="panel">
+          <p>Are you sure you want to delete all keyframes?</p>
+          <div class="row">
+            <button 
+              onclick="this.closest('.dialog').classList.remove('dialog-open')"
+              data-action="delete_all_keyframes">Yes</button>
+            <button onclick="this.closest('.dialog').classList.remove('dialog-open')">No</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="dialog" data-bind-class="dialog-open:camera_path_has_selected_keyframe">
+        <div class="dialog-header">
+          <div>Editing keyframe <span data-bind="camera_path_selected_keyframe_natural_index"></span></div>
+          <i class="ti ti-x" data-action="clear_selected_keyframe"></i>
+        </div>
+        <div class="panel">
+          <div class="row" data-visible-if="camera_path_interpolation!=none">
+            <label for="camera_path_selected_keyframe_velocity_multiplier">Velocity multiplier</label>
+            <input type="number" id="camera_path_selected_keyframe_velocity_multiplier" name="camera_path_selected_keyframe_velocity_multiplier" min="0.00001" max="300" step="0.00001" value="1">
+          </div>
+          <div class="row" data-visible-if="camera_path_interpolation==none">
+            <label for="camera_path_selected_keyframe_duration">Duration</label>
+            <input type="number" id="camera_path_selected_keyframe_duration" name="camera_path_selected_keyframe_duration" min="0.01" max="300" step="0.01" value="2">
+          </div>
+          <div class="row">
+            <label for="camera_path_selected_keyframe_fov">FOV</label>
+            <input type="number" id="camera_path_selected_keyframe_fov" name="camera_path_selected_keyframe_fov" min="1" max="175" step="1" value="60" data-enable-if="camera_path_selected_keyframe_override_fov" disabled>
+            <input type="checkbox" name="camera_path_selected_keyframe_override_fov" />
+          </div>
+          <div class="row" style="justify-content: end">
+            <label for="camera_path_selected_keyframe_appearance_train_index">Appearance</label>
+            <select 
+               id="camera_path_selected_keyframe_appearance_train_index" 
+               name="camera_path_selected_keyframe_appearance_train_index"
+               data-enable-if="dataset_train_appearance_options"
+               data-options="dataset_train_appearance_options">
+            </select>
+            <img class="appearance-preview" data-visible-if="camera_path_selected_keyframe_appearance_url" data-bind-attr="src:camera_path_selected_keyframe_appearance_url" style="display: none" />
+          </div>
+          <div class="row">
+            <button data-action="set_camera_to_selected_keyframe">Navigate</button>
+            <button data-action="delete_selected_keyframe">Delete</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="dialog" data-bind-class="dialog-open:dataset_has_selected_camera">
+        <div class="dialog-header">
+          <div>Dataset image <span data-bind="dataset_selected_image_id"></span></div>
+          <i class="ti ti-x" data-action="clear_selected_dataset_image"></i>
+        </div>
+        <div class="panel">
+          <div class="row info-fields">
+            <strong>Camera ID:</strong><span data-bind="dataset_selected_image_index"></span>
+            <strong>Split:</strong><span data-bind="dataset_selected_image_split"></span>
+            <strong>Image name:</strong><span data-bind="dataset_selected_image_name"></span>
+            <strong>Pose:</strong>
+            <pre data-bind="dataset_selected_image_pose" 
+                 style="font-size: 0.65rem; font-family: monospace; margin: 0; padding: 0 0 0 1rem; overflow: scroll; grid-column: 1 / 3;"></pre>
+            <strong>Resolution:</strong>
+            <span>
+              <span data-bind="dataset_selected_width"></span> x
+              <span data-bind="dataset_selected_height"></span>
+            </span>
+            <strong>Intrinsics:</strong>
+            <span style="grid-column: 1 / 3; padding: 0 0 0 1rem;">
+              fx=<span data-bind="dataset_selected_fx"></span><br/>
+              fy=<span data-bind="dataset_selected_fy"></span><br/>
+              cx=<span data-bind="dataset_selected_cx"></span><br/>
+              cy=<span data-bind="dataset_selected_cy"></span>
+            </span>
+            <strong>Image:</strong><img data-bind-attr="src:dataset_selected_image_url" />
+          </div>
+          <div class="row">
+            <button data-action="set_camera_to_selected_dataset_image">Navigate</button>
+            <button data-action="clear_selected_dataset_image">Close</button>
+          </div>
+        </div>
+      </div>
+
 
       <div class="dialog" id="settings_dialog">
         <div class="dialog-header">
@@ -125,92 +212,6 @@
           </fieldset>
           <div class="row">
             <button data-action="reset_settings">Reset settings</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="dialog" id="dialog_camera_path_delete_all">
-        <div class="dialog-header">
-          <div>Confirm deletion</div>
-          <i class="ti ti-x" onclick="this.closest('.dialog').classList.remove('dialog-open')"></i>
-        </div>
-        <div class="panel">
-          <p>Are you sure you want to delete all keyframes?</p>
-          <div class="row">
-            <button 
-              onclick="this.closest('.dialog').classList.remove('dialog-open')"
-              data-action="delete_all_keyframes">Yes</button>
-            <button onclick="this.closest('.dialog').classList.remove('dialog-open')">No</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="dialog" data-bind-class="dialog-open:camera_path_has_selected_keyframe">
-        <div class="dialog-header">
-          <div>Editing keyframe <span data-bind="camera_path_selected_keyframe_natural_index"></span></div>
-          <i class="ti ti-x" data-action="clear_selected_keyframe"></i>
-        </div>
-        <div class="panel">
-          <div class="row" data-visible-if="camera_path_interpolation!=none">
-            <label for="camera_path_selected_keyframe_velocity_multiplier">Velocity multiplier</label>
-            <input type="number" id="camera_path_selected_keyframe_velocity_multiplier" name="camera_path_selected_keyframe_velocity_multiplier" min="0.00001" max="300" step="0.00001" value="1">
-          </div>
-          <div class="row" data-visible-if="camera_path_interpolation==none">
-            <label for="camera_path_selected_keyframe_duration">Duration</label>
-            <input type="number" id="camera_path_selected_keyframe_duration" name="camera_path_selected_keyframe_duration" min="0.01" max="300" step="0.01" value="2">
-          </div>
-          <div class="row">
-            <label for="camera_path_selected_keyframe_fov">FOV</label>
-            <input type="number" id="camera_path_selected_keyframe_fov" name="camera_path_selected_keyframe_fov" min="1" max="175" step="1" value="60" data-enable-if="camera_path_selected_keyframe_override_fov" disabled>
-            <input type="checkbox" name="camera_path_selected_keyframe_override_fov" />
-          </div>
-          <div class="row" style="justify-content: end">
-            <label for="camera_path_selected_keyframe_appearance_train_index">Appearance</label>
-            <select 
-               id="camera_path_selected_keyframe_appearance_train_index" 
-               name="camera_path_selected_keyframe_appearance_train_index"
-               data-enable-if="dataset_train_appearance_options"
-               data-options="dataset_train_appearance_options">
-            </select>
-            <img class="appearance-preview" data-visible-if="camera_path_selected_keyframe_appearance_url" data-bind-attr="src:camera_path_selected_keyframe_appearance_url" style="display: none" />
-          </div>
-          <div class="row">
-            <button data-action="set_camera_to_selected_keyframe">Navigate</button>
-            <button data-action="delete_selected_keyframe">Delete</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="dialog" data-bind-class="dialog-open:dataset_has_selected_camera">
-        <div class="dialog-header">
-          <div>Dataset image <span data-bind="dataset_selected_image_id"></span></div>
-          <i class="ti ti-x" data-action="clear_selected_dataset_image"></i>
-        </div>
-        <div class="panel">
-          <div class="row info-fields">
-            <strong>Camera ID:</strong><span data-bind="dataset_selected_image_index"></span>
-            <strong>Split:</strong><span data-bind="dataset_selected_image_split"></span>
-            <strong>Image name:</strong><span data-bind="dataset_selected_image_name"></span>
-            <strong>Pose:</strong>
-            <pre data-bind="dataset_selected_image_pose" 
-                 style="font-size: 0.65rem; font-family: monospace; margin: 0; padding: 0 0 0 1rem; overflow: scroll; grid-column: 1 / 3;"></pre>
-            <strong>Resolution:</strong>
-            <span>
-              <span data-bind="dataset_selected_width"></span> x
-              <span data-bind="dataset_selected_height"></span>
-            </span>
-            <strong>Intrinsics:</strong>
-            <span style="grid-column: 1 / 3; padding: 0 0 0 1rem;">
-              fx=<span data-bind="dataset_selected_fx"></span><br/>
-              fy=<span data-bind="dataset_selected_fy"></span><br/>
-              cx=<span data-bind="dataset_selected_cx"></span><br/>
-              cy=<span data-bind="dataset_selected_cy"></span>
-            </span>
-            <strong>Image:</strong><img data-bind-attr="src:dataset_selected_image_url" />
-          </div>
-          <div class="row">
-            <button data-action="set_camera_to_selected_dataset_image">Navigate</button>
-            <button data-action="clear_selected_dataset_image">Close</button>
           </div>
         </div>
       </div>

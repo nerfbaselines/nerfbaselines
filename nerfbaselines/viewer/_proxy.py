@@ -1,3 +1,4 @@
+import json
 import signal
 import tempfile
 import time
@@ -147,33 +148,43 @@ def cloudflared_tunnel(local_url: str, *, accept_license_terms=False):
     with tempfile.TemporaryDirectory() as tmpdir:
         process = subprocess.Popen(
             [str(cloudflared_path), "tunnel", "--url", local_url, "--logfile", os.path.join(tmpdir, "cloudflared.log")],
-            stderr=subprocess.PIPE,  # Merge stderr into stdout
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # Merge stderr into stdout
             text=True
         )
         time.sleep(4)
         tunnel_url = None  # We’ll store the extracted URL here (if found)
         # Sometimes it takes long time to display URL in cloudflared metrices.
+        printed_lines = []
         try:
             for _ in range(20):
                 if process.poll() is not None:
                     message = "Cloudflared failed with code:" + str(process.returncode) + "."
-                    if process.stderr:
-                        error = process.stderr.read().splitlines()[-1]
+                    if process.stdout:
+                        error = process.stdout.read().splitlines()[-1]
                         message += " " + error
                     raise RuntimeError(message)
                 with open(os.path.join(tmpdir, "cloudflared.log")) as f:
                     finished = False
-                    for line in f.read().splitlines():
+                    lines = f.read().splitlines()
+                    for line in lines[len(printed_lines):]:
+                        line_msg = json.loads(line)
+                        line = line_msg.get("message")
+                        level = line_msg.get("level")
+                        if level not in ["info", "error", "debug"]:
+                            level = "info"
+                        getattr(logger, level)(line)
                         match = re.search(r"(https://[^\s]+\.trycloudflare\.com)", line)
                         if match:
                             tunnel_url = match.group(1)
                         elif "Registered tunnel connection" in line:
                             finished = True
                             break
+                    printed_lines = lines
                     if finished:
                         break
                 time.sleep(1)
-            if tunnel_url is None:
+            if tunnel_url is None or not finished:
                 raise RuntimeError("Failed to establish a cloudflared tunnel")
             yield tunnel_url
 
