@@ -773,6 +773,12 @@ function _attach_fullscreen_mode(viewer) {
       document.msExitFullscreen();
     }
   }
+  let viewer_is_embedded = false;
+  try {
+    viewer_is_embedded = window.self !== window.top;
+  } catch (e) {}
+  viewer.state.viewer_is_embedded = viewer_is_embedded;
+  viewer.notifyChange({ property: "viewer_is_embedded" });
   var elem = document.documentElement;
   function openFullscreen() {
     if (elem.requestFullscreen) {
@@ -1489,6 +1495,16 @@ function _attach_camera_control(viewer) {
 
 
 function parseBinding(expr) {
+  if (expr.indexOf("&&") > 0) {
+    const names = [];
+    const callbacks = [];
+    const parts = expr.split("&&").map(x => x.trim()).filter(x => x.length > 0).map(parseBinding);
+    parts.forEach(([callback, partNames]) => {
+      names.push(...partNames);
+      callbacks.push(callback);
+    });
+    return [(state) => callbacks.every(callback => callback(state)), names];
+  }
   if (expr.indexOf("==") > 0) {
     const [name, value] = expr.split("==");
     return [(state) => state[name] == value, [name]];
@@ -2441,9 +2457,7 @@ export class Viewer extends THREE.EventDispatcher {
         element.dispatchEvent(e);
       }
     }
-    root.querySelectorAll("[data-set-viewer-ref]").forEach(element => {
-      element.viewer = this;
-    });
+    root.querySelectorAll("[data-set-viewer-ref]").forEach(element => { element.viewer = this });
     root.querySelectorAll("input[name],select[name]").forEach(element => {
       element.addEventListener("change", (event) => {
         if (event.simulated) return;

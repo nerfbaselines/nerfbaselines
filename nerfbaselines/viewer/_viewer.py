@@ -68,6 +68,7 @@ class Viewer:
         self._test_dataset = test_dataset
         self._run_backend_fn = run_flask_server
         self._model = model
+        self._running = False
 
     def run(self):
         """
@@ -211,6 +212,41 @@ class Viewer:
     def __exit__(self, exc_type, exc_value, traceback):
         del exc_type, exc_value, traceback
         self.close()
+
+    def _wait_for_viewer_to_start(self):
+        if self._running:
+            # Send test request to self._port
+            if self._process is None or not self._process.is_alive():
+                raise RuntimeError("Viewer backend process is not running")
+            return
+        while True:
+            # Send test request to self._port
+            if self._process is None or not self._process.is_alive():
+                raise RuntimeError("Viewer backend process is not running")
+            try:
+                import requests
+                requests.get(f"http://localhost:{self._port}")
+                break
+            except requests.exceptions.ConnectionError:
+                logging.debug(f"Waiting for viewer to start at http://localhost:{self._port}")
+                import time
+                time.sleep(1)
+            self._running = True
+
+    def show_in_notebook(self):
+        self._wait_for_viewer_to_start()
+        google_colab_output = None
+        try:
+            from google.colab import output as google_colab_output
+        except Exception:
+            pass
+        if google_colab_output is not None:
+            logging.debug("Running in Google Colab, returning port")
+            google_colab_output.serve_kernel_port_as_iframe(self._port, height=600)
+        else:
+            logging.debug("Running in Jupyter, returning iframe")
+            from IPython.display import IFrame
+            return IFrame(f"http://localhost:{self._port}", height=600, width="100%")
 
 
 if __name__ == "__main__":

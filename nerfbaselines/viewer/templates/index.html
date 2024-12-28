@@ -188,6 +188,12 @@
           <label for="tab-2">Trajectory</label>
           <label for="tab-3">Info</label>
           <div class="tabs-icons">
+            <a data-action="viewer_enter_fullscreen" data-visible-if="!viewer_fullscreen && viewer_is_embedded" style="display: none">
+              <i class="ti ti-arrows-diagonal" ></i>
+            </a>
+            <a data-action="viewer_exit_fullscreen" data-visible-if="viewer_fullscreen" style="display: none">
+              <i class="ti ti-arrows-diagonal-minimize-2" ></i>
+            </a>
             <a onclick="document.getElementById('settings_dialog').classList.add('dialog-open')">
               <i class="ti ti-settings" ></i>
             </a>
