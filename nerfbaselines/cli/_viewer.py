@@ -58,9 +58,9 @@ def viewer_command(checkpoint: str, data, backend_name, port=6006):
         test_dataset = None
         if data is not None:
             train_dataset = load_dataset(
-                data, split="train", features=("points3D_xyz", "points3D_rgb"), load_features=False)
+                data, split="train", features=frozenset(("points3D_xyz", "points3D_rgb")), load_features=False)
             test_dataset = load_dataset(
-                data, split="test", features=("points3D_xyz", "points3D_rgb"), load_features=False)
+                data, split="test", features=frozenset(("points3D_xyz", "points3D_rgb")), load_features=False)
 
         # Start the viewer
         viewer = stack.enter_context(

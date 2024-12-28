@@ -1,5 +1,5 @@
+import signal
 import tempfile
-import select
 import time
 import re
 import io
@@ -11,7 +11,6 @@ import pathlib
 import requests
 import subprocess
 import logging
-import urllib.request
 from contextlib import contextmanager
 
 
@@ -72,8 +71,11 @@ def _download_file(url: str, dest: pathlib.Path) -> None:
                     for member in tar.getmembers():
                         if not member.isfile():
                             continue
-                        with tar.extractfile(member) as read:
-                            f.write(read.read())
+                        file = tar.extractfile(member)
+                        if file is None:
+                            continue
+                        with file:
+                            f.write(file.read())
         else:
             resp = requests.get(url, stream=True)
             resp.raise_for_status()
@@ -154,8 +156,11 @@ def cloudflared_tunnel(local_url: str, *, accept_license_terms=False):
         try:
             for _ in range(20):
                 if process.poll() is not None:
-                    error = process.stderr.read().splitlines()[-1]
-                    raise RuntimeError("Cloudflared failed with code:" + str(process.returncode) + ". " + error)
+                    message = "Cloudflared failed with code:" + str(process.returncode) + "."
+                    if process.stderr:
+                        error = process.stderr.read().splitlines()[-1]
+                        message += " " + error
+                    raise RuntimeError(message)
                 with open(os.path.join(tmpdir, "cloudflared.log")) as f:
                     finished = False
                     for line in f.read().splitlines():
@@ -174,7 +179,7 @@ def cloudflared_tunnel(local_url: str, *, accept_license_terms=False):
 
         finally:
             if process.poll() is None:
-                process.send_signal(subprocess.signal.SIGINT)
+                process.send_signal(signal.SIGINT)
                 process.wait()
 
 

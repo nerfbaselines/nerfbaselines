@@ -8,7 +8,7 @@ import zlib
 from enum import Enum, IntEnum
 from collections import deque
 from codecs import getincrementaldecoder
-from typing import Optional, Union, Generator, Tuple, Deque, NamedTuple, Generic, List, TypeVar
+from typing import Optional, Union, Generator, Tuple, Deque, NamedTuple, Generic, List, TypeVar, Any, cast
 from dataclasses import dataclass
 import selectors
 from time import time
@@ -1366,7 +1366,7 @@ class Server:
 
     def send(self, data):
         if not self.connected:
-            raise ConnectionClosed(self.close_reason, self.close_message)
+            raise ConnectionClosed(cast(CloseReason, self.close_reason), self.close_message)
         if isinstance(data, bytes):
             out_data = self.ws.send(Message(data=data))
         else:
@@ -1383,11 +1383,11 @@ class Server:
         except IndexError:
             pass
         if not self.connected:  # pragma: no cover
-            raise ConnectionClosed(self.close_reason, self.close_message)
+            raise ConnectionClosed(cast(CloseReason, self.close_reason), self.close_message)
 
     def close(self, reason=None, message=None):
         if not self.connected:
-            raise ConnectionClosed(self.close_reason, self.close_message)
+            raise ConnectionClosed(cast(CloseReason, self.close_reason), self.close_message)
         out_data = self.ws.send(CloseConnection(
             reason or CloseReason.NORMAL_CLOSURE, message))
         try:
@@ -1398,9 +1398,10 @@ class Server:
 
     def _thread(self):
         sel = None
+        next_ping = -float('inf')
         if self.ping_interval:
             next_ping = time() + self.ping_interval
-            sel = self.selectors.DefaultSelector()
+            sel = selectors.DefaultSelector()
             try:
                 sel.register(self.sock, selectors.EVENT_READ, True)
             except ValueError:  # pragma: no cover
@@ -1419,6 +1420,7 @@ class Server:
                             break
                         self.pong_received = False
                         self.sock.send(self.ws.send(Ping()))
+                        assert self.ping_interval is not None
                         next_ping = max(now, next_ping) + self.ping_interval
                         continue
                 in_data = self.sock.recv(self.receive_bytes)
@@ -1470,7 +1472,7 @@ class Server:
                         if not isinstance(self.incoming_message, bytearray):
                             # convert to bytearray and append
                             self.incoming_message = bytearray(
-                                (self.incoming_message + event.data).encode())
+                                (cast(str, self.incoming_message) + event.data).encode())
                         else:
                             # append to bytearray
                             self.incoming_message += event.data.encode()
@@ -1478,7 +1480,7 @@ class Server:
                         if not isinstance(self.incoming_message, bytearray):
                             # convert to mutable bytearray and append
                             self.incoming_message = bytearray(
-                                self.incoming_message + event.data)
+                                cast(bytes, self.incoming_message) + event.data)
                         else:
                             # append to bytearray
                             self.incoming_message += event.data
@@ -1490,7 +1492,7 @@ class Server:
                     elif isinstance(event, TextMessage):
                         # convert multi-part message back to text
                         self.input_buffer.append(
-                            self.incoming_message.decode())
+                            cast(bytes, self.incoming_message).decode())
                     else:
                         # convert multi-part message back to bytes
                         self.input_buffer.append(bytes(self.incoming_message))
@@ -1587,6 +1589,7 @@ def flask_websocket_route(app, *args, **kwargs):
             message += b'\r\n'
             sock.send(message)
 
+            ws = None
             try:
                 # Start the server pulling thread
                 ws = Server(sock, extensions=extensions)
@@ -1595,10 +1598,11 @@ def flask_websocket_route(app, *args, **kwargs):
                 fn(ws)
             except ConnectionClosed:
                 pass
-            try:
-                ws.close()
-            except:  # noqa: E722
-                pass
+            if ws is not None:
+                try:
+                    ws.close()
+                except:  # noqa: E722
+                    pass
 
             class WebSocketResponse(Response):
                 def __call__(self, *args, **kwargs):
@@ -1608,11 +1612,11 @@ def flask_websocket_route(app, *args, **kwargs):
                             from eventlet.wsgi import WSGI_LOCAL
                             ALREADY_HANDLED = []
                         except ImportError:
-                            from eventlet.wsgi import ALREADY_HANDLED
+                            from eventlet.wsgi import ALREADY_HANDLED  # type: ignore
                             WSGI_LOCAL = None
 
                         if hasattr(WSGI_LOCAL, 'already_handled'):
-                            WSGI_LOCAL.already_handled = True
+                            setattr(WSGI_LOCAL, 'already_handled', True)
                         return ALREADY_HANDLED
                     elif mode == 'gunicorn':
                         raise StopIteration()

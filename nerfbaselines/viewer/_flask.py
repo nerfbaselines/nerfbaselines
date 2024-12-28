@@ -15,6 +15,10 @@ from nerfbaselines.utils import image_to_srgb
 from ._proxy import cloudflared_tunnel
 
 
+class NotFound(Exception):
+    pass
+
+
 @contextlib.contextmanager
 def _make_render_fn(request_queue, output_queue):
     output_queues = {}
@@ -174,7 +178,8 @@ def get_info(model_info, datasets, nb_info, dataset_metadata):
             spec = nerfbaselines.get_method_spec(model_info["method_id"])
         except Exception:
             pass
-        info["state"]["method_info"].update(spec.get("metadata") or {})
+        if spec is not None:
+            info["state"]["method_info"].update(spec.get("metadata") or {})
     if nb_info is not None:
         # Fill in config_overrides, presets, nb_version, and others
         pass
@@ -276,13 +281,14 @@ def run_flask_server(request_queue,
         split = req["split"]
         max_img_size = req.get("max_img_size")
         if (split, idx, max_img_size) in images_cache:
-            return images_cache[(split, idx, max_img_size)]
+            out = images_cache[(split, idx, max_img_size)]
+            return out
 
         if datasets.get(split) is None:
-            return jsonify({"status": "error", "message": "Dataset not found"}), 404
+            raise NotFound("Dataset not found")
         dataset = datasets[split]
         if not (0 <= idx < len(dataset["cameras"])): 
-            return jsonify({"status": "error", "message": "Image not found in the dataset"}), 404
+            raise NotFound("Image not found in the dataset")
 
         dataset_slice = dataset_load_features(dataset_index_select(dataset, [idx]), show_progress=False)
         image = dataset_slice["images"][0]
@@ -314,9 +320,6 @@ def run_flask_server(request_queue,
             if type == "render":
                 frame_bytes = render(req)
                 return {"status": "ok", "payload": frame_bytes, "thread": thread}
-            elif type == "get_dataset_image":
-                image_bytes = get_dataset_image(req)
-                return {"status": "ok", "payload": image_bytes, "thread": thread}
             else:
                 raise ValueError(f"Invalid message type: {type}")
         except Exception as e:
@@ -408,10 +411,12 @@ def run_flask_server(request_queue,
                 max_img_size = int(max_img_size)
             else:
                 max_img_size = None
-            image_bytes = get_dataset_image({"split": split, "idx": idx, "max_img_size": max_img_size})
+            out = get_dataset_image({"split": split, "idx": idx, "max_img_size": max_img_size})
+            return Response(out, mimetype="image/jpeg")
+        except NotFound as e:
+            return Response(json.dumps({"status": "error", "message": str(e)}), status=404, mimetype="application/json")
         except ValueError as e:
-            return jsonify({"status": "error", "message": str(e)}), 400
-        return Response(image_bytes, mimetype="image/jpeg")
+            return Response(json.dumps({"status": "error", "message": str(e)}), status=400, mimetype="application/json")
     del _get_dataset_image_route
 
 

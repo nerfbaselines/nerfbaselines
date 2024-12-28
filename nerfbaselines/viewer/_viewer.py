@@ -80,6 +80,8 @@ class Viewer:
         Returns:
             bool: True if there are more tasks in the queue
         """
+        if self._request_queue is None or self._output_queue is None:
+            raise RuntimeError("Viewer is closed")
         req = self._request_queue.get()
         feedid = req.pop("feedid")
         try:
@@ -101,6 +103,8 @@ class Viewer:
 
     def _format_output(self, output, name, *, background_color=None, expected_depth_scale=None):
         name = name or "color"
+        if self._output_types_map is None:
+            raise ValueError("No output types map available")
         rtype_spec = self._output_types_map.get(name)
         if rtype_spec is None:
             raise ValueError(f"Unknown output type: {name}")
@@ -140,6 +144,9 @@ class Viewer:
         if split_output_type is not None:
             output_types = output_types + (split_output_type,)
         embedding = None
+        embeddings = None
+        if self._model is None:
+            raise RuntimeError("No model was loaded for rendering")
         if appearance_weights is not None and appearance_train_indices is not None:
             if sum(appearance_weights, start=0) < 1e-6:
                 app_tuples = [(0, 0)]
@@ -156,8 +163,6 @@ class Viewer:
         options = { "output_type_dtypes": { "color": "uint8" },
                     "outputs": output_types,
                     "embedding": embedding }
-        if self._model is None:
-            raise RuntimeError("No model was loaded for rendering")
         outputs = self._model.render(camera, options=options)
         # Format first output
         frame = self._format_output(outputs[output_type], output_type)
@@ -177,7 +182,7 @@ class Viewer:
             self._output_queue, 
         ), kwargs=dict(
             datasets={"train": self._train_dataset, "test": self._test_dataset},
-            dataset_metadata=self._train_dataset["metadata"],
+            dataset_metadata=None if self._train_dataset is None else self._train_dataset.get("metadata"),
             model_info=self._model_info,
             nb_info=self._nb_info,
             port=self._port,
@@ -187,7 +192,7 @@ class Viewer:
     def close(self):
         # Empty request queue
         if self._request_queue is not None:
-            while not self._request_queue.empty(): self._request_queue.pop()
+            while not self._request_queue.empty(): self._request_queue.get()
             self._request_queue = None
 
         # Signal output queues to stop
@@ -217,8 +222,8 @@ class Viewer:
             # Send test request to self._port
             if self._process is None or not self._process.is_alive():
                 raise RuntimeError("Viewer backend process is not running")
+            import requests
             try:
-                import requests
                 requests.get(f"http://localhost:{self._port}")
                 break
             except requests.exceptions.ConnectionError:
@@ -231,7 +236,7 @@ class Viewer:
         self._wait_for_viewer_to_start()
         google_colab_output = None
         try:
-            from google.colab import output as google_colab_output
+            from google.colab import output as google_colab_output  # type: ignore
         except Exception:
             pass
         if google_colab_output is not None:
@@ -241,40 +246,3 @@ class Viewer:
             logging.debug("Running in Jupyter, returning iframe")
             from IPython.display import IFrame
             return IFrame(f"http://localhost:{self._port}", height=600, width="100%")
-
-
-if __name__ == "__main__":
-    # run_viewer()
-    from nerfbaselines import load_checkpoint
-    from nerfbaselines.datasets import load_dataset
-
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint", default=None, required=False, type=str)
-    parser.add_argument("--data", type=str, default=None, required=False)
-    parser.add_argument("--port", type=int, default=5001)
-    parser.add_argument("--backend", type=str, default="python")
-    args = parser.parse_args()
-
-    with ExitStack() as stack:
-        nb_info = None
-        model = None
-        if args.checkpoint is not None:
-            model, nb_info = stack.enter_context(load_checkpoint(args.checkpoint, backend=args.backend))
-        else:
-            logging.info("Starting viewer without method")
-
-        train_dataset = None
-        test_dataset = None
-        if args.data is not None:
-            train_dataset = load_dataset(args.data, split="train", load_features=False, features=("points3D_xyz", "points3D_rgb"))
-            test_dataset = load_dataset(args.data, split="test", load_features=False, features=("points3D_xyz", "points3D_rgb"))
-
-        # Start the viewer
-        viewer = stack.enter_context(
-            Viewer(model=model, 
-                train_dataset=train_dataset,
-                test_dataset=test_dataset,
-                nb_info=nb_info,
-                port=args.port))
-        viewer.run()
