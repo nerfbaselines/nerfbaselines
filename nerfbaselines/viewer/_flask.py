@@ -290,7 +290,14 @@ def run_flask_server(request_queue,
         if not (0 <= idx < len(dataset["cameras"])): 
             raise NotFound("Image not found in the dataset")
 
-        dataset_slice = dataset_load_features(dataset_index_select(dataset, [idx]), show_progress=False)
+        # Disable logging
+        logger = logging.getLogger("nerfbaselines.datasets")
+        save_level = logger.level
+        try:
+            logger.setLevel(logging.ERROR)
+            dataset_slice = dataset_load_features(dataset_index_select(dataset, [idx]), show_progress=False)
+        finally:
+            logger.setLevel(save_level)
         image = dataset_slice["images"][0]
 
         will_cache = False
