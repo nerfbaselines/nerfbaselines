@@ -1689,13 +1689,17 @@ export class Viewer extends THREE.EventDispatcher {
         pose: matrix4ToArray(matrix).map(round).join(","),
         intrinsics: [focal, focal, width/2, height/2].map(round).join(","),
         image_size: `${width},${height}`,
-        output_type: state.output_type,
         ...rest
       };
-      if (state.split_enabled && state.split_output_type) {
-        request.split_output_type = state.split_output_type;
-        request.split_percentage = "" + round(state.split_percentage === undefined ? 0.5 : state.split_percentage);
-        request.split_tilt = "" + round(state.split_tilt || 0.0);
+      if (this.state.preview_camera !== undefined) {
+        request.output_type = state.camera_path_render_output_type;
+      } else {
+        request.output_type = state.output_type;
+        if (state.split_enabled && state.split_output_type) {
+          request.split_output_type = state.split_output_type;
+          request.split_percentage = "" + round(state.split_percentage === undefined ? 0.5 : state.split_percentage);
+          request.split_tilt = "" + round(state.split_tilt || 0.0);
+        }
       }
       return request;
     }
