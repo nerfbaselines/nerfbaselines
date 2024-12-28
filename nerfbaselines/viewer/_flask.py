@@ -1,9 +1,7 @@
 import queue
 import contextlib
 import logging
-import tempfile
 import os
-import time
 import struct
 import json
 import io
@@ -14,6 +12,7 @@ import nerfbaselines
 from nerfbaselines.results import get_dataset_info
 from nerfbaselines.datasets import dataset_index_select, dataset_load_features
 from nerfbaselines.utils import image_to_srgb
+from ._proxy import cloudflared_tunnel
 
 
 @contextlib.contextmanager
@@ -68,8 +67,6 @@ def _make_render_fn(request_queue, output_queue):
         multiplex_thread.join()
 
 
-
-
 def create_ply_bytes(points3D_xyz, points3D_rgb=None):
     from plyfile import PlyData, PlyElement
 
@@ -111,12 +108,15 @@ def create_ply_bytes(points3D_xyz, points3D_rgb=None):
 
 def get_info(model_info, datasets, nb_info, dataset_metadata):
     info = {
-        "method_info": None,
-        "dataset_info": None,
         "dataset_parts": [],
+        "state": {
+            "method_info": None,
+            "dataset_info": None,
+            "output_types": [],
+        }
     }
     if model_info is not None:
-        info["renderer_websocket_url"] = "./websocket"
+        info["renderer_websocket_url"] = "./render-websocket"
     if datasets.get("train") is not None:
         info["dataset_url"] = "./dataset"
 
@@ -126,7 +126,7 @@ def get_info(model_info, datasets, nb_info, dataset_metadata):
     if dataset_metadata_.get("viewer_initial_pose") is not None:
         info["viewer_initial_pose"] = dataset_metadata_["viewer_initial_pose"][:3, :4].flatten().tolist()
     if model_info is not None:
-        info["output_types"] = model_info.get("supported_outputs", ("color",))
+        info["state"]["output_types"] = model_info.get("supported_outputs", ("color",))
 
     if datasets.get("train") is not None:
         info["dataset_parts"].append("train")
@@ -134,8 +134,8 @@ def get_info(model_info, datasets, nb_info, dataset_metadata):
             info["dataset_parts"].append("pointcloud")
 
     if dataset_metadata_:
-        info["dataset_info"] = info["dataset_info"] or {}
-        info["dataset_info"].update({
+        info["state"]["dataset_info"] = _dataset_info = info["state"]["dataset_info"] or {}
+        _dataset_info.update({
             k: v.tolist() if hasattr(v, "tolist") else v for k, v in dataset_metadata_.items()
             if not k.startswith("viewer_")
         })
@@ -149,24 +149,24 @@ def get_info(model_info, datasets, nb_info, dataset_metadata):
             # Perhaps different NB version or custom dataset
             pass
         if dataset_info is not None:
-            info["dataset_info"].update(dataset_info)
+            info["state"]["dataset_info"].update(dataset_info)
 
     if datasets.get("test") is not None:
         info["dataset_parts"].append("test")
     if model_info is not None:
-        info["method_info"] = info["method_info"] or {}
-        info["method_info"]["method_id"] = model_info["method_id"]
-        info["method_info"]["hparams"] = model_info.get("hparams", {})
+        info["state"]["method_info"] = _method_info = info["state"]["method_info"] or {}
+        _method_info["method_id"] = model_info["method_id"]
+        _method_info["hparams"] = model_info.get("hparams", {})
         if model_info.get("num_iterations") is not None:
-            info["method_info"]["num_iterations"] = model_info["num_iterations"]
+            _method_info["num_iterations"] = model_info["num_iterations"]
         if model_info.get("loaded_step") is not None:
-            info["method_info"]["loaded_step"] = model_info["loaded_step"]
+            _method_info["loaded_step"] = model_info["loaded_step"]
         if model_info.get("loaded_checkpoint") is not None:
-            info["method_info"]["loaded_checkpoint"] = model_info["loaded_checkpoint"]
+            _method_info["loaded_checkpoint"] = model_info["loaded_checkpoint"]
         if model_info.get("supported_camera_models") is not None:
-            info["method_info"]["supported_camera_models"] = list(sorted(model_info["supported_camera_models"]))
+            _method_info["supported_camera_models"] = list(sorted(model_info["supported_camera_models"]))
         if model_info.get("supported_outputs") is not None:
-            info["method_info"]["supported_outputs"] = list(sorted(model_info["supported_outputs"]))
+            _method_info["supported_outputs"] = list(sorted(model_info["supported_outputs"]))
 
         # Pull more details from the registry
         spec = None
@@ -174,7 +174,7 @@ def get_info(model_info, datasets, nb_info, dataset_metadata):
             spec = nerfbaselines.get_method_spec(model_info["method_id"])
         except Exception:
             pass
-        info["method_info"].update(spec.get("metadata") or {})
+        info["state"]["method_info"].update(spec.get("metadata") or {})
     if nb_info is not None:
         # Fill in config_overrides, presets, nb_version, and others
         pass
@@ -201,8 +201,6 @@ def run_flask_server(request_queue,
     log = logging.getLogger('werkzeug')
     log.setLevel(logging.ERROR)
 
-    _feed_states = {}
-    _render_video_tasks = {}
     _info = get_info(model_info, datasets, nb_info, dataset_metadata)
 
     # Full exception details
@@ -212,7 +210,7 @@ def run_flask_server(request_queue,
         return jsonify({
             "status": "error",
             "error": "Internal Server Error",
-            "message": "An unexpected error occurred. Please try again later."
+            "message": str(e),
         }), 500
     del handle_exception
 
@@ -309,7 +307,6 @@ def run_flask_server(request_queue,
             images_cache[(split, idx, max_img_size)] = out
         return out
 
-
     def _handle_websocket_message(req):
         thread = req.pop("thread")
         try:
@@ -325,8 +322,8 @@ def run_flask_server(request_queue,
         except Exception as e:
             return {"status": "error", "message": str(e), "thread": thread}
 
-    @flask_websocket_route(app, "/websocket")
-    def websocket(ws):
+    @flask_websocket_route(app, "/render-websocket")
+    def render_websocket(ws):
         while True:
             reqdata = ws.receive()
             req = json.loads(reqdata)
@@ -338,30 +335,7 @@ def run_flask_server(request_queue,
                 msg_bytes = json.dumps(msg).encode("utf-8")
                 message_length = len(msg_bytes)
                 ws.send(struct.pack(f"!I", message_length) + msg_bytes + payload)
-    del websocket
-
-    @app.route("/get-state", methods=["POST", "GET"])
-    def get_state():
-        poll = request.args.get("poll")
-        feedid = request.args.get("feedid")
-        assert poll is not None and feedid is not None
-        if feedid not in _feed_states:
-            return jsonify({"status": "error", "message": "feedid not found"}), 404
-
-        # Delay here
-        start = time.time()
-        while feedid in _feed_states and _feed_states[feedid].version <= int(poll):
-            # TODO: Wait condition
-            time.sleep(0.01)
-            if time.time() - start > 5:
-                break
-
-        return jsonify({
-            "feedid": feedid,
-            "version": _feed_states.get(feedid).version,
-            **_feed_states.get(feedid).state,
-        })
-    del get_state
+    del render_websocket
 
     @app.route("/render", methods=["POST"])
     def _render_route():
@@ -372,6 +346,22 @@ def run_flask_server(request_queue,
             return jsonify({"status": "error", "message": str(e)}), 400
         return Response(frame_bytes, mimetype="image/jpeg")
     del _render_route
+
+    @app.route("/create-public-url", methods=["POST"])
+    def create_public_url():
+        # accept_license_terms is a query param
+        accept_license_terms = request.args.get("accept_license_terms") == "yes"
+        try:
+            local_url = request.host_url
+            public_url = stack.enter_context(cloudflared_tunnel(local_url, accept_license_terms=accept_license_terms))
+            _info["state"]["viewer_public_url"] = public_url
+        except ValueError as e:
+            return jsonify({"status": "error", "message": str(e)}), 400
+        return jsonify({
+            "status": "ok",
+            "public_url": public_url,
+        })
+    del create_public_url
 
     @app.route("/dataset/pointcloud.ply")
     def dataset_pointcloud():
@@ -424,132 +414,9 @@ def run_flask_server(request_queue,
         return Response(image_bytes, mimetype="image/jpeg")
     del _get_dataset_image_route
 
-    @app.route("/video/<string:videoid>", methods=["PUT"])
-    def setup_video(videoid):
-        if videoid not in _render_video_tasks:
-            _render_video_tasks[videoid] = {
-                "status": "pending",
-                "progress": 0,
-            }
-        task = _render_video_tasks[videoid]
-        task["trajectory"] = request.json
-        return jsonify({ "status": "ok" })
-    del setup_video
 
-    @app.route("/video/<string:videoid>.mp4", methods=["GET"])
-    def render_video(videoid):
-        if videoid not in _render_video_tasks:
-            _render_video_tasks[videoid] = {
-                "status": "pending",
-                "progress": 0,
-            }
-        task = _render_video_tasks[videoid]
-        trajectory = task["trajectory"]
-        output_type = "color"
-        # First, we start the rendering if not started yet.
-        def generate():
-            try:
-                import mediapy
-                yield b""
-                startTime = time.time()
-                while task.get("trajectory") is None:
-                    if time.time() - startTime > 8:
-                        raise RuntimeError("Timeout expired waiting for the video to be created")
-                    # Waiting for the video stream to be created
-                    time.sleep(0.1)
-                    yield b""
-
-                with tempfile.NamedTemporaryFile(suffix=".mp4") as f:
-                    width, height = trajectory["image_size"]
-                    with mediapy.VideoWriter(f.name, (height, width), fps=trajectory["fps"], codec="h264") as video:
-                        task["status"] = "running"
-                        task["progress"] = 0
-                        for i, frame in enumerate(trajectory["frames"]):
-                            pose = np.array(frame["pose"], dtype=np.float32).reshape(3, 4)
-                            intrinsics = np.array(frame["intrinsics"], dtype=np.float32)
-                            task["progress"] = i / len(trajectory["frames"])
-                            output = render_fn(
-                                threading.get_ident(),
-                                pose=pose, 
-                                image_size=(width, height), 
-                                intrinsics=intrinsics,
-                                output_type=output_type,
-                                split_percentage=0,
-                                split_tilt=0,
-                                split_output_type=None)
-                            if trajectory.get("frame_repeat") is not None:
-                                for _ in range(trajectory["frame_repeat"][i]):
-                                    video.add_image(output)
-                            else:
-                                video.add_image(output)
-                        task["progress"] = 1
-                        task["status"] = "done"
-
-                    # Stream generated file
-                    f.seek(0)
-                    while True:
-                        chunk = f.read(8192)
-                        if not chunk:
-                            break
-                        yield chunk
-            except Exception as e:
-                task["status"] = "error"
-                task["progress"] = 1
-                task["progress_message"] = str(e)
-                raise
-        return Response(
-            generate(), 
-            mimetype="video/mp4",
-            headers={"Content-Disposition": f"attachment; filename=video.mp4"})
-    del render_video
-
-    @app.route("/video-progress/<string:videoid>", methods=["POST", "GET"])
-    def get_progress(videoid):
-        if videoid not in _render_video_tasks:
-            _render_video_tasks[videoid] = { 
-                "status": "pending",
-                "progress": 0,
-            }
-
-        task = _render_video_tasks[videoid]
-
-        def generate():
-            last_msg = None
-            while task["status"] == "running" or task["status"] == "pending":
-                msg = json.dumps({
-                    "status": task["status"],
-                    "progress": task["progress"],
-                })
-                if msg != last_msg:
-                    yield f'data: {msg}\n\n'
-                    last_msg = msg
-                time.sleep(0.01)
-            msg = json.dumps({
-                "status": task["status"],
-                "progress": task["progress"],
-                "message": task.get("progress_message"),
-            })
-            yield f'data: {msg}\n\n'
-        return Response(generate(), mimetype="text/event-stream")
-    del get_progress
-
-    @app.route("/video-feed")
-    def video_feed():
-        feedid = request.args.get("feedid")
-        assert feedid is not None and feedid in _feed_states
-        feed = _feed_states[feedid]
-        def generate():
-            global outputFrame, lock
-            # loop over frames from the output stream
-            while True:
-                frame_bytes = feed.render()
-                time.sleep(1/30)
-                # yield the output frame in the byte format
-                yield(b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + bytearray(frame_bytes) + b'\r\n')
-        return Response(generate(), mimetype = "multipart/x-mixed-replace; boundary=frame")
-    del video_feed
-
-    with _make_render_fn(request_queue, output_queue) as render_fn:
+    with contextlib.ExitStack() as stack:
+        render_fn = stack.enter_context(_make_render_fn(request_queue, output_queue))
         try:
             app.run(host="0.0.0.0", port=port)
         except Exception as e:

@@ -1789,6 +1789,11 @@ export class Viewer extends THREE.EventDispatcher {
         viewer._update_notification(notification);
       }
     }));
+    let absoluteUrl = new URL(url, window.location.href).href;
+    if (absoluteUrl.startsWith("http://")) absoluteUrl = "ws://" + absoluteUrl.slice(7);
+    if (absoluteUrl.startsWith("https://")) absoluteUrl = "wss://" + absoluteUrl.slice(8);
+    this.state.frame_renderer_url = absoluteUrl;
+    this.notifyChange({ property: 'frame_renderer_url' });
   }
 
   set_dataset({ url, parts }) {
@@ -1883,6 +1888,65 @@ export class Viewer extends THREE.EventDispatcher {
       state[name] = getter(state);
       this.notifyChange({ property: name });
     });
+  }
+
+  copy_public_url() {
+    const el = document.createElement('textarea');
+    el.value = this.state.viewer_public_url;
+    el.setAttribute('readonly', '');
+    el.style.position = 'absolute';
+    el.style.left = '-9999px';
+    el.style.opacity = 0;
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+  }
+
+  async create_public_url() {
+    if (this.state.viewer_public_url) return;
+    this._update_notification({
+      id: "public-url",
+      header: "Creating public URL",
+      closeable: false,
+    });
+    let publicUrl = undefined;
+    this.state.viewer_requesting_public_url = true;
+    this.notifyChange({ property: "viewer_requesting_public_url" });
+    try {
+      const response = await fetch("./create-public-url?accept_license_terms=yes", { method: "POST" });
+      let result;
+      try {
+        result = await response.json();
+      } catch (error) {
+        throw new Error(`Failed to create public URL: ${response.statusText}`);
+      }
+      if (result.status === "error") {
+        throw new Error(result.message);
+      }
+      publicUrl = result.public_url;
+
+      console.log("Public URL:", publicUrl);
+      this.state.viewer_public_url = publicUrl;
+      this.notifyChange({ property: "viewer_public_url" });
+      this._update_notification({
+        id: "public-url",
+        header: "Public URL created",
+        detailHTML: `<a href="${publicUrl}" target="_blank" style="word-wrap:break-word;word-break:break-all">${publicUrl}</a>`,
+        closeable: true,
+      });
+    } catch (error) {
+      console.error("Failed to create public URL:", error.message);
+      this._update_notification({
+        id: "public-url",
+        header: "Failed to create public URL",
+        detail: error.message,
+        type: "error",
+      });
+    } finally {
+      this.state.viewer_requesting_public_url = false;
+      this.notifyChange({ property: "viewer_requesting_public_url" });
+    }
   }
 
   delete_all_keyframes() {
@@ -2027,6 +2091,10 @@ export class Viewer extends THREE.EventDispatcher {
         this.render_video();
       if (action === "save_camera_path")
         this.save_camera_path();
+      if (action === "viewer_create_public_url")
+        this.create_public_url();
+      if (action === "viewer_copy_public_url")
+        this.copy_public_url();
     });
   }
 
@@ -2259,7 +2327,6 @@ export class Viewer extends THREE.EventDispatcher {
   }
 
   async render_video() {
-    // TODO:
     const width = this.state.camera_path_resolution_1;
     const height = this.state.camera_path_resolution_2;
     const fps = this.state.camera_path_framerate;
@@ -2630,99 +2697,6 @@ export class Viewer extends THREE.EventDispatcher {
       });
     });
 
-    root.querySelectorAll('#button_render_video').forEach((button) => {
-      // We will setup the download link here such 
-      // that the video is downloaded on the main click.
-      // This enables saveAs.
-      let sourceToClose = undefined;
-      let trajectoryCounter = 0;
-
-      async function setupFeed() {
-        if (sourceToClose) {
-          sourceToClose.close();
-          sourceToClose = undefined;
-        }
-        button.href = "javascript:void()"
-        const trajectory = this.export_camera_path();
-        const jsonTrajectory = JSON.stringify(trajectory);
-        const id = `${hash_cyrb53(jsonTrajectory)}-${trajectoryCounter++}`;
-        button.href = `./video/${id}.mp4`
-        button.setAttribute("data-id", id);
-        try {
-          const resp = await fetch(`./video/${id}`, {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: jsonTrajectory,
-          });
-          if (!resp.ok) {
-            throw new Error("Failed to setup video feed");
-          }
-          
-          // Here we just show the progress notification
-          // The actual download is handled by the browser directly.
-          // Stream text/event-stream
-          let eventSource = new EventSource(`./video-progress/${id}`);
-          sourceToClose = eventSource;
-          eventSource.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.status !== "pending" && sourceToClose === eventSource) {
-              // Just started downloading
-              sourceToClose = undefined;
-            }
-            if (data.status === "running") {
-              this._update_notification({
-                id,
-                header: "Rendering video",
-                progress: data.progress,
-                closeable: false,
-              });
-            } else if (data.status === "done" || data.status === "error") {
-              if (data.status === "error") {
-                console.error("Error rendering video up video feed:", data.message);
-                this._update_notification({
-                  id,
-                  header: "Rendering failed",
-                  detail: data.message,
-                  type: "error",
-                  closeable: true,
-                });
-              } else {
-                this._update_notification({
-                  id,
-                  header: "Rendering finished",
-                  autoclose: notification_autoclose,
-                  closeable: true,
-                });
-              }
-              eventSource.close();
-              eventSource = undefined;
-            }
-          };
-        } catch (error) {
-          console.error("Error setting up video feed:", error);
-          this._update_notification({
-            header: "Error setting up video feed",
-            detail: error.message,
-            type: "error",
-          });
-        }
-      }
-
-      button.addEventListener('pointerdown', setupFeed.bind(this));
-      button.addEventListener('click', () => {
-        const id = button.getAttribute("data-id");
-        if (!this._notifications[id]) {
-          this._update_notification({
-            id,
-            header: "Rendering video",
-            closeable: false,
-          });
-        }
-      });
-    });
-
     // Camera pose textarea
     const camera_pose_elements = root.querySelectorAll("[name=camera_pose]");
     const updateCameraElements = () => {
@@ -2801,7 +2775,7 @@ export class Viewer extends THREE.EventDispatcher {
     this.notifyChange({ property: undefined });
   }
 
-  _update_notification({ id, header, progress, autoclose=undefined, detail="", type="info", onclose, closeable=true }) {
+  _update_notification({ id, header, progress, autoclose=undefined, detail="", detailHTML=undefined, type="info", onclose, closeable=true }) {
     this._notifications = this._notifications || {};
     this._notification_id_counter = this._notification_id_counter || 0;
     if (id === undefined) {
@@ -2836,7 +2810,10 @@ export class Viewer extends THREE.EventDispatcher {
     notification.className = `notification notification-${type}`;
     notification.style.setProperty("--progress", `${progress * 100}%`);
     notification.querySelector(".notification-header div").textContent = header;
-    notification.querySelector(".detail").textContent = detail;
+    if (detailHTML !== undefined)
+      notification.querySelector(".detail").innerHTML = detailHTML;
+    else
+      notification.querySelector(".detail").textContent = detail;
     notification.querySelector(".progress").style.display = progress !== undefined ? "block" : "none";
     notification.querySelector(".notification-header > i").style.display = closeable ? "block" : "none";
     if (notification.autocloseInterval) {

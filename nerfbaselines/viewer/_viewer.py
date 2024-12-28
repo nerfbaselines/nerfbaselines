@@ -9,12 +9,6 @@ from nerfbaselines.utils import image_to_srgb, visualize_depth, apply_colormap
 from ._flask import run_flask_server
 
 
-pcs = set()
-candidates = []
-
-TEMPLATES_AUTO_RELOAD = True
-
-
 def combine_outputs(o1, o2, *, split_percentage=0.5, split_tilt=0):
     """
     Combines two outputs o1 and o2 with a tilted splitting line.

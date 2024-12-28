@@ -310,7 +310,7 @@ select:disabled, input:disabled, textarea:disabled, .switch:disabled {
   border-bottom: 1px solid var(--border-color);
 }
 .tabs .tabs-header > label {
-  padding: 1rem;
+  padding: 0.9rem;
   text-align: center;
   -webkit-user-select: none;
   -ms-user-select: none;
@@ -327,7 +327,7 @@ select:disabled, input:disabled, textarea:disabled, .switch:disabled {
 .tabs .tabs-icons a {
   color: inherit;
   cursor: pointer;
-  padding: 0.3rem;
+  padding: 0.2rem;
   transition: all var(--transition-duration);
 }
 .tabs .tabs-icons a:hover {
@@ -480,7 +480,6 @@ html, body {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 0.3rem 0.6rem;
-  margin: 0 0.5rem;
   word-break: break-word;
 }
 
