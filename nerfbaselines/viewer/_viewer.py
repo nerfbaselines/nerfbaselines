@@ -1,12 +1,11 @@
 import math
-from contextlib import ExitStack
 import multiprocessing
 import logging
 import numpy as np
 import nerfbaselines
 from nerfbaselines import __version__
 from nerfbaselines.utils import image_to_srgb, visualize_depth, apply_colormap
-from ._flask import run_flask_server
+from ._httpserver import run_flask_server, run_simple_http_server
 
 
 def combine_outputs(o1, o2, *, split_percentage=0.5, split_tilt=0):
@@ -60,7 +59,7 @@ class Viewer:
         self._process = None
         self._train_dataset = train_dataset
         self._test_dataset = test_dataset
-        self._run_backend_fn = run_flask_server
+        self._run_backend_fn = run_simple_http_server
         self._model = model
         self._running = False
 

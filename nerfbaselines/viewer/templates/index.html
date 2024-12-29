@@ -3,7 +3,7 @@
 <head>
   <title>Viewer</title>
   <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
-  <link href="./static/styles.css" rel="stylesheet" />
+  <link href="./styles.css" rel="stylesheet" />
   <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.7.0/dist/tabler-icons.min.css" rel="stylesheet">
 </head>
 <body>
@@ -515,15 +515,15 @@
   <script type="importmap">
     {
       "imports": {
-        "three": "./static/third-party/three.module.js",
-        "three/addons/": "./static/third-party/",
-        "webm-muxer": "./static/third-party/webm-muxer.js",
-        "mp4-muxer": "./static/third-party/mp4-muxer.js",
-        "client-zip": "./static/third-party/client-zip.js"
+        "three": "./third-party/three.module.js",
+        "three/addons/": "./third-party/",
+        "webm-muxer": "./third-party/webm-muxer.js",
+        "mp4-muxer": "./third-party/mp4-muxer.js",
+        "client-zip": "./third-party/client-zip.js"
       }
     }
   </script>
-  <script src="static/viewer.js" type="module"></script>
+  <script src="./viewer.js" type="module"></script>
   <script id="viewer-setup" type="application/json">{{ data|safe }}</script>
   <script>
 // Range input styling
@@ -539,7 +539,7 @@ rangeInputs.forEach(input => {
 });
   </script>
   <script type="module">
-  import { Viewer } from './static/viewer.js';
+  import { Viewer } from './viewer.js';
   const data = JSON.parse(document.getElementById('viewer-setup').textContent);
   const state = data.state;
   const defaultOutputType = state?.output_types?.length > 0 ? state.output_types[0] : undefined;

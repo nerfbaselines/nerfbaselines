@@ -1522,7 +1522,7 @@ def http_handshake(headers, extensions):
     Notes:
     * Method must be GET
     """
-    headers = {k.lower(): v for k, v in headers or []}
+    headers = {k.lower(): headers[k] for k in headers.keys() or []}
     version = headers.pop("sec-websocket-version", None)
     upgrade = headers.pop("upgrade", None)
     key = headers.pop("sec-websocket-key", None)
@@ -1567,6 +1567,50 @@ def http_handshake(headers, extensions):
     if websocket_extensions_header:
         response_headers.append(("Sec-WebSocket-Extensions", websocket_extensions_header[2:]))
     return 101, b"", response_headers
+
+
+
+def httpserver_websocket_handler(fn):
+    """
+    A decorator function to be used with http.server.BaseHTTPRequestHandler to handle WebSocket connections.
+    It is used to wrap a method that will handle the WebSocket connection.
+    The method takes the websocket object as the first argument.
+    """
+    def websocket_handler(self, *args, **kwargs):
+        extensions = [PerMessageDeflate()]
+        status, setup_message, headers = http_handshake(self.headers, extensions)
+        if status != 101:
+            self.send_response(status)
+            for key, value in headers:
+                self.send_header(key, value)
+            self.end_headers()
+            self.wfile.write(setup_message)
+            return
+
+        sock = self.request
+        # Send handshake message
+        message = b'HTTP/1.1 101 \r\n'
+        for key, value in headers:
+            message += f'{key}: {value}\r\n'.encode()
+        message += b'\r\n'
+        sock.send(message)
+
+        ws = None
+        try:
+            # Start the server pulling thread
+            ws = Server(sock, extensions=extensions)
+
+            # Run the user's WebSocket handler
+            fn(self, ws, *args, **kwargs)
+        except ConnectionClosed:
+            pass
+        if ws is not None:
+            try:
+                ws.close()
+            except:  # noqa: E722
+                pass
+
+    return websocket_handler
 
 
 def flask_websocket_route(app, *args, **kwargs):

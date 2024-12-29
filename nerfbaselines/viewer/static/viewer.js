@@ -936,7 +936,6 @@ export class WebSocketFrameRenderer {
       this._subscriptions[this._thread_counter] = [resolve, reject];
       this._socket.send(JSON.stringify({
         thread: this._thread_counter,
-        type: "render",
         ...params,
       }));
     });
@@ -1125,7 +1124,12 @@ class DatasetManager {
             const image_url = `${this.url}/images/${split}/${i}.jpg?size=64`;
             const response = await fetch(image_url);
             if (!response.ok) {
-              throw new Error(`Failed to load image: ${response.statusText}`);
+              try {
+                const error = await response.json();
+                throw new Error(`Failed to load image: ${error.message}`);
+              } catch (error) {
+                throw new Error(`Failed to load image: ${response.statusText}`);
+              }
             }
             const blob = await response.blob();
             const image = await createImageBitmap(blob, { imageOrientation: "flipY" });
@@ -1158,6 +1162,7 @@ class DatasetManager {
           id: `dataset_${this.url}_${split}_images`,
           header: `Failed to load ${split} dataset images`,
           detail: errors[0].message,
+          type: "error",
           closeable: true,
         });
       } else if (num_loaded === num_images) {
@@ -2675,7 +2680,6 @@ export class Viewer extends THREE.EventDispatcher {
     // data-bind-class has the form "class1:property1"
     querySelectorAll("[data-bind-class]").forEach(element => {
       const [class_name, expr] = element.getAttribute("data-bind-class").split(":");
-      console.log("Binding class", element, expr);
       const [evalFn, dependencies] = parseBinding(expr);
       this.addEventListener("change", ({ property, state }) => {
         if (property !== undefined && !dependencies.includes(property)) return;
