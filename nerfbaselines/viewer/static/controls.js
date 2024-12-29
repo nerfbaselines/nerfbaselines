@@ -43,6 +43,60 @@ const _STATE = {
 };
 const _EPS = 0.000001;
 
+
+class KeyboardManager {
+  constructor(element) {
+    this._activeKeys = {};
+    window.addEventListener('keydown', this._onKeyDown.bind(this));
+    window.addEventListener('keyup', this._onKeyUp.bind(this), true);
+    this._element = element;
+    this._element.addEventListener('pointerover', this._onPointerOver.bind(this), true);
+    this._element.addEventListener('pointerout', this._onPointerOut.bind(this), true);
+    this._pointerActivated = false;
+    this._activePointer = new Set();
+  }
+
+  _onPointerOver(event) {
+    this._pointerActivated = true;
+    this._activePointer.add(event.pointerId);
+  }
+
+  _onPointerOut(event) {
+    this._activePointer.delete(event.pointerId);
+    if (this._activePointer.size <= 0) {
+      this._activeKeys = {};
+    }
+  }
+
+  _onKeyDown(event) {
+    if (this._pointerActivated && this._activePointer.size <= 0) return;
+    event.preventDefault();
+    this._element.focus();
+    this._activeKeys[event.code] = true;
+    event.shiftKey ? this._activeKeys["shift"] = true : delete this._activeKeys["shift"];
+    event.ctrlKey ? this._activeKeys["ctrl"] = true : delete this._activeKeys["ctrl"];
+    event.metaKey ? this._activeKeys["meta"] = true : delete this._activeKeys["meta"];
+  }
+
+  _onKeyUp(event) {
+    delete this._activeKeys[event.code];
+    event.shiftKey ? this._activeKeys["shift"] = true : delete this._activeKeys["shift"];
+    event.ctrlKey ? this._activeKeys["ctrl"] = true : delete this._activeKeys["ctrl"];
+    event.metaKey ? this._activeKeys["meta"] = true : delete this._activeKeys["meta"];
+  }
+
+  dispose() {
+    window.removeEventListener('keydown', this._onKeyDown);
+    window.removeEventListener('keyup', this._onKeyUp);
+    this._element.removeEventListener('pointerover', this._onPointerOver);
+    this._element.removeEventListener('pointerout', this._onPointerOut);
+  }
+
+  isPressed(key) {
+    return this._activeKeys[key];
+  }
+}
+
 class ViewerControls extends Controls {
 	constructor(object, domElement = null) {
 		super(object, domElement);
@@ -106,9 +160,6 @@ class ViewerControls extends Controls {
 		this.position0 = this.object.position.clone();
 		this.zoom0 = this.object.zoom;
 
-		// the target DOM element for key events
-		this._domElementKeyEvents = null;
-
 		// internals
 		this._lastPosition = new Vector3();
 		this._lastQuaternion = new Quaternion();
@@ -152,6 +203,7 @@ class ViewerControls extends Controls {
 		this._onContextMenu = onContextMenu.bind(this);
 		this._onMouseWheel = onMouseWheel.bind(this);
 		this._onKeyDown = onKeyDown.bind(this);
+		this._onKeyUp = onKeyUp.bind(this);
 
 		this._onTouchStart = onTouchStart.bind(this);
 		this._onTouchMove = onTouchMove.bind(this);
@@ -178,6 +230,10 @@ class ViewerControls extends Controls {
 		const document = this.domElement.getRootNode(); // offscreen canvas compatibility
 		document.addEventListener('keydown', this._interceptControlDown, { passive: true, capture: true });
 
+    this.domElement.setAttribute('tabindex', 10000);
+    this.domElement.style.outline = 'none';
+    this._keyboardManager = new KeyboardManager(this.domElement);
+
 		this.domElement.style.touchAction = 'none'; // disable touch scroll
 	}
 
@@ -189,7 +245,10 @@ class ViewerControls extends Controls {
 		this.domElement.removeEventListener('wheel', this._onMouseWheel);
 		this.domElement.removeEventListener('contextmenu', this._onContextMenu);
 
-		this.stopListenToKeyEvents();
+    if (this._keyboardManager) {
+      this._keyboardManager.dispose();
+      this._keyboardManager = undefined;
+    }
 
 		const document = this.domElement.getRootNode(); // offscreen canvas compatibility
 		document.removeEventListener('keydown', this._interceptControlDown, { capture: true });
@@ -199,18 +258,6 @@ class ViewerControls extends Controls {
 
 	dispose() {
 		this.disconnect();
-	}
-
-	listenToKeyEvents(domElement) {
-		domElement.addEventListener('keydown', this._onKeyDown);
-		this._domElementKeyEvents = domElement;
-	}
-
-	stopListenToKeyEvents() {
-		if ( this._domElementKeyEvents !== null ) {
-			this._domElementKeyEvents.removeEventListener('keydown', this._onKeyDown);
-			this._domElementKeyEvents = null;
-		}
 	}
 
 	saveState() {
@@ -236,7 +283,13 @@ class ViewerControls extends Controls {
 		this.state = _STATE.NONE;
 	}
 
-	update(deltaTime = null) {
+	update(deltaTime = undefined) {
+    if (deltaTime !== undefined)
+      deltaTime = Math.min(deltaTime, 1000);
+
+    // Update pressed keys
+    this._updateKeys(deltaTime);
+
     if (this.mode === "free") {
       const m = -(this.enableDamping ? this.dampingFactor : 1.0);
       // 1. Apply the rotation
@@ -439,78 +492,52 @@ class ViewerControls extends Controls {
 		this.update();
 	}
 
-	_handleKeyDown(event) {
-		let needsUpdate = false;
-
-		switch ( event.code ) {
-      case 'KeyQ':
-        this._panAligned(0, 0, -Math.abs(this.keyPanSpeed));
-        needsUpdate = true;
-        break;
-      case 'KeyE':
-        this._panAligned(0, 0, Math.abs(this.keyPanSpeed));
-        needsUpdate = true;
-        break;
-      case 'KeyW':
-        this._panAligned(0, Math.abs(this.keyPanSpeed));
-				needsUpdate = true;
-        break;
-			case 'ArrowUp':
-				if (event.ctrlKey || event.metaKey || event.shiftKey) {
-					this._sphericalDelta.phi += _twoPI * Math.abs(this.keyRotateSpeed) / this.domElement.clientHeight;
-				} else {
-					this._pan(0, Math.abs(this.keyPanSpeed));
-				}
-
-				needsUpdate = true;
-				break;
-      case 'KeyS':
-        this._panAligned(0, -Math.abs(this.keyPanSpeed));
-				needsUpdate = true;
-        break;
-			case 'ArrowDown':
-				if (event.ctrlKey || event.metaKey || event.shiftKey) {
-					this._sphericalDelta.phi -= _twoPI * Math.abs(this.keyRotateSpeed) / this.domElement.clientHeight;
-				} else {
-					this._pan(0, -Math.abs(this.keyPanSpeed));
-				}
-
-				needsUpdate = true;
-				break;
-      case 'KeyA':
-        this._panAligned(Math.abs(this.keyPanSpeed), 0);
-				needsUpdate = true;
-        break;
-			case 'ArrowLeft':
-				if ( event.ctrlKey || event.metaKey || event.shiftKey ) {
-					this._sphericalDelta.theta += _twoPI * Math.abs(this.keyRotateSpeed) / this.domElement.clientHeight;
-				} else {
-					this._pan(Math.abs(this.keyPanSpeed), 0);
-				}
-
-				needsUpdate = true;
-				break;
-      case 'KeyD':
-        this._panAligned(-Math.abs(this.keyPanSpeed), 0);
-				needsUpdate = true;
-        break;
-			case 'ArrowRight':
-				if (event.ctrlKey || event.metaKey || event.shiftKey) {
-					this._sphericalDelta.theta -= _twoPI * Math.abs(this.keyRotateSpeed) / this.domElement.clientHeight;
-				} else {
-					this._pan(-Math.abs(this.keyPanSpeed), 0);
-				}
-				needsUpdate = true;
-				break;
-
-		}
-
-		if (needsUpdate) {
-			// prevent the browser from scrolling on cursor keys
-			event.preventDefault();
-			this.update();
-		}
-	}
+  _updateKeys(deltaTime) {
+    if (!this._keyboardManager) return;
+    const d = (deltaTime || (1000.0 / 60.0)) * 0.04;
+    const isPressed = this._keyboardManager.isPressed.bind(this._keyboardManager);
+    if (isPressed('KeyQ'))
+      this._panAligned(0, 0, -Math.abs(this.keyPanSpeed) * d);
+    if (isPressed('KeyE'))
+      this._panAligned(0, 0, Math.abs(this.keyPanSpeed) * d);
+    if (isPressed('KeyW'))
+      this._panAligned(0, Math.abs(this.keyPanSpeed) * d);
+    if (isPressed('KeyS'))
+      this._panAligned(0, -Math.abs(this.keyPanSpeed) * d);
+    if (isPressed('KeyA'))
+      this._panAligned(Math.abs(this.keyPanSpeed) * d, 0);
+    if (isPressed('KeyD'))
+      this._panAligned(-Math.abs(this.keyPanSpeed * d), 0);
+    const isAnyMeta = isPressed('ctrl') || isPressed('meta') || isPressed('shift');
+    if (isPressed('ArrowUp')) {
+      if (isAnyMeta) {
+        this._sphericalDelta.phi += _twoPI * Math.abs(this.keyRotateSpeed) / this.domElement.clientHeight * d;
+      } else {
+        this._pan(0, Math.abs(this.keyPanSpeed) * d);
+      }
+    } 
+    if (isPressed('ArrowDown')) {
+      if (isAnyMeta) {
+        this._sphericalDelta.phi -= _twoPI * Math.abs(this.keyRotateSpeed) / this.domElement.clientHeight * d;
+      } else {
+        this._pan(0, -Math.abs(this.keyPanSpeed) * d);
+      }
+    } 
+    if (isPressed('ArrowLeft')) {
+      if (isAnyMeta) {
+        this._sphericalDelta.theta += _twoPI * Math.abs(this.keyRotateSpeed) / this.domElement.clientHeight * d;
+      } else {
+        this._pan(Math.abs(this.keyPanSpeed) * d, 0);
+      }
+    } 
+    if (isPressed('ArrowRight')) {
+      if (isAnyMeta) {
+        this._sphericalDelta.theta -= _twoPI * Math.abs(this.keyRotateSpeed) / this.domElement.clientHeight * d;
+      } else {
+        this._pan(-Math.abs(this.keyPanSpeed) * d, 0);
+      }
+    }
+  }
 
 	_handleTouchStartRotate(event) {
 		if ( this._pointers.length === 1 ) {
@@ -821,8 +848,21 @@ function onMouseWheel(event) {
 }
 
 function onKeyDown(event) {
-	if (this.enabled === false || this.enablePan === false) return;
-	this._handleKeyDown(event);
+	if (this.enabled === false) return;
+  this._activeKeys = this._activeKeys || {};
+  this._activeKeys[event.code] = true;
+  event.shiftKey ? this._activeKeys["shift"] = true : delete this._activeKeys["shift"];
+  event.ctrlKey ? this._activeKeys["ctrl"] = true : delete this._activeKeys["ctrl"];
+  event.metaKey ? this._activeKeys["meta"] = true : delete this._activeKeys["meta"];
+	// this._handleKeyDown(event);
+}
+
+function onKeyUp(event) {
+  this._activeKeys = this._activeKeys || {};
+  delete this._activeKeys[event.code];
+  event.shiftKey ? this._activeKeys["shift"] = true : delete this._activeKeys["shift"];
+  event.ctrlKey ? this._activeKeys["ctrl"] = true : delete this._activeKeys["ctrl"];
+  event.metaKey ? this._activeKeys["meta"] = true : delete this._activeKeys["meta"];
 }
 
 function onTouchStart(event) {

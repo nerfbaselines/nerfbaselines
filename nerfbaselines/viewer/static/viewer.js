@@ -1543,7 +1543,6 @@ export class Viewer extends THREE.EventDispatcher {
     this.mouse_interactions = new MouseInteractions(this.renderer, this.camera, this.renderer_scene, this.viewport);
 
     this.controls = new ViewerControls(this.camera, this.renderer.domElement);
-    this.controls.listenToKeyEvents(window);
 
     this._enabled = true;
     this.renderer.setAnimationLoop((time) => this._animate(time));
@@ -1830,10 +1829,14 @@ export class Viewer extends THREE.EventDispatcher {
   }
 
   _animate(time) {
+    if (this._lastTime === undefined) this._lastTime = time;
+    const delta = time - this._lastTime;
+    this._lastTime = time;
     if (!this._is_preview_mode) {
       this.mouse_interactions.update();
-      if (!this.mouse_interactions.isCaptured())
-        this.controls?.update();
+      if (!this.mouse_interactions.isCaptured()) {
+        this.controls?.update(delta);
+      }
       this.renderer.render(this.renderer_scene, this.camera);
     }
   }
