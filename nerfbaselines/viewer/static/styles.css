@@ -18,6 +18,24 @@
   --transition-duration: 0.2s;
 }
 
+.theme-light {
+  --theme-highlight-color: #ffdf7e;
+  --primary-color: #555;
+  --inverse-primary-color: var(--primary-color);
+  --highlight-color: #000;
+  --secondary-color: #999;
+  --border-radius: 0.1rem;
+  --error-border-color: #E53935;
+  --error-background-color: #E57070;
+  --select-arrows: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0IDEwIj48ZGVmcz48c3R5bGU+LmN7ZmlsbDojNTU1O308L3N0eWxlPjwvZGVmcz48dGl0bGU+YXJyb3dzPC90aXRsZT48cG9seWdvbiBjbGFzcz0iYyIgcG9pbnRzPSIxLjQxIDQuNjcgMi40OCAzLjE4IDMuNTQgNC42NyAxLjQxIDQuNjciLz48cG9seWdvbiBjbGFzcz0iYyIgcG9pbnRzPSIzLjU0IDUuMzMgMi40OCA2LjgyIDEuNDEgNS4zMyAzLjU0IDUuMzMiLz48L3N2Zz4=');
+  --border-color: #ccc;
+  --highlight-border-color: #999;
+  --primary-background-color: #fff;
+  --secondary-background-color: #f9f9f9;
+  --progress-track-color: #ddd;
+  --link-color: #1772d0;
+}
+
 a {
   color: var(--link-color);
 }

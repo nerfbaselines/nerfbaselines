@@ -269,6 +269,7 @@ class SettingsManager {
       camera_control_rotation_sensitivity: 1.0,
       camera_control_pan_sensitivity: 1.0,
       camera_control_zoom_sensitivity: 1.0,
+      camera_control_key_speed: 1.0,
 
       camera_control_rotation_inverted: false,
       camera_control_pan_inverted: false,
@@ -277,6 +278,8 @@ class SettingsManager {
       camera_path_render_mp4_codec: 'avc1.42001f',
       camera_path_render_webm_codec: 'vp09.00.10.08',
       camera_path_render_keyframe_interval: '5s',
+
+      viewer_theme: 'dark',
     }
   }
 
@@ -2508,7 +2511,7 @@ export class Viewer extends THREE.EventDispatcher {
   }
 
   attach_gui(root) {
-    root = root || document.querySelector('.controls');
+    root = root || document.body;
     const state = this.state;
     // Handle state change
     function getValue(element) {
@@ -2531,8 +2534,13 @@ export class Viewer extends THREE.EventDispatcher {
         element.dispatchEvent(e);
       }
     }
-    root.querySelectorAll("[data-set-viewer-ref]").forEach(element => { element.viewer = this });
-    root.querySelectorAll("input[name],select[name]").forEach(element => {
+    const querySelectorAll = (selector) => {
+      let out = root.querySelectorAll(selector);
+      if (root.matches(selector)) out = Array.from(out).concat(root);
+      return out;
+    }
+    querySelectorAll("[data-set-viewer-ref]").forEach(element => { element.viewer = this });
+    querySelectorAll("input[name],select[name]").forEach(element => {
       element.addEventListener("change", (event) => {
         if (event.simulated) return;
         state[name] = getValue(event.target);
@@ -2592,7 +2600,7 @@ export class Viewer extends THREE.EventDispatcher {
       });
     });
 
-    root.querySelectorAll("[data-options]").forEach(element => {
+    querySelectorAll("[data-options]").forEach(element => {
       const name = element.getAttribute("data-options");
       function updateOptions() {
         const selectedValue = state[element.name];
@@ -2630,7 +2638,7 @@ export class Viewer extends THREE.EventDispatcher {
       updateOptions();
     });
 
-    root.querySelectorAll("[data-enable-if]").forEach(element => {
+    querySelectorAll("[data-enable-if]").forEach(element => {
       const [evalFn, dependencies] = parseBinding(element.getAttribute("data-enable-if"));
       this.addEventListener("change", ({ property, state }) => {
         if (property !== undefined && !dependencies.includes(property)) return;
@@ -2644,7 +2652,7 @@ export class Viewer extends THREE.EventDispatcher {
       });
     });
 
-    root.querySelectorAll("[data-visible-if]").forEach(element => {
+    querySelectorAll("[data-visible-if]").forEach(element => {
       const [evalFn, dependencies] = parseBinding(element.getAttribute("data-visible-if"));
       let display = element.style.display;
       if (display === "none") display = null;
@@ -2654,7 +2662,7 @@ export class Viewer extends THREE.EventDispatcher {
       });
     });
 
-    root.querySelectorAll("[data-action]").forEach(element => {
+    querySelectorAll("[data-action]").forEach(element => {
       const action = element.getAttribute("data-action");
       element.addEventListener("click", (e) => {
         if (e.simulated) return;
@@ -2664,11 +2672,13 @@ export class Viewer extends THREE.EventDispatcher {
     });
 
     // data-bind-class has the form "class1:property1"
-    root.querySelectorAll("[data-bind-class]").forEach(element => {
-      const [class_name, name] = element.getAttribute("data-bind-class").split(":");
+    querySelectorAll("[data-bind-class]").forEach(element => {
+      const [class_name, expr] = element.getAttribute("data-bind-class").split(":");
+      console.log("Binding class", element, expr);
+      const [evalFn, dependencies] = parseBinding(expr);
       this.addEventListener("change", ({ property, state }) => {
-        if (property !== name && property !== undefined) return;
-        if (state[name]) {
+        if (property !== undefined && !dependencies.includes(property)) return;
+        if (evalFn(state)) {
           element.classList.add(class_name);
         } else {
           element.classList.remove(class_name);
@@ -2677,7 +2687,7 @@ export class Viewer extends THREE.EventDispatcher {
     });
 
     // data-bind-attr has the form "attribute:property"
-    root.querySelectorAll("[data-bind-attr]").forEach(element => {
+    querySelectorAll("[data-bind-attr]").forEach(element => {
       const [attr, name] = element.getAttribute("data-bind-attr").split(":");
       this.addEventListener("change", ({ property, state }) => {
         if (property !== name && property !== undefined) return;
@@ -2687,7 +2697,7 @@ export class Viewer extends THREE.EventDispatcher {
         element.setAttribute(attr, state[name]);
     });
 
-    root.querySelectorAll('#input_camera_path').forEach((input) => {
+    querySelectorAll('#input_camera_path').forEach((input) => {
       input.addEventListener('change', (event) => {
         if (event.simulated) return;
         const file = event.target.files[0];

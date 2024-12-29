@@ -8,7 +8,7 @@
 </head>
 <body>
 
-<main>
+<main data-bind-class="theme-light:viewer_theme==light">
     <div class="viewport"></div>
 
     <div class="notifications"></div>
@@ -129,6 +129,19 @@
           <i class="ti ti-x" onclick="this.closest('.dialog').classList.remove('dialog-open')"></i>
         </div>
         <div class="panel">
+          <div class="row">
+            <label>Theme</label>
+            <div class="switch">
+              <label>
+                <input type="radio" name="viewer_theme" value="light">
+                <span>light</span>
+              </label>
+              <label>
+                <input type="radio" name="viewer_theme" value="dark" checked>
+                <span>dark</span>
+              </label>
+            </div>
+          </div>
           <div class="row">
             <label for="viewer_public_url">Public URL</label>
             <input type="text" id="viewer_public_url" name="viewer_public_url" value="" disabled>
@@ -473,7 +486,7 @@
             <button id="button_export_camera_path" data-action="save_camera_path" data-enable-if="camera_path_trajectory" disabled>Export trajectory</button>
           </div>
           <div class="row">
-            <button data-action="render_video" data-enable-if="camera_path_trajectory" disabled>Render video</a>
+            <button data-action="render_video" data-enable-if="camera_path_trajectory && has_method" disabled>Render video</a>
           </div>
         </div>
 
