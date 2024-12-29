@@ -59,7 +59,7 @@ class Viewer:
         self._process = None
         self._train_dataset = train_dataset
         self._test_dataset = test_dataset
-        self._run_backend_fn = run_simple_http_server
+        self._run_backend_fn = run_flask_server
         self._model = model
         self._running = False
 

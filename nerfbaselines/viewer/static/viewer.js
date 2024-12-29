@@ -810,6 +810,8 @@ function _attach_fullscreen_mode(viewer) {
       }
     }
   });
+  viewer.state.viewer_fullscreen_enabled = document.fullscreenEnabled;
+  viewer.notifyChange({ property: "viewer_fullscreen_enabled" });
   viewer.addEventListener("action", ({ action }) => {
     if (action === "viewer_toggle_fullscreen") {
       viewer.state.viewer_fullscreen = !viewer.state.viewer_fullscreen;
