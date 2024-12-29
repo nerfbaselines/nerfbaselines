@@ -180,6 +180,7 @@ input[type=range]::-webkit-slider-runnable-track {
 }
 
 select, input, textarea, .switch {
+  font-size: 1em;
   color: var(--primary-color);
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius);
@@ -396,6 +397,7 @@ button:disabled:hover, .button[data-disabled]:hover, .row > .button[data-disable
 }
 
 button {
+  font-size: 1em;
   appearance: none;
   -webkit-appearance: none;
 }

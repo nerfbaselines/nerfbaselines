@@ -280,6 +280,7 @@ class SettingsManager {
       camera_path_render_keyframe_interval: '5s',
 
       viewer_theme: 'dark',
+      viewer_font_size: 1,
     }
   }
 
@@ -2785,7 +2786,10 @@ export class Viewer extends THREE.EventDispatcher {
 
     this.addEventListener("change", ({ property, state }) => {
       if (property === "theme_color" || property === undefined) {
-        document.body.style.setProperty("--theme-color", state.theme_color);
+        document.documentElement.style.setProperty("--theme-color", state.theme_color);
+      }
+      if (property === "viewer_font_size" || property === undefined) {
+        document.documentElement.style.fontSize = `${state.viewer_font_size}rem`;
       }
     });
 

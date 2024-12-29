@@ -151,7 +151,11 @@
             <button data-action="viewer_copy_public_url" data-enable-if="viewer_public_url">Copy public URL</button>
           </div>
           <fieldset>
-            <legend>Colors</legend>
+            <legend>UI</legend>
+            <div class="row">
+              <label for="viewer_font_size">Font size</label>
+              <input type="range" id="viewer_font_size" name="viewer_font_size" min="0.5" max="1.5" value="1" step="0.1">
+            </div>
             <div class="row">
               <label for="theme_color">Theme</label>
               <input type="color" id="theme_color" name="theme_color" value="#ffd369">
