@@ -8,7 +8,7 @@ import zlib
 from enum import Enum, IntEnum
 from collections import deque
 from codecs import getincrementaldecoder
-from typing import Optional, Union, Generator, Tuple, Deque, NamedTuple, Generic, List, TypeVar, Any, cast
+from typing import Optional, Union, Generator, Tuple, Deque, NamedTuple, Generic, List, TypeVar, cast, Callable
 from dataclasses import dataclass
 import selectors
 from time import time
@@ -1570,7 +1570,7 @@ def http_handshake(headers, extensions):
 
 
 
-def httpserver_websocket_handler(fn):
+def httpserver_websocket_handler(fn) -> Callable:
     """
     A decorator function to be used with http.server.BaseHTTPRequestHandler to handle WebSocket connections.
     It is used to wrap a method that will handle the WebSocket connection.

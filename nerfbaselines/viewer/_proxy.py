@@ -157,6 +157,7 @@ def cloudflared_tunnel(local_url: str, *, accept_license_terms=False):
         # Sometimes it takes long time to display URL in cloudflared metrices.
         printed_lines = []
         try:
+            finished = False
             for _ in range(20):
                 if process.poll() is not None:
                     message = "Cloudflared failed with code:" + str(process.returncode) + "."
@@ -165,7 +166,6 @@ def cloudflared_tunnel(local_url: str, *, accept_license_terms=False):
                         message += " " + error
                     raise RuntimeError(message)
                 with open(os.path.join(tmpdir, "cloudflared.log")) as f:
-                    finished = False
                     lines = f.read().splitlines()
                     for line in lines[len(printed_lines):]:
                         line_msg = json.loads(line)

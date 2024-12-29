@@ -5,6 +5,7 @@ The second implementation is a Flask server that provides a more feature-rich ex
 """
 import shutil
 from functools import partial
+from typing import cast, Any
 import queue
 import contextlib
 import logging
@@ -226,6 +227,7 @@ class ViewerBackend:
         return self._info
 
     def render(self, req):
+        assert self._render_fn is not None, "Backend not initialized"
         if "image_size" not in req:
             raise ValueError("Invalid request, missing image_size")
         if "pose" not in req:
@@ -398,10 +400,10 @@ class ViewerRequestHandler(SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
         if logger.isEnabledFor(logging.DEBUG):
             message = format % args
-            logger.debug("%s - - [%s] %s\n" %
+            logger.debug("%s - - [%s] %s" %
                          (self.address_string(),
                           self.log_date_time_string(),
-                          message.translate(self._control_char_table)))
+                          message.translate(cast(Any, self)._control_char_table)))
 
     def list_directory(self, path):
         # Disabling directory listing
