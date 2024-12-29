@@ -202,7 +202,7 @@ def get_info(model_info, datasets, nb_info, dataset_metadata):
     return info
 
 
-class _ViewerBackend:
+class ViewerBackend:
     def __init__(self, request_queue, output_queue, *, model_info, datasets, nb_info, dataset_metadata):
         self._info = get_info(model_info, datasets, nb_info, dataset_metadata)
         self._datasets = datasets
@@ -531,7 +531,7 @@ class ViewerRequestHandler(SimpleHTTPRequestHandler):
 
 def run_simple_http_server(*args, port, **kwargs):
     from http.server import ThreadingHTTPServer
-    with _ViewerBackend(*args, **kwargs) as backend, \
+    with ViewerBackend(*args, **kwargs) as backend, \
             ThreadingHTTPServer(("", port), partial(ViewerRequestHandler, backend=backend)) as server:
         logger.info(f"Starting HTTP server at http://localhost:{port}")
         server.serve_forever()
@@ -633,7 +633,7 @@ def run_flask_server(*args, port, **kwargs):
     del _get_dataset_image_route
 
     try:
-        with _ViewerBackend(*args, **kwargs) as backend:
+        with ViewerBackend(*args, **kwargs) as backend:
             app.run(host="0.0.0.0", port=port)
     except Exception as e:
         logging.exception(e)
