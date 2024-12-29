@@ -263,7 +263,7 @@ class ViewerBackend:
         idx = int(req["idx"])
         split = req["split"]
         max_img_size = req.get("max_img_size")
-        if max_img_size == "":
+        if max_img_size is None or max_img_size == "":
             max_img_size = None
         else:
             max_img_size = int(max_img_size)
