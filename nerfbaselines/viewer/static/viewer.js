@@ -1066,7 +1066,7 @@ class DatasetManager {
           if (state[`dataset_has_${split}_cameras`])
             this._load_split_images(split);
         } else {
-          this.viewer._update_notification({
+          this.viewer.update_notification({
             id: `dataset_${this.url}_${split}_images`, header: "", autoclose: 0,
           });
         }
@@ -1110,7 +1110,7 @@ class DatasetManager {
         this.viewer.state[`dataset_show_${split}_cameras`] = false;
         this.viewer.notifyChange({ property: `dataset_show_${split}_cameras` });
       };
-      this.viewer._update_notification({
+      this.viewer.update_notification({
         id: `dataset_${this.url}_${split}_images`,
         header: `Loading ${split} dataset images`,
         progress: 0,
@@ -1152,7 +1152,7 @@ class DatasetManager {
             errors.push(error);
           }
           if (!this.viewer.state[`dataset_show_${split}_cameras`]) return;
-          this.viewer._update_notification({
+          this.viewer.update_notification({
             id: `dataset_${this.url}_${split}_images`,
             header: `Loading ${split} dataset images`,
             progress: ++num_loaded / num_images,
@@ -1166,7 +1166,7 @@ class DatasetManager {
       if (!this.viewer.state[`dataset_show_${split}_cameras`]) return;
 
       if (errors.length > 0) {
-        this.viewer._update_notification({
+        this.viewer.update_notification({
           id: `dataset_${this.url}_${split}_images`,
           header: `Failed to load ${split} dataset images`,
           detail: errors[0].message,
@@ -1174,7 +1174,7 @@ class DatasetManager {
           closeable: true,
         });
       } else if (num_loaded === num_images) {
-        this.viewer._update_notification({
+        this.viewer.update_notification({
           id: `dataset_${this.url}_${split}_images`,
           header: `Loaded ${split} dataset images`,
           autoclose: notification_autoclose,
@@ -1269,13 +1269,13 @@ class DatasetManager {
       this.viewer.notifyChange({ property: `dataset_${split}_appearance_options` });
     } catch (error) {
       console.error('An error occurred while loading the cameras:', error);
-      this.viewer._update_notification({
+      this.viewer.update_notification({
         id: this.url + "-" + split,
         header: `Error loading dataset ${split} cameras`,
         detail: error.message,
         type: "error",
       });
-      this._update_notification();
+      this.update_notification();
     }
   }
 
@@ -1291,13 +1291,13 @@ class DatasetManager {
         controller.abort();
       }
       cancelled = true;
-      this.viewer._update_notification({ id: notificationId, autoclose: 0 });
+      this.viewer.update_notification({ id: notificationId, autoclose: 0 });
     };
     try {
       // Update progress callback
       const updateProgress = (percentage) => {
         if (cancelled) return;
-        this.viewer._update_notification({
+        this.viewer.update_notification({
           id: notificationId,
           header: "Loading dataset point cloud",
           progress: percentage,
@@ -1366,7 +1366,7 @@ class DatasetManager {
 
       const points = new THREE.Points(geometry, material);
       this._pointcloud.add(points);
-      this.viewer._update_notification({
+      this.viewer.update_notification({
         id: notificationId,
         header: "Loaded dataset point cloud",
         closeable: true,
@@ -1375,7 +1375,7 @@ class DatasetManager {
     } catch (error) {
       if (cancelled) return;
       console.error('An error occurred while loading the PLY file:', error);
-      this.viewer._update_notification({
+      this.viewer.update_notification({
         id: notificationId,
         header: "Error loading dataset point cloud",
         detail: error.message,
@@ -1389,6 +1389,7 @@ class DatasetManager {
 }
 
 function _attach_selected_keyframe_details(viewer) {
+  const self_trigger = "selected_keyframe_details";
   const getKeyframes = ({ camera_path_keyframes, camera_path_selected_keyframe, camera_path_loop }) => {
     const keyframeIndex = camera_path_keyframes?.findIndex((keyframe) => keyframe.id === camera_path_selected_keyframe);
     const keyframe = keyframeIndex >= 0 ? camera_path_keyframes[keyframeIndex] : undefined;
@@ -1430,23 +1431,23 @@ function _attach_selected_keyframe_details(viewer) {
     for (const property in change) {
       if (state[property] !== change[property]) {
         state[property] = change[property];
-        viewer.notifyChange({ property, origin: _attach_selected_keyframe_details });
+        viewer.notifyChange({ property, trigger: self_trigger });
       }
     }
   }
-  viewer.addEventListener("change", ({property, state, trigger, origin}) => {
-    if (origin === _attach_selected_keyframe_details) return;
+  viewer.addEventListener("change", ({property, state, trigger}) => {
+    if (trigger === self_trigger) return;
     // Add setters
     const { keyframe, prevKeyframe } = getKeyframes(state);
     if (property === "camera_path_selected_keyframe_override_fov" && keyframe) {
       if (state.camera_path_selected_keyframe_override_fov) {
         if (keyframe?.fov === undefined && state.camera_path_default_fov !== undefined) {
           keyframe.fov = state.camera_path_default_fov;
-          viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details  });
+          viewer.notifyChange({ property: "camera_path_keyframes", trigger: self_trigger });
         }
       } else {
         keyframe.fov = undefined;
-        viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details  });
+        viewer.notifyChange({ property: "camera_path_keyframes", trigger: self_trigger });
       }
       return
     }
@@ -1455,11 +1456,11 @@ function _attach_selected_keyframe_details(viewer) {
       if (state.camera_path_selected_keyframe_override_in_duration) {
         if (prevKeyframe?.duration === undefined && state.camera_path_default_transition_duration !== undefined) {
           prevKeyframe.duration = state.camera_path_default_transition_duration;
-          viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details  });
+          viewer.notifyChange({ property: "camera_path_keyframes", trigger: self_trigger });
         }
       } else {
         prevKeyframe.duration = undefined;
-        viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details  });
+        viewer.notifyChange({ property: "camera_path_keyframes", trigger: self_trigger });
       }
       return
     }
@@ -1468,11 +1469,11 @@ function _attach_selected_keyframe_details(viewer) {
       if (state.camera_path_selected_keyframe_override_duration) {
         if (keyframe?.duration === undefined && state.camera_path_default_transition_duration !== undefined) {
           keyframe.duration = state.camera_path_default_transition_duration;
-          viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details  });
+          viewer.notifyChange({ property: "camera_path_keyframes", trigger: self_trigger });
         }
       } else {
         keyframe.duration = undefined;
-        viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details  });
+        viewer.notifyChange({ property: "camera_path_keyframes", trigger: self_trigger });
       }
       return
     }
@@ -1480,7 +1481,7 @@ function _attach_selected_keyframe_details(viewer) {
     if (property === "camera_path_selected_keyframe_velocity_multiplier" && keyframe) {
       if (state.camera_path_selected_keyframe_velocity_multiplier && keyframe.velocity_multiplier !== state.camera_path_selected_keyframe_velocity_multiplier) {
         keyframe.velocity_multiplier = state.camera_path_selected_keyframe_velocity_multiplier;
-        viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details  });
+        viewer.notifyChange({ property: "camera_path_keyframes", trigger: self_trigger });
       }
       return;
     }
@@ -1488,7 +1489,7 @@ function _attach_selected_keyframe_details(viewer) {
     if (property === "camera_path_selected_keyframe_duration" && keyframe) {
       if (state.camera_path_selected_keyframe_override_duration && keyframe.duration !== state.camera_path_selected_keyframe_duration) {
         keyframe.duration = state.camera_path_selected_keyframe_duration;
-        viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details  });
+        viewer.notifyChange({ property: "camera_path_keyframes", trigger: self_trigger });
       }
       return;
     }
@@ -1497,7 +1498,7 @@ function _attach_selected_keyframe_details(viewer) {
       if (state.camera_path_selected_keyframe_override_in_duration && 
           prevKeyframe.duration !== state.camera_path_selected_keyframe_in_duration) {
         prevKeyframe.duration = state.camera_path_selected_keyframe_in_duration;
-        viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details });
+        viewer.notifyChange({ property: "camera_path_keyframes", trigger: self_trigger });
       }
       return;
     }
@@ -1505,7 +1506,7 @@ function _attach_selected_keyframe_details(viewer) {
     if (property === "camera_path_selected_keyframe_fov" && keyframe) {
       if (state.camera_path_selected_keyframe_override_fov && keyframe.fov !== state.camera_path_selected_keyframe_fov) {
         keyframe.fov = state.camera_path_selected_keyframe_fov;
-        viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details  });
+        viewer.notifyChange({ property: "camera_path_keyframes", trigger: self_trigger });
       }
       return;
     }
@@ -1515,12 +1516,12 @@ function _attach_selected_keyframe_details(viewer) {
         state.camera_path_selected_keyframe_appearance_train_index === ""
       ) ?  undefined : parseInt(state.camera_path_selected_keyframe_appearance_train_index);
       keyframe.appearance_train_index = index;
-      viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details  });
+      viewer.notifyChange({ property: "camera_path_keyframes", trigger: self_trigger });
       return;
     }
   });
 
-  viewer.addEventListener("change", ({property, state, origin}) => {
+  viewer.addEventListener("change", ({property, state, trigger}) => {
     if (property === undefined ||
         property === "camera_path_keyframes" ||
         property === "camera_path_selected_keyframe" ||
@@ -1528,7 +1529,7 @@ function _attach_selected_keyframe_details(viewer) {
         property === "camera_path_duration" ||
         property === "camera_path_default_transition_duration" ||
         property === "dataset_images") {
-      if (origin === _attach_selected_keyframe_details) return;
+      if (trigger === self_trigger) return;
       updateSelectedKeyframe(state);
     }
   });
@@ -1562,13 +1563,20 @@ function _attach_camera_control(viewer) {
 }
 
 
-function _attach_draggable_keyframe_panel(viewer) {
-  function attachDraggableEvents(target) {
+function querySelectorAll(elements, selector) {
+  const out = [];
+  for (const element of elements) {
+    out.push(...element.querySelectorAll(selector));
+    if (element.matches(selector)) out.push(element);
   }
-  viewer.addEventListener("action", ({ action, root }) => {
-    if (action !== "attach_gui") return;
+  return out;
+}
+
+
+function _attach_draggable_keyframe_panel(viewer) {
+  viewer.addEventListener("gui_attached", ({ elements }) => {
     // Attach draggable keyframe panel
-    root.querySelectorAll(".keyframe-panel").forEach((panel) => {
+    querySelectorAll(elements, ".keyframe-panel").forEach((panel) => {
       let dragCounter = 0;
       let originalIndex;
       let dragged, originalAfterElement;
@@ -1608,7 +1616,7 @@ function _attach_draggable_keyframe_panel(viewer) {
             event.preventDefault();
             event.stopPropagation();
             const key = element.getAttribute("data-key");
-            viewer.delete_keyframe(key);
+            viewer.dispatchAction("delete_keyframe", { keyframe_id: key });
           });
         });
 
@@ -1936,7 +1944,7 @@ export class Viewer extends THREE.EventDispatcher {
           matrix = makeMatrix4(camNumbers);
         } catch (e) {
           // TODO:
-          this._update_notification({
+          this.update_notification({
             header: "Error setting camera matrix",
             detail: "Failed to parse camera format. Ensure it is 12 numbers separated by comma or newline.",
             type: "error",
@@ -2071,7 +2079,7 @@ export class Viewer extends THREE.EventDispatcher {
           if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
         } catch (error) {
           console.error("Error updating single frame:", error.message);
-          this._update_notification({
+          this.update_notification({
             header: "Error rendering frame",
             detail: error.message,
             type: "error",
@@ -2093,7 +2101,7 @@ export class Viewer extends THREE.EventDispatcher {
     this.set_frame_renderer(new WebSocketFrameRenderer({ 
       url,
       update_notification: (notification) => {
-        viewer._update_notification(notification);
+        viewer.update_notification(notification);
       }
     }));
     let absoluteUrl = new URL(url, window.location.href).href;
@@ -2215,12 +2223,12 @@ export class Viewer extends THREE.EventDispatcher {
   }
 
   create_public_url_accept() {
-    return this.create_public_url(true);
+    return this.create_public_url({ accept_license_terms: true });
   }
 
-  async create_public_url(accept_license_terms=false) {
+  async create_public_url({ accept_license_terms=false } = {}) {
     if (this.state.viewer_public_url) return;
-    this._update_notification({
+    this.update_notification({
       id: "public-url",
       header: "Creating public URL",
       closeable: false,
@@ -2246,7 +2254,7 @@ export class Viewer extends THREE.EventDispatcher {
       console.log("Public URL:", publicUrl);
       this.state.viewer_public_url = publicUrl;
       this.notifyChange({ property: "viewer_public_url" });
-      this._update_notification({
+      this.update_notification({
         id: "public-url",
         header: "Public URL created",
         detailHTML: `<a href="${publicUrl}" target="_blank" style="word-wrap:break-word;word-break:break-all">${publicUrl}</a>`,
@@ -2255,7 +2263,7 @@ export class Viewer extends THREE.EventDispatcher {
     } catch (error) {
       if (error.license_terms_url === "https://www.cloudflare.com/website-terms/") {
         // User needs to accept Cloudflare's terms
-        this._update_notification({
+        this.update_notification({
           id: "public-url",
           autoclose: 0,
         });
@@ -2263,7 +2271,7 @@ export class Viewer extends THREE.EventDispatcher {
         return;
       }
       console.error("Failed to create public URL:", error.message);
-      this._update_notification({
+      this.update_notification({
         id: "public-url",
         header: "Failed to create public URL",
         detail: error.message,
@@ -2284,7 +2292,11 @@ export class Viewer extends THREE.EventDispatcher {
     this.notifyChange({ property: "camera_path_duration" });
   }
 
-  delete_keyframe(keyframe_id) {
+  delete_keyframe({ keyframe_id } = {}) {
+    if (keyframe_id === undefined) {
+      keyframe_id = this.state.camera_path_selected_keyframe
+      if (keyframe_id === undefined) return
+    }
     this.state.camera_path_keyframes = this.state.camera_path_keyframes.filter((keyframe) => keyframe.id !== keyframe_id);
     if (this.state.camera_path_selected_keyframe === keyframe_id) {
       this.state.camera_path_selected_keyframe = undefined;
@@ -2294,11 +2306,6 @@ export class Viewer extends THREE.EventDispatcher {
     this.state.camera_path_duration = n < 1 ? 0 : (this.state.camera_path_duration * n / (n+1));
     this.notifyChange({ property: "camera_path_duration" });
     this.notifyChange({ property: "camera_path_keyframes" });
-  }
-
-  delete_selected_keyframe() {
-    if (this.state.camera_path_selected_keyframe === undefined) return;
-    this.delete_keyframe(this.state.camera_path_selected_keyframe);
   }
 
   add_keyframe() {
@@ -2427,33 +2434,9 @@ export class Viewer extends THREE.EventDispatcher {
   }
 
   _attach_actions() {
-    this.addEventListener("action", ({ action, state }) => {
-      if (action === "set_camera_to_selected_dataset_image")
-        this.set_camera_to_selected_dataset_image();
-      if (action === "set_camera_to_selected_keyframe")
-        this.set_camera_to_selected_keyframe();
-      if (action === "delete_all_keyframes")
-        this.delete_all_keyframes();
-      if (action === "delete_selected_keyframe")
-        this.delete_selected_keyframe();
-      if (action === "add_keyframe")
-        this.add_keyframe();
-      if (action === "clear_selected_keyframe")
-        this.clear_selected_keyframe();
-      if (action === "reset_settings")
-        this.reset_settings();
-      if (action === "clear_selected_dataset_image")
-        this.clear_selected_dataset_image();
-      if (action === "render_video")
-        this.render_video();
-      if (action === "save_camera_path")
-        this.save_camera_path();
-      if (action === "viewer_create_public_url")
-        this.create_public_url();
-      if (action === "viewer_create_public_url_accept")
-        this.create_public_url_accept();
-      if (action === "viewer_copy_public_url")
-        this.copy_public_url();
+    this.addEventListener("action", ({ action, ...rest }) => {
+      if (this[action] === undefined) return;
+      this[action](rest);
     });
   }
 
@@ -2574,7 +2557,7 @@ export class Viewer extends THREE.EventDispatcher {
     });
   }
 
-  export_camera_path() {
+  export_trajectory() {
     const state = this.state;
     const w = state.camera_path_resolution_1;
     const h = state.camera_path_resolution_2;
@@ -2671,9 +2654,9 @@ export class Viewer extends THREE.EventDispatcher {
     return data
   }
 
-  async save_camera_path() {
+  async save_trajectory() {
     try {
-      const data = this.export_camera_path();
+      const data = this.export_trajectory();
       await saveAs(new Blob([JSON.stringify(data, null, '  ')]), { 
         type: "application/json",
         filename: "camera_path.json",
@@ -2682,7 +2665,7 @@ export class Viewer extends THREE.EventDispatcher {
       });
     } catch (error) {
       console.error("Error saving camera path:", error);
-      this._update_notification({
+      this.update_notification({
         header: "Error saving camera path",
         detail: error.message,
         type: "error",
@@ -2709,7 +2692,7 @@ export class Viewer extends THREE.EventDispatcher {
         return;
       }
       console.error("Error saving video:", error);
-      this._update_notification({
+      this.update_notification({
         header: "Error saving video",
         detail: error.message,
         type: "error",
@@ -2718,7 +2701,7 @@ export class Viewer extends THREE.EventDispatcher {
 
     const renderId = this._renderVideoId = (this._renderVideoId || 0) + 1;
     let closed = false;
-    this._update_notification({
+    this.update_notification({
       header: "Rendering video",
       id: renderId,
       progress: 0,
@@ -2753,7 +2736,7 @@ export class Viewer extends THREE.EventDispatcher {
         } finally {
           frame?.close?.();
         }
-        this._update_notification({
+        this.update_notification({
           header: "Rendering video",
           id: renderId,
           progress: i / positions.length,
@@ -2765,7 +2748,7 @@ export class Viewer extends THREE.EventDispatcher {
         await writer.close?.();
       } else {
         await writer.finalize();
-        this._update_notification({
+        this.update_notification({
           id: renderId,
           header: "Rendering finished",
           autoclose: notification_autoclose,
@@ -2773,7 +2756,7 @@ export class Viewer extends THREE.EventDispatcher {
         });
       }
     } catch (error) {
-      this._update_notification({
+      this.update_notification({
         id: renderId,
         header: "Rendering failed",
         detail: error.message,
@@ -2783,7 +2766,7 @@ export class Viewer extends THREE.EventDispatcher {
     }
   }
 
-  load_camera_path(data) {
+  load_trajectory({ data }) {
     try {
       if (!data) {
         throw new Error("No data provided");
@@ -2874,7 +2857,7 @@ export class Viewer extends THREE.EventDispatcher {
       this.notifyChange({ property: undefined });
     } catch (error) {
       console.error("Error loading camera path:", error);
-      this._update_notification({
+      this.update_notification({
         header: "Error loading camera path",
         detail: error.message,
         type: "error",
@@ -2882,8 +2865,8 @@ export class Viewer extends THREE.EventDispatcher {
     }
   }
 
-  attach_gui(root) {
-    root = root || document.body;
+  attach_gui({ elements } = {}) {
+    elements = elements || [document.body];
     const state = this.state;
     // Handle state change
     function getValue(element) {
@@ -2906,13 +2889,9 @@ export class Viewer extends THREE.EventDispatcher {
         element.dispatchEvent(e);
       }
     }
-    const querySelectorAll = (selector) => {
-      let out = root.querySelectorAll(selector);
-      if (root.matches(selector)) out = Array.from(out).concat(root);
-      return out;
-    }
-    querySelectorAll("[data-set-viewer-ref]").forEach(element => { element.viewer = this });
-    querySelectorAll("input[name],select[name]").forEach(element => {
+    const query = (selector) => querySelectorAll(elements, selector);
+    query("[data-set-viewer-ref]").forEach(element => { element.viewer = this });
+    query("input[name],select[name]").forEach(element => {
       element.addEventListener("change", (event) => {
         if (event.simulated) return;
         state[name] = getValue(event.target);
@@ -2964,7 +2943,7 @@ export class Viewer extends THREE.EventDispatcher {
         setValue(element, state[name]);
       });
     });
-    root.querySelectorAll("[data-bind]").forEach(element => {
+    query("[data-bind]").forEach(element => {
       const name = element.getAttribute("data-bind");
       this.addEventListener("change", ({ property }) => {
         if (property !== name && property !== undefined) return;
@@ -2972,7 +2951,7 @@ export class Viewer extends THREE.EventDispatcher {
       });
     });
 
-    querySelectorAll("[data-options]").forEach(element => {
+    query("[data-options]").forEach(element => {
       const name = element.getAttribute("data-options");
       function updateOptions() {
         const selectedValue = state[element.name];
@@ -3010,7 +2989,7 @@ export class Viewer extends THREE.EventDispatcher {
       updateOptions();
     });
 
-    querySelectorAll("[data-enable-if]").forEach(element => {
+    query("[data-enable-if]").forEach(element => {
       const [evalFn, dependencies] = parseBinding(element.getAttribute("data-enable-if"), "bool");
       this.addEventListener("change", ({ property, state }) => {
         if (property !== undefined && !dependencies.includes(property)) return;
@@ -3024,7 +3003,7 @@ export class Viewer extends THREE.EventDispatcher {
       });
     });
 
-    querySelectorAll("[data-visible-if]").forEach(element => {
+    query("[data-visible-if]").forEach(element => {
       const [evalFn, dependencies] = parseBinding(element.getAttribute("data-visible-if"), "bool");
       let display = element.style.display;
       if (display === "none") display = null;
@@ -3034,7 +3013,7 @@ export class Viewer extends THREE.EventDispatcher {
       });
     });
 
-    querySelectorAll("[data-action]").forEach(element => {
+    query("[data-action]").forEach(element => {
       const action = element.getAttribute("data-action");
       element.addEventListener("click", (e) => {
         if (e.simulated) return;
@@ -3044,7 +3023,7 @@ export class Viewer extends THREE.EventDispatcher {
     });
 
     // data-bind-class has the form "class1:property1"
-    querySelectorAll("[data-bind-class]").forEach(element => {
+    query("[data-bind-class]").forEach(element => {
       const [class_name, expr] = element.getAttribute("data-bind-class").split(":");
       const [evalFn, dependencies] = parseBinding(expr, "string");
       this.addEventListener("change", ({ property, state }) => {
@@ -3058,7 +3037,7 @@ export class Viewer extends THREE.EventDispatcher {
     });
 
     // data-bind-attr has the form "attribute:property"
-    querySelectorAll("[data-bind-attr]").forEach(element => {
+    query("[data-bind-attr]").forEach(element => {
       const [attr, name] = element.getAttribute("data-bind-attr").split(":");
       this.addEventListener("change", ({ property, state }) => {
         if (property !== name && property !== undefined) return;
@@ -3068,7 +3047,7 @@ export class Viewer extends THREE.EventDispatcher {
         element.setAttribute(attr, state[name]);
     });
 
-    querySelectorAll('#input_camera_path').forEach((input) => {
+    query('#input_trajectory').forEach((input) => {
       input.addEventListener('change', (event) => {
         if (event.simulated) return;
         const file = event.target.files[0];
@@ -3079,14 +3058,14 @@ export class Viewer extends THREE.EventDispatcher {
           // Empty the input value to allow loading the same file again
           input.value = '';
           // Load camera path
-          this.load_camera_path(data);
+          this.load_trajectory({ data });
         };
         reader.readAsText(file);
       });
     });
 
     // Camera pose textarea
-    const camera_pose_elements = root.querySelectorAll("[name=camera_pose]");
+    const camera_pose_elements = query("[name=camera_pose]");
     const updateCameraElements = () => {
       const { matrix } = this._get_camera_params();
       const value = formatMatrix4(matrix, 5);
@@ -3110,8 +3089,7 @@ export class Viewer extends THREE.EventDispatcher {
     }
 
     // Method info
-    const method_info_element = document.getElementById("method_info");
-    if (method_info_element) {
+    query("#method_info").forEach((method_info_element) => {
       const update_method_info = ({ method_info }) => {
         const newHtml = method_info ? buildMethodInfo(method_info) : "";
         method_info_element.innerHTML = newHtml;
@@ -3120,11 +3098,10 @@ export class Viewer extends THREE.EventDispatcher {
         if (property === "method_info" || property === undefined)
           update_method_info(state);
       });
-    }
+    });
     
     // Dataset info
-    const dataset_info_element = document.getElementById("dataset_info");
-    if (dataset_info_element) {
+    query("#dataset_info").forEach((dataset_info_element) => {
       const update_dataset_info = ({ dataset_info }) => {
         const newHtml = dataset_info ? buildDatasetInfo(dataset_info) : "";
         dataset_info_element.innerHTML = newHtml;
@@ -3133,11 +3110,10 @@ export class Viewer extends THREE.EventDispatcher {
         if (property === "dataset_info" || property === undefined)
           update_dataset_info(state);
       });
-    }
+    });
 
     // Method hparams
-    const method_hparams_element = document.getElementById("method_hparams");
-    if (method_hparams_element) {
+    query("#method_hparams").forEach((method_hparams_element) => {
       const update_method_hparams = (method_hparams) => {
         // Remove display none
         let newHtml = ""
@@ -3152,18 +3128,9 @@ export class Viewer extends THREE.EventDispatcher {
         if (property === "method_info" || property === undefined)
           update_method_hparams(state.method_info?.hparams || {});
       });
-    }
-
-    this.addEventListener("change", ({ property, state }) => {
-      if (property === "theme_color" || property === undefined) {
-        document.documentElement.style.setProperty("--theme-color", state.theme_color);
-      }
-      if (property === "viewer_font_size" || property === undefined) {
-        document.documentElement.style.fontSize = `${state.viewer_font_size}rem`;
-      }
     });
 
-    root.querySelectorAll(".dialog").forEach(element => {
+    query(".dialog").forEach(element => {
       const id = element.id;
       this.addEventListener("action", ({ action }) => {
         if (action === `open_dialog_${id}`) {
@@ -3172,14 +3139,29 @@ export class Viewer extends THREE.EventDispatcher {
       });
     });
 
-    // Allow plugins to attach gui
-    this.dispatchAction("attach_gui", { root });
-    
+    // Only attach once when attach_gui is called initially
+    query("body").forEach(() => {
+      this.addEventListener("change", ({ property, state }) => {
+        if (property === "theme_color" || property === undefined) {
+          document.documentElement.style.setProperty("--theme-color", state.theme_color);
+        }
+        if (property === "viewer_font_size" || property === undefined) {
+          document.documentElement.style.fontSize = `${state.viewer_font_size}rem`;
+        }
+      });
+    });
+
+    this.dispatchEvent({
+      type: "gui_attached",
+      elements,
+      target: this,
+    });
+
     // Notify gui is attached and propagate changes
     this.notifyChange({ property: undefined });
   }
 
-  _update_notification({ id, header, progress, autoclose=undefined, detail="", detailHTML=undefined, type="info", onclose, closeable=true }) {
+  update_notification({ id, header, progress, autoclose=undefined, detail="", detailHTML=undefined, type="info", onclose, closeable=true }) {
     this._notifications = this._notifications || {};
     this._notification_id_counter = this._notification_id_counter || 0;
     if (id === undefined) {
@@ -3332,7 +3314,7 @@ function buildDatasetInfo(info) {
 }
 
 
-export function makeMatrix4(elements) {
+function makeMatrix4(elements) {
   if (!elements || elements.length !== 12) {
     throw new Error("Invalid elements array. Expected 12 elements.");
   }
@@ -3344,7 +3326,7 @@ function matrix4ToArray(matrix) {
   return [e[0], e[4], e[8], e[12], e[1], e[5], e[9], e[13], e[2], e[6], e[10], e[14]];
 }
 
-export function formatMatrix4(matrix, round) {
+function formatMatrix4(matrix, round) {
   let a = matrix4ToArray(matrix);
   if (round !== undefined) {
     // For each element, round to the nearest `round` decimal places

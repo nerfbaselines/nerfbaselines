@@ -30,7 +30,7 @@
           <div class="row">
             <button 
               onclick="this.closest('.dialog').classList.remove('dialog-open')"
-              data-action="viewer_create_public_url_accept">Agree</button>
+              data-action="create_public_url_accept">Agree</button>
             <button onclick="this.closest('.dialog').classList.remove('dialog-open')">Cancel</button>
           </div>
         </div>
@@ -92,7 +92,7 @@
           </div>
           <div class="row">
             <button data-action="set_camera_to_selected_keyframe">Navigate</button>
-            <button data-action="delete_selected_keyframe">Delete</button>
+            <button data-action="delete_keyframe">Delete</button>
           </div>
         </div>
       </div>
@@ -156,8 +156,8 @@
             <input type="text" id="viewer_public_url" name="viewer_public_url" value="" disabled>
           </div>
           <div class="row">
-            <button data-action="viewer_create_public_url" data-enable-if="!viewer_requesting_public_url && !viewer_public_url">Make public URL</button>
-            <button data-action="viewer_copy_public_url" data-enable-if="viewer_public_url">Copy public URL</button>
+            <button data-action="create_public_url" data-enable-if="!viewer_requesting_public_url && !viewer_public_url">Make public URL</button>
+            <button data-action="copy_public_url" data-enable-if="viewer_public_url">Copy public URL</button>
           </div>
           <fieldset>
             <legend>UI</legend>
@@ -527,9 +527,9 @@
           <div class="row">
             <label class="button">
               Load trajectory
-              <input type="file" style="display: none" id="input_camera_path" accept=".json">
+              <input type="file" style="display: none" id="input_trajectory" accept=".json">
             </label>
-            <button id="button_export_camera_path" data-action="save_camera_path" data-enable-if="camera_path_trajectory" disabled>Export trajectory</button>
+            <button id="button_export_trajectory" data-action="save_trajectory" data-enable-if="camera_path_trajectory" disabled>Export trajectory</button>
           </div>
           <div class="row">
             <button data-action="render_video" data-enable-if="camera_path_trajectory && has_method" disabled>Render video</a>
