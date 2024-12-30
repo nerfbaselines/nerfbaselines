@@ -79,6 +79,9 @@ Even though the argument `--data <dataset>` is optional, it is recommended, as t
 are used to perform gravity alignment and rescaling for a better viewing experience.
 It also enables visualizing the input camera frustums.
 
+![viewer-gui](https://github.com/user-attachments/assets/d0316bf1-e650-43a0-ad8f-3b69deeed471)
+
+
 ## Results
 In this section, we present results of implemented methods on standard benchmark datasets. For detailed results, visit the project page:
 [https://nerfbaselines.github.io](https://nerfbaselines.github.io/)
