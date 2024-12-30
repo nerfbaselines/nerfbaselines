@@ -5,6 +5,7 @@ import numpy as np
 import nerfbaselines
 from nerfbaselines import __version__
 from nerfbaselines.utils import image_to_srgb, visualize_depth, apply_colormap
+from nerfbaselines.results import get_dataset_info
 from ._httpserver import run_simple_http_server
 
 

@@ -16,8 +16,6 @@ import io
 import threading
 import numpy as np
 from PIL import Image
-import nerfbaselines
-from nerfbaselines.results import get_dataset_info
 from nerfbaselines.datasets import dataset_index_select, dataset_load_features
 from nerfbaselines.utils import image_to_srgb
 from ._proxy import cloudflared_tunnel
@@ -33,7 +31,6 @@ class NotFound(Exception):
 
 class BadRequest(Exception):
     pass
-
 
 
 @contextlib.contextmanager
@@ -307,12 +304,8 @@ def httpserver_json_errorhandler(fn):
             status = 500
             if isinstance(e, BadRequest):
                 status = 400
-                if hasattr(e, "data"):
-                    out_data.update(e.data)
             elif isinstance(e, NotFound):
                 status = 404
-                if hasattr(e, "data"):
-                    out_data.update(e.data)
             self.send_response(status)
             out = json.dumps(out_data).encode("utf-8")
             self.send_header("Content-Type", "application/json")
@@ -491,18 +484,13 @@ def run_flask_server(*args, port, **kwargs):
     @app.errorhandler(Exception)
     def handle_exception(e):
         app.logger.error(f"Server Error: {e}", exc_info=True)
-        other_data = {}
-        if hasattr(e, "data"):
-            other_data = e.data
         if isinstance(e, BadRequest):
             return jsonify({
-                **other_data,
                 "status": "error",
                 "message": str(e),
             }), 400
         if isinstance(e, NotFound):
             return jsonify({
-                **other_data,
                 "status": "error",
                 "message": str(e),
             }), 404
