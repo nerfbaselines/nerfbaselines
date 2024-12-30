@@ -478,7 +478,7 @@ def run_flask_server(*args, port, **kwargs):
     app.config["TEMPLATES_AUTO_RELOAD"] = True
     # Reduce logging
     log = logging.getLogger('werkzeug')
-    log.setLevel(logging.DEBUG)
+    log.setLevel(logging.ERROR)
 
     # Full exception details
     @app.errorhandler(Exception)
