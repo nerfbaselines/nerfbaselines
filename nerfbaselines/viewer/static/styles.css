@@ -472,7 +472,7 @@ html, body {
 
 .dialog-header {
   margin: 0 0 0.6rem 0;
-  padding: 1rem;
+  padding: 0.9rem;
   border-bottom: 1px solid var(--border-color);
   display: flex;
   font-size: 1.2em;
@@ -488,8 +488,8 @@ html, body {
   font-size: 1.2rem;
 
   /* Enlarge clickable area */
-  padding: 1rem;
-  margin: -1rem;
+  padding: 0.9rem;
+  margin: -0.9rem;
 }
 .dialog-header > i.ti-x:hover,
 .notification-header > i.ti-x:hover {
