@@ -567,6 +567,8 @@ function _attach_camera_path(viewer) {
         property !== 'camera_path_default_fov' &&
         property !== 'camera_path_framerate' &&
         property !== 'camera_path_duration' &&
+        property !== 'camera_path_time_interpolation' &&
+        property !== 'camera_path_default_transition_duration' &&
         property !== 'camera_path_bias') return;
     const {
       camera_path_keyframes,
@@ -578,6 +580,8 @@ function _attach_camera_path(viewer) {
       camera_path_default_fov,
       camera_path_duration,
       camera_path_framerate,
+      camera_path_time_interpolation,
+      camera_path_default_transition_duration,
     } = state;
     state.camera_path_trajectory = undefined;
     if (camera_path_keyframes) {
@@ -588,6 +592,8 @@ function _attach_camera_path(viewer) {
         tension: camera_path_tension || 0,
         continuity: camera_path_continuity || 0,
         bias: camera_path_bias || 0,
+        time_interpolation: camera_path_time_interpolation,
+        default_transition_duration: camera_path_default_transition_duration,
         default_fov: camera_path_default_fov,
         duration: camera_path_duration,
         framerate: camera_path_framerate,
@@ -1386,16 +1392,18 @@ function _attach_selected_keyframe_details(viewer) {
   const getKeyframes = ({ camera_path_keyframes, camera_path_selected_keyframe, camera_path_loop }) => {
     const keyframeIndex = camera_path_keyframes?.findIndex((keyframe) => keyframe.id === camera_path_selected_keyframe);
     const keyframe = keyframeIndex >= 0 ? camera_path_keyframes[keyframeIndex] : undefined;
-    const nextKeyframe = (camera_path_keyframes?.length || 0) > 1 ?
-      ((camera_path_loop || keyframeIndex < camera_path_keyframes.length - 1) ?
-        camera_path_keyframes[(keyframeIndex + 1) % camera_path_keyframes.length] : undefined) : undefined;
-    return { keyframe, nextKeyframe, keyframeIndex };
+    const prevKeyframe = (camera_path_keyframes?.length || 0) > 1 ?
+      ((camera_path_loop || keyframeIndex > 0) ?
+        camera_path_keyframes[(keyframeIndex + camera_path_keyframes.length - 1) % camera_path_keyframes.length] : undefined) : undefined;
+    return { keyframe, prevKeyframe, keyframeIndex };
   };
 
   const updateSelectedKeyframe = (state) => {
     const { dataset_images, camera_path_keyframes, 
-            camera_path_selected_keyframe, camera_path_loop } = state;
-    const { keyframe, nextKeyframe, keyframeIndex } = getKeyframes(state);
+            camera_path_selected_keyframe, camera_path_loop,
+            camera_path_interpolation, camera_path_time_interpolation,
+            camera_path_default_transition_duration } = state;
+    const { keyframe, prevKeyframe, keyframeIndex } = getKeyframes(state);
     const def = x => x !== undefined && x !== null;
     const change = {
       camera_path_selected_keyframe_natural_index: keyframeIndex + 1,
@@ -1407,27 +1415,64 @@ function _attach_selected_keyframe_details(viewer) {
       camera_path_selected_keyframe_fov: def(keyframe?.fov) ? keyframe.fov : state.camera_path_default_fov,
       camera_path_selected_keyframe_override_fov: def(keyframe?.fov),
       camera_path_selected_keyframe_velocity_multiplier: def(keyframe?.velocity_multiplier) ? keyframe.velocity_multiplier : 1,
-      camera_path_selected_keyframe_duration: def(keyframe?.duration) ? keyframe.duration : 2,
+      camera_path_selected_keyframe_show_in_duration: (
+        camera_path_time_interpolation === "time" && (camera_path_loop || keyframeIndex > 0)
+      ),
+      camera_path_selected_keyframe_show_duration: (
+        camera_path_interpolation === "none" || 
+        (camera_path_time_interpolation === "time" && (camera_path_loop || keyframeIndex < camera_path_keyframes.length - 1))
+      ),
+      camera_path_selected_keyframe_override_duration: def(keyframe?.duration),
+      camera_path_selected_keyframe_override_in_duration: def(prevKeyframe?.duration),
+      camera_path_selected_keyframe_duration: def(keyframe?.duration) ? keyframe.duration : camera_path_default_transition_duration,
+      camera_path_selected_keyframe_in_duration: def(prevKeyframe?.duration) ? prevKeyframe.duration : camera_path_default_transition_duration,
     };
     for (const property in change) {
       if (state[property] !== change[property]) {
         state[property] = change[property];
-        viewer.notifyChange({ property });
+        viewer.notifyChange({ property, origin: _attach_selected_keyframe_details });
       }
     }
   }
-  viewer.addEventListener("change", ({property, state, trigger}) => {
+  viewer.addEventListener("change", ({property, state, trigger, origin}) => {
+    if (origin === _attach_selected_keyframe_details) return;
     // Add setters
-    const { keyframe, nextKeyframe } = getKeyframes(state);
+    const { keyframe, prevKeyframe } = getKeyframes(state);
     if (property === "camera_path_selected_keyframe_override_fov" && keyframe) {
       if (state.camera_path_selected_keyframe_override_fov) {
         if (keyframe?.fov === undefined && state.camera_path_default_fov !== undefined) {
           keyframe.fov = state.camera_path_default_fov;
-          viewer.notifyChange({ property: "camera_path_keyframes" });
+          viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details  });
         }
       } else {
         keyframe.fov = undefined;
-        viewer.notifyChange({ property: "camera_path_keyframes" });
+        viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details  });
+      }
+      return
+    }
+
+    if (property === "camera_path_selected_keyframe_override_in_duration" && keyframe) {
+      if (state.camera_path_selected_keyframe_override_in_duration) {
+        if (prevKeyframe?.duration === undefined && state.camera_path_default_transition_duration !== undefined) {
+          prevKeyframe.duration = state.camera_path_default_transition_duration;
+          viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details  });
+        }
+      } else {
+        prevKeyframe.duration = undefined;
+        viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details  });
+      }
+      return
+    }
+
+    if (property === "camera_path_selected_keyframe_override_duration" && keyframe) {
+      if (state.camera_path_selected_keyframe_override_duration) {
+        if (keyframe?.duration === undefined && state.camera_path_default_transition_duration !== undefined) {
+          keyframe.duration = state.camera_path_default_transition_duration;
+          viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details  });
+        }
+      } else {
+        keyframe.duration = undefined;
+        viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details  });
       }
       return
     }
@@ -1435,15 +1480,24 @@ function _attach_selected_keyframe_details(viewer) {
     if (property === "camera_path_selected_keyframe_velocity_multiplier" && keyframe) {
       if (state.camera_path_selected_keyframe_velocity_multiplier && keyframe.velocity_multiplier !== state.camera_path_selected_keyframe_velocity_multiplier) {
         keyframe.velocity_multiplier = state.camera_path_selected_keyframe_velocity_multiplier;
-        viewer.notifyChange({ property: "camera_path_keyframes" });
+        viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details  });
       }
       return;
     }
 
     if (property === "camera_path_selected_keyframe_duration" && keyframe) {
-      if (state.camera_path_selected_keyframe_duration && keyframe.duration !== state.camera_path_selected_keyframe_duration) {
+      if (state.camera_path_selected_keyframe_override_duration && keyframe.duration !== state.camera_path_selected_keyframe_duration) {
         keyframe.duration = state.camera_path_selected_keyframe_duration;
-        viewer.notifyChange({ property: "camera_path_keyframes" });
+        viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details  });
+      }
+      return;
+    }
+
+    if (property === "camera_path_selected_keyframe_in_duration" && prevKeyframe) {
+      if (state.camera_path_selected_keyframe_override_in_duration && 
+          prevKeyframe.duration !== state.camera_path_selected_keyframe_in_duration) {
+        prevKeyframe.duration = state.camera_path_selected_keyframe_in_duration;
+        viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details });
       }
       return;
     }
@@ -1451,7 +1505,7 @@ function _attach_selected_keyframe_details(viewer) {
     if (property === "camera_path_selected_keyframe_fov" && keyframe) {
       if (state.camera_path_selected_keyframe_override_fov && keyframe.fov !== state.camera_path_selected_keyframe_fov) {
         keyframe.fov = state.camera_path_selected_keyframe_fov;
-        viewer.notifyChange({ property: "camera_path_keyframes" });
+        viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details  });
       }
       return;
     }
@@ -1461,19 +1515,22 @@ function _attach_selected_keyframe_details(viewer) {
         state.camera_path_selected_keyframe_appearance_train_index === ""
       ) ?  undefined : parseInt(state.camera_path_selected_keyframe_appearance_train_index);
       keyframe.appearance_train_index = index;
-      viewer.notifyChange({ property: "camera_path_keyframes" });
+      viewer.notifyChange({ property: "camera_path_keyframes", origin: _attach_selected_keyframe_details  });
       return;
     }
   });
 
-  viewer.addEventListener("change", ({property, state}) => {
+  viewer.addEventListener("change", ({property, state, origin}) => {
     if (property === undefined ||
         property === "camera_path_keyframes" ||
         property === "camera_path_selected_keyframe" ||
         property === "camera_path_loop" ||
         property === "camera_path_duration" ||
-        property === "dataset_images")
+        property === "camera_path_default_transition_duration" ||
+        property === "dataset_images") {
+      if (origin === _attach_selected_keyframe_details) return;
       updateSelectedKeyframe(state);
+    }
   });
   updateSelectedKeyframe(viewer.state);
 }
@@ -1634,7 +1691,6 @@ function _attach_draggable_keyframe_panel(viewer) {
       panel.addEventListener("dragleave", (event) => {
         if (!dragged) return;
         dragCounter--;
-        console.log("dragleave", dragCounter);
         if (dragCounter === 0) {
           dragged.remove();
         }
@@ -1706,7 +1762,6 @@ function _attach_draggable_keyframe_panel(viewer) {
           // 4) Update keyframe timings
           if (state.camera_path_trajectory) {
             const { keyframeStarts, keyframeDurations } = state.camera_path_trajectory;
-            console.log(keyframeStarts, keyframeDurations);
             for (let i=0; i < lastState.length; i++) {
               const start = keyframeStarts[i]?.toFixed(2) || "-"
               const duration = keyframeDurations[i]?.toFixed(2) || "-";
@@ -1728,6 +1783,16 @@ function _attach_draggable_keyframe_panel(viewer) {
 
 
 function parseBinding(expr, type=undefined) {
+  if (expr.indexOf("||") > 0) {
+    const names = [];
+    const callbacks = [];
+    const parts = expr.split("||").map(x => x.trim()).filter(x => x.length > 0).map(x => parseBinding(x, type));
+    parts.forEach(([callback, partNames]) => {
+      names.push(...partNames);
+      callbacks.push(callback);
+    });
+    return [(state) => callbacks.any(callback => callback(state)), names];
+  }
   if (expr.indexOf("&&") > 0) {
     const names = [];
     const callbacks = [];
@@ -2251,7 +2316,7 @@ export class Viewer extends THREE.EventDispatcher {
     });
     const duration = this.state.camera_path_duration || 0;
     const n = this.state.camera_path_keyframes.length;
-    this.state.camera_path_duration = (n < 2 && duration == 0) ? 2 : (duration * n / (n - 1));
+    this.state.camera_path_duration += this.state.camera_path_default_transition_duration;
     this.notifyChange({ property: "camera_path_duration" });
     this.notifyChange({ property: "camera_path_keyframes" });
   }
@@ -2319,11 +2384,42 @@ export class Viewer extends THREE.EventDispatcher {
     });
 
     this.addComputedProperty({
+      name: "camera_path_show_computed_duration",
+      dependencies: ["camera_path_time_interpolation", "camera_path_interpolation"],
+      getter: ({
+        camera_path_time_interpolation,
+        camera_path_interpolation }) => {
+        if (camera_path_interpolation === "none") return true;
+        if (camera_path_time_interpolation === "time") return true;
+        return false;
+      },
+    });
+
+    this.addComputedProperty({
       name: "camera_path_computed_duration",
-      dependencies: ["camera_path_keyframes", "camera_path_duration", "camera_path_interpolation"],
-      getter: ({ camera_path_keyframes, camera_path_duration, camera_path_interpolation }) => {
-        if (camera_path_interpolation === "none") {
-          return camera_path_keyframes.map(x => x.duration === undefined ? 2 : x.duration).reduce((a, b) => a + b, 0);
+      dependencies: [
+        "camera_path_keyframes", 
+        "camera_path_default_transition_duration", 
+        "camera_path_duration", 
+        "camera_path_time_interpolation", 
+        "camera_path_loop",
+        "camera_path_interpolation"],
+      getter: ({ 
+        camera_path_default_transition_duration,
+        camera_path_keyframes, 
+        camera_path_duration, 
+        camera_path_loop,
+        camera_path_time_interpolation,
+        camera_path_interpolation }) => {
+        if (camera_path_interpolation === "none" || camera_path_time_interpolation === "time") {
+          return camera_path_keyframes.map((x, i) => {
+            const duration = (x.duration === undefined || x.duration === null) ? 
+              camera_path_default_transition_duration : x.duration;
+            if (camera_path_time_interpolation === "time" && !camera_path_loop && i === camera_path_keyframes.length - 1) {
+              return 0;
+            }
+            return duration;
+          }).reduce((a, b) => a + b, 0);
         }
         return camera_path_duration;
       }
@@ -2436,6 +2532,7 @@ export class Viewer extends THREE.EventDispatcher {
           property !== 'camera_path_framerate' &&
           property !== 'camera_path_keyframes' &&
           property !== 'camera_path_interpolation' &&
+          property !== 'camera_path_default_transition_duration' &&
           property !== 'camera_path_duration' &&
           property !== 'preview_is_playing') return;
       const {
@@ -2443,6 +2540,7 @@ export class Viewer extends THREE.EventDispatcher {
         camera_path_framerate,
         camera_path_interpolation,
         camera_path_duration,
+        camera_path_default_transition_duration,
         camera_path_keyframes,
         preview_is_playing,
       } = state;
@@ -2459,7 +2557,8 @@ export class Viewer extends THREE.EventDispatcher {
         let delays;
         const isCancelledLocal = isCancelled;
         if (camera_path_interpolation === 'none') {
-          delays = camera_path_keyframes.map(x => 1000 * (x.duration === undefined ? 2 : x.duration));
+          delays = camera_path_keyframes.map(x => 1000 * ((x.duration === undefined || x.duration === null)
+            ? camera_path_default_transition_duration : x.duration));
         } else {
           delays = Array.from({ length: camera_path_trajectory?.positions?.length || 0 }, (_, i) => 1000 / camera_path_framerate);
         }
@@ -2532,6 +2631,8 @@ export class Viewer extends THREE.EventDispatcher {
       keyframes,
       default_fov: state.camera_path_default_fov,
       duration: state.camera_path_duration,
+      default_transition_duration: state.camera_path_default_transition_duration,
+      time_interpolation: state.camera_path_time_interpolation,
     };
     let fps = state.camera_path_framerate;
     if (source.interpolation === "kochanek-bartels") {
@@ -2543,7 +2644,7 @@ export class Viewer extends THREE.EventDispatcher {
       source.is_cycle = state.camera_path_loop;
     }
     const data = {
-      version: 'nerfbaselines-v2',
+      version: 'nerfbaselines-v1',
       camera_model: "pinhole",
       image_size: [w, h],
       fps,
@@ -2687,8 +2788,8 @@ export class Viewer extends THREE.EventDispatcher {
       if (!data) {
         throw new Error("No data provided");
       }
-      if (data.version !== "nerfbaselines-v2") {
-        throw new Error(`Unsupported version ${data.version}. Only 'nerfbaselines-v2' is supported`);
+      if (data.version !== "nerfbaselines-v1") {
+        throw new Error(`Unsupported version ${data.version}. Only 'nerfbaselines-v1' is supported`);
       }
       const state = this.state;
       if (data.camera_model !== "pinhole") {
@@ -2727,10 +2828,27 @@ export class Viewer extends THREE.EventDispatcher {
       const {
         default_fov,
         duration,
+        default_transition_duration,
+        time_interpolation,
       } = source;
       if (correctnull(default_fov) !== undefined)
         state.camera_path_default_fov = default_fov;
-      state.camera_path_duration = correctnull(duration) === undefined ? (2*source["keyframes"].length) : duration;
+      if (correctnull(default_transition_duration) !== undefined)
+        state.camera_path_default_transition_duration = default_transition_duration;
+      if (correctnull(time_interpolation) !== undefined) {
+        if (["velocity", "time"].indexOf(time_interpolation) === -1) {
+          throw new Error("Time interpolation must be either 'velocity' or 'time'");
+        }
+        state.camera_path_time_interpolation = time_interpolation;
+      } else {
+        // This is a legacy trajectory format where velocity intepolation was not implemented
+        state.camera_path_time_interpolation = "time";
+      }
+      state.camera_path_duration = correctnull(duration) === undefined ? 
+        (state.camera_path_default_transition_duration*source["keyframes"].length) : duration;
+      if (state.camera_path_duration === undefined || state.camera_path_duration === null)
+        state.camera_path_duration = 0;
+
       const keyframes = [];
       for (let k of source["keyframes"]) {
         const matrix = makeMatrix4(k.pose);

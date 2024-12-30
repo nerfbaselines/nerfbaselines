@@ -58,13 +58,22 @@
           <i class="ti ti-x" data-action="clear_selected_keyframe"></i>
         </div>
         <div class="panel">
-          <div class="row" data-visible-if="camera_path_interpolation!=none">
+          <div class="row" data-visible-if="camera_path_interpolation!=none && camera_path_time_interpolation==velocity">
             <label for="camera_path_selected_keyframe_velocity_multiplier">Velocity multiplier</label>
             <input type="number" id="camera_path_selected_keyframe_velocity_multiplier" name="camera_path_selected_keyframe_velocity_multiplier" min="0.00001" max="300" step="0.00001" value="1">
           </div>
-          <div class="row" data-visible-if="camera_path_interpolation==none">
-            <label for="camera_path_selected_keyframe_duration">Duration</label>
-            <input type="number" id="camera_path_selected_keyframe_duration" name="camera_path_selected_keyframe_duration" min="0.01" max="300" step="0.01" value="2">
+          <div class="row" data-visible-if="camera_path_selected_keyframe_show_in_duration">
+            <label for="camera_path_selected_keyframe_in_duration">In transition</label>
+            <input type="number" id="camera_path_selected_keyframe_in_duration" name="camera_path_selected_keyframe_in_duration" min="0.001" max="300" step="0.001" value="2" data-enable-if="camera_path_selected_keyframe_override_in_duration" disabled>
+            <input type="checkbox" name="camera_path_selected_keyframe_override_in_duration" />
+          </div>
+          <div class="row" data-visible-if="camera_path_selected_keyframe_show_duration">
+            <label for="camera_path_selected_keyframe_duration">
+              <span data-visible-if="camera_path_interpolation==none">Duration</span>
+              <span data-visible-if="camera_path_interpolation!=none">Out transition</span>
+            </label>
+            <input type="number" id="camera_path_selected_keyframe_duration" name="camera_path_selected_keyframe_duration" min="0.001" max="300" step="0.001" value="2" data-enable-if="camera_path_selected_keyframe_override_duration" disabled>
+            <input type="checkbox" name="camera_path_selected_keyframe_override_duration" />
           </div>
           <div class="row">
             <label for="camera_path_selected_keyframe_fov">FOV</label>
@@ -412,12 +421,12 @@
                 <button id="button_preview_render_stop" onclick="var el=document.getElementById('preview_is_preview_mode'); el.checked = false; el.dispatchEvent(new Event('change'))">Exit render preview</button>
               </div>
 
-              <div class="row" data-visible-if="camera_path_interpolation!=none">
+              <div class="row" data-visible-if="!camera_path_show_computed_duration">
                 <label for="camera_path_duration">Duration (sec)</label>
                 <input type="number" id="camera_path_duration" name="camera_path_duration" min="0.01" max="1e8" step="0.01" value="0">
                 <div class="input-hint">Total duration of the camera path in seconds.</div>
               </div>
-              <div class="row" data-visible-if="camera_path_interpolation==none">
+              <div class="row" data-visible-if="camera_path_show_computed_duration">
                 <label for="camera_path_computed_duration">Duration (sec)</label>
                 <input type="number" id="camera_path_computed_duration" name="camera_path_computed_duration" min="0.01" max="1e8" step="0.01" value="0" disabled>
                 <div class="input-hint">Total duration of the camera path in seconds.</div>
@@ -444,6 +453,28 @@
               <option value="circle">circle</option>
             </select>
             <div class="input-hint">Camera path interpolation.</div>
+          </div>
+
+          <div class="row">
+            <label>Speed interpolation</label>
+            <div class="switch">
+              <label>
+                <input type="radio" name="camera_path_time_interpolation" value="velocity" checked>
+                <span>velocity</span>
+              </label>
+              <label>
+                <input type="radio" name="camera_path_time_interpolation" value="time">
+                <span>time</span>
+              </label>
+            </div>
+            <div class="input-hint">For velocity, the velocity is kept the same during the interpolation (possibly overriden at keyframes); For time, the transition durations are respected.</div>
+          </div>
+
+          <div class="row">
+            <label for="camera_path_default_transition_duration">Transition duration</label>
+            <input type="number" id="camera_path_default_transition_duration" name="camera_path_default_transition_duration" value="2" min="0.001" max="60.0" step="0.001">
+            <div class="input-hint" data-visible-if="camera_path_interpolation==none">Default duration for each keyframe.</div>
+            <div class="input-hint" data-visible-if="camera_path_interpolation!=none">How much should the total duration be increased adding keyframes.</div>
           </div>
 
           <div class="row" data-visible-if="camera_path_interpolation!=none">

@@ -415,10 +415,10 @@ class CircleInterpolation {
 
 
 class PchipInterpolation {
-  constructor({ x, y }) {
-    const loop = y.length === x.length-1;
-    if (loop) {
+  constructor({ x, y, loop=false }) {
+    if (y.length === x.length-1) {
       y = [...y, y[0]];
+      loop = true;
     }
     if (x.length !== y.length) {
       throw new Error("Input arrays x and y must have the same length.");
@@ -444,9 +444,9 @@ class PchipInterpolation {
 
     if (loop) {
       // Circular derivatives at endpoints
-      if (this.slopes[this.n - 1] * this.slopes[0] > 0) {
-        const sumSlopes = this.slopes[this.n - 1] + this.slopes[0];
-        this.derivatives[0] = (2 * this.slopes[this.n - 1] * this.slopes[0]) / sumSlopes;
+      if (this.slopes[this.n - 2] * this.slopes[0] > 0) {
+        const sumSlopes = this.slopes[this.n - 2] + this.slopes[0];
+        this.derivatives[0] = (2 * this.slopes[this.n - 2] * this.slopes[0]) / sumSlopes;
         this.derivatives[this.n - 1] = this.derivatives[0]; // Continuity in loop
       }
     } else {
@@ -606,13 +606,15 @@ function getStartsAndDurations(gdist, gtime, grid, num_keyframes, duration) {
 export function compute_camera_path(props) {
   const { 
     keyframes, 
-    duration,
     loop = false, 
     default_fov = 75, 
     framerate = 30, 
     interpolation = 'none', 
+    time_interpolation = 'velocity',
+    default_transition_duration,
     ...rest_props 
   } = props;
+  let duration = props.duration;
   const k_positions = keyframes.map(k => k.position);
   const k_quaternions = keyframes.map(k => k.quaternion);
   const k_fovs = keyframes.map(k => k.fov);
@@ -621,9 +623,13 @@ export function compute_camera_path(props) {
   const k_weights = keyframes.map((k, i) => 
     k.appearance_train_index === undefined ? undefined : onehot(app_counter++, num_appearances));
   const appearanceTrainIndices = keyframes.map(k => k.appearance_train_index).filter(x => x !== undefined);
+  let keyframeDurations = keyframes.map(k => (k.duration === undefined || k.duration === null) ? 
+    default_transition_duration : k.duration);
 
+  if (time_interpolation !== 'velocity' && time_interpolation !== 'time') {
+    throw new Error(`Unknown time interpolation method: ${time_interpolation}`);
+  }
   if (interpolation === 'none') {
-    const keyframeDurations = keyframes.map(k => k.duration || 2);
     const keyframeStarts = cumsum(keyframeDurations).slice(0, -1);
     return {
       positions: k_positions,
@@ -636,10 +642,15 @@ export function compute_camera_path(props) {
       keyframeDurations,
     };
   }
+  if (keyframes.length === 0) { return undefined; }
+
+  if (!loop) keyframeDurations.pop();
+  if (time_interpolation === 'time') {
+    duration = keyframeDurations.reduce((a, x) => a + x, 0);
+  }
 
   let num_frames = Math.max(0, Math.floor(duration * framerate));
   if (isNaN(num_frames)) num_frames = 0;
-  if (keyframes.length === 0) { return undefined; }
   if (keyframes.length === 1) {
     return {
       positions: Array.from({ length: num_frames }, () => k_positions[0]),
@@ -661,11 +672,13 @@ export function compute_camera_path(props) {
   let lengths;
   let totalDistance;
   let Interpolation;
+  let isTimeInterpolation = time_interpolation === 'time';
   if (interpolation === 'circle' && k_positions.length >= 3) {
     const circleInterpolation = new CircleInterpolation({
       positions: k_positions, quaternions: k_quaternions, loop,
     });
     lengths = circleInterpolation.getSegmentLengths();
+    totalDistance = lengths.reduce((a, x) => a + x, 0);
     position_spline = circleInterpolation.evaluatePosition;
     quaternion_spline = circleInterpolation.evaluateQuaternion;
     Interpolation = LinearInterpolation;
@@ -673,32 +686,49 @@ export function compute_camera_path(props) {
   } else if (interpolation === 'linear' || (interpolation === 'circle' && k_positions.length < 3)) {
     Interpolation = LinearInterpolation;
     lengths = Interpolation.getSegmentLengths({ positions: k_positions, loop });
+    totalDistance = lengths.reduce((a, x) => a + x, 0);
     grid = cumsum(lengths);
     position_spline = new Interpolation({ vertices: k_positions, grid, ...rest_props}).evaluate;
     quaternion_spline = new Interpolation({ vertices: k_quaternions, grid, ...rest_props}).evaluate;
   } else if (interpolation === 'kochanek-bartels') {
     Interpolation = KochanekBartelsInterpolation;
     lengths = Interpolation.getSegmentLengths({ positions: k_positions, loop: loop, ...rest_props});
+    totalDistance = lengths.reduce((a, x) => a + x, 0);
     grid = cumsum(lengths);
     position_spline = new Interpolation({ vertices: k_positions, grid, ...rest_props}).evaluate;
     quaternion_spline = new Interpolation({ vertices: k_quaternions, grid, ...rest_props}).evaluate;
   } else {
     throw new Error(`Unknown interpolation method: ${interpolation}`);
   }
-  totalDistance = lengths.reduce((a, x) => a + x, 0);
   fov_spline = reduceGrid(Interpolation, { vertices: k_fovs, grid, defaultValue: default_fov, ...rest_props }).evaluate;
   weights_spline = reduceGrid(Interpolation, { vertices: k_weights, grid, defaultValue: [], ...rest_props }).evaluate;
 
-  const velocities = keyframes.map(x => x.velocity_multiplier || 1);
-  const distanceMap = buildTimeDistanceMap({ grid, velocities: velocities, duration });
-
+  let gdist, keyframeStarts;
   const gtime = Array.from({ length: num_frames }, (_, i) => i * duration / (num_frames - 1));
-  const gdist = gtime.map(t => distanceMap(t));
+  if (time_interpolation === 'velocity') {
+    const velocities = keyframes.map(x => x.velocity_multiplier || 1);
+    const distanceMap = buildTimeDistanceMap({ grid, velocities: velocities, duration });
+    gdist = gtime.map(t => distanceMap(t));
+    const _out = getStartsAndDurations(gdist, gtime, grid, keyframes.length, duration);
+    keyframeStarts = _out.keyframeStarts;
+    keyframeDurations = _out.keyframeDurations;
+    if (!loop) keyframeDurations[keyframeDurations.length - 1] = null;
+  } else if (time_interpolation === 'time') {
+    let x = cumsum(keyframeDurations);
+    let y = cumsum(lengths);
+    const interpolator = new PchipInterpolation({ x, y, loop });
+    gdist = gtime.map(t => interpolator.evaluate(t));
+
+    if (!loop) keyframeDurations.push(null);
+    keyframeStarts = x.slice(0, keyframeDurations.length);
+  } else {
+    throw new Error(`Unknown time interpolation method: ${time_interpolation}`);
+  }
+
   const positions = gdist.map(t => position_spline(t));
   const quaternions = gdist.map(t => quaternion_spline(t));
   const fovs = gdist.map(t => fov_spline(t));
   const weights = gdist.map(t => fixWeights(weights_spline(t)));
-  const { keyframeStarts, keyframeDurations } = getStartsAndDurations(gdist, gtime, grid, keyframes.length, duration);
   return { 
     positions, 
     quaternions, 
