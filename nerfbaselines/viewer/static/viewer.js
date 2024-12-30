@@ -2323,7 +2323,8 @@ export class Viewer extends THREE.EventDispatcher {
     });
     const duration = this.state.camera_path_duration || 0;
     const n = this.state.camera_path_keyframes.length;
-    this.state.camera_path_duration += this.state.camera_path_default_transition_duration;
+    if (n !== 2 || this.state.camera_path_loop)
+      this.state.camera_path_duration += this.state.camera_path_default_transition_duration;
     this.notifyChange({ property: "camera_path_duration" });
     this.notifyChange({ property: "camera_path_keyframes" });
   }
@@ -2659,7 +2660,7 @@ export class Viewer extends THREE.EventDispatcher {
       const data = this.export_trajectory();
       await saveAs(new Blob([JSON.stringify(data, null, '  ')]), { 
         type: "application/json",
-        filename: "camera_path.json",
+        filename: "trajectory.json",
         extension: "json",
         description: "Camera trajectory JSON",
       });
