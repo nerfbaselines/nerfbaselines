@@ -2303,7 +2303,11 @@ export class Viewer extends THREE.EventDispatcher {
       this.notifyChange({ property: "camera_path_selected_keyframe" });
     }
     const n = this.state.camera_path_keyframes.length;
-    this.state.camera_path_duration = n < 1 ? 0 : (this.state.camera_path_duration * n / (n+1));
+    // We decrease the total duration, but we allow at least two digits of precision
+    this.state.camera_path_duration = n < 1 ? 0 : 
+      this.state.camera_path_duration = modifyNumberKeepPrecision(
+        [this.state.camera_path_duration, 0.01],
+        (x) => x*n / (n + 1));
     this.notifyChange({ property: "camera_path_duration" });
     this.notifyChange({ property: "camera_path_keyframes" });
   }
@@ -2323,8 +2327,12 @@ export class Viewer extends THREE.EventDispatcher {
     });
     const duration = this.state.camera_path_duration || 0;
     const n = this.state.camera_path_keyframes.length;
-    if (n !== 2 || this.state.camera_path_loop)
-      this.state.camera_path_duration += this.state.camera_path_default_transition_duration;
+    if (n !== 2 || this.state.camera_path_loop) {
+      this.state.camera_path_duration = modifyNumberKeepPrecision(
+        [this.state.camera_path_duration, this.state.camera_path_default_transition_duration],
+        (a, b) => a + b);
+        this.state.camera_path_default_transition_duration;
+    }
     this.notifyChange({ property: "camera_path_duration" });
     this.notifyChange({ property: "camera_path_keyframes" });
   }
@@ -2874,7 +2882,7 @@ export class Viewer extends THREE.EventDispatcher {
       const { name, value, type, checked } = element;
       if (type === "checkbox") return checked;
       if (type === "radio") return value;
-      if (type === "number" || type === "range") return parseFloat(value);
+      if (type === "number" || type === "range") return element.valueAsNumber;
       return value;
     }
     function setValue(element, value) {
@@ -3312,6 +3320,18 @@ function buildDatasetInfo(info) {
   if (info.paper_authors !== undefined)
     out += `<strong>Paper authors:</strong><span>${info.paper_authors.join(', ')}</span>\n`;
   return out;
+}
+
+
+function modifyNumberKeepPrecision(source, callback) {
+  const countDecimals = (value) => {
+    if (Math.floor(value) !== value)
+      return value.toString().split(".")[1].length || 0;
+    return 0;
+  }
+  const precision = source.map(countDecimals).reduce((a, b) => Math.max(a, b), 0);
+  const result = callback(...source);
+  return parseFloat(result.toFixed(precision));
 }
 
 

@@ -65,6 +65,10 @@ main {
   padding: 0 0.6rem;
 }
 
+input[type=text]:invalid, input[type=number]:invalid, textarea:invalid {
+  border-color: var(--error-border-color);
+}
+
 /* Unify input elements */
 input[type=text], input[type=number], textarea {
   appearance: none;
