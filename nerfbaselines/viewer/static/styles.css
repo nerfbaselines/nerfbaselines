@@ -577,3 +577,59 @@ fieldset > .info-fields {
   margin-top: 0.2rem;
 }
 
+.keyframe-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.keyframe.dragging {
+  border: 1px dashed var(--border-color);
+  background-color: var(--secondary-background-color);
+  color: rgba(255, 255, 255, 0.0);
+}
+.keyframe.dragging * {
+  display: none;
+}
+
+.keyframe .ti {
+  font-size: 1.2em;
+  color: var(--primary-color);
+}
+.keyframe .ti.ti-trash {
+  color: var(--error-border-color);
+}
+.keyframe .ti-arrow-narrow-up,
+.keyframe .ti-arrow-narrow-down {
+  display: inline-block;
+  margin: 0 -0.25rem;
+}
+
+.keyframe {
+}
+
+.keyframe,
+.keyframe-panel-header {
+  height: 1.3rem;
+  align-items: center;
+  display: flex;
+  position: relative;
+  gap: 0.5rem;
+}
+.keyframe-panel-header {
+  font-weight: bold;
+}
+
+.keyframe > :nth-child(1), .keyframe-panel-header > :nth-child(1) {
+  display: inline-block;
+  flex: 0 0 2.5rem;
+}
+.keyframe > :nth-child(2), .keyframe-panel-header > :nth-child(2) {
+  flex: 1 0 5ch;
+}
+.keyframe > :nth-child(3), .keyframe-panel-header > :nth-child(3) {
+  flex: 1 1 30%;
+}
+.keyframe > :nth-child(4), .keyframe-panel-header > :nth-child(4) {
+  flex: 1 1 30%;
+}

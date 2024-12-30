@@ -6,7 +6,7 @@ import nerfbaselines
 from nerfbaselines import __version__
 from nerfbaselines.utils import image_to_srgb, visualize_depth, apply_colormap
 from nerfbaselines.results import get_dataset_info
-from ._httpserver import run_simple_http_server
+from ._httpserver import run_flask_server as run_simple_http_server
 
 
 def get_info(model_info, datasets, nb_info, dataset_metadata):

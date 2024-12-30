@@ -581,6 +581,28 @@ function fixWeights(appearance) {
 }
 
 
+function getStartsAndDurations(gdist, gtime, grid, num_keyframes, duration) {
+  const timeGrid = Array.from({ length: num_keyframes }, () => undefined);
+  for (let i = 0; i < gdist.length; i++) {
+    const { segment } = getLocalTime(grid, gdist[i]);
+    if (timeGrid[segment] === undefined) timeGrid[segment] = gtime[i];
+  }
+  timeGrid[0] = 0;
+  timeGrid.push(duration);
+  for (let i = timeGrid.length-2; i > 0; i--) {
+    if (timeGrid[i] === undefined) {
+      timeGrid[i] = timeGrid[i + 1];
+    }
+  }
+  const keyframeStarts = timeGrid.slice(0, -1);
+  const keyframeDurations = timeGrid.slice(1).map((x, i) => x - keyframeStarts[i]);
+  return { 
+    keyframeStarts,
+    keyframeDurations,
+  };
+}
+
+
 export function compute_camera_path(props) {
   const { 
     keyframes, 
@@ -598,21 +620,38 @@ export function compute_camera_path(props) {
   let app_counter = 0;
   const k_weights = keyframes.map((k, i) => 
     k.appearance_train_index === undefined ? undefined : onehot(app_counter++, num_appearances));
+  const appearanceTrainIndices = keyframes.map(k => k.appearance_train_index).filter(x => x !== undefined);
 
   if (interpolation === 'none') {
+    const keyframeDurations = keyframes.map(k => k.duration || 2);
+    const keyframeStarts = cumsum(keyframeDurations).slice(0, -1);
     return {
       positions: k_positions,
       quaternions: k_quaternions,
       fovs: k_fovs,
       weights: k_weights,
+      distance: 0,
+      appearanceTrainIndices,
+      keyframeStarts,
+      keyframeDurations,
     };
   }
 
-  if (keyframes.length < 2) {
-    return undefined;
+  let num_frames = Math.max(0, Math.floor(duration * framerate));
+  if (isNaN(num_frames)) num_frames = 0;
+  if (keyframes.length === 0) { return undefined; }
+  if (keyframes.length === 1) {
+    return {
+      positions: Array.from({ length: num_frames }, () => k_positions[0]),
+      quaternions: Array.from({ length: num_frames }, () => k_quaternions[0]),
+      fovs: Array.from({ length: num_frames }, () => k_fovs[0]),
+      weights: Array.from({ length: num_frames }, () => k_weights[0]),
+      distance: 0,
+      appearanceTrainIndices,
+      keyframeStarts: [0],
+      keyframeDurations: [duration],
+    };
   }
-
-  const num_frames = Math.floor(duration * framerate);
   
   let grid;
   let position_spline;
@@ -653,18 +692,22 @@ export function compute_camera_path(props) {
   const velocities = keyframes.map(x => x.velocity_multiplier || 1);
   const distanceMap = buildTimeDistanceMap({ grid, velocities: velocities, duration });
 
-  const gdist = Array.from({ length: num_frames }, (_, i) => distanceMap(i * duration / (num_frames - 1)));
+  const gtime = Array.from({ length: num_frames }, (_, i) => i * duration / (num_frames - 1));
+  const gdist = gtime.map(t => distanceMap(t));
   const positions = gdist.map(t => position_spline(t));
   const quaternions = gdist.map(t => quaternion_spline(t));
   const fovs = gdist.map(t => fov_spline(t));
   const weights = gdist.map(t => fixWeights(weights_spline(t)));
+  const { keyframeStarts, keyframeDurations } = getStartsAndDurations(gdist, gtime, grid, keyframes.length, duration);
   return { 
     positions, 
     quaternions, 
     fovs, 
     weights, 
     distance: totalDistance,
-    appearanceTrainIndices: keyframes.map(k => k.appearance_train_index).filter(x => x !== undefined),
+    appearanceTrainIndices,
+    keyframeStarts,
+    keyframeDurations,
   };
 }
 

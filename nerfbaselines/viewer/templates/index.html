@@ -384,6 +384,18 @@
                onclick="document.getElementById('dialog_camera_path_delete_all').classList.add('dialog-open')"
                title="Remove all keyframes from the render path." data-enable-if="camera_path_keyframes" disabled>Clear keyframes</button>
           </div>
+          <fieldset data-visible-if="camera_path_keyframes">
+            <legend>Keyframes</legend>
+            <div class="row" style="flex-direction: column;align-items: stretch; padding-bottom: 0rem;">
+              <div class="keyframe-panel-header">
+                <span></span>
+                <span>index</span>
+                <span>start</span>
+                <span>duration</span>
+              </div>
+              <div class="keyframe-panel" style="padding-bottom: 0.6rem"></div>
+            </div>
+          </fieldset>
 
           <fieldset>
             <legend>Playback</legend>

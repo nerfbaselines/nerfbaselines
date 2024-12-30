@@ -1505,11 +1505,233 @@ function _attach_camera_control(viewer) {
 }
 
 
-function parseBinding(expr) {
+function _attach_draggable_keyframe_panel(viewer) {
+  function attachDraggableEvents(target) {
+  }
+  viewer.addEventListener("action", ({ action, root }) => {
+    if (action !== "attach_gui") return;
+    // Attach draggable keyframe panel
+    root.querySelectorAll(".keyframe-panel").forEach((panel) => {
+      let dragCounter = 0;
+      let originalIndex;
+      let dragged, originalAfterElement;
+      let offsetY, offsetX, ghostEl;
+      let lastState = [];
+
+      const keyframeAddEvents = (element) => {
+        element.draggable = true;
+        element.addEventListener("dragstart", (event) => {
+          dragged = element;
+          originalAfterElement = dragged.nextElementSibling;
+          originalIndex = Array.from(panel.children).indexOf(dragged);
+          const { top, left } = element.getBoundingClientRect();
+          offsetY = event.clientY - top;
+          offsetX = event.clientX - left;
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setDragImage(dragged, offsetX, offsetY);
+          // Fix panel height
+          panel.style.height = `${panel.clientHeight}px`;
+          setTimeout(() => {
+            dragged.classList.add("dragging")
+            dragged.remove();
+          });
+        });
+        element.addEventListener("dragend", () => {
+          if (!dragged) return;
+          // Revert changes if not dropped
+          element.classList.remove("dragging");
+          panel.insertBefore(dragged, originalAfterElement);
+          // Remove height fix
+          panel.style.height = "";
+        });
+
+        // Delete keyframe
+        element.querySelectorAll(".ti-trash").forEach((trash) => {
+          trash.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const key = element.getAttribute("data-key");
+            viewer.delete_keyframe(key);
+          });
+        });
+
+        // Move keyframe up
+        element.querySelectorAll(".ti-arrow-narrow-up").forEach((up) => {
+          up.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const key = element.getAttribute("data-key");
+            const keyframes = viewer.state.camera_path_keyframes;
+            const index = keyframes.findIndex((x) => x.id === key);
+            if (index > 0) {
+              const lastElem = keyframes.splice(index, 1);
+              keyframes.splice(index - 1, 0, lastElem[0]);
+              viewer.notifyChange({ property: "camera_path_keyframes" });
+            }
+          });
+        });
+
+        // Move keyframe down
+        element.querySelectorAll(".ti-arrow-narrow-down").forEach((down) => {
+          down.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const key = element.getAttribute("data-key");
+            const keyframes = viewer.state.camera_path_keyframes;
+            const index = keyframes.findIndex((x) => x.id === key);
+            if (index < keyframes.length - 1) {
+              const lastElem = keyframes.splice(index, 1);
+              keyframes.splice(index + 1, 0, lastElem[0]);
+              viewer.notifyChange({ property: "camera_path_keyframes" });
+            }
+          });
+        });
+
+        element.addEventListener("click", () => {
+          viewer.state.camera_path_selected_keyframe = element.getAttribute("data-key");
+          viewer.notifyChange({ property: "camera_path_selected_keyframe" });
+        });
+      };
+
+      panel.addEventListener("dragenter", (event) => {
+        dragCounter++;
+      });
+
+      panel.addEventListener("drop", (event) => {
+        if (!dragged) return;
+        dragCounter = 0;
+        const newIndex = Array.from(panel.children).indexOf(dragged);
+        dragged.classList.remove("dragging");
+        dragged = undefined;
+        panel.style.height = "";
+
+        // Here we need to commit the change to keyframes
+        const keyframes = viewer.state.camera_path_keyframes;
+        const keyframe = keyframes[originalIndex];
+        keyframes.splice(originalIndex, 1);
+        keyframes.splice(newIndex, 0, keyframe);
+        // Commit change to last state
+        const lastElem = lastState.splice(originalIndex, 1);
+        lastState.splice(newIndex, 0, lastElem[0]);
+        viewer.notifyChange({ property: "camera_path_keyframes" });
+      });
+
+      panel.addEventListener("dragover", (event) => {
+        if (!dragged) return;
+        let afterElement;
+        for (const child of panel.children) {
+          if (child.classList.contains("dragging")) continue;
+          const { top, bottom } = child.getBoundingClientRect();
+          const height = bottom - top;
+          if (event.clientY - offsetY < top + height / 2) {
+            if (!afterElement) { afterElement = child; }
+          }
+        }
+        panel.insertBefore(dragged, afterElement);
+        event.preventDefault();
+      });
+
+      panel.addEventListener("dragleave", (event) => {
+        if (!dragged) return;
+        dragCounter--;
+        console.log("dragleave", dragCounter);
+        if (dragCounter === 0) {
+          dragged.remove();
+        }
+      });
+
+      const createKeyframeElement = (keyframe) => {
+        const element = document.createElement("div");
+        element.classList.add("keyframe");
+        element.setAttribute("data-key", keyframe.id);
+        element.draggable = true;
+        element.innerHTML = `
+        <span>
+          <i class="ti ti-arrow-narrow-up"></i>
+          <i class="ti ti-arrow-narrow-down"></i>
+          <i class="ti ti-trash"></i>
+        </span>
+        <span></span>
+        <span>${keyframe.duration}</span>
+        <span>${keyframe.velocity_multiplier}</span>
+        `;
+        keyframeAddEvents(element);
+        return element;
+      };
+
+      // Handle changes to keyframes
+      viewer.addEventListener("change", ({ property, state }) => {
+        if (property === undefined || property === "camera_path_keyframes" || property === "camera_path_trajectory") {
+          const { camera_path_keyframes } = state;
+          const elementMap = {};
+          // First, we fix order and missing elements
+          lastState.forEach((x, i) => { elementMap[x.id] = x; });
+          let i;
+          for (i=0; i < camera_path_keyframes.length; ++i) {
+            const keyframe = camera_path_keyframes[i];
+            // 1) Element exists and is at the correct position
+            if (lastState[i]?.id === keyframe.id) continue;
+            // 2) Element exists, but is at the wrong position
+            if (elementMap[keyframe.id]) {
+              const node = elementMap[keyframe.id];
+              const originalIndex = lastState.indexOf(node);
+              lastState.splice(originalIndex, 1);
+              lastState.splice(i, 0, node);
+              node.element.remove();
+              panel.insertBefore(node.element, panel.children[i]);
+              continue
+            }
+            // 3) Element does not exist
+            const element = createKeyframeElement(keyframe);
+            lastState.splice(i, 0, {
+              id: keyframe.id,
+              element,
+            });
+            panel.insertBefore(element, panel.children[i]);
+          }
+          // 2) Remove extra elements
+          for (;i < lastState.length; i++) {
+            lastState[i].element.remove();
+          }
+          lastState = lastState.slice(0, camera_path_keyframes.length);
+
+          // 3) Update last state index value
+          for (i=0; i < lastState.length; i++) {
+            if (lastState[i].index !== i) {
+              lastState[i].index = i;
+              lastState[i].element.children[1].innerText = i + 1;
+            }
+          }
+
+          // 4) Update keyframe timings
+          if (state.camera_path_trajectory) {
+            const { keyframeStarts, keyframeDurations } = state.camera_path_trajectory;
+            console.log(keyframeStarts, keyframeDurations);
+            for (let i=0; i < lastState.length; i++) {
+              const start = keyframeStarts[i]?.toFixed(2) || "-"
+              const duration = keyframeDurations[i]?.toFixed(2) || "-";
+              if (lastState[i].start !== start) {
+                lastState[i].start = start;
+                lastState[i].element.children[2].innerText = start;
+              }
+              if (lastState[i].duration !== duration) {
+                lastState[i].duration = duration;
+                lastState[i].element.children[3].innerText = duration;
+              }
+            }
+          }
+        }
+      });
+    });
+  });
+}
+
+
+function parseBinding(expr, type=undefined) {
   if (expr.indexOf("&&") > 0) {
     const names = [];
     const callbacks = [];
-    const parts = expr.split("&&").map(x => x.trim()).filter(x => x.length > 0).map(parseBinding);
+    const parts = expr.split("&&").map(x => x.trim()).filter(x => x.length > 0).map(x => parseBinding(x, type));
     parts.forEach(([callback, partNames]) => {
       names.push(...partNames);
       callbacks.push(callback);
@@ -1528,7 +1750,12 @@ function parseBinding(expr) {
     const name = expr.slice(1);
     return [(state) => !state[name], [name]];
   }
-  return [(state) => state[expr], [expr]];
+  const getter = (state) => {
+    let value = state[expr];
+    if (type === "bool" && Array.isArray(value)) value = value.length > 0;
+    return value;
+  };
+  return [getter, [expr]];
 }
 
 
@@ -1615,6 +1842,7 @@ export class Viewer extends THREE.EventDispatcher {
     _attach_player_frustum(this);
     _attach_viewport_split_slider(this, this.viewport);
     _attach_selected_keyframe_details(this);
+    _attach_draggable_keyframe_panel(this);
 
     this.addEventListener("change", ({ property, state }) => {
       if (property === undefined || property === 'render_fov') {
@@ -1998,7 +2226,7 @@ export class Viewer extends THREE.EventDispatcher {
       this.notifyChange({ property: "camera_path_selected_keyframe" });
     }
     const n = this.state.camera_path_keyframes.length;
-    this.state.camera_path_duration = n < 1 ? 0 : this.state.camera_path_duration * n / (n+1);
+    this.state.camera_path_duration = n < 1 ? 0 : (this.state.camera_path_duration * n / (n+1));
     this.notifyChange({ property: "camera_path_duration" });
     this.notifyChange({ property: "camera_path_keyframes" });
   }
@@ -2014,16 +2242,16 @@ export class Viewer extends THREE.EventDispatcher {
     const position = new THREE.Vector3();
     const scale = new THREE.Vector3();
     matrix.decompose(position, quaternion, scale);
-    const id = this._keyframeCounter = (this._keyframeCounter || 0) + 1;
+    const idInt = this._keyframeCounter = (this._keyframeCounter || 0) + 1;
     this.state.camera_path_keyframes.push({
-      id,
+      id: idInt.toString(),
       quaternion,
       position,
       fov: undefined,
     });
     const duration = this.state.camera_path_duration || 0;
     const n = this.state.camera_path_keyframes.length;
-    this.state.camera_path_duration = (n < 2 && duration == 0) ? 2 : duration * n / (n - 1);
+    this.state.camera_path_duration = (n < 2 && duration == 0) ? 2 : (duration * n / (n - 1));
     this.notifyChange({ property: "camera_path_duration" });
     this.notifyChange({ property: "camera_path_keyframes" });
   }
@@ -2512,8 +2740,9 @@ export class Viewer extends THREE.EventDispatcher {
         matrix.decompose(position, quaternion, scale);
         const appearance = validate_appearance(correctnull(k.appearance));
         const appearance_train_index = appearance ? appearance.embedding_train_index : undefined;
+        const intId = this._keyframeCounter = (this._keyframeCounter || 0) + 1;
         keyframes.push({
-          id: this._keyframeCounter = (this._keyframeCounter || 0) + 1,
+          id: intId.toString(),
           quaternion,
           position,
           fov: correctnull(k.fov),
@@ -2664,7 +2893,7 @@ export class Viewer extends THREE.EventDispatcher {
     });
 
     querySelectorAll("[data-enable-if]").forEach(element => {
-      const [evalFn, dependencies] = parseBinding(element.getAttribute("data-enable-if"));
+      const [evalFn, dependencies] = parseBinding(element.getAttribute("data-enable-if"), "bool");
       this.addEventListener("change", ({ property, state }) => {
         if (property !== undefined && !dependencies.includes(property)) return;
         let value = evalFn(state);
@@ -2678,7 +2907,7 @@ export class Viewer extends THREE.EventDispatcher {
     });
 
     querySelectorAll("[data-visible-if]").forEach(element => {
-      const [evalFn, dependencies] = parseBinding(element.getAttribute("data-visible-if"));
+      const [evalFn, dependencies] = parseBinding(element.getAttribute("data-visible-if"), "bool");
       let display = element.style.display;
       if (display === "none") display = null;
       this.addEventListener("change", ({ property, state }) => {
@@ -2699,7 +2928,7 @@ export class Viewer extends THREE.EventDispatcher {
     // data-bind-class has the form "class1:property1"
     querySelectorAll("[data-bind-class]").forEach(element => {
       const [class_name, expr] = element.getAttribute("data-bind-class").split(":");
-      const [evalFn, dependencies] = parseBinding(expr);
+      const [evalFn, dependencies] = parseBinding(expr, "string");
       this.addEventListener("change", ({ property, state }) => {
         if (property !== undefined && !dependencies.includes(property)) return;
         if (evalFn(state)) {
@@ -2825,6 +3054,10 @@ export class Viewer extends THREE.EventDispatcher {
       });
     });
 
+    // Allow plugins to attach gui
+    this.dispatchAction("attach_gui", { root });
+    
+    // Notify gui is attached and propagate changes
     this.notifyChange({ property: undefined });
   }
 
