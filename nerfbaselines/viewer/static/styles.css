@@ -312,6 +312,7 @@ select:disabled, input:disabled, textarea:disabled, .switch:disabled {
   display: flex;
   flex-direction: column;
   margin: 0 1ch;
+  padding-bottom: 0.2rem;
 }
 .tabs, .dialog {
   width: 100%;
