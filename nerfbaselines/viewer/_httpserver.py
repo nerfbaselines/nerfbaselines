@@ -127,85 +127,9 @@ def create_ply_bytes(points3D_xyz, points3D_rgb=None):
     return output
 
 
-def get_info(model_info, datasets, nb_info, dataset_metadata):
-    info = {
-        "dataset_parts": [],
-        "state": {
-            "method_info": None,
-            "dataset_info": None,
-            "output_types": [],
-        }
-    }
-    if model_info is not None:
-        info["renderer_websocket_url"] = "./render-websocket"
-    if datasets.get("train") is not None:
-        info["dataset_url"] = "./dataset"
-
-    dataset_metadata_ = dataset_metadata or {}
-    if dataset_metadata_.get("viewer_transform") is not None:
-        info["viewer_transform"] = dataset_metadata_["viewer_transform"][:3, :4].flatten().tolist()
-    if dataset_metadata_.get("viewer_initial_pose") is not None:
-        info["viewer_initial_pose"] = dataset_metadata_["viewer_initial_pose"][:3, :4].flatten().tolist()
-    if model_info is not None:
-        info["state"]["output_types"] = model_info.get("supported_outputs", ("color",))
-
-    if datasets.get("train") is not None:
-        info["dataset_parts"].append("train")
-        if datasets["train"].get("points3D_xyz") is not None:
-            info["dataset_parts"].append("pointcloud")
-
-    if dataset_metadata_:
-        info["state"]["dataset_info"] = _dataset_info = info["state"]["dataset_info"] or {}
-        _dataset_info.update({
-            k: v.tolist() if hasattr(v, "tolist") else v for k, v in dataset_metadata_.items()
-            if not k.startswith("viewer_")
-        })
-
-    if dataset_metadata_.get("id") is not None:
-        # Add dataset info
-        dataset_info = None
-        try:
-            dataset_info = get_dataset_info(dataset_metadata_["id"])
-        except Exception:
-            # Perhaps different NB version or custom dataset
-            pass
-        if dataset_info is not None:
-            info["state"]["dataset_info"].update(dataset_info)
-
-    if datasets.get("test") is not None:
-        info["dataset_parts"].append("test")
-    if model_info is not None:
-        info["state"]["method_info"] = _method_info = info["state"]["method_info"] or {}
-        _method_info["method_id"] = model_info["method_id"]
-        _method_info["hparams"] = model_info.get("hparams", {})
-        if model_info.get("num_iterations") is not None:
-            _method_info["num_iterations"] = model_info["num_iterations"]
-        if model_info.get("loaded_step") is not None:
-            _method_info["loaded_step"] = model_info["loaded_step"]
-        if model_info.get("loaded_checkpoint") is not None:
-            _method_info["loaded_checkpoint"] = model_info["loaded_checkpoint"]
-        if model_info.get("supported_camera_models") is not None:
-            _method_info["supported_camera_models"] = list(sorted(model_info["supported_camera_models"]))
-        if model_info.get("supported_outputs") is not None:
-            _method_info["supported_outputs"] = list(sorted(model_info["supported_outputs"]))
-
-        # Pull more details from the registry
-        spec = None
-        try:
-            spec = nerfbaselines.get_method_spec(model_info["method_id"])
-        except Exception:
-            pass
-        if spec is not None:
-            info["state"]["method_info"].update(spec.get("metadata") or {})
-    if nb_info is not None:
-        # Fill in config_overrides, presets, nb_version, and others
-        pass
-    return info
-
-
 class ViewerBackend:
-    def __init__(self, request_queue, output_queue, *, model_info, datasets, nb_info, dataset_metadata):
-        self._info = get_info(model_info, datasets, nb_info, dataset_metadata)
+    def __init__(self, request_queue, output_queue, *, info, datasets):
+        self._info = info
         self._datasets = datasets
         self._images_cache = {}
         self._render_fn = None
@@ -309,7 +233,14 @@ class ViewerBackend:
             self._images_cache[(split, idx, max_img_size)] = out, "image/jpeg"
         return out, "image/jpeg"
 
-    def create_public_url(self, local_url, accept_license_terms):
+    def create_public_url(self, port, accept_license_terms):
+        if not accept_license_terms:
+            return {
+                "status": "error",
+                "message": "License terms (https://www.cloudflare.com/website-terms/) must be accepted",
+                "license_terms_url": "https://www.cloudflare.com/website-terms/"
+            }
+        local_url = f"http://localhost:{port}"
         public_url = self._stack.enter_context(cloudflared_tunnel(local_url, accept_license_terms=accept_license_terms))
         self._info["state"]["viewer_public_url"] = public_url
         return {"status": "ok", "public_url": public_url}
@@ -372,13 +303,18 @@ def httpserver_json_errorhandler(fn):
         try:
             return fn(self, *args, **kwargs)
         except Exception as e:
+            out_data = {"status": "error", "message": str(e)}
             status = 500
             if isinstance(e, BadRequest):
                 status = 400
+                if hasattr(e, "data"):
+                    out_data.update(e.data)
             elif isinstance(e, NotFound):
                 status = 404
+                if hasattr(e, "data"):
+                    out_data.update(e.data)
             self.send_response(status)
-            out = json.dumps({"status": "error", "message": str(e)}).encode("utf-8")
+            out = json.dumps(out_data).encode("utf-8")
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(out)))
             self.end_headers()
@@ -472,8 +408,8 @@ class ViewerRequestHandler(SimpleHTTPRequestHandler):
     def _handle_create_public_url(self):
         query = self._get_query()
         accept_license_terms = query.get("accept_license_terms") == "yes"
-        server_address = f"http://localhost:{self.server_class.server_address[1]}"
-        output = self.backend.create_public_url(server_address, accept_license_terms)
+        port = self.server_class.server_address[1]
+        output = self.backend.create_public_url(port, accept_license_terms)
         output_bytes = json.dumps(output).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-type", "application/json")
@@ -549,19 +485,24 @@ def run_flask_server(*args, port, **kwargs):
     app.config["TEMPLATES_AUTO_RELOAD"] = True
     # Reduce logging
     log = logging.getLogger('werkzeug')
-    log.setLevel(logging.ERROR)
+    log.setLevel(logging.DEBUG)
 
     # Full exception details
     @app.errorhandler(Exception)
     def handle_exception(e):
         app.logger.error(f"Server Error: {e}", exc_info=True)
-        if isinstance(e, ValueError):
+        other_data = {}
+        if hasattr(e, "data"):
+            other_data = e.data
+        if isinstance(e, BadRequest):
             return jsonify({
+                **other_data,
                 "status": "error",
                 "message": str(e),
             }), 400
         if isinstance(e, NotFound):
             return jsonify({
+                **other_data,
                 "status": "error",
                 "message": str(e),
             }), 404
@@ -579,6 +520,16 @@ def run_flask_server(*args, port, **kwargs):
             "error": "Internal Server Error",
         }), 500
     del handle_500_error
+
+    @app.errorhandler(404)
+    def handle_404_error(e):
+        del e
+        app.logger.error(f"404 ERROR (Path not found): {request.path}")
+        return jsonify({
+            "status": "error",
+            "error": f"Path not found: {request.path}",
+        }), 404
+    del handle_404_error
 
     @app.route("/")
     def index():
@@ -608,7 +559,7 @@ def run_flask_server(*args, port, **kwargs):
     def create_public_url():
         # accept_license_terms is a query param
         accept_license_terms = request.args.get("accept_license_terms") == "yes"
-        output = backend.create_public_url(request.host_url, accept_license_terms)
+        output = backend.create_public_url(port, accept_license_terms)
         return jsonify(output)
     del create_public_url
 

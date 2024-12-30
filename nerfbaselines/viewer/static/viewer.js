@@ -1921,7 +1921,11 @@ export class Viewer extends THREE.EventDispatcher {
     document.body.removeChild(el);
   }
 
-  async create_public_url() {
+  create_public_url_accept() {
+    return this.create_public_url(true);
+  }
+
+  async create_public_url(accept_license_terms=false) {
     if (this.state.viewer_public_url) return;
     this._update_notification({
       id: "public-url",
@@ -1932,7 +1936,7 @@ export class Viewer extends THREE.EventDispatcher {
     this.state.viewer_requesting_public_url = true;
     this.notifyChange({ property: "viewer_requesting_public_url" });
     try {
-      const response = await fetch("./create-public-url?accept_license_terms=yes", { method: "POST" });
+      const response = await fetch(`./create-public-url?accept_license_terms=${accept_license_terms?'yes':'no'}`, { method: "POST" });
       let result;
       try {
         result = await response.json();
@@ -1940,7 +1944,9 @@ export class Viewer extends THREE.EventDispatcher {
         throw new Error(`Failed to create public URL: ${response.statusText}`);
       }
       if (result.status === "error") {
-        throw new Error(result.message);
+        const error = new Error(result.message);
+        error.license_terms_url = result.license_terms_url;
+        throw error;
       }
       publicUrl = result.public_url;
 
@@ -1954,6 +1960,15 @@ export class Viewer extends THREE.EventDispatcher {
         closeable: true,
       });
     } catch (error) {
+      if (error.license_terms_url === "https://www.cloudflare.com/website-terms/") {
+        // User needs to accept Cloudflare's terms
+        this._update_notification({
+          id: "public-url",
+          autoclose: 0,
+        });
+        this.dispatchAction("open_dialog_confirm_cloudflare_create_public_url");
+        return;
+      }
       console.error("Failed to create public URL:", error.message);
       this._update_notification({
         id: "public-url",
@@ -2111,6 +2126,8 @@ export class Viewer extends THREE.EventDispatcher {
         this.save_camera_path();
       if (action === "viewer_create_public_url")
         this.create_public_url();
+      if (action === "viewer_create_public_url_accept")
+        this.create_public_url_accept();
       if (action === "viewer_copy_public_url")
         this.copy_public_url();
     });
@@ -2797,6 +2814,15 @@ export class Viewer extends THREE.EventDispatcher {
       if (property === "viewer_font_size" || property === undefined) {
         document.documentElement.style.fontSize = `${state.viewer_font_size}rem`;
       }
+    });
+
+    root.querySelectorAll(".dialog").forEach(element => {
+      const id = element.id;
+      this.addEventListener("action", ({ action }) => {
+        if (action === `open_dialog_${id}`) {
+          element.classList.add("dialog-open");
+        }
+      });
     });
 
     this.notifyChange({ property: undefined });

@@ -5,7 +5,85 @@ import numpy as np
 import nerfbaselines
 from nerfbaselines import __version__
 from nerfbaselines.utils import image_to_srgb, visualize_depth, apply_colormap
-from ._httpserver import run_flask_server, run_simple_http_server
+from ._httpserver import run_simple_http_server
+
+
+def get_info(model_info, datasets, nb_info, dataset_metadata):
+    info = {
+        "dataset_parts": [],
+        "state": {
+            "method_info": None,
+            "dataset_info": None,
+            "output_types": [],
+        }
+    }
+    if model_info is not None:
+        info["renderer_websocket_url"] = "./render-websocket"
+    if datasets.get("train") is not None:
+        info["dataset_url"] = "./dataset"
+
+    dataset_metadata_ = dataset_metadata or {}
+    if dataset_metadata_.get("viewer_transform") is not None:
+        info["viewer_transform"] = dataset_metadata_["viewer_transform"][:3, :4].flatten().tolist()
+    if dataset_metadata_.get("viewer_initial_pose") is not None:
+        info["viewer_initial_pose"] = dataset_metadata_["viewer_initial_pose"][:3, :4].flatten().tolist()
+    if model_info is not None:
+        info["state"]["output_types"] = model_info.get("supported_outputs", ("color",))
+
+    if datasets.get("train") is not None:
+        info["dataset_parts"].append("train")
+        if datasets["train"].get("points3D_xyz") is not None:
+            info["dataset_parts"].append("pointcloud")
+
+    if dataset_metadata_:
+        info["state"]["dataset_info"] = _dataset_info = info["state"]["dataset_info"] or {}
+        _dataset_info.update({
+            k: v.tolist() if hasattr(v, "tolist") else v for k, v in dataset_metadata_.items()
+            if not k.startswith("viewer_")
+        })
+
+    if dataset_metadata_.get("id") is not None:
+        # Add dataset info
+        dataset_info = None
+        try:
+            dataset_info = get_dataset_info(dataset_metadata_["id"])
+        except Exception:
+            # Perhaps different NB version or custom dataset
+            pass
+        if dataset_info is not None:
+            info["state"]["dataset_info"].update(dataset_info)
+
+    if datasets.get("test") is not None:
+        info["dataset_parts"].append("test")
+    if model_info is not None:
+        info["state"]["method_info"] = _method_info = info["state"]["method_info"] or {}
+        _method_info["method_id"] = model_info["method_id"]
+        _method_info["hparams"] = model_info.get("hparams", {})
+        if model_info.get("num_iterations") is not None:
+            _method_info["num_iterations"] = model_info["num_iterations"]
+        if model_info.get("loaded_step") is not None:
+            _method_info["loaded_step"] = model_info["loaded_step"]
+        if model_info.get("loaded_checkpoint") is not None:
+            _method_info["loaded_checkpoint"] = model_info["loaded_checkpoint"]
+        if model_info.get("supported_camera_models") is not None:
+            _method_info["supported_camera_models"] = list(sorted(model_info["supported_camera_models"]))
+        if model_info.get("supported_outputs") is not None:
+            _method_info["supported_outputs"] = list(sorted(model_info["supported_outputs"]))
+
+        # Pull more details from the registry
+        spec = None
+        try:
+            spec = nerfbaselines.get_method_spec(model_info["method_id"])
+        except Exception:
+            pass
+        if spec is not None:
+            info["state"]["method_info"].update(spec.get("metadata") or {})
+    if nb_info is not None:
+        # Fill in config_overrides, presets, nb_version, and others
+        pass
+    return info
+
+
 
 
 def combine_outputs(o1, o2, *, split_percentage=0.5, split_tilt=0):
@@ -59,7 +137,7 @@ class Viewer:
         self._process = None
         self._train_dataset = train_dataset
         self._test_dataset = test_dataset
-        self._run_backend_fn = run_flask_server
+        self._run_backend_fn = run_simple_http_server
         self._model = model
         self._running = False
 
@@ -176,14 +254,26 @@ class Viewer:
         return frame
 
     def _run_backend(self):
+        datasets = {"train": self._train_dataset, "test": self._test_dataset}
+        dataset_metadata = None if self._train_dataset is None else self._train_dataset.get("metadata")
+        info = get_info(self._model_info, datasets, self._nb_info, dataset_metadata)
+
+        # In google colab, we request a public url for the viewer
+        try:
+            from google.colab import output as google_colab_output  # type: ignore
+            public_url = google_colab_output.eval_js(f"google.colab.kernel.proxyPort({self._port})")
+            info["state"]["viewer_public_url"] = public_url
+        except ImportError:
+            pass
+        except Exception as e:
+            logging.exception(e)
+
         self._process = multiprocessing.Process(target=self._run_backend_fn, args=(
             self._request_queue, 
             self._output_queue, 
         ), kwargs=dict(
             datasets={"train": self._train_dataset, "test": self._test_dataset},
-            dataset_metadata=None if self._train_dataset is None else self._train_dataset.get("metadata"),
-            model_info=self._model_info,
-            nb_info=self._nb_info,
+            info=info,
             port=self._port,
         ), daemon=True)
         self._process.start()
