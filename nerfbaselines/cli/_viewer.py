@@ -4,7 +4,6 @@ import logging
 from pathlib import Path
 import click
 
-# from nerfbaselines.viewer import run_viser_viewer
 from nerfbaselines.viewer import Viewer
 from nerfbaselines import get_method_spec, build_method_class
 from nerfbaselines.datasets import load_dataset

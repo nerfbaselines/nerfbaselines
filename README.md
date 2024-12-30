@@ -18,6 +18,7 @@ Please visit the <a href="https://nerfbaselines.github.io/">project page to see 
 </h3>
 
 ## News
+*[30/12/2024]* Added a new viewer implementation.</br>
 *[22/09/2024]* Added mesh export for 2DGS, COLMAP, and GOF.</br>
 *[17/09/2024]* Moved project to nerfbaselines/nerfbaselines repository.</br>
 *[16/09/2024]* Added online demos and demo export for 3DGS-based methods. Check out the [benchmark page](https://nerfbaselines.github.io/).<br>
@@ -212,8 +213,7 @@ For the currently implemented methods, the following licenses apply:
 
 ## Acknowledgements
 A big thanks to the authors of all implemented methods for the great work they have done.
-We would also like to thank the authors of [NerfStudio](https://github.com/nerfstudio-project/nerfstudio), 
-especially Brent Yi, for [viser](https://github.com/nerfstudio-project/viser) - a great framework powering the viewer.
+We would also like to thank the authors of [NerfStudio](https://github.com/nerfstudio-project/nerfstudio).
 We also thank Mark Kellogg for the [3DGS web renderer](https://github.com/mkkellogg/GaussianSplats3D).
 This work was supported by the Czech Science Foundation (GAČR) EXPRO (grant no. 23-07973X), the Grant Agency of the Czech Technical University in Prague (grant no. SGS24/095/OHK3/2T/13), and by the Ministry of Education, Youth and Sports of the Czech
 Republic through the e-INFRA CZ (ID:90254).
