@@ -22,9 +22,9 @@ from ._common import click_backend_option, NerfBaselinesCliCommand
 ))
 @click.option("--data", type=str, default=None, required=False, help=(
     "A path to the dataset to load in the viewer. The dataset can be either an external dataset (e.g., a path starting with `external://{dataset}/{scene}`) or a local path to a dataset. If the dataset is an external dataset, the dataset will be downloaded and cached locally. If the dataset is a local path, the dataset will be loaded directly from the specified path."))
-@click.option("--port", type=int, default=6006, help="Port to run the viewer on. Defaults to 6006.")
+@click.option("--port", type=int, default=6006, help="Port to run the viewer on. If port=0, a random free port will be assigned. Defaults to 6006.")
 @click_backend_option()
-def viewer_command(checkpoint: str, data, backend_name, port=6006):
+def viewer_command(checkpoint: str, data, backend_name, port=None):
     with ExitStack() as stack:
         nb_info = None
         method = None
@@ -68,7 +68,6 @@ def viewer_command(checkpoint: str, data, backend_name, port=6006):
                test_dataset=test_dataset, 
                nb_info=nb_info,
                port=port))
-        logging.info(f"Viewer is running at http://localhost:{port}")
         viewer.run()
 
 

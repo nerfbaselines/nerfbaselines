@@ -156,7 +156,10 @@
             <input type="text" id="viewer_public_url" name="viewer_public_url" value="" disabled>
           </div>
           <div class="row">
-            <button data-action="create_public_url" data-enable-if="!viewer_requesting_public_url && !viewer_public_url">Make public URL</button>
+            <button data-action="create_public_url" data-enable-if="!viewer_requesting_public_url">
+              <span data-visible-if="!viewer_public_url">Make public URL</span>
+              <span data-visible-if="viewer_public_url">Renew public URL</span>
+            </button>
             <button data-action="copy_public_url" data-enable-if="viewer_public_url">Copy public URL</button>
           </div>
           <fieldset>

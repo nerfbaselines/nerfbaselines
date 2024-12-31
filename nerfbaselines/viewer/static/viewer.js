@@ -245,8 +245,9 @@ class SettingsManager {
     this.viewer.addEventListener("change", this._on_change.bind(this));
   }
 
-  _on_change({ state, property }) {
+  _on_change({ state, property, trigger }) {
     const defaultSettings = this._get_default_settings();
+    if (trigger !== "gui_input" && trigger !== "gui_change") return;
     if (property !== undefined && defaultSettings[property] !== undefined) {
       // We store the property to the local cache
       localStorage.setItem(`settings.${property}`, state[property]);
@@ -828,22 +829,20 @@ function _attach_fullscreen_mode(viewer) {
   });
   viewer.state.viewer_fullscreen_enabled = document.fullscreenEnabled;
   viewer.notifyChange({ property: "viewer_fullscreen_enabled" });
-  viewer.addEventListener("action", ({ action }) => {
-    if (action === "viewer_toggle_fullscreen") {
-      viewer.state.viewer_fullscreen = !viewer.state.viewer_fullscreen;
+  viewer.setActionHandler("viewer_toggle_fullscreen", () => {
+    viewer.state.viewer_fullscreen = !viewer.state.viewer_fullscreen;
+    viewer.notifyChange({ property: "viewer_fullscreen" });
+  });
+  viewer.setActionHandler("viewer_exit_fullscreen", () => {
+    if (viewer.state.viewer_fullscreen) {
+      viewer.state.viewer_fullscreen = false;
       viewer.notifyChange({ property: "viewer_fullscreen" });
     }
-    if (action === "viewer_exit_fullscreen") {
-      if (viewer.state.viewer_fullscreen) {
-        viewer.state.viewer_fullscreen = false;
-        viewer.notifyChange({ property: "viewer_fullscreen" });
-      }
-    }
-    if (action === "viewer_enter_fullscreen") {
-      if (!viewer.state.viewer_fullscreen) {
-        viewer.state.viewer_fullscreen = true;
-        viewer.notifyChange({ property: "viewer_fullscreen" });
-      }
+  });
+  viewer.setActionHandler("viewer_enter_fullscreen", () => {
+    if (!viewer.state.viewer_fullscreen) {
+      viewer.state.viewer_fullscreen = true;
+      viewer.notifyChange({ property: "viewer_fullscreen" });
     }
   });
 }
@@ -1626,7 +1625,7 @@ function _attach_draggable_keyframe_panel(viewer) {
             event.preventDefault();
             event.stopPropagation();
             const key = element.getAttribute("data-key");
-            viewer.dispatchAction("delete_keyframe", { keyframe_id: key });
+            viewer.delete_keyframe({ keyframe_id: key });
           });
         });
 
@@ -1914,7 +1913,6 @@ export class Viewer extends THREE.EventDispatcher {
     this._last_frames = {};
 
     this._attach_computed_properties();
-    this._attach_actions();
     _attach_camera_control(this);
     _attach_camera_path(this);
     _attach_fullscreen_mode(this);
@@ -2204,13 +2202,19 @@ export class Viewer extends THREE.EventDispatcher {
     });
   }
 
-  dispatchAction(action, payload) {
-    this.dispatchEvent({
-      ...(payload || {}),
-      type: "action",
-      action,
-      state: this.state,
-    });
+  dispatchAction(action, ...args) {
+    if (this[action]) {
+      return this[action](...args);
+    }
+    if (this._actionHandlers && this._actionHandlers[action]) {
+      return this._actionHandlers[action](...args);
+    }
+    throw new Error(`Action handler not found: ${action}`);
+  }
+
+  setActionHandler(action, handler) {
+    this._actionHandlers = this._actionHandlers || {};
+    this._actionHandlers[action] = handler;
   }
 
   addComputedProperty({ name, getter, dependencies }) {
@@ -2240,7 +2244,6 @@ export class Viewer extends THREE.EventDispatcher {
   }
 
   async create_public_url({ accept_license_terms=false } = {}) {
-    if (this.state.viewer_public_url) return;
     this.update_notification({
       id: "public-url",
       header: "Creating public URL",
@@ -2452,13 +2455,6 @@ export class Viewer extends THREE.EventDispatcher {
         }
         return camera_path_duration;
       }
-    });
-  }
-
-  _attach_actions() {
-    this.addEventListener("action", ({ action, ...rest }) => {
-      if (this[action] === undefined) return;
-      this[action](rest);
     });
   }
 
@@ -2943,6 +2939,7 @@ export class Viewer extends THREE.EventDispatcher {
         this.notifyChange({ 
           property: name, 
           origin: element,
+          trigger: "gui_change",
         });
       });
       element.addEventListener("input", (event) => {
@@ -2951,6 +2948,7 @@ export class Viewer extends THREE.EventDispatcher {
         this.notifyChange({ 
           property: name, 
           origin: element,
+          trigger: "gui_input",
         });
         if (name === "preview_frame" && type === "range") {
           // Changing preview_frame stops the preview
@@ -2958,6 +2956,7 @@ export class Viewer extends THREE.EventDispatcher {
           this.notifyChange({ 
             property: "preview_is_playing", 
             origin: element,
+            trigger: "gui_input",
           });
         }
       });
@@ -3177,10 +3176,8 @@ export class Viewer extends THREE.EventDispatcher {
 
     query(".dialog").forEach(element => {
       const id = element.id;
-      this.addEventListener("action", ({ action }) => {
-        if (action === `open_dialog_${id}`) {
-          element.classList.add("dialog-open");
-        }
+      this.setActionHandler(`open_dialog_${id}`, () => {
+        element.classList.add("dialog-open");
       });
     });
 
@@ -3204,7 +3201,7 @@ export class Viewer extends THREE.EventDispatcher {
     });
 
     // Notify gui is attached and propagate changes
-    this.notifyChange({ property: undefined });
+    this.notifyChange({ property: undefined, trigger: "gui_attached" });
   }
 
   update_notification({ id, header, progress, autoclose=undefined, detail="", detailHTML=undefined, type="info", onclose, closeable=true }) {

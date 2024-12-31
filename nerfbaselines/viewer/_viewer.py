@@ -6,7 +6,7 @@ import nerfbaselines
 from nerfbaselines import __version__
 from nerfbaselines.utils import image_to_srgb, visualize_depth, apply_colormap
 from nerfbaselines.results import get_dataset_info
-from ._httpserver import run_simple_http_server
+from ._httpserver import run_flask_server as run_simple_http_server
 
 
 def get_info(model_info, datasets, nb_info, dataset_metadata):
@@ -123,6 +123,8 @@ class Viewer:
     def __init__(self, model=None, train_dataset=None, test_dataset=None, nb_info=None, port=5001):
         self._request_queue = multiprocessing.Queue()
         self._output_queue = multiprocessing.Queue()
+        # self._message_out_queue = multiprocessing.Queue()
+        # self._message_in_queue = multiprocessing.Queue()
         self._port = port
         self._nb_info = nb_info
 

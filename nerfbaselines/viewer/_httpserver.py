@@ -20,6 +20,7 @@ from nerfbaselines.datasets import dataset_index_select, dataset_load_features
 from nerfbaselines.utils import image_to_srgb
 from ._proxy import cloudflared_tunnel
 from ._websocket import httpserver_websocket_handler, ConnectionClosed
+from nerfbaselines.backends._common import setup_logging as setup_logging
 
 
 logger = logging.getLogger("nerfbaselines.viewer")
@@ -460,17 +461,23 @@ class ViewerRequestHandler(SimpleHTTPRequestHandler):
         return self.send_error(404)
 
 
-def run_simple_http_server(*args, port, **kwargs):
+def run_simple_http_server(*args, port=None, verbose=False, **kwargs):
+    setup_logging(verbose=verbose)
     from http.server import ThreadingHTTPServer
+    if port is None:
+        port = 0
     with ViewerBackend(*args, **kwargs) as backend, \
             ThreadingHTTPServer(("", port), partial(ViewerRequestHandler, backend=backend)) as server:
-        logger.info(f"Starting HTTP server at http://localhost:{port}")
+        port = server.server_address[1]
+        logger.info(f"Viewer is running at http://localhost:{port}")
         server.serve_forever()
 
 
-def run_flask_server(*args, port, **kwargs):
+def run_flask_server(*args, port, verbose=False, **kwargs):
+    setup_logging(verbose=verbose)
     from flask import Flask, request, jsonify, render_template, Response, send_file
     from flask import request, Response, send_from_directory
+    import socketserver
     from ._websocket import flask_websocket_route
 
     # Create app
@@ -478,7 +485,7 @@ def run_flask_server(*args, port, **kwargs):
     app.config["TEMPLATES_AUTO_RELOAD"] = True
     # Reduce logging
     log = logging.getLogger('werkzeug')
-    log.setLevel(logging.ERROR)
+    log.setLevel(logging.DEBUG if verbose else logging.ERROR)
 
     # Full exception details
     @app.errorhandler(Exception)
@@ -573,8 +580,22 @@ def run_flask_server(*args, port, **kwargs):
         return Response(out, mimetype=mimetype)
     del _get_dataset_image_route
 
+    original_socket_bind = socketserver.TCPServer.server_bind
+    def socket_bind_wrapper(self):
+        nonlocal port
+        ret = original_socket_bind(self)
+        _, port = self.socket.getsockname()
+        logger.info(f"Viewer is running at http://localhost:{port}")
+        # Recover original implementation
+        socketserver.TCPServer.server_bind = original_socket_bind
+        return ret
+
     try:
         with ViewerBackend(*args, **kwargs) as backend:
-            app.run(host="0.0.0.0", port=port)
+            try:
+                socketserver.TCPServer.server_bind = socket_bind_wrapper   #Hook the wrapper
+                app.run(host="0.0.0.0", port=port or 0)
+            finally:
+                socketserver.TCPServer.server_bind = original_socket_bind
     except Exception as e:
         logging.exception(e)
