@@ -8,7 +8,7 @@
 </head>
 <body>
 
-<main data-bind-class="theme-light:viewer_theme==light">
+<main data-bind-class="theme-light:viewer_theme==light;hide-help:!viewer_show_help">
     <div class="viewport"></div>
 
     <div class="notifications"></div>
@@ -164,6 +164,19 @@
           </div>
           <fieldset>
             <legend>UI</legend>
+            <div class="row">
+              <label>Show help</label>
+              <div class="switch">
+                <label>
+                  <input type="radio" name="viewer_show_help" value="true" data-type="bool">
+                  <span>show</span>
+                </label>
+                <label>
+                  <input type="radio" name="viewer_show_help" value="false" data-type="bool">
+                  <span>hide</span>
+                </label>
+              </div>
+            </div>
             <div class="row">
               <label for="viewer_font_size">Font size</label>
               <input type="range" id="viewer_font_size" name="viewer_font_size" min="0.5" max="1.5" value="1" step="0.1">
@@ -486,6 +499,14 @@
             <div class="input-hint">Add a segment between the first and last keyframes.</div>
           </div>
 
+          <div class="row" data-visible-if="camera_path_interpolation!=none">
+            <label for="camera_path_distance_alpha">Distance alpha</label>
+            <input type="range" id="camera_path_distance_alpha" name="camera_path_distance_alpha" min="0" max="1" step="0.01" value="1">
+            <div class="input-hint">
+              Alpha is the distance exponent for computing segment times and velocities. 
+              For alpha=0, all segments have the same length.
+            </div>
+          </div>
           <div class="row" data-visible-if="camera_path_interpolation==kochanek-bartels">
             <label for="camera_path_tension">Spline tension</label>
             <input type="range" id="camera_path_tension" name="camera_path_tension" min="-1" max="1" step="0.01" value="0">

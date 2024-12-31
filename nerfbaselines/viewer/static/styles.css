@@ -283,7 +283,9 @@ select:disabled, input:disabled, textarea:disabled, .switch:disabled {
   color: var(--secondary-color);
   cursor: default;
 }
-/*hint is secondary color*/
+.hide-help .controls .input-hint {
+  display: none;
+}
 .controls .input-hint {
   color: var(--secondary-color);
   font-size: 0.8rem;

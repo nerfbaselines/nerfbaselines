@@ -612,6 +612,7 @@ export function compute_camera_path(props) {
     interpolation = 'none', 
     time_interpolation = 'velocity',
     default_transition_duration,
+    distance_alpha,
     ...rest_props 
   } = props;
   let duration = props.duration;
@@ -679,6 +680,7 @@ export function compute_camera_path(props) {
     });
     lengths = circleInterpolation.getSegmentLengths();
     totalDistance = lengths.reduce((a, x) => a + x, 0);
+    lengths = lengths.map(x => x ** distance_alpha);
     position_spline = circleInterpolation.evaluatePosition;
     quaternion_spline = circleInterpolation.evaluateQuaternion;
     Interpolation = LinearInterpolation;
@@ -687,6 +689,7 @@ export function compute_camera_path(props) {
     Interpolation = LinearInterpolation;
     lengths = Interpolation.getSegmentLengths({ positions: k_positions, loop });
     totalDistance = lengths.reduce((a, x) => a + x, 0);
+    lengths = lengths.map(x => x ** distance_alpha);
     grid = cumsum(lengths);
     position_spline = new Interpolation({ vertices: k_positions, grid, ...rest_props}).evaluate;
     quaternion_spline = new Interpolation({ vertices: k_quaternions, grid, ...rest_props}).evaluate;
@@ -694,6 +697,7 @@ export function compute_camera_path(props) {
     Interpolation = KochanekBartelsInterpolation;
     lengths = Interpolation.getSegmentLengths({ positions: k_positions, loop: loop, ...rest_props});
     totalDistance = lengths.reduce((a, x) => a + x, 0);
+    lengths = lengths.map(x => x ** distance_alpha);
     grid = cumsum(lengths);
     position_spline = new Interpolation({ vertices: k_positions, grid, ...rest_props}).evaluate;
     quaternion_spline = new Interpolation({ vertices: k_quaternions, grid, ...rest_props}).evaluate;

@@ -579,6 +579,7 @@ function _attach_camera_path(viewer) {
         property !== 'camera_path_framerate' &&
         property !== 'camera_path_duration' &&
         property !== 'camera_path_time_interpolation' &&
+        property !== 'camera_path_distance_alpha' &&
         property !== 'camera_path_default_transition_duration' &&
         property !== 'camera_path_bias') return;
     const {
@@ -591,6 +592,7 @@ function _attach_camera_path(viewer) {
       camera_path_default_fov,
       camera_path_duration,
       camera_path_framerate,
+      camera_path_distance_alpha,
       camera_path_time_interpolation,
       camera_path_default_transition_duration,
     } = state;
@@ -603,6 +605,7 @@ function _attach_camera_path(viewer) {
         tension: camera_path_tension || 0,
         continuity: camera_path_continuity || 0,
         bias: camera_path_bias || 0,
+        distance_alpha: camera_path_distance_alpha,
         time_interpolation: camera_path_time_interpolation,
         default_transition_duration: camera_path_default_transition_duration,
         default_fov: camera_path_default_fov,
@@ -2641,8 +2644,10 @@ export class Viewer extends THREE.EventDispatcher {
       source.tension = state.camera_path_tension;
       source.continuity = state.camera_path_continuity;
       source.bias = state.camera_path_bias;
+      source.distance_alpha = state.camera_path_distance_alpha;
     } else if (source.interpolation === "linear" || source.interpolation === "circle") {
       source.is_cycle = state.camera_path_loop;
+      source.distance_alpha = state.camera_path_distance_alpha;
     }
     const data = {
       version: 'nerfbaselines-v1',
@@ -2845,11 +2850,14 @@ export class Viewer extends THREE.EventDispatcher {
         duration,
         default_transition_duration,
         time_interpolation,
+        distance_alpha,
       } = source;
       if (correctnull(default_fov) !== undefined)
         state.camera_path_default_fov = default_fov;
       if (correctnull(default_transition_duration) !== undefined)
         state.camera_path_default_transition_duration = default_transition_duration;
+      if (correctnull(distance_alpha) !== undefined)
+        state.camera_path_distance_alpha = distance_alpha;
       if (correctnull(time_interpolation) !== undefined) {
         if (["velocity", "time"].indexOf(time_interpolation) === -1) {
           throw new Error("Time interpolation must be either 'velocity' or 'time'");
@@ -2911,10 +2919,11 @@ export class Viewer extends THREE.EventDispatcher {
 
     // Handle state change
     function getValue(element) {
-      const { name, value, type, checked } = element;
-      if (type === "checkbox") return checked;
-      if (type === "radio") return value;
-      if (type === "number" || type === "range") return element.valueAsNumber;
+      let { name, value, type, checked } = element;
+      if (type === "checkbox") value = checked;
+      else if (type === "number" || type === "range") value = element.valueAsNumber;
+      const dataType = element.getAttribute("data-type");
+      if (dataType === "bool") value = value === "true" || value === true || value === "1" || value === 1;
       return value;
     }
     function setValue(element, value) {
@@ -2922,7 +2931,11 @@ export class Viewer extends THREE.EventDispatcher {
       if (type === "checkbox") {
         element.checked = value;
       } else if (type === "radio") {
-        element.checked = element.value === value;
+        const checked = (
+          element.value === value || 
+          (element.value === "true" && value === true) ||
+          (element.value === "false" && value === false));
+        element.checked = checked;
       } else {
         element.value = value;
         const e = new Event("input");
@@ -3066,17 +3079,20 @@ export class Viewer extends THREE.EventDispatcher {
       });
     });
 
-    // data-bind-class has the form "class1:property1"
+    // ata-bind-class has the form "class1:property1"
     query("[data-bind-class]").forEach(element => {
-      const [class_name, expr] = element.getAttribute("data-bind-class").split(":");
-      const [evalFn, dependencies] = parseBinding(expr, "string");
-      this.addEventListener("change", ({ property, state }) => {
-        if (property !== undefined && !dependencies.includes(property)) return;
-        if (evalFn(state)) {
-          element.classList.add(class_name);
-        } else {
-          element.classList.remove(class_name);
-        }
+      const attr = element.getAttribute("data-bind-class");
+      attr.split(";").forEach((attr) => {
+        const [class_name, expr] = attr.split(":");
+        const [evalFn, dependencies] = parseBinding(expr, "string");
+        this.addEventListener("change", ({ property, state }) => {
+          if (property !== undefined && !dependencies.includes(property)) return;
+          if (evalFn(state)) {
+            element.classList.add(class_name);
+          } else {
+            element.classList.remove(class_name);
+          }
+        });
       });
     });
 
