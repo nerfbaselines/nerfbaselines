@@ -30,7 +30,9 @@ def get_info(model_info, datasets, nb_info, dataset_metadata):
     if dataset_metadata_.get("viewer_initial_pose") is not None:
         info["viewer_initial_pose"] = dataset_metadata_["viewer_initial_pose"][:3, :4].flatten().tolist()
     if model_info is not None:
-        info["state"]["output_types"] = model_info.get("supported_outputs", ("color",))
+        output_types = model_info.get("supported_outputs", ("color",))
+        output_types = [x if isinstance(x, str) else x["name"] for x in output_types]
+        info["state"]["output_types"] = output_types
 
     if datasets.get("train") is not None:
         info["dataset_parts"].append("train")
@@ -80,7 +82,8 @@ def get_info(model_info, datasets, nb_info, dataset_metadata):
         if model_info.get("supported_camera_models") is not None:
             _method_info["supported_camera_models"] = list(sorted(model_info["supported_camera_models"]))
         if model_info.get("supported_outputs") is not None:
-            _method_info["supported_outputs"] = list(sorted(model_info["supported_outputs"]))
+            supported_outputs = [x if isinstance(x, str) else x["name"] for x in model_info["supported_outputs"]]
+            _method_info["supported_outputs"] = list(sorted(supported_outputs))
 
         # Pull more details from the registry
         spec = None
