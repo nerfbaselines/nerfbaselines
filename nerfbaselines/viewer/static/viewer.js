@@ -246,7 +246,7 @@ class SettingsManager {
   }
 
   _on_change({ state, property, trigger }) {
-    const defaultSettings = this._get_default_settings();
+    const defaultSettings = SettingsManager.get_default_settings();
     if (trigger !== "gui_input" && trigger !== "gui_change") return;
     if (property !== undefined && defaultSettings[property] !== undefined) {
       // We store the property to the local cache
@@ -254,7 +254,7 @@ class SettingsManager {
     }
   }
 
-  _get_default_settings() {
+  static get_default_settings() {
     return {
       theme_color: "#ffd369",
       trajectory_curve_color: "#6bffe6",
@@ -287,13 +287,13 @@ class SettingsManager {
 
   reset() {
     localStorage.clear();
-    Object.assign(this.viewer.state, this._get_default_settings());
+    Object.assign(this.viewer.state, SettingsManager.get_default_settings());
     this.viewer.notifyChange({ property: undefined });
   }
 
   _populate_state() {
     const state = this.viewer.state;
-    const settings = this._get_default_settings();
+    const settings = SettingsManager.get_default_settings();
     for (const k in settings) {
       let val = localStorage.getItem(`settings.${k}`);
       if (val === null || val === undefined)
@@ -306,6 +306,80 @@ class SettingsManager {
     Object.assign(state, settings);
     this.viewer.notifyChange({ property: undefined });
   }
+}
+
+
+function _attach_persistent_state(viewer) {
+  let changed = true;
+  viewer.addEventListener("change", ({ property, state, trigger }) => {
+    changed = true;
+  });
+  viewer.addEventListener("start", ({ state }) => {
+    if (sessionStorage.getItem('viewer_state') === null) {
+      return;
+    }
+    const { 
+      state: savedState, cameraMatrix: cameraMatrixArray
+    } = JSON.parse(sessionStorage.getItem('viewer_state'));
+    // Fix types in the saved state
+    if (savedState.camera_path_keyframes) {
+      for (const keyframe of savedState.camera_path_keyframes) {
+        console.log(keyframe);
+        keyframe.position = new THREE.Vector3(
+          keyframe.position.x, 
+          keyframe.position.y, 
+          keyframe.position.z
+        );
+        keyframe.quaternion = new THREE.Quaternion(
+          keyframe.quaternion._x, 
+          keyframe.quaternion._y, 
+          keyframe.quaternion._z, 
+          keyframe.quaternion._w);
+      }
+    }
+    const cameraMatrix = cameraMatrixArray ? makeMatrix4(cameraMatrixArray) : undefined;
+    viewer.dispatchEvent("loading_state", { 
+      state: savedState,
+      cameraMatrix,
+    });
+    Object.assign(state, savedState);
+    if (cameraMatrix) {
+      viewer.scene.updateMatrixWorld();
+      viewer.set_camera({ matrix: cameraMatrix });
+    }
+    viewer.notifyChange({ property: undefined, trigger: "restore_state" });
+  });
+  setInterval(() => {
+    if (changed) {
+      const state = {...viewer.state};
+      delete state.dataset_has_pointcloud;
+      delete state.dataset_has_train_cameras;
+      delete state.dataset_has_test_cameras;
+      delete state.has_method;
+      delete state.dataset_images;
+      delete state.viewer_fullscreen;
+      delete state.viewer_fullscreen_enabled;
+      delete state.viewer_is_embedded;
+      delete state.viewer_public_url;
+
+      delete state.dataset_info;
+      delete state.method_info;
+
+      // Delete computed properties
+      for (let k of viewer._computed_property_names) {
+        delete state[k];
+      }
+
+      // Delete default settings
+      for (let k in SettingsManager.get_default_settings()) {
+        delete state[k];
+      }
+      let cameraMatrix = viewer.get_camera_params().matrix;
+      viewer.dispatchEvent("saving_state", { state, cameraMatrix });
+      cameraMatrix = matrix4ToArray(cameraMatrix);
+      sessionStorage.setItem('viewer_state', JSON.stringify({ state, cameraMatrix }));
+    }
+  }, 300);
 }
 
 
@@ -1411,6 +1485,20 @@ function _attach_selected_keyframe_details(viewer) {
     return { keyframe, prevKeyframe, keyframeIndex };
   };
 
+  viewer._computed_property_names.add("camera_path_selected_keyframe_natural_index");
+  viewer._computed_property_names.add("camera_path_has_selected_keyframe");
+  viewer._computed_property_names.add("camera_path_selected_keyframe_appearance_train_index");
+  viewer._computed_property_names.add("camera_path_selected_keyframe_appearance_url");
+  viewer._computed_property_names.add("camera_path_selected_keyframe_fov");
+  viewer._computed_property_names.add("camera_path_selected_keyframe_override_fov");
+  viewer._computed_property_names.add("camera_path_selected_keyframe_velocity_multiplier");
+  viewer._computed_property_names.add("camera_path_selected_keyframe_show_in_duration");
+  viewer._computed_property_names.add("camera_path_selected_keyframe_show_duration");
+  viewer._computed_property_names.add("camera_path_selected_keyframe_override_duration");
+  viewer._computed_property_names.add("camera_path_selected_keyframe_override_in_duration");
+  viewer._computed_property_names.add("camera_path_selected_keyframe_duration");
+  viewer._computed_property_names.add("camera_path_selected_keyframe_in_duration");
+
   const updateSelectedKeyframe = (state) => {
     const { dataset_images, camera_path_keyframes, 
             camera_path_selected_keyframe, camera_path_loop,
@@ -1890,6 +1978,10 @@ export class Viewer extends THREE.EventDispatcher {
       this.controls.update();
     }
 
+    this._computed_property_names = new Set();
+    this._computed_property_names.add("camera_path_trajectory");
+
+
     this._preview_canvas = document.createElement("canvas");
     this._preview_canvas.style.width = "100%";
     this._preview_canvas.style.height = "100%";
@@ -1928,6 +2020,7 @@ export class Viewer extends THREE.EventDispatcher {
     _attach_viewport_split_slider(this, this.viewport);
     _attach_selected_keyframe_details(this);
     _attach_draggable_keyframe_panel(this);
+    _attach_persistent_state(this);
 
     this.addEventListener("change", ({ property, state }) => {
       if (property === undefined || property === 'render_fov') {
@@ -1937,6 +2030,7 @@ export class Viewer extends THREE.EventDispatcher {
       }
     });
 
+    this.dispatchEvent({ type: "start", state: this.state });
     (plugins || []).map((plugin) => this.load_plugin(plugin));
   }
 
@@ -2029,7 +2123,7 @@ export class Viewer extends THREE.EventDispatcher {
       return request;
     }
 
-    let cameraParams = this._get_camera_params();
+    let cameraParams = this.get_camera_params();
     let height = this.viewport.clientHeight;
     let width = Math.round(height * cameraParams.aspect);
     let params, paramsJSON;
@@ -2167,7 +2261,7 @@ export class Viewer extends THREE.EventDispatcher {
     }
   }
 
-  _get_camera_params() {
+  get_camera_params() {
     if (this.state.preview_camera !== undefined) {
       return this.state.preview_camera;
     }
@@ -2221,6 +2315,7 @@ export class Viewer extends THREE.EventDispatcher {
   }
 
   addComputedProperty({ name, getter, dependencies }) {
+    this._computed_property_names.add(name);
     this.state[name] = getter(this.state);
     this.addEventListener("change", ({ property, state }) => {
       if (property !== undefined && !dependencies.includes(property)) return;
@@ -2332,7 +2427,7 @@ export class Viewer extends THREE.EventDispatcher {
   }
 
   add_keyframe() {
-    const { matrix } = this._get_camera_params();
+    const { matrix } = this.get_camera_params();
     const quaternion = new THREE.Quaternion();
     const position = new THREE.Vector3();
     const scale = new THREE.Vector3();
@@ -3127,7 +3222,7 @@ export class Viewer extends THREE.EventDispatcher {
     // Camera pose textarea
     const camera_pose_elements = query("[name=camera_pose]");
     const updateCameraElements = () => {
-      const { matrix } = this._get_camera_params();
+      const { matrix } = this.get_camera_params();
       const value = formatMatrix4(matrix, 5);
       camera_pose_elements.forEach((element) => {
         if (!element.hasFocus) 

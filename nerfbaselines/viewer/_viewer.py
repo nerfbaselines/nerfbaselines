@@ -58,6 +58,16 @@ def get_info(model_info, datasets, nb_info, dataset_metadata):
     if datasets.get("test") is not None:
         info["dataset_parts"].append("test")
     if model_info is not None:
+        if "viewer_default_resolution" in model_info:
+            default_resolution = model_info["viewer_default_resolution"]
+            if isinstance(default_resolution, int):
+                info["state"]["render_resolution"] = default_resolution
+                info["state"]["prerender_enabled"] = False
+            elif isinstance(default_resolution, (list, tuple)) and len(default_resolution) == 2:
+                prerender_resolution, default_resolution = default_resolution
+                info["state"]["render_resolution"] = default_resolution
+                info["state"]["prerender_resolution"] = prerender_resolution
+                info["state"]["prerender_enabled"] = True
         info["state"]["method_info"] = _method_info = info["state"]["method_info"] or {}
         _method_info["method_id"] = model_info["method_id"]
         _method_info["hparams"] = model_info.get("hparams", {})
