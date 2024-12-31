@@ -265,7 +265,9 @@ def new_cameras(
     metadata: Optional[np.ndarray] = None,
 ) -> Cameras:
     if distortion_parameters is None:
-        distortion_parameters = np.zeros((len(intrinsics), 0), dtype=intrinsics.dtype)
+        shape = list(intrinsics.shape)
+        shape[-1] = 0
+        distortion_parameters = np.zeros(tuple(shape), dtype=intrinsics.dtype)
     return GenericCamerasImpl[np.ndarray](
         poses=poses,
         intrinsics=intrinsics,

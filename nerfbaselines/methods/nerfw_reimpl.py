@@ -532,6 +532,7 @@ class NeRFWReimpl(Method):
             required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset(get_args(CameraModel)),
             supported_outputs=("color", "depth"),
+            viewer_default_resolution=(64, 378),
         )
 
     def get_info(self) -> ModelInfo:

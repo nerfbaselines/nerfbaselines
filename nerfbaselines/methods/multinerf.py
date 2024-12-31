@@ -290,7 +290,7 @@ class NBDataset(MNDataset):
             camera_model_to_int("opencv_fisheye"): 2,
         }
         self.camtype = np.array([camtype_map[i] for i in cameras.camera_models], np.int32)
-        dataset_len = len(self.dataset["image_paths"])
+        dataset_len = len(cameras)
         distortion_params = np.zeros((dataset_len, 6), dtype=np.float32)
         dist_shape = min(cameras.distortion_parameters.shape[1], 6)
         distortion_params[:, :cameras.distortion_parameters.shape[1]] = cameras.distortion_parameters[:, :dist_shape]
@@ -462,6 +462,7 @@ class MultiNeRF(Method):
             required_features=frozenset(("color",)),
             supported_camera_models=frozenset(("pinhole", "opencv", "opencv_fisheye")),
             supported_outputs=("color", "depth", "accumulation",),
+            viewer_default_resolution=(64, 378),
         )
 
     def get_info(self):

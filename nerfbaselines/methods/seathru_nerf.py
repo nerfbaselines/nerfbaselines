@@ -509,6 +509,7 @@ class SeaThruNeRF(Method):
                 { "name": "color_clean", "type": "color" },
                 { "name": "color_backscatter", "type": "color" },
             ),
+            viewer_default_resolution=(64, 378),
         )
 
     def get_info(self):

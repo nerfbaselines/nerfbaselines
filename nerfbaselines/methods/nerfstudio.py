@@ -469,6 +469,7 @@ class NerfStudio(Method):
                 )
             ),
             supported_outputs=("color", "depth", "accumulation"),
+            viewer_default_resolution=(128, 512),
         )
 
     def get_info(self) -> ModelInfo:

@@ -256,6 +256,7 @@ class ViewerBackend:
             message_length = len(msg_bytes)
             return struct.pack(f"!I", message_length) + msg_bytes + payload
         except Exception as e:
+            logging.exception(e)
             return json.dumps({
                 "status": "error", "message": str(e), "thread": thread
             })
