@@ -341,6 +341,16 @@ const hash_cyrb53 = (str, seed = 0) => {
 };
 
 
+async function evaluateES6(code) {
+  const objectURL = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+  try {
+    return (await import(objectURL)).default;
+  } finally {
+    URL.revokeObjectURL(objectURL);
+  }
+}
+
+
 async function saveAs(blob, opts) {
   const hasFSAccess = 'showOpenFilePicker' in window;
   const { type, filename, description, extension } = opts;
@@ -1839,6 +1849,7 @@ export class Viewer extends THREE.EventDispatcher {
     viewer_initial_pose,
     url,
     state,
+    plugins,
   }) {
     super();
     this._backgroundTexture = undefined;
@@ -1924,6 +1935,8 @@ export class Viewer extends THREE.EventDispatcher {
         this._draw_background();
       }
     });
+
+    (plugins || []).map((plugin) => this.load_plugin(plugin));
   }
 
   reset_settings() {
@@ -2775,6 +2788,20 @@ export class Viewer extends THREE.EventDispatcher {
     }
   }
 
+  async load_plugin({ code, id }) {
+    try {
+      const plugin = await evaluateES6(code);
+      await plugin(this);
+    } catch (error) {
+      console.error("Error loading plugin:", error);
+      this.update_notification({
+        header: `Error loading plugin ${id}`,
+        detail: error.message,
+        type: "error",
+      });
+    }
+  }
+
   load_trajectory({ data }) {
     try {
       if (!data) {
@@ -2877,6 +2904,15 @@ export class Viewer extends THREE.EventDispatcher {
   attach_gui({ elements } = {}) {
     elements = elements || [document.body];
     const state = this.state;
+
+    this.dispatchEvent({
+      type: "attach_gui_started",
+      elements,
+      target: this,
+      state,
+    });
+
+
     // Handle state change
     function getValue(element) {
       const { name, value, type, checked } = element;
@@ -3164,6 +3200,7 @@ export class Viewer extends THREE.EventDispatcher {
       type: "gui_attached",
       elements,
       target: this,
+      state,
     });
 
     // Notify gui is attached and propagate changes

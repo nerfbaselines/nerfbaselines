@@ -16,7 +16,8 @@ def get_info(model_info, datasets, nb_info, dataset_metadata):
             "method_info": None,
             "dataset_info": None,
             "output_types": [],
-        }
+        },
+        "plugins": [],
     }
     if model_info is not None:
         info["renderer_websocket_url"] = "./render-websocket"
