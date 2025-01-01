@@ -1681,8 +1681,8 @@ function _attach_init_public_url(viewer) {
     window.location.hostname === ""
   );
   if (!isLocal) {
-    viewer.state.public_url = window.location.href;
-    viewer.notifyChange({ property: "public_url" });
+    viewer.state.viewer_public_url = window.location.href;
+    viewer.notifyChange({ property: "viewer_public_url" });
   }
 }
 
