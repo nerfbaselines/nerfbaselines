@@ -126,7 +126,7 @@ def create_ply_bytes(points3D_xyz, points3D_rgb=None):
 
 
 class ViewerBackend:
-    def __init__(self, request_queue, output_queue, message_out_queue, message_in_queue, *, info, datasets):
+    def __init__(self, request_queue, output_queue, *, info, datasets):
         self._info = info
         self._datasets = datasets
         self._images_cache = {}
@@ -134,8 +134,6 @@ class ViewerBackend:
         self._stack = contextlib.ExitStack()
         self._request_queue = request_queue
         self._output_queue = output_queue
-        self._message_out_queue = message_out_queue
-        self._message_in_queue = message_in_queue
 
     def __enter__(self):
         self._stack.__enter__()
@@ -148,20 +146,11 @@ class ViewerBackend:
         del args
 
     def notify_started(self, port):
-        self._message_out_queue.put({
+        self._request_queue.put({
             "type": "start",
             "port": port,
             "thread_id": 0,
         })
-
-        # Wait for the ack message
-        while True:
-            message = self._message_in_queue.get()
-            if message.get("type") == "set_public_url":
-                self._info["state"]["viewer_public_url"] = message.get("public_url")
-                self._message_out_queue.put({"type": "ack", "thread_id": message.get("thread_id")})
-            if message.get("type") == "ack" and message.get("thread_id") == 0:
-                break
 
     def get_info(self):
         return self._info

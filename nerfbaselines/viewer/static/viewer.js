@@ -1673,6 +1673,20 @@ function querySelectorAll(elements, selector) {
 }
 
 
+function _attach_init_public_url(viewer) {
+  const isLocal = (
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "0.0.0.0" ||
+    window.location.hostname === "127.0.0.1" ||
+    window.location.hostname === ""
+  );
+  if (!isLocal) {
+    viewer.state.public_url = window.location.href;
+    viewer.notifyChange({ property: "public_url" });
+  }
+}
+
+
 function _attach_draggable_keyframe_panel(viewer) {
   viewer.addEventListener("gui_attached", ({ elements }) => {
     // Attach draggable keyframe panel
@@ -2021,6 +2035,7 @@ export class Viewer extends THREE.EventDispatcher {
     _attach_selected_keyframe_details(this);
     _attach_draggable_keyframe_panel(this);
     _attach_persistent_state(this);
+    _attach_init_public_url(this);
 
     this.addEventListener("change", ({ property, state }) => {
       if (property === undefined || property === 'render_fov') {

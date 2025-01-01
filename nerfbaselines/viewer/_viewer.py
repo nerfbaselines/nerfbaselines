@@ -141,8 +141,6 @@ class Viewer:
     def __init__(self, model=None, train_dataset=None, test_dataset=None, nb_info=None, port: Optional[int] = None):
         self._request_queue = multiprocessing.Queue()
         self._output_queue = multiprocessing.Queue()
-        self._message_out_queue = multiprocessing.Queue()
-        self._message_in_queue = multiprocessing.Queue()
         self._port = port
         self._nb_info = nb_info
 
@@ -276,8 +274,6 @@ class Viewer:
         return frame
 
     def _run_backend(self):
-        assert self._message_in_queue is not None, "Viewer was disposed"
-        assert self._message_out_queue is not None, "Viewer was disposed"
         datasets = {"train": self._train_dataset, "test": self._test_dataset}
         dataset_metadata = None if self._train_dataset is None else self._train_dataset.get("metadata")
         info = get_info(self._model_info, datasets, self._nb_info, dataset_metadata)
@@ -285,8 +281,6 @@ class Viewer:
         self._process = multiprocessing.Process(target=self._run_backend_fn, args=(
             self._request_queue, 
             self._output_queue, 
-            self._message_in_queue,
-            self._message_out_queue,
         ), kwargs=dict(
             datasets={"train": self._train_dataset, "test": self._test_dataset},
             info=info,
@@ -295,61 +289,21 @@ class Viewer:
         self._process.start()
 
         # Wait for the viewer to start
-        start_message = None
         while self._process.is_alive():
             try:
-                start_message = self._message_in_queue.get(timeout=1)
-                if start_message is not None and start_message.get("type") == "start":
-                    self._port = start_message.get("port")
-                    break
+                message = self._request_queue.get(timeout=1)
+                if message.get("type") != "start":
+                    logging.error(f"Unexpected message: {message}")
+                    raise RuntimeError("Viewer backend process failed to start")
+                self._port = message.get("port")
+                break
             except queue.Empty:
                 pass
-        if start_message is None:
-            raise RuntimeError("Viewer backend process did not start")
-        thread_id = start_message["thread_id"]
-
-        # In google colab, we request a public url for the viewer
-        self._try_init_google_colab_public_url(thread_id+1)
-
-        # Finish start sequence
-        self._message_out_queue.put({ "type": "ack", "thread_id": thread_id })
 
         # Log the viewer url
         logging.info(f"Viewer running at http://localhost:{self._port}")
 
-    def _try_init_google_colab_public_url(self, thread_id):
-        # In google colab, we request a public url for the viewer
-        assert self._message_in_queue is not None, "Viewer was disposed"
-        assert self._message_out_queue is not None, "Viewer was disposed"
-        assert self._process is not None, "Viewer was disposed"
-        
-        public_url = None
-        try:
-            from google.colab import output as google_colab_output  # type: ignore
-            public_url = google_colab_output.eval_js(f"google.colab.kernel.proxyPort({self._port})")
-        except ImportError:
-            pass
-        except Exception as e:
-            logging.exception(e)
-        if public_url is not None:
-            self._message_out_queue.put({ "type": "set_public_url", "public_url": public_url, "thread_id": thread_id })
-            while self._process.is_alive():
-                try:
-                    message = self._message_in_queue.get(timeout=1)
-                    if message is not None and message.get("type") == "ack" and message["thread_id"] == thread_id:
-                        break
-                except queue.Empty:
-                    pass
-
     def close(self):
-        # Kill messaging process
-        if self._message_out_queue is not None:
-            self._message_out_queue.put(None)
-            self._message_out_queue = None
-        if self._message_in_queue is not None:
-            while not self._message_in_queue.empty(): self._message_in_queue.get()
-            self._message_in_queue = None
-
         # Empty request queue
         if self._request_queue is not None:
             while not self._request_queue.empty(): self._request_queue.get()

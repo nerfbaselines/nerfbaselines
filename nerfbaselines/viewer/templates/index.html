@@ -16,7 +16,7 @@
     <div class="controls">
       <div class="dialog" id="confirm_cloudflare_create_public_url">
         <div class="dialog-header">
-          <div>Create public URL</div>
+          <div>Setup public URL</div>
           <i class="ti ti-x" onclick="this.closest('.dialog').classList.remove('dialog-open')"></i>
         </div>
         <div class="panel">
@@ -157,7 +157,7 @@
           </div>
           <div class="row">
             <button data-action="create_public_url" data-enable-if="!viewer_requesting_public_url">
-              <span data-visible-if="!viewer_public_url">Make public URL</span>
+              <span data-visible-if="!viewer_public_url">Setup public URL</span>
               <span data-visible-if="viewer_public_url">Renew public URL</span>
             </button>
             <button data-action="copy_public_url" data-enable-if="viewer_public_url">Copy public URL</button>
