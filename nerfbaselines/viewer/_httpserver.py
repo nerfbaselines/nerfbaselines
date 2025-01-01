@@ -136,27 +136,11 @@ class ViewerBackend:
         self._output_queue = output_queue
         self._message_out_queue = message_out_queue
         self._message_in_queue = message_in_queue
-        self._thread = None
-
-    def _thread_function(self):
-        while True:
-            try:
-                message = self._message_in_queue.get(1)
-                if message is None:
-                    self._message_out_queue.put(message)
-                    break
-                if message.get("type") == "set_public_url":
-                    self._info["state"]["viewer_public_url"] = message.get("public_url")
-                    self._message_out_queue.put({"type": "ack", "thread_id": message.get("thread_id")})
-            except queue.Empty:
-                continue
 
     def __enter__(self):
         self._stack.__enter__()
         self._render_fn = self._stack.enter_context(
             _make_render_fn(self._request_queue, self._output_queue))
-        self._thread = threading.Thread(target=self._thread_function, daemon=True)
-        self._thread.start()
         return self
 
     def __exit__(self, *args):
@@ -165,9 +149,19 @@ class ViewerBackend:
 
     def notify_started(self, port):
         self._message_out_queue.put({
-            "type": "started",
-            "port": port
+            "type": "start",
+            "port": port,
+            "thread_id": 0,
         })
+
+        # Wait for the ack message
+        while True:
+            message = self._message_in_queue.get()
+            if message.get("type") == "set_public_url":
+                self._info["state"]["viewer_public_url"] = message.get("public_url")
+                self._message_out_queue.put({"type": "ack", "thread_id": message.get("thread_id")})
+            if message.get("type") == "ack" and message.get("thread_id") == 0:
+                break
 
     def get_info(self):
         return self._info

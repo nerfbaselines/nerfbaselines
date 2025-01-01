@@ -293,26 +293,29 @@ class Viewer:
         self._process.start()
 
         # Wait for the viewer to start
-        started = False
+        start_message = False
         while self._process.is_alive():
             try:
-                message = self._message_in_queue.get(timeout=1)
-                if message is not None and message.get("type") == "started":
-                    started = True
-                    self._port = message.get("port")
+                start_message = self._message_in_queue.get(timeout=1)
+                if start_message is not None and start_message.get("type") == "start":
+                    self._port = start_message.get("port")
                     break
             except queue.Empty:
                 pass
-        if not started:
+        if start_message is None:
             raise RuntimeError("Viewer backend process did not start")
+        thread_id = start_message["thread_id"]
 
         # In google colab, we request a public url for the viewer
-        self._try_init_google_colab_public_url()
+        self._try_init_google_colab_public_url(thread_id+1)
+
+        # Finish start sequence
+        self._message_out_queue.put({ "type": "ack", "thread_id": thread_id })
 
         # Log the viewer url
         logging.info(f"Viewer running at http://localhost:{self._port}")
 
-    def _try_init_google_colab_public_url(self):
+    def _try_init_google_colab_public_url(self, thread_id):
         # In google colab, we request a public url for the viewer
         public_url = None
         try:
@@ -323,11 +326,11 @@ class Viewer:
         except Exception as e:
             logging.exception(e)
         if public_url is not None:
-            self._message_out_queue.put({ "type": "set_public_url", "public_url": public_url, "thread_id": 0 })
+            self._message_out_queue.put({ "type": "set_public_url", "public_url": public_url, "thread_id": thread_id })
             while self._process.is_alive():
                 try:
                     message = self._message_in_queue.get(timeout=1)
-                    if message is not None and message.get("type") == "ack":
+                    if message is not None and message.get("type") == "ack" and message["thread_id"] == thread_id:
                         break
                 except queue.Empty:
                     pass
