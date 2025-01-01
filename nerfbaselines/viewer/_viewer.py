@@ -276,6 +276,8 @@ class Viewer:
         return frame
 
     def _run_backend(self):
+        assert self._message_in_queue is not None, "Viewer was disposed"
+        assert self._message_out_queue is not None, "Viewer was disposed"
         datasets = {"train": self._train_dataset, "test": self._test_dataset}
         dataset_metadata = None if self._train_dataset is None else self._train_dataset.get("metadata")
         info = get_info(self._model_info, datasets, self._nb_info, dataset_metadata)
@@ -293,7 +295,7 @@ class Viewer:
         self._process.start()
 
         # Wait for the viewer to start
-        start_message = False
+        start_message = None
         while self._process.is_alive():
             try:
                 start_message = self._message_in_queue.get(timeout=1)
@@ -317,6 +319,10 @@ class Viewer:
 
     def _try_init_google_colab_public_url(self, thread_id):
         # In google colab, we request a public url for the viewer
+        assert self._message_in_queue is not None, "Viewer was disposed"
+        assert self._message_out_queue is not None, "Viewer was disposed"
+        assert self._process is not None, "Viewer was disposed"
+        
         public_url = None
         try:
             from google.colab import output as google_colab_output  # type: ignore
