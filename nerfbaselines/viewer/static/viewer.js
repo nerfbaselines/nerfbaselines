@@ -357,8 +357,6 @@ function _attach_persistent_state(viewer) {
       delete state.dataset_has_test_cameras;
       delete state.has_method;
       delete state.dataset_images;
-      delete state.viewer_fullscreen;
-      delete state.viewer_fullscreen_enabled;
       delete state.viewer_is_embedded;
       delete state.viewer_public_url;
 
@@ -859,69 +857,6 @@ function _attach_viewport_split_slider(viewer) {
   });
   viewer.addEventListener("resize", () => update(viewer.state));
   update(viewer.state);
-}
-
-function _attach_fullscreen_mode(viewer) {
-  function closeFullscreen() {
-    if (document.exitFullscreen) {
-      document.exitFullscreen();
-    } else if (document.webkitExitFullscreen) { /* Safari */
-      document.webkitExitFullscreen();
-    } else if (document.msExitFullscreen) { /* IE11 */
-      document.msExitFullscreen();
-    }
-  }
-  let viewer_is_embedded = false;
-  try {
-    viewer_is_embedded = window.self !== window.top;
-  } catch (e) {}
-  viewer.state.viewer_is_embedded = viewer_is_embedded;
-  viewer.notifyChange({ property: "viewer_is_embedded" });
-  var elem = document.documentElement;
-  function openFullscreen() {
-    if (elem.requestFullscreen) {
-      elem.requestFullscreen();
-    } else if (elem.webkitRequestFullscreen) { /* Safari */
-      elem.webkitRequestFullscreen();
-    } else if (elem.msRequestFullscreen) { /* IE11 */
-      elem.msRequestFullscreen();
-    }
-  }
-  elem.addEventListener("fullscreenchange", () => {
-    const newState = !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
-    if (viewer.state.viewer_fullscreen !== newState) {
-      viewer.state.viewer_fullscreen = newState
-      viewer.notifyChange({ property: "viewer_fullscreen", origin: elem });
-    }
-  });
-  viewer.addEventListener("change", ({ property, state, origin }) => {
-    if (origin === elem) return;
-    if (property === "viewer_fullscreen") {
-      if (state.viewer_fullscreen) {
-        openFullscreen();
-      } else {
-        closeFullscreen();
-      }
-    }
-  });
-  viewer.state.viewer_fullscreen_enabled = document.fullscreenEnabled;
-  viewer.notifyChange({ property: "viewer_fullscreen_enabled" });
-  viewer.setActionHandler("viewer_toggle_fullscreen", () => {
-    viewer.state.viewer_fullscreen = !viewer.state.viewer_fullscreen;
-    viewer.notifyChange({ property: "viewer_fullscreen" });
-  });
-  viewer.setActionHandler("viewer_exit_fullscreen", () => {
-    if (viewer.state.viewer_fullscreen) {
-      viewer.state.viewer_fullscreen = false;
-      viewer.notifyChange({ property: "viewer_fullscreen" });
-    }
-  });
-  viewer.setActionHandler("viewer_enter_fullscreen", () => {
-    if (!viewer.state.viewer_fullscreen) {
-      viewer.state.viewer_fullscreen = true;
-      viewer.notifyChange({ property: "viewer_fullscreen" });
-    }
-  });
 }
 
 
@@ -1673,14 +1608,10 @@ function querySelectorAll(elements, selector) {
 }
 
 
-function _attach_init_colab(viewer) {
-  viewer.state.viewer_show_colab_new_window = false;
-  if (window.location.hostname.endsWith("googleusercontent.com")) {
-    // If we are in an iframe, open in new window
-    const isInframe = window.location !== window.parent.location;
-    viewer.state.viewer_show_colab_new_window = isInframe;
-  }
-  viewer.notifyChange({ property: "viewer_show_colab_new_window" });
+function _attach_init_show_in_new_window(viewer) {
+  const isInframe = window.location !== window.parent.location;
+  viewer.state.viewer_show_in_new_window_visible = isInframe;
+  viewer.notifyChange({ property: "viewer_show_in_new_window_visible" });
 }
 
 
@@ -2021,7 +1952,6 @@ export class Viewer extends THREE.EventDispatcher {
     this._attach_computed_properties();
     _attach_camera_control(this);
     _attach_camera_path(this);
-    _attach_fullscreen_mode(this);
     this._attach_preview_is_playing();
     this._attach_update_preview_mode();
     _attach_camera_path_curve(this);
@@ -2032,7 +1962,7 @@ export class Viewer extends THREE.EventDispatcher {
     _attach_selected_keyframe_details(this);
     _attach_draggable_keyframe_panel(this);
     _attach_persistent_state(this);
-    _attach_init_public_url(this);
+    _attach_init_show_in_new_window(this);
 
     this.addEventListener("change", ({ property, state }) => {
       if (property === undefined || property === 'render_fov') {
