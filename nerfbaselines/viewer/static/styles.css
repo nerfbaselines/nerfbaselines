@@ -355,6 +355,7 @@ select:disabled, input:disabled, textarea:disabled, .switch:disabled {
   cursor: pointer;
   padding: 0.2rem;
   transition: all var(--transition-duration);
+  text-decoration: none;
 }
 .tabs .tabs-icons a:hover {
   color: var(--highlight-color);

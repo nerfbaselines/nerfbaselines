@@ -1673,17 +1673,14 @@ function querySelectorAll(elements, selector) {
 }
 
 
-function _attach_init_public_url(viewer) {
-  const isLocal = (
-    window.location.hostname === "localhost" ||
-    window.location.hostname === "0.0.0.0" ||
-    window.location.hostname === "127.0.0.1" ||
-    window.location.hostname === ""
-  );
-  if (!isLocal) {
-    viewer.state.viewer_public_url = window.location.href;
-    viewer.notifyChange({ property: "viewer_public_url" });
+function _attach_init_colab(viewer) {
+  viewer.state.viewer_show_colab_new_window = false;
+  if (window.location.hostname.endsWith("googleusercontent.com")) {
+    // If we are in an iframe, open in new window
+    const isInframe = window.location !== window.parent.location;
+    viewer.state.viewer_show_colab_new_window = isInframe;
   }
+  viewer.notifyChange({ property: "viewer_show_colab_new_window" });
 }
 
 
