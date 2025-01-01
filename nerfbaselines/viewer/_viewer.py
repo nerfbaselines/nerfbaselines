@@ -1,3 +1,4 @@
+import queue
 import math
 import multiprocessing
 import logging
@@ -6,7 +7,11 @@ import nerfbaselines
 from nerfbaselines import __version__
 from nerfbaselines.utils import image_to_srgb, visualize_depth, apply_colormap
 from nerfbaselines.results import get_dataset_info
-from ._httpserver import run_flask_server as run_simple_http_server
+try:
+    from typing import Optional
+except ImportError:
+    from typing_extensions import Optional
+from ._httpserver import run_simple_http_server
 
 
 def get_info(model_info, datasets, nb_info, dataset_metadata):
@@ -133,11 +138,11 @@ def combine_outputs(o1, o2, *, split_percentage=0.5, split_tilt=0):
 
 
 class Viewer:
-    def __init__(self, model=None, train_dataset=None, test_dataset=None, nb_info=None, port=5001):
+    def __init__(self, model=None, train_dataset=None, test_dataset=None, nb_info=None, port: Optional[int] = None):
         self._request_queue = multiprocessing.Queue()
         self._output_queue = multiprocessing.Queue()
-        # self._message_out_queue = multiprocessing.Queue()
-        # self._message_in_queue = multiprocessing.Queue()
+        self._message_out_queue = multiprocessing.Queue()
+        self._message_in_queue = multiprocessing.Queue()
         self._port = port
         self._nb_info = nb_info
 
@@ -275,19 +280,11 @@ class Viewer:
         dataset_metadata = None if self._train_dataset is None else self._train_dataset.get("metadata")
         info = get_info(self._model_info, datasets, self._nb_info, dataset_metadata)
 
-        # In google colab, we request a public url for the viewer
-        try:
-            from google.colab import output as google_colab_output  # type: ignore
-            public_url = google_colab_output.eval_js(f"google.colab.kernel.proxyPort({self._port})")
-            info["state"]["viewer_public_url"] = public_url
-        except ImportError:
-            pass
-        except Exception as e:
-            logging.exception(e)
-
         self._process = multiprocessing.Process(target=self._run_backend_fn, args=(
             self._request_queue, 
             self._output_queue, 
+            self._message_in_queue,
+            self._message_out_queue,
         ), kwargs=dict(
             datasets={"train": self._train_dataset, "test": self._test_dataset},
             info=info,
@@ -295,7 +292,55 @@ class Viewer:
         ), daemon=True)
         self._process.start()
 
+        # Wait for the viewer to start
+        started = False
+        while self._process.is_alive():
+            try:
+                message = self._message_in_queue.get(timeout=1)
+                if message is not None and message.get("type") == "started":
+                    started = True
+                    self._port = message.get("port")
+                    break
+            except queue.Empty:
+                pass
+        if not started:
+            raise RuntimeError("Viewer backend process did not start")
+
+        # In google colab, we request a public url for the viewer
+        self._try_init_google_colab_public_url()
+
+        # Log the viewer url
+        logging.info(f"Viewer running at http://localhost:{self._port}")
+
+    def _try_init_google_colab_public_url(self):
+        # In google colab, we request a public url for the viewer
+        public_url = None
+        try:
+            from google.colab import output as google_colab_output  # type: ignore
+            public_url = google_colab_output.eval_js(f"google.colab.kernel.proxyPort({self._port})")
+        except ImportError:
+            pass
+        except Exception as e:
+            logging.exception(e)
+        if public_url is not None:
+            self._message_out_queue.put({ "type": "set_public_url", "public_url": public_url, "thread_id": 0 })
+            while self._process.is_alive():
+                try:
+                    message = self._message_in_queue.get(timeout=1)
+                    if message is not None and message.get("type") == "ack":
+                        break
+                except queue.Empty:
+                    pass
+
     def close(self):
+        # Kill messaging process
+        if self._message_out_queue is not None:
+            self._message_out_queue.put(None)
+            self._message_out_queue = None
+        if self._message_in_queue is not None:
+            while not self._message_in_queue.empty(): self._message_in_queue.get()
+            self._message_in_queue = None
+
         # Empty request queue
         if self._request_queue is not None:
             while not self._request_queue.empty(): self._request_queue.get()
@@ -318,28 +363,7 @@ class Viewer:
         del exc_type, exc_value, traceback
         self.close()
 
-    def _wait_for_viewer_to_start(self):
-        if self._running:
-            # Send test request to self._port
-            if self._process is None or not self._process.is_alive():
-                raise RuntimeError("Viewer backend process is not running")
-            return
-        while True:
-            # Send test request to self._port
-            if self._process is None or not self._process.is_alive():
-                raise RuntimeError("Viewer backend process is not running")
-            import requests
-            try:
-                requests.get(f"http://localhost:{self._port}")
-                break
-            except requests.exceptions.ConnectionError:
-                logging.debug(f"Waiting for viewer to start at http://localhost:{self._port}")
-                import time
-                time.sleep(1)
-            self._running = True
-
     def show_in_notebook(self):
-        self._wait_for_viewer_to_start()
         google_colab_output = None
         try:
             from google.colab import output as google_colab_output  # type: ignore

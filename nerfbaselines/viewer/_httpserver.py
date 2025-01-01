@@ -126,7 +126,7 @@ def create_ply_bytes(points3D_xyz, points3D_rgb=None):
 
 
 class ViewerBackend:
-    def __init__(self, request_queue, output_queue, *, info, datasets):
+    def __init__(self, request_queue, output_queue, message_out_queue, message_in_queue, *, info, datasets):
         self._info = info
         self._datasets = datasets
         self._images_cache = {}
@@ -134,16 +134,40 @@ class ViewerBackend:
         self._stack = contextlib.ExitStack()
         self._request_queue = request_queue
         self._output_queue = output_queue
+        self._message_out_queue = message_out_queue
+        self._message_in_queue = message_in_queue
+        self._thread = None
+
+    def _thread_function(self):
+        while True:
+            try:
+                message = self._message_in_queue.get(1)
+                if message is None:
+                    self._message_out_queue.put(message)
+                    break
+                if message.get("type") == "set_public_url":
+                    self._info["state"]["viewer_public_url"] = message.get("public_url")
+                    self._message_out_queue.put({"type": "ack", "thread_id": message.get("thread_id")})
+            except queue.Empty:
+                continue
 
     def __enter__(self):
         self._stack.__enter__()
         self._render_fn = self._stack.enter_context(
             _make_render_fn(self._request_queue, self._output_queue))
+        self._thread = threading.Thread(target=self._thread_function, daemon=True)
+        self._thread.start()
         return self
 
     def __exit__(self, *args):
         self._stack.__exit__(*args)
         del args
+
+    def notify_started(self, port):
+        self._message_out_queue.put({
+            "type": "started",
+            "port": port
+        })
 
     def get_info(self):
         return self._info
@@ -467,10 +491,17 @@ def run_simple_http_server(*args, port=None, verbose=False, **kwargs):
     from http.server import ThreadingHTTPServer
     if port is None:
         port = 0
+
+    class ThreadingHTTPServerWithBind(ThreadingHTTPServer):
+        def server_bind(self):
+            out = super().server_bind()
+            port = self.server_address[1]
+            backend.notify_started(port)
+            return out
+
     with ViewerBackend(*args, **kwargs) as backend, \
-            ThreadingHTTPServer(("", port), partial(ViewerRequestHandler, backend=backend)) as server:
+            ThreadingHTTPServerWithBind(("", port), partial(ViewerRequestHandler, backend=backend)) as server:
         port = server.server_address[1]
-        logger.info(f"Viewer is running at http://localhost:{port}")
         server.serve_forever()
 
 
@@ -584,12 +615,14 @@ def run_flask_server(*args, port, verbose=False, **kwargs):
     original_socket_bind = socketserver.TCPServer.server_bind
     def socket_bind_wrapper(self):
         nonlocal port
-        ret = original_socket_bind(self)
-        _, port = self.socket.getsockname()
-        logger.info(f"Viewer is running at http://localhost:{port}")
-        # Recover original implementation
-        socketserver.TCPServer.server_bind = original_socket_bind
-        return ret
+        try:
+            ret = original_socket_bind(self)
+            _, port = self.socket.getsockname()
+            backend.notify_started(port)
+            # Recover original implementation
+            return ret
+        finally:
+            socketserver.TCPServer.server_bind = original_socket_bind
 
     try:
         with ViewerBackend(*args, **kwargs) as backend:
