@@ -422,10 +422,15 @@ class ViewerRequestHandler(SimpleHTTPRequestHandler):
     @httpserver_json_errorhandler
     def _handle_render_http(self):
         # Read input json
-        content_length = int(self.headers.get("Content-Length", 0))
-        req_bytes = self.rfile.read(content_length)
-        req = json.loads(req_bytes)
+        try:
+            content_length = int(self.headers.get("content-length", 0))
+            req_bytes = self.rfile.read(content_length)
+            req = json.loads(req_bytes)
+        except Exception as e:
+            logging.exception(e)
+            raise BadRequest("Invalid JSON request")
         payload, mimetype = self.backend.render(req)
+        self.send_response(200)
         self.send_header("Content-type", mimetype)
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
@@ -578,6 +583,13 @@ def run_flask_server(*args, port, verbose=False, **kwargs):
         except Exception as e:
             logging.exception(e)
     del render_websocket
+
+    @app.route("/render", methods=["POST"])
+    def render():
+        req = request.json
+        payload, mimetype = backend.render(req)
+        return Response(payload, mimetype=mimetype)
+    del render
 
     @app.route("/create-public-url", methods=["POST"])
     def create_public_url():

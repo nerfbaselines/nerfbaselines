@@ -866,7 +866,7 @@ class HTTPFrameRenderer {
   }
 
   async render(params, { flipY = false } = {}) {
-    const response = await fetch(`${this.url}/render`,{
+    const response = await fetch(`${this.url}`,{
       method: "POST",  // Disable caching
       cache: "no-cache",
       headers: {
