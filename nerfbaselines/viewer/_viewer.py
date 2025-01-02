@@ -26,6 +26,7 @@ def get_info(model_info, datasets, nb_info, dataset_metadata):
     }
     if model_info is not None:
         info["renderer_websocket_url"] = "./render-websocket"
+        info["renderer_http_url"] = "./render"
     if datasets.get("train") is not None:
         info["dataset_url"] = "./dataset"
 
