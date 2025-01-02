@@ -617,7 +617,7 @@ rangeInputs.forEach(input => {
   viewer.attach_gui();
 
   // Google Colab does not support websocket connections
-  const supportsWebsocket = false;//!window.location.host.endsWith(".googleusercontent.com");
+  const supportsWebsocket = !window.location.host.endsWith(".googleusercontent.com");
   if (data.renderer_websocket_url && supportsWebsocket) {
     viewer.set_websocket_renderer({
       url: data.renderer_websocket_url
