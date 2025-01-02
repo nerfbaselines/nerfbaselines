@@ -2147,30 +2147,41 @@ export class Viewer extends THREE.EventDispatcher {
     this.notifyChange({ property: 'has_method' });
   }
 
-  set_http_renderer({ url }) {
-    let absoluteUrl = new URL(url, window.location.href).href;
-    this.set_frame_renderer(new HTTPFrameRenderer({ 
-      url,
-      update_notification: (notification) => {
-        viewer.update_notification(notification);
-      }
-    }));
-    this.state.frame_renderer_url = absoluteUrl;
-    this.notifyChange({ property: 'frame_renderer_url' });
-  }
+  set_remote_renderer({
+    websocket_url,
+    render_url,
+  }) {
+    if (websocket_url)
+      websocket_url = new URL(websocket_url, window.location.href).href;
+    if (render_url)
+      render_url = new URL(render_url, window.location.href).href;
+    // Google Colab does not support websocket connections
+    const supportsWebsocket = !window.location.host.endsWith(".googleusercontent.com");
+    if (!supportsWebsocket)
+      websocket_url = null;
 
-  set_websocket_renderer({ url }) {
-    this.set_frame_renderer(new WebSocketFrameRenderer({ 
-      url,
-      update_notification: (notification) => {
-        viewer.update_notification(notification);
-      }
-    }));
-    let absoluteUrl = new URL(url, window.location.href).href;
-    if (absoluteUrl.startsWith("http://")) absoluteUrl = "ws://" + absoluteUrl.slice(7);
-    if (absoluteUrl.startsWith("https://")) absoluteUrl = "wss://" + absoluteUrl.slice(8);
-    this.state.frame_renderer_url = absoluteUrl;
-    this.notifyChange({ property: 'frame_renderer_url' });
+    if (websocket_url) {
+      if (websocket_url.startsWith("http://")) websocket_url = "ws://" + websocket_url.slice(7);
+      if (websocket_url.startsWith("https://")) websocket_url = "wss://" + websocket_url.slice(8);
+
+      this.set_frame_renderer(new WebSocketFrameRenderer({ 
+        url: websocket_url,
+        update_notification: (notification) => {
+          viewer.update_notification(notification);
+        }
+      }));
+      this.state.frame_renderer_url = websocket_url;
+      this.notifyChange({ property: 'frame_renderer_url' });
+    } else {
+      this.set_frame_renderer(new HTTPFrameRenderer({ 
+        url: render_url,
+        update_notification: (notification) => {
+          viewer.update_notification(notification);
+        }
+      }));
+      this.state.frame_renderer_url = render_url;
+      this.notifyChange({ property: 'frame_renderer_url' });
+    }
   }
 
   set_dataset({ url, parts }) {

@@ -616,15 +616,10 @@ rangeInputs.forEach(input => {
   });
   viewer.attach_gui();
 
-  // Google Colab does not support websocket connections
-  const supportsWebsocket = !window.location.host.endsWith(".googleusercontent.com");
-  if (data.renderer_websocket_url && supportsWebsocket) {
-    viewer.set_websocket_renderer({
-      url: data.renderer_websocket_url
-    });
-  } else if (data.renderer_http_url) {
-    viewer.set_http_renderer({
-      url: data.renderer_http_url
+  if (data.renderer_websocket_url || data.renderer_http_url) {
+    viewer.set_remote_renderer({
+      websocket_url: data.renderer_websocket_url,
+      render_url: data.renderer_http_url,
     });
   }
 
