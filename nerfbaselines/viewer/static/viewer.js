@@ -2147,6 +2147,18 @@ export class Viewer extends THREE.EventDispatcher {
     this.notifyChange({ property: 'has_method' });
   }
 
+  set_http_renderer({ url }) {
+    let absoluteUrl = new URL(url, window.location.href).href;
+    this.set_frame_renderer(new HTTPFrameRenderer({ 
+      url,
+      update_notification: (notification) => {
+        viewer.update_notification(notification);
+      }
+    }));
+    this.state.frame_renderer_url = absoluteUrl;
+    this.notifyChange({ property: 'frame_renderer_url' });
+  }
+
   set_websocket_renderer({ url }) {
     this.set_frame_renderer(new WebSocketFrameRenderer({ 
       url,

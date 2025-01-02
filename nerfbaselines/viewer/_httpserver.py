@@ -419,6 +419,18 @@ class ViewerRequestHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(output_bytes)
 
+    @httpserver_json_errorhandler
+    def _handle_render_http(self):
+        # Read input json
+        content_length = int(self.headers.get("Content-Length", 0))
+        req_bytes = self.rfile.read(content_length)
+        req = json.loads(req_bytes)
+        payload, mimetype = self.backend.render(req)
+        self.send_header("Content-type", mimetype)
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
     @httpserver_websocket_handler
     def _handle_render_websocket(self, ws):
         try:
@@ -466,6 +478,8 @@ class ViewerRequestHandler(SimpleHTTPRequestHandler):
             path = self.path.split("?", 1)[0]
         if path == "/create-public-url":
             return self._handle_create_public_url()
+        if path == "/render":
+            return self._handle_render_http()
         return self.send_error(404)
 
 
