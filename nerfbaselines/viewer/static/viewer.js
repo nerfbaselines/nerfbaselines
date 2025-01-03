@@ -182,11 +182,41 @@ class VideoWriter {
         errors.push(e);
       },
     });
+    let bitrate = Math.round(
+      0.1 * this.width * this.height * this.fps
+    );
+    let quantizer;
+    let bitrateMode = "variable";
+    let [codec, ...codecParams] = this.codec.split(";").map(s => s.trim());
+    codecParams.forEach(param => {
+      try {
+        let [key, value] = param.split("=");
+        if (key === "bppf") {
+          const bppf = parseFloat(value);
+          bitrate = Math.round(bppf * this.width * this.height * this.fps);
+          return;
+        }
+        if (key === "bps") {
+          bitrate = parseInt(value); return;
+        }
+        if (key === "crf") {
+          bitrateMode = "quantizer";
+          quantizer = parseInt(value); return;
+        }
+      } catch (e) {
+        throw new Error(`Invalid codec parameter: ${param}`);
+      }
+      throw new Error(`Unknown codec parameter: ${key}`);
+    });
+
     videoEncoder.configure({
-      codec: this.codec,
+      codec: codec,
       width: this.width,
       height: this.height,
-      bitrate: 1e6,
+      framerate: Math.round(this.fps),
+      bitrate,
+      bitrateMode,
+      latencyMode: "quality",
     });
     let lastKeyframeTimestamp = -Infinity;
     this.addFrame = async (image) => {
@@ -209,7 +239,13 @@ class VideoWriter {
           keyFrame = true;
         }
       }
-      videoEncoder.encode(frame, { keyFrame });
+      videoEncoder.encode(frame, { 
+        keyFrame,
+        vp9: { quantizer },
+        av1: { quantizer },
+        avc: { quantizer },
+        hevc: { quantizer },
+      });
       frame.close();
       framesGenerated++;
     };
@@ -249,8 +285,13 @@ class SettingsManager {
     const defaultSettings = SettingsManager.get_default_settings();
     if (trigger !== "gui_input" && trigger !== "gui_change") return;
     if (property !== undefined && defaultSettings[property] !== undefined) {
-      // We store the property to the local cache
-      localStorage.setItem(`settings.${property}`, state[property]);
+      let settings = {};
+      const settingsJSON = localStorage.getItem(`settings`);
+      if (settingsJSON && settingsJSON !== "") {
+        settings = JSON.parse(settingsJSON);
+      }
+      settings[property] = state[property];
+      localStorage.setItem(`settings`, JSON.stringify(settings));
     }
   }
 
@@ -276,8 +317,8 @@ class SettingsManager {
       camera_control_pan_inverted: false,
       camera_control_zoom_inverted: false,
 
-      camera_path_render_mp4_codec: 'avc1.42001f',
-      camera_path_render_webm_codec: 'vp09.00.10.08',
+      camera_path_render_mp4_codec: 'avc1.640028;bppf=0.15',
+      camera_path_render_webm_codec: 'vp09.02.40.10;bppf=0.12',
       camera_path_render_keyframe_interval: '5s',
 
       viewer_theme: 'dark',
@@ -294,14 +335,13 @@ class SettingsManager {
   _populate_state() {
     const state = this.viewer.state;
     const settings = SettingsManager.get_default_settings();
-    for (const k in settings) {
-      let val = localStorage.getItem(`settings.${k}`);
-      if (val === null || val === undefined)
-        continue;
-      if (typeof settings[k] === 'boolean') {
-        val = val === 'true';
-      }
-      settings[k] = val;
+    try {
+      const json = localStorage.getItem(`settings`);
+      const settingsUpdate = JSON.parse(json);
+      Object.assign(settings, settingsUpdate);
+    } catch (e) {
+      console.error(e);
+      localStorage.clear();
     }
     Object.assign(state, settings);
     this.viewer.notifyChange({ property: undefined });
@@ -2111,15 +2151,11 @@ export class Viewer extends THREE.EventDispatcher {
         image_size: `${width},${height}`,
         ...rest
       };
-      if (this.state.preview_camera !== undefined) {
-        request.output_type = state.camera_path_render_output_type;
-      } else {
-        request.output_type = state.output_type;
-        if (state.split_enabled && state.split_output_type) {
-          request.split_output_type = state.split_output_type;
-          request.split_percentage = "" + round(state.split_percentage === undefined ? 0.5 : state.split_percentage);
-          request.split_tilt = "" + round(state.split_tilt || 0.0);
-        }
+      request.output_type = state.output_type;
+      if (state.split_enabled && state.split_output_type) {
+        request.split_output_type = state.split_output_type;
+        request.split_percentage = "" + round(state.split_percentage === undefined ? 0.5 : state.split_percentage);
+        request.split_tilt = "" + round(state.split_tilt || 0.0);
       }
       return request;
     }
@@ -2257,8 +2293,9 @@ export class Viewer extends THREE.EventDispatcher {
   }
 
   _resize() {
-    const width = this.viewport.clientWidth;
-    const height = this.viewport.clientHeight;
+    const width = Math.max(1, this.viewport.clientWidth);
+    const height = Math.max(1, this.viewport.clientHeight);
+
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
@@ -2903,16 +2940,22 @@ export class Viewer extends THREE.EventDispatcher {
         const round = (x) => Math.round(x * 100000) / 100000;
         const focal = height / (2 * Math.tan(THREE.MathUtils.degToRad(fovs[i]) / 2));
         const matrix = new THREE.Matrix4().compose(positions[i], quaternions[i], new THREE.Vector3(1, 1, 1));
-        const renderRequest = {
+        const request = {
           pose: matrix4ToArray(matrix).map(round).join(","),
           intrinsics: [focal, focal, width/2, height/2].map(round).join(","),
           image_size: `${width},${height}`,
-          output_type: this.state.camera_path_render_output_type,
           appearance_weights,
           appearance_train_indices,
           lossless: true,
         };
-        const frame = await this.frame_renderer.render(renderRequest);
+        const state = this.state;
+        request.output_type = state.output_type;
+        if (state.split_enabled && state.split_output_type) {
+          request.split_output_type = state.split_output_type;
+          request.split_percentage = "" + round(state.split_percentage === undefined ? 0.5 : state.split_percentage);
+          request.split_tilt = "" + round(state.split_tilt || 0.0);
+        }
+        const frame = await this.frame_renderer.render(request);
         if (closed) break;
         try {
           await writer.addFrame(frame);
