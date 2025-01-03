@@ -134,6 +134,7 @@ class ViewerBackend:
         self._stack = contextlib.ExitStack()
         self._request_queue = request_queue
         self._output_queue = output_queue
+        self._thumbnail_size = 96
 
     def __enter__(self):
         self._stack.__enter__()
@@ -193,11 +194,9 @@ class ViewerBackend:
             raise ValueError("Invalid request, missing idx")
         idx = int(req["idx"])
         split = req["split"]
-        max_img_size = req.get("max_img_size")
-        if max_img_size is None or max_img_size == "":
-            max_img_size = None
-        else:
-            max_img_size = int(max_img_size)
+        max_img_size = None
+        if req.get("thumb") == "1":
+            max_img_size = self._thumbnail_size
         if (split, idx, max_img_size) in self._images_cache:
             out = self._images_cache[(split, idx, max_img_size)]
             return out
@@ -396,9 +395,7 @@ class ViewerRequestHandler(SimpleHTTPRequestHandler):
     @httpserver_json_errorhandler
     def _handle_dataset_image(self, split, idx):
         query = self._get_query()
-        req = {"split": split, "idx": idx}
-        if "size" in query:
-            req["max_img_size"] = query["size"]
+        req = {"thumb": query.get("thumb"), "split": split, "idx": idx}
         data, mimetype = self.backend.get_dataset_image(req)
         self.send_response(200)
         self.send_header("Content-type", mimetype)
@@ -613,11 +610,10 @@ def run_flask_server(*args, port, verbose=False, **kwargs):
 
     @app.route("/dataset/images/<string:split>/<int:idx>.jpg")
     def _get_dataset_image_route(split, idx):
-        max_img_size = request.args.get("size")
         out, mimetype = backend.get_dataset_image({
             "split": split, 
             "idx": idx, 
-            "max_img_size": max_img_size})
+            "thumb": request.args.get("thumb")})
         return Response(out, mimetype=mimetype)
     del _get_dataset_image_route
 

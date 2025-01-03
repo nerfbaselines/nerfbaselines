@@ -972,6 +972,53 @@ export class WebSocketFrameRenderer {
   }
 }
 
+
+/*
+export class MeshFrameRenderer {
+  constructor({ mesh_url, background_color }) {
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(background_color || 0x000000);
+    this.camera = new THREE.PerspectiveCamera(75, 1, 0.01, 1000);
+    this.canvas = document.createElement("canvas");
+    try {
+      this.canvas = this.canvas.transferControlToOffscreen();
+    } catch (error) {
+      console.error(error);
+      console.error("OffscreenCanvas not supported, falling back to regular canvas");
+    }
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, canvas: this.canvas });
+
+    // Load and add the PLY model to the scene
+    new PLYLoader().load(meshUri, function (geometry) {
+        // Apply transformations: offset, rotation, and scale
+        geometry.applyQuaternion(new THREE.Quaternion(
+          params.rotation[0], params.rotation[1], params.rotation[2], params.rotation[3]));
+        geometry.scale(params.scale, params.scale, params.scale);
+        geometry.translate(params.offset[0], params.offset[1], params.offset[2]);
+
+        geometry.computeVertexNormals();
+        const material = new THREE.MeshBasicMaterial({ vertexColors: true });
+        const mesh = new THREE.Mesh(geometry, material);
+        scene.add(mesh);
+    }, (xhr) => {
+      const percentage = Math.round((xhr.loaded / xhr.total) * 100);
+      spinner.setMessage(`Loading ${percentage}%`);
+    }).catch((error) => {
+      console.error(error);
+    }
+  }
+
+  async render(params) {
+    const [width, height] = params.resolution;
+    const needResize = this.canvas.width !== width || this.canvas.height !== height;
+    if (needResize) {
+      this.renderer.setSize(width, height, false);
+      this.camera.aspect = width / height;
+      this.camera.updateProjectionMatrix();
+    }
+  }
+}*/
+
 async function promise_parallel_n(tasks, num_parallel) {
   await new Promise((resolve, reject) => {
     const queue = [];
@@ -1150,7 +1197,7 @@ class DatasetManager {
             }
 
             // Replace image_path extension with .jpg
-            const image_url = `${this.url}/images/${split}/${i}.jpg?size=64`;
+            const image_url = `${this.url}/images/${split}/${i}.jpg?thumb=1`;
             const response = await fetch(image_url);
             if (!response.ok) {
               try {
@@ -1891,7 +1938,7 @@ export class Viewer extends THREE.EventDispatcher {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setSize(width, height);
     this.viewport.appendChild(this.renderer.domElement);
-    this.camera = new THREE.PerspectiveCamera( 70, width / height, 0.01, 10 );
+    this.camera = new THREE.PerspectiveCamera( 70, width / height, 0.01, 100 );
     this.camera.up = new THREE.Vector3(0, 0, 1);
     this.renderer_scene = new THREE.Scene();
     this.mouse_interactions = new MouseInteractions(this.renderer, this.camera, this.renderer_scene, this.viewport);
@@ -2230,9 +2277,21 @@ export class Viewer extends THREE.EventDispatcher {
     if (this.state.preview_camera !== undefined) {
       return this.state.preview_camera;
     }
+
+    // Cache variables for performance
+    const v1 = this._v1 = this._v1 || new THREE.Vector3();
+    const q1 = this._q1 = this._q1 || new THREE.Quaternion();
+    const s1 = this._s1 = this._s1 || new THREE.Vector3();
+
     const pose = this.camera.matrixWorld.clone();
     pose.multiply(_R_threecam_cam);
     pose.premultiply(this.scene.matrixWorld.clone().invert());
+
+    // Normalize pose
+    pose.decompose(v1, q1, s1);
+    s1.set(1, 1, 1);
+    pose.compose(v1, q1, s1);
+
     // const fovRadians = THREE.MathUtils.degToRad(fov);
     const fov = this.camera.fov;
     let appearance_train_indices = undefined;
