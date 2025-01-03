@@ -324,7 +324,6 @@ function _attach_persistent_state(viewer) {
     // Fix types in the saved state
     if (savedState.camera_path_keyframes) {
       for (const keyframe of savedState.camera_path_keyframes) {
-        console.log(keyframe);
         keyframe.position = new THREE.Vector3(
           keyframe.position.x, 
           keyframe.position.y, 
@@ -1709,6 +1708,18 @@ function _attach_draggable_keyframe_panel(viewer) {
           });
         });
 
+        // Delete keyframe
+        element.querySelectorAll(".ti-copy-plus").forEach((trash) => {
+          trash.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const key = element.getAttribute("data-key");
+            viewer.duplicate_keyframe({ 
+              keyframe_id: key,
+            });
+          });
+        });
+
         // Move keyframe up
         element.querySelectorAll(".ti-arrow-narrow-up").forEach((up) => {
           up.addEventListener("click", (event) => {
@@ -1802,6 +1813,7 @@ function _attach_draggable_keyframe_panel(viewer) {
         <span>
           <i class="ti ti-arrow-narrow-up"></i>
           <i class="ti ti-arrow-narrow-down"></i>
+          <i class="ti ti-copy-plus"></i>
           <i class="ti ti-trash"></i>
         </span>
         <span></span>
@@ -2449,6 +2461,35 @@ export class Viewer extends THREE.EventDispatcher {
     this.notifyChange({ property: "camera_path_duration" });
     this.notifyChange({ property: "camera_path_keyframes" });
   }
+
+  duplicate_keyframe({ keyframe_id } = {}) {
+    if (keyframe_id === undefined) {
+      keyframe_id = this.state.camera_path_selected_keyframe
+      if (keyframe_id === undefined) return
+    }
+
+    const keyframeIndex = this.state.camera_path_keyframes.findIndex((keyframe) => keyframe.id === keyframe_id);
+    const keyframe = this.state.camera_path_keyframes[keyframeIndex];
+    const copiedKeyframe = {
+      ...keyframe,
+      id: "" + (this._keyframeCounter = (this._keyframeCounter || 0) + 1),
+      quaternion: keyframe.quaternion.clone(),
+      position: keyframe.position.clone(),
+    };
+    this.state.camera_path_keyframes.splice(keyframeIndex + 1, 0, copiedKeyframe);
+    const duration = this.state.camera_path_duration || 0;
+    const n = this.state.camera_path_keyframes.length;
+    if (n !== 2 || this.state.camera_path_loop) {
+      this.state.camera_path_duration = modifyNumberKeepPrecision(
+        [this.state.camera_path_duration, this.state.camera_path_default_transition_duration],
+        (a, b) => a + b);
+        this.state.camera_path_default_transition_duration;
+    }
+    this.notifyChange({ property: "camera_path_duration" });
+    this.notifyChange({ property: "camera_path_keyframes" });
+  }
+
+
 
   add_keyframe() {
     const { matrix } = this.get_camera_params();

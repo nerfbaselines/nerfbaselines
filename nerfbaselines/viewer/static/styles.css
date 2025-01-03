@@ -629,7 +629,7 @@ fieldset > .info-fields {
 
 .keyframe > :nth-child(1), .keyframe-panel-header > :nth-child(1) {
   display: inline-block;
-  flex: 0 0 2.5rem;
+  flex: 0 0 3.9rem;
 }
 .keyframe > :nth-child(2), .keyframe-panel-header > :nth-child(2) {
   flex: 1 0 5ch;
