@@ -54,6 +54,13 @@ class KeyboardManager {
     this._element.addEventListener('pointerout', this._onPointerOut.bind(this), true);
     this._pointerActivated = false;
     this._activePointer = new Set();
+    this._handledKeys = new Set([
+      'ControlLeft', 'ControlRight',
+      'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+      'KeyW', 'KeyA', 'KeyS', 'KeyD',
+      'KeyQ', 'KeyE',
+      'KeyZ', 'KeyX',
+    ]);
   }
 
   _onPointerOver(event) {
@@ -70,7 +77,10 @@ class KeyboardManager {
 
   _onKeyDown(event) {
     if (this._pointerActivated && this._activePointer.size <= 0) return;
-    event.preventDefault();
+    if (this._handledKeys.has(event.code)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
     this._element.focus();
     this._activeKeys[event.code] = true;
     event.shiftKey ? this._activeKeys["shift"] = true : delete this._activeKeys["shift"];
@@ -172,6 +182,7 @@ class ViewerControls extends Controls {
 		// current position in spherical coordinates
 		this._spherical = new Spherical();
 		this._sphericalDelta = new Spherical();
+		this._deltaZ = 0;
 
 		this._scale = 1;
 		this._panOffset = new Vector3();
@@ -286,22 +297,46 @@ class ViewerControls extends Controls {
 	update(deltaTime = undefined) {
     if (deltaTime !== undefined)
       deltaTime = Math.min(deltaTime, 1000);
+    const m = -(this.enableDamping ? this.dampingFactor : 1.0);
 
     // Update pressed keys
     this._updateKeys(deltaTime);
 
-    if (this.mode === "free") {
-      const m = -(this.enableDamping ? this.dampingFactor : 1.0);
-      // 1. Apply the rotation
-      _quatInv.copy(this.object.quaternion).invert();
-      const euler = _euler.setFromQuaternion(_quatInv);
-      euler.x += this._sphericalDelta.phi * m
-      euler.z += this._sphericalDelta.theta * m
-      euler.x = Math.max(-Math.PI, Math.min(0, euler.x));
-      this.object.quaternion.copy(_quatInv.setFromEuler(euler).invert());
+    // Rotate the camera around Z axis
+    if (Math.abs(this._deltaZ) > 1e-6) {
+      _v.setFromMatrixColumn(this.object.matrix, 2);
+      _quatInv.setFromAxisAngle(_v, -this._deltaZ * m * 0.1);
+      this.object.quaternion.premultiply(_quatInv);
 
-      // 2. Apply pan
+      // Rotate the up vector around lookAt
+      _v.crossVectors(this.object.up, _v).normalize();
+      _v.crossVectors(_v, this.object.up).normalize();
+      this.object.up.applyQuaternion(_quatInv);
+      if (this.enableDamping) {
+        this._deltaZ *= (1 - this.dampingFactor);
+      } else {
+        this._deltaZ = 0;
+      }
+
+      // Update quat
+      this._quat = new Quaternion().setFromUnitVectors(this.object.up, new Vector3(0, 1, 0));
+      this._quatInverse = this._quat.clone().invert();
+    }
+
+    if (this.mode === "free") {
+      // 1. Apply pan
       this.object.position.addScaledVector(this._panOffset, m);
+
+      // 2. Apply the rotation
+      _v.set(0, 0, -1).applyQuaternion(this.object.quaternion);
+      _v.applyQuaternion(this._quat);
+      const sp = new Spherical().setFromVector3(_v);
+      sp.theta -= this._sphericalDelta.theta * m;
+      sp.phi += this._sphericalDelta.phi * m;
+      sp.makeSafe();
+      _v.setFromSpherical(sp);
+      _v.applyQuaternion(this._quatInverse).normalize();
+      this.object.lookAt(_v.add(this.object.position));
 
       if (this.enableDamping) {
         this._sphericalDelta.theta *= (1 - this.dampingFactor);
@@ -509,6 +544,14 @@ class ViewerControls extends Controls {
     if (isPressed('KeyD'))
       this._panAligned(-Math.abs(this.keyPanSpeed * d), 0);
     const isAnyMeta = isPressed('ctrl') || isPressed('meta') || isPressed('shift');
+    if (isPressed('KeyZ')) {
+      // Rotate left
+      this._deltaZ += _twoPI * Math.abs(this.keyRotateSpeed) / this.domElement.clientHeight * d;
+    }
+    if (isPressed('KeyX')) {
+      // Rotate right
+      this._deltaZ -= _twoPI * Math.abs(this.keyRotateSpeed) / this.domElement.clientHeight * d;
+    }
     if (isPressed('ArrowUp')) {
       if (isAnyMeta) {
         this._sphericalDelta.phi += _twoPI * Math.abs(this.keyRotateSpeed) / this.domElement.clientHeight * d;
