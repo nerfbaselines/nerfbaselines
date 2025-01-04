@@ -359,7 +359,7 @@ function _attach_persistent_state(viewer) {
       return;
     }
     const { 
-      state: savedState, cameraMatrix: cameraMatrixArray
+      state: savedState, cameraMatrix: cameraMatrixArray, cameraUpVector: cameraUpVectorArray,
     } = JSON.parse(sessionStorage.getItem('viewer_state'));
     // Fix types in the saved state
     if (savedState.camera_path_keyframes) {
@@ -373,15 +373,19 @@ function _attach_persistent_state(viewer) {
       }
     }
     const cameraMatrix = cameraMatrixArray ? makeMatrix4(cameraMatrixArray) : undefined;
+    const cameraUpVector = cameraUpVectorArray ? new THREE.Vector3().fromArray(cameraUpVectorArray) : undefined;
     viewer.dispatchEvent("loading_state", { 
       state: savedState,
       cameraMatrix,
+      cameraUpVector,
     });
     Object.assign(state, savedState);
     if (cameraMatrix) {
       viewer.scene.updateMatrixWorld();
       viewer.set_camera({ matrix: cameraMatrix });
     }
+    if (cameraUpVector)
+      viewer.camera.up.copy(cameraUpVector);
     viewer.notifyChange({ property: undefined, trigger: "restore_state" });
   });
   setInterval(() => {
@@ -408,9 +412,12 @@ function _attach_persistent_state(viewer) {
         delete state[k];
       }
       let cameraMatrix = viewer.get_camera_params().matrix;
-      viewer.dispatchEvent("saving_state", { state, cameraMatrix });
+      viewer.dispatchEvent("saving_state", { state, cameraMatrix, cameraUpVector: viewer.camera.up });
       cameraMatrix = matrix4ToArray(cameraMatrix);
-      sessionStorage.setItem('viewer_state', JSON.stringify({ state, cameraMatrix }));
+      sessionStorage.setItem('viewer_state', JSON.stringify({ 
+        state, 
+        cameraMatrix, 
+        cameraUpVector: viewer.camera.up.toArray() }));
     }
   }, 300);
 }
