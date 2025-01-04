@@ -327,7 +327,7 @@ class Viewer:
         del exc_type, exc_value, traceback
         self.close()
 
-    def show_in_notebook(self):
+    def show_in_notebook(self, use_jupyter_proxy=None):
         google_colab_output = None
         try:
             from google.colab import output as google_colab_output  # type: ignore
@@ -335,8 +335,30 @@ class Viewer:
             pass
         if google_colab_output is not None:
             logging.debug("Running in Google Colab, returning port")
+            if use_jupyter_proxy is not None:
+                logging.warning("use_jupyter_proxy is not supported in Google Colab")
             google_colab_output.serve_kernel_port_as_iframe(self._port, height=600)
-        else:
-            logging.debug("Running in Jupyter, returning iframe")
-            from IPython.display import IFrame
-            return IFrame(f"http://localhost:{self._port}", height=600, width="100%")
+
+        import IPython.display
+        from IPython.display import display, HTML
+        setattr(IPython.display, "_iframe_counter", 1+getattr(IPython.display, "_iframe_counter", 0))
+        port = self._port
+        iframe_id = f"nb-iframe-{IPython.display._iframe_counter}"
+        display(HTML(f"""
+<iframe id="{iframe_id}" width="100%" height="600" allowfullscreen src="http://localhost:{port}/"></iframe>
+<script>
+(function () {{
+const iframe = document.getElementById("{iframe_id}");
+fetch("http://localhost:{port}/").then(x => {{ 
+  if (!x.ok) throw new Error("Cannot reach default address http://localhost:{port}/"); 
+}}).catch(() => {{
+  fetch("/proxy/{port}/").then(x => {{ 
+    if (!x.ok) throw new Error("Cannot reach proxy address /proxy/{port}/");
+    iframe.setAttribute("src", "/proxy/{port}/");
+  }}).catch(() => {{
+    iframe.setAttribute("srcdoc", `<h1>Failed to load</h1><p>Please make sure the viewer is running. If you run Jupyter remotely, please install jupyter-proxy-server extension to enable port forwarding. VSCode jupyter notebooks currently require the port to be forwarded. Please forward port: {port}.</p>`);
+ }});
+}});
+}})();
+</script>
+        """))

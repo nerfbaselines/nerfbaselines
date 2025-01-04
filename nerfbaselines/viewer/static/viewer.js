@@ -369,11 +369,7 @@ function _attach_persistent_state(viewer) {
           keyframe.position.y, 
           keyframe.position.z
         );
-        keyframe.quaternion = new THREE.Quaternion(
-          keyframe.quaternion._x, 
-          keyframe.quaternion._y, 
-          keyframe.quaternion._z, 
-          keyframe.quaternion._w);
+        keyframe.quaternion = new THREE.Quaternion().fromArray(keyframe.quaternion);
       }
     }
     const cameraMatrix = cameraMatrixArray ? makeMatrix4(cameraMatrixArray) : undefined;
