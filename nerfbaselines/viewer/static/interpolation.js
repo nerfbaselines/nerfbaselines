@@ -681,10 +681,11 @@ export function compute_camera_path(props) {
     lengths = circleInterpolation.getSegmentLengths();
     totalDistance = lengths.reduce((a, x) => a + x, 0);
     lengths = lengths.map(x => x ** distance_alpha);
+    grid = cumsum(lengths);
+    circleInterpolation.grid = grid;
     position_spline = circleInterpolation.evaluatePosition;
     quaternion_spline = circleInterpolation.evaluateQuaternion;
     Interpolation = LinearInterpolation;
-    grid = cumsum(lengths);
   } else if (interpolation === 'linear' || (interpolation === 'circle' && k_positions.length < 3)) {
     Interpolation = LinearInterpolation;
     lengths = Interpolation.getSegmentLengths({ positions: k_positions, loop });
