@@ -2003,16 +2003,23 @@ export class Viewer extends THREE.EventDispatcher {
       if (Array.isArray(viewer_transform))
         viewer_transform = makeMatrix4(viewer_transform);
       this.scene.applyMatrix4(viewer_transform);
+      this.scene.updateMatrixWorld();
     }
     if (viewer_initial_pose) {
       if (Array.isArray(viewer_initial_pose))
         viewer_initial_pose = makeMatrix4(viewer_initial_pose);
-      const matrix = viewer_initial_pose.clone();
-      this.set_camera({ matrix });
-      const target = new THREE.Vector3(0, 0, 0);
-      
-      this.controls.target?.copy(target);
-      this.controls.update();
+      viewer_initial_pose = viewer_initial_pose.clone();
+      viewer_initial_pose.premultiply(this.scene.matrixWorld.clone().invert());
+      // Normalize matrix
+      const scale = new THREE.Vector3();
+      const quaternion = new THREE.Quaternion();
+      const position = new THREE.Vector3();
+      viewer_initial_pose.decompose(position, quaternion, scale);
+      viewer_initial_pose.compose(position, quaternion, new THREE.Vector3(1, 1, 1));
+      this._viewer_initial_pose = viewer_initial_pose;
+      this.reset_camera();
+    } else {
+      this._viewer_initial_pose = new THREE.Matrix4().copy(this.camera.matrixWorld);
     }
 
     this._computed_property_names = new Set();
@@ -2986,6 +2993,21 @@ export class Viewer extends THREE.EventDispatcher {
         closeable: true,
       });
     }
+  }
+
+  reset_camera() {
+    this.set_camera({ matrix: this._viewer_initial_pose });
+    const target = new THREE.Vector3(0, 0, 0);
+    this.camera.up = new THREE.Vector3(0, 0, 1);
+    this.controls.target?.copy(target);
+    this.controls.update();
+  }
+
+  set_up_direction() {
+    let forward = new THREE.Vector3(0, 0, 1).applyQuaternion(this.camera.quaternion);
+    let v = new THREE.Vector3().crossVectors(forward, this.camera.up).normalize();
+    v.crossVectors(v, forward).normalize();
+    this.camera.up.copy(v);
   }
 
   async load_plugin({ code, id }) {

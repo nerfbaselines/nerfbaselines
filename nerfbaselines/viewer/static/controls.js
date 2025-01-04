@@ -333,6 +333,7 @@ class ViewerControls extends Controls {
       const sp = new Spherical().setFromVector3(_v);
       sp.theta -= this._sphericalDelta.theta * m;
       sp.phi += this._sphericalDelta.phi * m;
+      sp.phi = Math.max(0.000001, Math.min(Math.PI - 0.000001, sp.phi));
       sp.makeSafe();
       _v.setFromSpherical(sp);
       _v.applyQuaternion(this._quatInverse).normalize();
