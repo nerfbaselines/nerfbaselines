@@ -1015,51 +1015,188 @@ export class WebSocketFrameRenderer {
 }
 
 
-/*
 export class MeshFrameRenderer {
-  constructor({ mesh_url, background_color }) {
+  constructor({ 
+    mesh_url, background_color, 
+    znear=0.001, zfar=1000,
+    update_notification,
+    onready,
+  }) {
+    this._onready = onready;
+    this.update_notification = update_notification;
+    this._notificationId = "MeshFrameRenderer-" + (
+      MeshFrameRenderer._notificationIdCounter = (MeshFrameRenderer._notificationIdCounter || 0) + 1);
+    this.near = znear || 0.001;
+    this.far = zfar || 1000;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(background_color || 0x000000);
-    this.camera = new THREE.PerspectiveCamera(75, 1, 0.01, 1000);
+    this.camera = new THREE.Camera();
     this.canvas = document.createElement("canvas");
+    this._flipCanvas = document.createElement("canvas");
     try {
       this.canvas = this.canvas.transferControlToOffscreen();
+      this._flipCanvas = this._flipCanvas.transferControlToOffscreen();
     } catch (error) {
       console.error(error);
       console.error("OffscreenCanvas not supported, falling back to regular canvas");
+      update_notification({
+        id: this._notificationId + "-offscreen-warning",
+        header: "OffscreenCanvas not supported",
+        detail: "Falling back to regular canvas",
+        type: "info",
+        autoclose: notification_autoclose,
+      });
     }
     this.renderer = new THREE.WebGLRenderer({ antialias: true, canvas: this.canvas });
+    this._loadPlyModel(mesh_url);
+  }
 
-    // Load and add the PLY model to the scene
-    new PLYLoader().load(meshUri, function (geometry) {
-        // Apply transformations: offset, rotation, and scale
-        geometry.applyQuaternion(new THREE.Quaternion(
-          params.rotation[0], params.rotation[1], params.rotation[2], params.rotation[3]));
-        geometry.scale(params.scale, params.scale, params.scale);
-        geometry.translate(params.offset[0], params.offset[1], params.offset[2]);
+  async _loadPlyModel(mesh_url) {
+    const controller = new AbortController();
+    let cancelled = false;
+    this._cancelLoading = () => {
+      if (!cancelled) {
+        controller.abort();
+      }
+      cancelled = true;
+      this.update_notification({ id: this.notificationId, autoclose: 0 });
+    };
+    try {
+      // Update progress callback
+      const updateProgress = (percentage) => {
+        if (cancelled) return;
+        this.update_notification({
+          id: this._notificationId,
+          header: "Loading mesh renderer",
+          progress: percentage,
+          closeable: true,
+          onclose: () => this._cancelLoading?.(),
+        });
+      };
+      updateProgress(0);
 
-        geometry.computeVertexNormals();
-        const material = new THREE.MeshBasicMaterial({ vertexColors: true });
-        const mesh = new THREE.Mesh(geometry, material);
-        scene.add(mesh);
-    }, (xhr) => {
-      const percentage = Math.round((xhr.loaded / xhr.total) * 100);
-      spinner.setMessage(`Loading ${percentage}%`);
-    }).catch((error) => {
-      console.error(error);
+      // Fetch
+      let response = await fetch(mesh_url, { signal: controller.signal });
+      if (!response.ok) {
+        throw new Error(`Failed to load mesh: ${response.statusText}`);
+      }
+
+      // Track progress
+      const reader = response.body.getReader();
+      const contentLength = response.headers.get( 'X-File-Size' ) || response.headers.get( 'Content-Length' );
+      const total = contentLength ? parseInt( contentLength ) : 0;
+      if (total !== 0) {
+        let loaded = 0;
+        const stream = new ReadableStream({
+          start(controller) {
+            function readData() {
+              reader.read().then(({ done, value }) => {
+                if (done) {
+                  controller.close();
+                } else {
+                  loaded += value.byteLength;
+                  updateProgress(loaded / total);
+                  controller.enqueue(value);
+                  readData();
+                }
+              }, (e) => {
+                controller.error(e);
+              });
+            }
+            readData();
+          }
+        });
+        response = new Response(stream);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const geometry = new PLYLoader().parse(arrayBuffer);
+      geometry.computeVertexNormals();
+      const material = new THREE.MeshBasicMaterial({ vertexColors: true });
+      const mesh = new THREE.Mesh(geometry, material);
+      if (cancelled) return;
+      this.scene.add(mesh);
+      this.update_notification({ id: this._notificationId, autoclose: 0 });
+      this._onready?.();
+    } catch (error) {
+      if (cancelled) return;
+      console.error('An error occurred while loading the PLY file:', error);
+      this.update_notification({
+        id: this._notificationId,
+        header: "Error loading mesh renderer",
+        detail: error.message,
+        type: "error",
+        closeable: true,
+      });
+    } finally {
+      this._cancelLoading = undefined;
     }
   }
 
-  async render(params) {
-    const [width, height] = params.resolution;
+  _flipY(imageBitmap) {
+    this._flipCanvas.width = imageBitmap.width;
+    this._flipCanvas.height = imageBitmap.height;
+    const ctx = this._flipCanvas.getContext("2d");
+    ctx.translate(0, imageBitmap.height);
+    ctx.scale(1, -1);
+    ctx.drawImage(imageBitmap, 0, 0);
+    return this._flipCanvas.transferToImageBitmap();
+  }
+
+  _makePerspective(matrix, w, h, fx, fy, cx, cy, coordinateSystem = THREE.WebGLCoordinateSystem) {
+    const ti = matrix.elements;
+    const w2 = w / 2;
+    const h2 = h / 2;
+    const near = this.near;
+    const far = this.far;
+    let c, d;
+
+    if (coordinateSystem === THREE.WebGLCoordinateSystem) {
+			c = - (far + near) / (far - near);
+			d = (-2 * far * near) / (far - near);
+		} else if (coordinateSystem === THREE.WebGPUCoordinateSystem) {
+			c = - far / ( far - near );
+			d = (-far * near) / (far - near);
+		} else {
+			throw new Error('Invalid coordinate system: ' + coordinateSystem);
+		}
+    ti[0] = 2*fx/w; ti[4] = 0;      ti[8] = 2*(cx-w2)/w; ti[12] = 0;
+    ti[1] = 0;      ti[5] = 2*fy/h; ti[9] = 2*(cy-h2)/h; ti[13] = 0;
+    ti[2] = 0;      ti[6] = 0;      ti[10] = c;          ti[14] = d;
+    ti[3] = 0;      ti[7] = 0;      ti[11] = -1;         ti[15] = 0;
+  }
+
+  async render(params, { flipY = false } = {}) {
+    console.log(params);
+    const [width, height] = params.image_size;
     const needResize = this.canvas.width !== width || this.canvas.height !== height;
     if (needResize) {
       this.renderer.setSize(width, height, false);
-      this.camera.aspect = width / height;
-      this.camera.updateProjectionMatrix();
     }
+
+    this._makePerspective(
+      this.camera.projectionMatrix,
+      width, height, ...params.intrinsics,
+      this.camera.coordinateSystem
+    );
+		this.camera.projectionMatrixInverse.copy(this.camera.projectionMatrix).invert();
+
+    const matrix = makeMatrix4(params.pose);
+    matrix.multiply(_R_threecam_cam.clone().invert());
+    matrix.premultiply(this.scene.matrixWorld);
+    const position = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    matrix.decompose(position, quaternion, scale);
+    this.camera.position.copy(position);
+    this.camera.quaternion.copy(quaternion);
+    this.renderer.render(this.scene, this.camera);
+    // Flip the image vertically
+    let imageBitmap = await this.canvas.transferToImageBitmap();
+    if (flipY)
+        imageBitmap = this._flipY(imageBitmap);
+    return imageBitmap;
   }
-}*/
+}
 
 async function promise_parallel_n(tasks, num_parallel) {
   await new Promise((resolve, reject) => {
@@ -2083,6 +2220,15 @@ export class Viewer extends THREE.EventDispatcher {
 
     this.dispatchEvent({ type: "start", state: this.state });
     (plugins || []).map((plugin) => this.load_plugin(plugin));
+
+
+    this.set_3dgs_renderer({
+      scene_url: "https://huggingface.co/datasets/nerfbaselines/nerfbaselines-supplementary/resolve/main/gaussian-splatting/mipnerf360/bicycle_demo/scene.ksplat",
+    });
+  }
+
+  force_render() {
+    this._force_render = true;
   }
 
   reset_settings() {
@@ -2150,22 +2296,27 @@ export class Viewer extends THREE.EventDispatcher {
 
   _get_render_params() {
     const state = this.state;
+    if (this._force_render) {
+      this._force_render = false;
+      this._last_render_params = undefined;
+      this._was_full_render = false;
+    }
 
     const _get_params = ({ resolution, width, height, fov, matrix, ...rest }) => {
       [width, height] = computeResolution([width, height], resolution);
       const round = (x) => Math.round(x * 100000) / 100000;
       const focal = height / (2 * Math.tan(THREE.MathUtils.degToRad(fov) / 2));
       const request = {
-        pose: matrix4ToArray(matrix).map(round).join(","),
-        intrinsics: [focal, focal, width/2, height/2].map(round).join(","),
-        image_size: `${width},${height}`,
+        pose: matrix4ToArray(matrix).map(round),
+        intrinsics: [focal, focal, width/2, height/2].map(round),
+        image_size: [width, height],
         ...rest
       };
-      request.output_type = state.output_type;
+      request.output_type = state.output_type === "" ? undefined : state.output_type;
       if (state.split_enabled && state.split_output_type) {
-        request.split_output_type = state.split_output_type;
-        request.split_percentage = "" + round(state.split_percentage === undefined ? 0.5 : state.split_percentage);
-        request.split_tilt = "" + round(state.split_tilt || 0.0);
+        request.split_output_type = state.split_output_type === "" ? undefined : state.split_output_type;
+        request.split_percentage = round(state.split_percentage === undefined ? 0.5 : state.split_percentage);
+        request.split_tilt = round(state.split_tilt || 0.0);
       }
       return request;
     }
@@ -2252,40 +2403,84 @@ export class Viewer extends THREE.EventDispatcher {
     this.notifyChange({ property: 'has_method' });
   }
 
+  set_mesh_renderer(params) {
+    try {
+      this.set_frame_renderer(new MeshFrameRenderer({
+        ...params,
+        update_notification: (notification) => this.update_notification(notification),
+        onready: () => this.force_render()
+      }));
+    } catch (error) {
+      this.update_notification({
+        header: "Error starting mesh renderer",
+        detail: error.message,
+        type: "error",
+        closeable: true,
+      });
+    }
+  }
+
+  async set_3dgs_renderer(params) {
+    try {
+      const gsModule = await import("./gaussian_splatting.js");
+      this.set_frame_renderer(new gsModule.GaussianSplattingFrameRenderer({
+        ...params,
+        update_notification: (notification) => this.update_notification(notification),
+        onready: () => this.force_render()
+      }));
+    } catch (error) {
+      this.update_notification({
+        header: "Error starting Gaussian Splatting renderer",
+        detail: error.message,
+        type: "error",
+        closeable: true,
+      });
+    }
+  }
+
   set_remote_renderer({
     websocket_url,
     render_url,
   }) {
-    if (websocket_url)
-      websocket_url = new URL(websocket_url, window.location.href).href;
-    if (render_url)
-      render_url = new URL(render_url, window.location.href).href;
-    // Google Colab does not support websocket connections
-    const supportsWebsocket = !window.location.host.endsWith(".googleusercontent.com");
-    if (!supportsWebsocket)
-      websocket_url = null;
+    try {
+      if (websocket_url)
+        websocket_url = new URL(websocket_url, window.location.href).href;
+      if (render_url)
+        render_url = new URL(render_url, window.location.href).href;
+      // Google Colab does not support websocket connections
+      const supportsWebsocket = !window.location.host.endsWith(".googleusercontent.com");
+      if (!supportsWebsocket)
+        websocket_url = null;
 
-    if (websocket_url) {
-      if (websocket_url.startsWith("http://")) websocket_url = "ws://" + websocket_url.slice(7);
-      if (websocket_url.startsWith("https://")) websocket_url = "wss://" + websocket_url.slice(8);
+      if (websocket_url) {
+        if (websocket_url.startsWith("http://")) websocket_url = "ws://" + websocket_url.slice(7);
+        if (websocket_url.startsWith("https://")) websocket_url = "wss://" + websocket_url.slice(8);
 
-      this.set_frame_renderer(new WebSocketFrameRenderer({ 
-        url: websocket_url,
-        update_notification: (notification) => {
-          viewer.update_notification(notification);
-        }
-      }));
-      this.state.frame_renderer_url = websocket_url;
-      this.notifyChange({ property: 'frame_renderer_url' });
-    } else {
-      this.set_frame_renderer(new HTTPFrameRenderer({ 
-        url: render_url,
-        update_notification: (notification) => {
-          viewer.update_notification(notification);
-        }
-      }));
-      this.state.frame_renderer_url = render_url;
-      this.notifyChange({ property: 'frame_renderer_url' });
+        this.set_frame_renderer(new WebSocketFrameRenderer({ 
+          url: websocket_url,
+          update_notification: (notification) => {
+            viewer.update_notification(notification);
+          }
+        }));
+        this.state.frame_renderer_url = websocket_url;
+        this.notifyChange({ property: 'frame_renderer_url' });
+      } else {
+        this.set_frame_renderer(new HTTPFrameRenderer({ 
+          url: render_url,
+          update_notification: (notification) => {
+            viewer.update_notification(notification);
+          }
+        }));
+        this.state.frame_renderer_url = render_url;
+        this.notifyChange({ property: 'frame_renderer_url' });
+      }
+    } catch (error) {
+      this.update_notification({
+        header: "Error starting remote renderer",
+        detail: error.message,
+        type: "error",
+        closeable: true,
+      });
     }
   }
 
@@ -2951,19 +3146,19 @@ export class Viewer extends THREE.EventDispatcher {
         const focal = height / (2 * Math.tan(THREE.MathUtils.degToRad(fovs[i]) / 2));
         const matrix = new THREE.Matrix4().compose(positions[i], quaternions[i], new THREE.Vector3(1, 1, 1));
         const request = {
-          pose: matrix4ToArray(matrix).map(round).join(","),
-          intrinsics: [focal, focal, width/2, height/2].map(round).join(","),
-          image_size: `${width},${height}`,
+          pose: matrix4ToArray(matrix).map(round),
+          intrinsics: [focal, focal, width/2, height/2].map(round),
+          image_size: [width, height],
           appearance_weights,
           appearance_train_indices,
           lossless: true,
         };
         const state = this.state;
-        request.output_type = state.output_type;
+        request.output_type = state.output_type === "" ? undefined : state.output_type;
         if (state.split_enabled && state.split_output_type) {
-          request.split_output_type = state.split_output_type;
-          request.split_percentage = "" + round(state.split_percentage === undefined ? 0.5 : state.split_percentage);
-          request.split_tilt = "" + round(state.split_tilt || 0.0);
+          request.split_output_type = state.split_output_type === "" ? undefined : state.split_output_type;
+          request.split_percentage = round(state.split_percentage === undefined ? 0.5 : state.split_percentage);
+          request.split_tilt = round(state.split_tilt || 0.0);
         }
         const frame = await this.frame_renderer.render(request);
         if (closed) break;

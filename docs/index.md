@@ -46,6 +46,7 @@ The documentation is organized into several sections with increasing level of de
 installation
 quickstart
 using-custom-data
+viewer
 python-tutorial
 ```
 

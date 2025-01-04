@@ -36,6 +36,11 @@
   --link-color: #1772d0;
 }
 
+html, body {
+  /* Prevent go-back gesture */
+  overscroll-behavior-x: none;
+}
+
 a {
   color: var(--link-color);
 }

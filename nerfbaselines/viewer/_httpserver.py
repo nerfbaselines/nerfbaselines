@@ -166,9 +166,9 @@ class ViewerBackend:
             raise ValueError("Invalid request, missing intrinsics")
         if "output_type" not in req:
             raise ValueError("Invalid request, missing output_type")
-        image_size = tuple(map(int, req.get("image_size").split(",")))
-        pose = np.array(list(map(float, req.get("pose").split(","))), dtype=np.float32).reshape(3, 4)
-        intrinsics = np.array(list(map(float, req.get("intrinsics").split(","))), dtype=np.float32)
+        image_size = [int(x) for x in req["image_size"]]
+        pose = np.array(req.get("pose"), dtype=np.float32).reshape(3, 4)
+        intrinsics = np.array(req.get("intrinsics"), dtype=np.float32)
         lossless = req.get("lossless", False)
         frame = self._render_fn(threading.get_ident(), 
                                 pose=pose, 
@@ -359,6 +359,8 @@ class ViewerRequestHandler(SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-type", "text/html")
         self.send_header("Content-Length", str(len(content)))
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin");
+        self.send_header("Cross-Origin-Embedder-Policy", "require-corp");
         self.end_headers()
         return f
 
@@ -507,7 +509,7 @@ def run_simple_http_server(*args, port=None, verbose=False, **kwargs):
 def run_flask_server(*args, port, verbose=False, **kwargs):
     setup_logging(verbose=verbose)
     from flask import Flask, request, jsonify, render_template, Response, send_file
-    from flask import request, Response, send_from_directory
+    from flask import request, Response, send_from_directory, make_response
     import socketserver
     from ._websocket import flask_websocket_route
 
@@ -559,7 +561,10 @@ def run_flask_server(*args, port, verbose=False, **kwargs):
 
     @app.route("/")
     def index():
-        return render_template("index.html", data=json.dumps(backend.get_info()))
+        response = make_response(render_template("index.html", data=json.dumps(backend.get_info())))
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+        return response
     del index
 
     @app.route('/favicon.ico')
