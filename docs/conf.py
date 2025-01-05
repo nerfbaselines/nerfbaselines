@@ -48,6 +48,16 @@ except ImportError:
     # Fill for older versions
     WEBPAGE_URL = "https://nerfbaselines.github.io"
     CODE_REPOSITORY = "github.com/nerfbaselines/nerfbaselines"
+
+# Hack for older versions of NerfBaselines requiring viser
+import importlib
+from unittest.mock import MagicMock
+for module in ["viser", "viser.transforms", "viser.theme", "splines", "splines.quaternion"]:
+    try:
+        importlib.import_module(module)
+    except ImportError:
+        # Add a fake module to avoid import errors
+        sys.modules[module] = MagicMock()
 nerfbaselines_cli = nerfbaselines.__main__.main
 ctx = click.Context(nerfbaselines_cli)
 command_names = nerfbaselines_cli.list_commands(ctx)
