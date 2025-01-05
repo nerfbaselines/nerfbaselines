@@ -1,4 +1,6 @@
+import * as THREE from "three";
 import * as GaussianSplats3D from "./third-party/gaussian-splats-3d.module.min.js";
+
 
 
 function makeMatrix4(elements) {
@@ -23,7 +25,6 @@ export class GaussianSplattingFrameRenderer {
     this.update_notification = update_notification;
 
     const updateProgress = (percentage, _, stage) => {
-      console.log(percentage, stage);
       if (stage === 1 && percentage >= 100) {
         this._onready();
         this.update_notification({
@@ -56,6 +57,7 @@ export class GaussianSplattingFrameRenderer {
     updateProgress(0, undefined, 0);
     this.renderer = new THREE.WebGLRenderer({ antialias: true, canvas: this.canvas });
     this.gs_viewer = new GaussianSplats3D.DropInViewer({
+      ignoreDevicePixelRatio: true,
       gpuAcceleratedSort: false,
       sharedMemoryForWorkers: false,
       sceneRevealMode: GaussianSplats3D.SceneRevealMode.Instant,
@@ -143,19 +145,32 @@ export class GaussianSplattingFrameRenderer {
 }
 
 
-// class ServiceWorkerRendererProxy {
-//   constructor(rendererType, options) {
-//     this._worker = new Worker(new URL("./renderer-worker.js", import.meta.url), { type });
-//     this._worker.postMessage({ 
-//       type: "init", options, rendererType
-//     });
-//   }
-// 
-//   async render(params, options) {
-//     return await this._worker.postMessage({ 
-//       type: "render", 
-//       params, 
-//       options 
-//     });
-//   }
-// }
+let renderer;
+onmessage = async (e) => {
+  if (e.data.type === "init") {
+    renderer = new GaussianSplattingFrameRenderer({
+      ...e.data.options,
+      update_notification: (notification) => {
+        postMessage({ type: "notification", notification });
+      },
+      onready: () => {
+        postMessage({ type: "ready" });
+      }
+    });
+  }
+  if (e.data.type === "render") {
+    const requestId = e.data.requestId;
+    if (!renderer) {
+      postMessage({ type: "error", message: "Renderer not initialized" });
+      return;
+    }
+    try {
+      const imageBitmap = await renderer.render(e.data.params, e.data.options);
+      postMessage({ type: "rendered", imageBitmap, requestId }, [imageBitmap]);
+    } catch (error) {
+      console.error(error);
+      postMessage({ type: "rendered", error, requestId });
+    }
+  }
+};
+postMessage({ type: "loaded" });

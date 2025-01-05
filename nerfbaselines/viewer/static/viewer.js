@@ -1015,188 +1015,167 @@ export class WebSocketFrameRenderer {
 }
 
 
-export class MeshFrameRenderer {
+function getWorkerScriptURL(aURL) {
+  const esModuleShimsURL = new URL("./third-party/es-module-shims.wasm.js", import.meta.url);
+  const baseURL = new URL("./", import.meta.url);
+  const importMap = {
+    imports: {
+      "three": new URL("./third-party/three.module.js", import.meta.url),
+      "three/addons/": new URL("./third-party/", import.meta.url),
+    }
+  };
+  return URL.createObjectURL(new Blob(
+    [
+      `importScripts('${new URL(esModuleShimsURL, baseURL).href}');
+      importShim.addImportMap(${JSON.stringify(importMap)});
+      importShim('${new URL(aURL, baseURL).href}').catch(e => setTimeout(() => { throw e; }))`
+    ],
+    { type: 'application/javascript' }));
+}
+
+
+export class WorkerFrameRenderer {
   constructor({ 
-    mesh_url, background_color, 
-    znear=0.001, zfar=1000,
     update_notification,
     onready,
+    ...options
   }) {
+    this._options = options;
     this._onready = onready;
+    this._notificationId = "WorkerFrameRenderer-" + (
+      WorkerFrameRenderer._notificationIdCounter = (WorkerFrameRenderer._notificationIdCounter || 0) + 1);
     this.update_notification = update_notification;
-    this._notificationId = "MeshFrameRenderer-" + (
-      MeshFrameRenderer._notificationIdCounter = (MeshFrameRenderer._notificationIdCounter || 0) + 1);
-    this.near = znear || 0.001;
-    this.far = zfar || 1000;
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(background_color || 0x000000);
-    this.camera = new THREE.Camera();
-    this.canvas = document.createElement("canvas");
-    this._flipCanvas = document.createElement("canvas");
-    try {
-      this.canvas = this.canvas.transferControlToOffscreen();
-      this._flipCanvas = this._flipCanvas.transferControlToOffscreen();
-    } catch (error) {
-      console.error(error);
-      console.error("OffscreenCanvas not supported, falling back to regular canvas");
-      update_notification({
-        id: this._notificationId + "-offscreen-warning",
-        header: "OffscreenCanvas not supported",
-        detail: "Falling back to regular canvas",
-        type: "info",
-        autoclose: notification_autoclose,
-      });
+    this._renderPromises = {};
+    this._requestCounter = 0;
+    this._isReady = false;
+    if (window.Worker === undefined) {
+      console.error("WorkerFrameRenderer: Web Workers are not supported, falling back to main thread");
+      this.fallback();
+    } else {
+      this._setup_worker(options);
     }
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, canvas: this.canvas });
-    this._loadPlyModel(mesh_url);
   }
 
-  async _loadPlyModel(mesh_url) {
-    const controller = new AbortController();
-    let cancelled = false;
-    this._cancelLoading = () => {
-      if (!cancelled) {
-        controller.abort();
+  _setup_worker(options) {
+    this._worker = this.setup_worker(options);
+    this._worker.onmessage = (e) => {
+      const { type, ...data } = e.data;
+      if (type === "loaded") {
+        // Worker loaded, we can handle ther rest
+        this._worker.postMessage({ 
+          type: "init", 
+          options, 
+        });
       }
-      cancelled = true;
-      this.update_notification({ id: this.notificationId, autoclose: 0 });
+      if (type === "notification") {
+        data.notification.id = this._notificationId;
+        this.update_notification?.(data.notification);
+      }
+      if (type === "ready") {
+        this._isReady = true;
+        this._onready?.();
+      }
+      if (type === "rendered") {
+        if (this._renderPromises[data.requestId]) {
+          const [ resolve, reject ] = this._renderPromises[data.requestId];
+          if (data.error) reject(data.error);
+          else resolve(data.imageBitmap);
+        }
+      }
     };
+    this._worker.onerror = (e) => {
+      // This is a global error, not a message error
+      // The error event is fired when the worker could not be loaded
+      // We will fallback to the main thread
+      console.error("Worker: Error received from worker");
+      this.fallback();
+    };
+    this._worker.onmessageerror = (e) => {
+      console.error("Worker: Message error received from worker");
+    };
+  }
+
+  async fallback() {
+    // Kill worker if running
+    this._worker?.terminate();
+    this._worker = undefined;
+
+    // Fallback to main thread
     try {
-      // Update progress callback
-      const updateProgress = (percentage) => {
-        if (cancelled) return;
-        this.update_notification({
-          id: this._notificationId,
-          header: "Loading mesh renderer",
-          progress: percentage,
-          closeable: true,
-          onclose: () => this._cancelLoading?.(),
-        });
-      };
-      updateProgress(0);
-
-      // Fetch
-      let response = await fetch(mesh_url, { signal: controller.signal });
-      if (!response.ok) {
-        throw new Error(`Failed to load mesh: ${response.statusText}`);
-      }
-
-      // Track progress
-      const reader = response.body.getReader();
-      const contentLength = response.headers.get( 'X-File-Size' ) || response.headers.get( 'Content-Length' );
-      const total = contentLength ? parseInt( contentLength ) : 0;
-      if (total !== 0) {
-        let loaded = 0;
-        const stream = new ReadableStream({
-          start(controller) {
-            function readData() {
-              reader.read().then(({ done, value }) => {
-                if (done) {
-                  controller.close();
-                } else {
-                  loaded += value.byteLength;
-                  updateProgress(loaded / total);
-                  controller.enqueue(value);
-                  readData();
-                }
-              }, (e) => {
-                controller.error(e);
-              });
-            }
-            readData();
-          }
-        });
-        response = new Response(stream);
-      }
-      const arrayBuffer = await response.arrayBuffer();
-      const geometry = new PLYLoader().parse(arrayBuffer);
-      geometry.computeVertexNormals();
-      const material = new THREE.MeshBasicMaterial({ vertexColors: true });
-      const mesh = new THREE.Mesh(geometry, material);
-      if (cancelled) return;
-      this.scene.add(mesh);
-      this.update_notification({ id: this._notificationId, autoclose: 0 });
-      this._onready?.();
+      this._renderer = await this.setup_renderer({
+        ...this._options,
+        update_notification: (notification) => {
+          notification.id = this._notificationId;
+          this.update_notification?.(notification);
+        },
+        onready: () => {
+          this._isReady = true;
+          this._onready?.();
+        }
+      });
     } catch (error) {
-      if (cancelled) return;
-      console.error('An error occurred while loading the PLY file:', error);
-      this.update_notification({
+      console.error("Failed to fallback to main thread");
+      console.error(error);
+      this.update_notification?.({
         id: this._notificationId,
-        header: "Error loading mesh renderer",
+        header: "Failed to fallback to main thread",
         detail: error.message,
         type: "error",
         closeable: true,
       });
-    } finally {
-      this._cancelLoading = undefined;
     }
   }
 
-  _flipY(imageBitmap) {
-    this._flipCanvas.width = imageBitmap.width;
-    this._flipCanvas.height = imageBitmap.height;
-    const ctx = this._flipCanvas.getContext("2d");
-    ctx.translate(0, imageBitmap.height);
-    ctx.scale(1, -1);
-    ctx.drawImage(imageBitmap, 0, 0);
-    return this._flipCanvas.transferToImageBitmap();
-  }
-
-  _makePerspective(matrix, w, h, fx, fy, cx, cy, coordinateSystem = THREE.WebGLCoordinateSystem) {
-    const ti = matrix.elements;
-    const w2 = w / 2;
-    const h2 = h / 2;
-    const near = this.near;
-    const far = this.far;
-    let c, d;
-
-    if (coordinateSystem === THREE.WebGLCoordinateSystem) {
-			c = - (far + near) / (far - near);
-			d = (-2 * far * near) / (far - near);
-		} else if (coordinateSystem === THREE.WebGPUCoordinateSystem) {
-			c = - far / ( far - near );
-			d = (-far * near) / (far - near);
-		} else {
-			throw new Error('Invalid coordinate system: ' + coordinateSystem);
-		}
-    ti[0] = 2*fx/w; ti[4] = 0;      ti[8] = 2*(cx-w2)/w; ti[12] = 0;
-    ti[1] = 0;      ti[5] = 2*fy/h; ti[9] = 2*(cy-h2)/h; ti[13] = 0;
-    ti[2] = 0;      ti[6] = 0;      ti[10] = c;          ti[14] = d;
-    ti[3] = 0;      ti[7] = 0;      ti[11] = -1;         ti[15] = 0;
-  }
-
-  async render(params, { flipY = false } = {}) {
-    console.log(params);
-    const [width, height] = params.image_size;
-    const needResize = this.canvas.width !== width || this.canvas.height !== height;
-    if (needResize) {
-      this.renderer.setSize(width, height, false);
+  render(params, options) {
+    if (!this._isReady) return undefined;
+    if (this._renderer) {
+      return this._renderer.render(params, options);
     }
 
-    this._makePerspective(
-      this.camera.projectionMatrix,
-      width, height, ...params.intrinsics,
-      this.camera.coordinateSystem
-    );
-		this.camera.projectionMatrixInverse.copy(this.camera.projectionMatrix).invert();
+    const requestId = this._requestCounter++;
+    return new Promise((resolve, reject) => {
+      try {
+        this._renderPromises[requestId] = [resolve, reject];
+        this._worker.postMessage({ 
+          type: "render", 
+          params, 
+          options,
+          requestId,
+        })
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
 
-    const matrix = makeMatrix4(params.pose);
-    matrix.multiply(_R_threecam_cam.clone().invert());
-    matrix.premultiply(this.scene.matrixWorld);
-    const position = new THREE.Vector3();
-    const quaternion = new THREE.Quaternion();
-    const scale = new THREE.Vector3();
-    matrix.decompose(position, quaternion, scale);
-    this.camera.position.copy(position);
-    this.camera.quaternion.copy(quaternion);
-    this.renderer.render(this.scene, this.camera);
-    // Flip the image vertically
-    let imageBitmap = await this.canvas.transferToImageBitmap();
-    if (flipY)
-        imageBitmap = this._flipY(imageBitmap);
-    return imageBitmap;
+  setup_worker(options) { throw new Error("Not implemented"); }
+  setup_renderer(options) { throw new Error("Not implemented"); }
+}
+
+
+export class MeshFrameRenderer extends WorkerFrameRenderer {
+  setup_worker() {
+    return new Worker(getWorkerScriptURL("./mesh.js"));
+  }
+
+  async setup_renderer(options) {
+    const mesh = await import("./mesh.js");
+    return new mesh.MeshFrameRenderer(options);
   }
 }
+
+
+export class GaussianSplattingFrameRenderer extends WorkerFrameRenderer {
+  setup_worker() {
+    return new Worker(getWorkerScriptURL("./3dgs.js"));
+  }
+
+  async setup_renderer(options) {
+    const mesh = await import("./3dgs.js");
+    return new mesh.GaussianSplattingFrameRenderer(options);
+  }
+}
+
 
 async function promise_parallel_n(tasks, num_parallel) {
   await new Promise((resolve, reject) => {
@@ -2220,11 +2199,6 @@ export class Viewer extends THREE.EventDispatcher {
 
     this.dispatchEvent({ type: "start", state: this.state });
     (plugins || []).map((plugin) => this.load_plugin(plugin));
-
-
-    this.set_3dgs_renderer({
-      scene_url: "https://huggingface.co/datasets/nerfbaselines/nerfbaselines-supplementary/resolve/main/gaussian-splatting/mipnerf360/bicycle_demo/scene.ksplat",
-    });
   }
 
   force_render() {
@@ -2422,8 +2396,8 @@ export class Viewer extends THREE.EventDispatcher {
 
   async set_3dgs_renderer(params) {
     try {
-      const gsModule = await import("./gaussian_splatting.js");
-      this.set_frame_renderer(new gsModule.GaussianSplattingFrameRenderer({
+      //const gs = await import("./3dgs.js");
+      this.set_frame_renderer(new GaussianSplattingFrameRenderer({
         ...params,
         update_notification: (notification) => this.update_notification(notification),
         onready: () => this.force_render()

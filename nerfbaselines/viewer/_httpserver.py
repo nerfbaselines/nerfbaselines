@@ -394,6 +394,12 @@ class ViewerRequestHandler(SimpleHTTPRequestHandler):
                 query[k] = v
         return query
 
+    def send_header(self, keyword, value):
+        if keyword == "Content-type" and value == "text/javascript":
+            super().send_header("Cross-Origin-Opener-Policy", "same-origin")
+            super().send_header("Cross-Origin-Embedder-Policy", "require-corp")
+        return super().send_header(keyword, value)
+
     @httpserver_json_errorhandler
     def _handle_dataset_image(self, split, idx):
         query = self._get_query()
@@ -558,6 +564,14 @@ def run_flask_server(*args, port, verbose=False, **kwargs):
             "error": f"Path not found: {request.path}",
         }), 404
     del handle_404_error
+
+    # Add required headers for .js files
+    @app.after_request
+    def add_header(response):
+        response.headers["cross-origin-opener-policy"] = "same-origin"
+        response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+        return response
+    del add_header
 
     @app.route("/")
     def index():
