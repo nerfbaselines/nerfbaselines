@@ -9,7 +9,10 @@ from nerfbaselines import evaluation
 from PIL import Image
 import tarfile
 import zipfile
-from typeguard import suppress_type_checks
+try:
+    from typeguard import suppress_type_checks
+except ImportError:
+    from contextlib import nullcontext as suppress_type_checks
 
 
 T = TypeVar("T")

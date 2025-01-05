@@ -22,17 +22,14 @@ classifiers = [
 dependencies = [
     "opencv-python>=4.6.0",
     "typing-extensions>=4.4.0",
-    "wandb>=0.13.3",
     "click>=8.0.0",
-    "numpy>=1.19.5,<2.0.0",
     "tqdm>=4.61.1",
     "Pillow>=8.2.0",
     "matplotlib>=3.4.2",
     "plyfile>=0.7.3",
     "requests>=2.25.1",
-    "gdown>=4.7.1",
+    "numpy>=1.19.5,<2.0.0",
     "tensorboard>=2.5.0",
-    "mediapy>=1.1.2",
     "scipy",
     'importlib-metadata>=6.0.0; python_version < "3.10"',
 ]
@@ -70,6 +67,11 @@ dev = [
     # Release
     'twine',
     'build',
+]
+extras = [
+    'mediapy',
+    'wandb',
+    'gdown',
 ]
 
 [project.scripts]

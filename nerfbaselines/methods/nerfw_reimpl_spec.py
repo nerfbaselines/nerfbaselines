@@ -30,8 +30,12 @@ pip install plyfile==0.8.1 \
     tensorboard==2.18.0 \
     wandb==0.19.1 \
     gdown==5.2.0 \
+    'Pillow<=11.1.0' \
     click==8.1.8 \
+    'requests==2.32.3' \
+    mediapy==1.1.2 \
     lpips==0.1.4 \
+    'pytest<=8.3.4' \
     scipy==1.13.1
 
 conda install -y conda-build

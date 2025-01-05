@@ -77,6 +77,7 @@ pip install msgpack==1.0.8 \
     requests==2.32.3 \
     matplotlib==3.9.4 \
     tensorboard==2.18.0 \
+    'pytest<=8.3.4' \
     scipy==1.13.1
 mkdir -p "$CONDA_PREFIX/etc/conda/activate.d"
 echo "export PYTHONPATH=\"$CONDA_PREFIX/src/instant-ngp/build:\$PYTHONPATH\"" >> "$CONDA_PREFIX/etc/conda/activate.d/env_vars.sh"
@@ -100,10 +101,31 @@ function nb-post-install () {
         "python_path": "python3",
         "home_path": "/root",
         "build_script": """
+# Install ffmpeg
+sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg && sudo apt-get clean && sudo rm -rf /var/lib/apt/lists/*
+
 # Install default torch to compute metrics on cuda inside the container
-pip install opencv-python-headless torch==2.0.1 torchvision==0.15.2 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu117
-pip install msgpack==1.0.8 importlib_metadata typing_extensions
-if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
+pip install 'opencv-python-headless<=4.10.0.84' torch==2.0.1 torchvision==0.15.2 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu117
+pip install \
+    "msgpack<=1.0.8" \
+    "plyfile==0.8.1" \
+    "mediapy<=1.1.2" \
+    "scikit-image<=0.21.0" \
+    "tqdm<=4.66.2" \
+    "importlib_metadata==8.5.0" \
+    "typing_extensions==4.12.2" \
+    "wandb<=0.19.1" \
+    "gdown<=5.2.0" \
+    "click<=8.1.8" \
+    "Pillow<=11.1.0" \
+    "requests<=2.32.3" \
+    "matplotlib<=3.9.4" \
+    "tensorboard<=2.18.0" \
+    'pytest<=8.3.4' \
+    "scipy<=1.13.1"
+
+# Delete pip cache
+pip cache purge
 """,
     },
     "metadata": {

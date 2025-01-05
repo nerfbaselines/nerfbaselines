@@ -53,6 +53,9 @@ python -m pip install \
     "tensorboard==2.15.1" \
     "tensorflow==2.15.0" \
     "ml-dtypes==0.2.0" \
+    'requests==2.32.3' \
+    'matplotlib==3.9.4' \
+    'pytest<=8.3.4' \
     "orbax-checkpoint==0.4.4"
 
 # Manually install rmbrualla's `pycolmap` (don't use pip's! It's different).

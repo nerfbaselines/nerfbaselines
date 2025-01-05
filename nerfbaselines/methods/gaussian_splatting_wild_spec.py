@@ -23,7 +23,7 @@ git submodule update --init --recursive
 # from "intr = cam_intrinsics[extr.id]" to "intr = cam_intrinsics[extr.camera_id]"
 sed -i '80s/.*/        intr = cam_intrinsics[extr.camera_id]/' scene/dataset_readers.py
 
-conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 'numpy<2.0.0' -c pytorch -c nvidia
+conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 'numpy<2.0.0' ffmpeg=7.1.0 -c pytorch -c nvidia
 conda install -y cudatoolkit-dev=11.7 gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
 pip install -U pip 'setuptools<70.0.0' 'wheel==0.43.0'
 pip install \
@@ -46,6 +46,7 @@ pip install \
         requests==2.32.3 \
         matplotlib==3.9.4 \
         tensorboard==2.18.0 \
+        pytest==8.3.4 \
         scipy==1.13.1 \
         submodules/diff-gaussian-rasterization \
         submodules/simple-knn \

@@ -24,8 +24,10 @@ pip install \
     gdown==5.2.0 \
     click==8.1.8 \
     Pillow==11.1.0 \
+    requests==2.32.3 \
     tensorboard==2.18.0 \
     matplotlib==3.9.4 \
+    pytest==8.3.4 \
     scipy==1.13.1
 pip install torch==2.3.1 \
     torchvision==0.18.1 \

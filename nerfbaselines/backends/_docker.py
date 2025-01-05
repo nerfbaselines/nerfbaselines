@@ -15,7 +15,7 @@ from .._constants import DOCKER_REPOSITORY
 
 from ._conda import CondaBackendSpec, conda_get_environment_hash, conda_get_install_script
 from ._rpc import RemoteProcessRPCBackend, get_safe_environment, customize_wrapper_separated_fs
-from ._common import get_package_dependencies, get_mounts
+from ._common import get_mounts
 try:
     from typing import TypedDict, Required
 except ImportError:
@@ -53,7 +53,6 @@ def docker_get_environment_hash(spec: Union[DockerBackendSpec, Dict]):
     maybe_update(spec.get("home_path"))
     maybe_update(spec.get("default_cuda_archs"))
     maybe_update(spec.get("build_script"))
-    maybe_update(",".join(get_package_dependencies(ignore_viewer=True)))
     conda_spec = spec.get("conda_spec")
     if conda_spec:
         maybe_update(conda_get_environment_hash(conda_spec))
@@ -137,12 +136,7 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
 
     else:
         # If not inside conda env, we install the dependencies
-        python_path = spec.get("python_path") or "python"
-        package_dependencies = get_package_dependencies()
-        script += "RUN "
-        if package_dependencies:
-            script += shlex_join([python_path, "-m", "pip", "--no-cache-dir", "install"] + package_dependencies)+ " && \\\n"
-        script += f'if ! command -v nerfbaselines >/dev/null 2>&1; then echo "#!/usr/bin/env python3\\nfrom nerfbaselines.__main__ import main; main()">"/usr/bin/nerfbaselines" && chmod +x "/usr/bin/nerfbaselines" || echo "Failed to create nerfbaselines in the bin folder"; fi\n'
+        script += f'RUN if ! command -v nerfbaselines >/dev/null 2>&1; then echo "#!/usr/bin/env python3\\nfrom nerfbaselines.__main__ import main; main()">"/usr/bin/nerfbaselines" && chmod +x "/usr/bin/nerfbaselines" || echo "Failed to create nerfbaselines in the bin folder"; fi\n'
         # We manually add nb-package to the PYTHONPATH
         script += f'ENV PYTHONPATH="/var/nb-package:$PYTHONPATH"\n'
 

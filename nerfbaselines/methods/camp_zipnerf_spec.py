@@ -41,7 +41,7 @@ cd camp_zipnerf
 git checkout 16206bd88f37d5c727976557abfbd9b4fa28bbe1
 
 # Prepare pip.
-conda install -y pip conda-build
+conda install -y pip conda-build ffmpeg=7.1.0 -c conda-forge
 
 # Install requirements.
 python -m pip install --upgrade pip
@@ -60,6 +60,8 @@ python -m pip install \
     Pillow==11.1.0 \
     tensorboard==2.18.0 \
     matplotlib==3.9.4 \
+    'requests<=2.32.3' \
+    pytest==8.3.4 \
     scipy==1.13.1 \
     -r requirements.txt
 

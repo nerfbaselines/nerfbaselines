@@ -38,7 +38,36 @@ TetraNeRFSpec: MethodSpec = {
         "image": "kulhanek/tetra-nerf:latest",
         "python_path": "python3",
         "home_path": "/home/user",
-        "build_script": """echo -e '#!/usr/bin/env python3\\nfrom nerfbaselines.__main__ import main;main()' > /home/user/.local/bin/nerfbaselines && chmod +x /home/user/.local/bin/nerfbaselines
+        "build_script": """# Install dependencies
+# Install ffmpeg
+sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg && sudo apt-get clean && sudo rm -rf /var/lib/apt/lists/*
+
+# Ensure pip is up-to-date
+pip install --upgrade pip
+pip install \
+    'opencv-python-headless<=4.10.0.84' \
+    "numpy<2.0.0" \
+    "plyfile==0.8.1" \
+    "mediapy<=1.1.2" \
+    "scikit-image<=0.21.0" \
+    "tqdm<=4.66.2" \
+    "importlib_metadata==8.5.0" \
+    "typing_extensions==4.12.2" \
+    "wandb<=0.19.1" \
+    "gdown<=5.2.0" \
+    "click<=8.1.8" \
+    "Pillow<=11.1.0" \
+    "requests<=2.32.3" \
+    "matplotlib<=3.9.4" \
+    'pytest<=8.3.4' \
+    "tensorboard<=2.18.0" \
+    "scipy<=1.13.1"
+
+# Ensure nerfbaselines is executable
+echo -e '#!/usr/bin/env python3\\nfrom nerfbaselines.__main__ import main;main()' > /home/user/.local/bin/nerfbaselines && chmod +x /home/user/.local/bin/nerfbaselines
+
+# Delete pip cache
+pip cache purge
 """,
     },
     "metadata": {

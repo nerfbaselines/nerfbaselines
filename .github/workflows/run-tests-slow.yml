@@ -59,7 +59,7 @@ jobs:
           export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
           pip install tensorboard==2.11.2
           pip install 'protobuf<4' 
-          pytest -vrA --require-ffmpeg
+          pytest -vrA
 
   common-tests:
     runs-on: ubuntu-latest
@@ -85,7 +85,7 @@ jobs:
             pip install tensorboard==2.11.2
             pip install 'protobuf<4' 
           fi
-          pytest -vrA --require-ffmpeg
+          pytest -vrA
       - name: Install dev-extras
         id: dev-extras
         if: ${{ matrix.python == '3.11' }}
@@ -97,7 +97,7 @@ jobs:
       - name: Run dev-extras tests
         run: |
           pyright
-          pytest -v --run-extras --require-ffmpeg
+          pytest -v --run-extras
         if: ${{ steps.dev-extras.outcome == 'success' }}
 
   windows-tests:
@@ -122,7 +122,7 @@ jobs:
       - name: Run pyright, pytests
         run: |
           pyright
-          pytest -vrA --require-ffmpeg
+          pytest -vrA
 
   macos-tests:
     runs-on: macos-latest

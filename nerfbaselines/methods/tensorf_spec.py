@@ -56,6 +56,8 @@ pip install \
     kornia==0.7.4
     tensorboard==2.18.0 \
     six==1.17.0 \
+    'pytest<=8.3.4' \
+    'requests<=2.32.3' \
     matplotlib==3.9.4 \
     scipy==1.13.1
 """,

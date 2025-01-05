@@ -1,13 +1,11 @@
 import re
 import os
 import subprocess
-from pathlib import Path
 import shlex
 from typing import Optional
 import hashlib
 
 from nerfbaselines import get_supported_methods, get_method_spec, NB_PREFIX
-from ._common import get_package_dependencies
 from ._rpc import RemoteProcessRPCBackend, get_safe_environment
 try:
     from typing import TypedDict, Required

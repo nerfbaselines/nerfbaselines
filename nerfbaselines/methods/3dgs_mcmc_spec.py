@@ -37,7 +37,7 @@ git checkout a22a24bd7e64b089d983bfcf52c906df7d46f25d
 git submodule update --init --recursive
 
 conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 'numpy<2.0.0' -c pytorch -c nvidia
-conda install -y cudatoolkit-dev=11.7 gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
+conda install -y cudatoolkit-dev=11.7 gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 ffmpeg=7.1.0 -c conda-forge
 pip install -U pip 'setuptools<70.0.0' 'wheel==0.43.0'
 pip install plyfile==0.8.1 \
         mediapy==1.1.2 \
@@ -57,6 +57,7 @@ pip install plyfile==0.8.1 \
         matplotlib==3.9.4 \
         tensorboard==2.18.0 \
         scipy==1.13.1 \
+        pytest==8.3.4 \
         submodules/diff-gaussian-rasterization \
         submodules/simple-knn \
         --no-build-isolation

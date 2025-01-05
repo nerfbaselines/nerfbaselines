@@ -56,6 +56,7 @@ pip install \
     'requests<=2.32.3' \
     'matplotlib<=3.9.4' \
     'tensorboard<=2.18.0'\
+    'pytest<=8.3.4' \
     'scipy<=1.13.1'
 
 conda develop "$PWD"
