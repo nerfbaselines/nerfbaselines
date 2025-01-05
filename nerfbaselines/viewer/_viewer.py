@@ -139,7 +139,12 @@ def combine_outputs(o1, o2, *, split_percentage=0.5, split_tilt=0):
 
 
 class Viewer:
-    def __init__(self, model=None, train_dataset=None, test_dataset=None, nb_info=None, port: Optional[int] = None):
+    def __init__(self, 
+                 model=None, 
+                 train_dataset=None, 
+                 test_dataset=None, 
+                 nb_info=None, 
+                 port: Optional[int] = None):
         self._request_queue = multiprocessing.Queue()
         self._output_queue = multiprocessing.Queue()
         self._port = port
@@ -158,9 +163,13 @@ class Viewer:
         self._process = None
         self._train_dataset = train_dataset
         self._test_dataset = test_dataset
-        self._run_backend_fn = run_simple_http_server
+        self._server_fn = run_simple_http_server
         self._model = model
         self._running = False
+
+    @property
+    def port(self):
+        return self._port
 
     def run(self):
         """
@@ -280,7 +289,7 @@ class Viewer:
         info = get_info(self._model_info, datasets, self._nb_info, dataset_metadata)
         assert self._request_queue is not None, "Request queue is not initialized"
 
-        self._process = multiprocessing.Process(target=self._run_backend_fn, args=(
+        self._process = multiprocessing.Process(target=self._server_fn, args=(
             self._request_queue, 
             self._output_queue, 
         ), kwargs=dict(
