@@ -35,6 +35,9 @@ if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
 mkdir -p $CONDA_PREFIX/etc/conda/activate.d
 echo "export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$CONDA_PREFIX/lib64:$LD_LIBRARY_PATH" >> $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
 export CUDA_HOME="$CONDA_PREFIX"
+ln -s "$CC" "$CONDA_PREFIX/bin/gcc"
+ln -s "$CXX" "$CONDA_PREFIX/bin/g++"
+export CPATH="$CONDA_PREFIX/x86_64-conda-linux-gnu/sysroot/usr/include:$CPATH"
 export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:$CONDA_PREFIX/lib64:$LD_LIBRARY_PATH"
 export LIBRARY_PATH="$CONDA_PREFIX/lib:$CONDA_PREFIX/lib64:$LIBRARY_PATH"
 export CPLUS_INCLUDE_PATH=${CUDA_HOME}/include:${CPLUS_INCLUDE_PATH}
