@@ -908,6 +908,7 @@ class HTTPFrameRenderer {
   }
 
   async render(params, { flipY = false } = {}) {
+    if (!params.output_type) return;
     const response = await fetch(`${this.url}`,{
       method: "POST",  // Disable caching
       cache: "no-cache",
@@ -1001,6 +1002,7 @@ export class WebSocketFrameRenderer {
   }
 
   async render(params, { flipY = false } = {}) {
+    if (!params.output_type) return;
     await this._ensure_socket();
     this._thread_counter++;
     const message = await new Promise((resolve, reject) => {
@@ -2382,9 +2384,11 @@ export class Viewer extends THREE.EventDispatcher {
           const params = this._get_render_params();
           if (params !== undefined) {
             const image = await this.frame_renderer.render(params, { flipY: true });
-            this.dispatchEvent({ type: "frame", image });
-            this._last_frames[0] = image;
-            this._draw_background();
+            if (image) {
+              this.dispatchEvent({ type: "frame", image });
+              this._last_frames[0] = image;
+              this._draw_background();
+            }
           }
 
           // Wait

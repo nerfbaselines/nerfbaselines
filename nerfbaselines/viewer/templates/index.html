@@ -614,15 +614,11 @@ rangeInputs.forEach(input => {
   });
   viewer.attach_gui();
 
-  viewer.set_renderer({
-    type: "3dgs",
-    scene_url: "https://huggingface.co/datasets/nerfbaselines/nerfbaselines-supplementary/resolve/main/gaussian-splatting/mipnerf360/bicycle_demo/scene.ksplat",
-  });
-
-  //if (data.renderer)
-  //  viewer.set_renderer(data.renderer);
+  if (data.renderer)
+    viewer.set_renderer(data.renderer);
   if (data.dataset)
     viewer.set_dataset(data.dataset);
+  window.viewer = viewer;
   </script>
 </body>
 </html>
