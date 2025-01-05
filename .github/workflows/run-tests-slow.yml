@@ -231,7 +231,7 @@ jobs:
           pytest -sv --run-docker --method-regex "$method_regex" -rA -x
 
   apptainer-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     name: run-tests-apptainer
     needs: setup
     if: ${{ needs.setup.outputs.apptainer_methods != '' && toJson(fromJson(needs.setup.outputs.apptainer_methods)) != '[]' }}
