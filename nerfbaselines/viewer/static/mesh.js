@@ -30,6 +30,7 @@ export class MeshFrameRenderer {
     this._flipCanvas = new OffscreenCanvas(1, 1);
     this.renderer = new THREE.WebGLRenderer({ antialias: true, canvas: this.canvas });
     this._loadPlyModel(mesh_url);
+    this.output_types = ["color"];
   }
 
   async _loadPlyModel(mesh_url) {
@@ -97,7 +98,9 @@ export class MeshFrameRenderer {
       if (cancelled) return;
       this.scene.add(mesh);
       this.update_notification({ id: this._notificationId, autoclose: 0 });
-      this._onready?.();
+      this._onready?.({
+        output_types: this.output_types,
+      });
     } catch (error) {
       if (cancelled) return;
       console.error('An error occurred while loading the PLY file:', error);
@@ -189,8 +192,8 @@ onmessage = async (e) => {
         notification.onclose = "cancel";
         postMessage({ type: "notification", notification });
       },
-      onready: () => {
-        postMessage({ type: "ready" });
+      onready: (data) => {
+        postMessage({ type: "ready", ...data });
       }
     });
   }

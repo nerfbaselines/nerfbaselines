@@ -277,7 +277,7 @@ class ViewerBackend:
             raise NotFound("No pointcloud in dataset")
         return create_ply_bytes(points3D_xyz, points3D_rgb)
 
-    def get_dataset_cameras(self, split):
+    def get_dataset_split_cameras(self, split, get_image_url, get_thumbnail_url):
         if not isinstance(split, str):
             raise ValueError("Invalid split specified")
         dataset = self._datasets.get(split)
@@ -291,13 +291,21 @@ class ViewerBackend:
             "pose": pose[:3, :4].flatten().tolist(),
             "intrinsics": intrinsics.tolist(),
             "image_size": image_size.tolist(),
-            "image_name": os.path.relpath(image_path, root_path)
-        } for _, (pose, intrinsics, image_size, image_path) in enumerate(zip(
+            "image_name": os.path.relpath(image_path, root_path),
+            "image_url": get_image_url(split, i, image_path) if get_image_url is not None else None,
+            "thumbnail_url": get_thumbnail_url(split, i, image_path),
+        } for i, (pose, intrinsics, image_size, image_path) in enumerate(zip(
             nb_cameras.poses, 
             nb_cameras.intrinsics, 
             nb_cameras.image_sizes,
             dataset["image_paths"]))]
         return { "cameras": cameras }
+
+    def get_dataset(self, get_image_url, get_thumbnail_url):
+        return {
+            "train": self.get_dataset_split_cameras("train", get_image_url, get_thumbnail_url) if "train" in self._datasets else None,
+            "test": self.get_dataset_split_cameras("test", get_image_url, get_thumbnail_url) if "test" in self._datasets else None,
+        }
 
 
 from http.server import SimpleHTTPRequestHandler
@@ -365,8 +373,10 @@ class ViewerRequestHandler(SimpleHTTPRequestHandler):
         return f
 
     @httpserver_json_errorhandler
-    def _handle_dataset_cameras(self, split):
-        output = self.backend.get_dataset_cameras(split)
+    def _handle_dataset_cameras(self):
+        output = self.backend.get_dataset(
+            lambda split, idx, _: f"./dataset/images/{split}/{idx}.jpg",
+            lambda split, idx, _: f"./dataset/images/{split}/{idx}.jpg?thumb=1")
         output_bytes = json.dumps(output).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-type", "application/json")
@@ -465,10 +475,8 @@ class ViewerRequestHandler(SimpleHTTPRequestHandler):
             path = self.path.split("?", 1)[0]
         if path == "/render-websocket":
             return self._handle_render_websocket()
-        if path.startswith("/dataset/") and path.endswith(".json"):
-            split = path[len("/dataset/"): -len(".json")]
-            if "/" not in split:
-                return self._handle_dataset_cameras(split)
+        if path == "/dataset.json":
+            return self._handle_dataset_cameras()
         if path == "/dataset/pointcloud.ply":
             return self._handle_dataset_pointcloud()
         if path.startswith("/dataset/images/") and path.endswith(".jpg"):
@@ -621,9 +629,11 @@ def run_flask_server(*args, port, verbose=False, **kwargs):
         return send_file(output, download_name="pointcloud.ply", as_attachment=True)
     del dataset_pointcloud
 
-    @app.route("/dataset/<string:split>.json")
-    def dataset_cameras(split):
-        output = backend.get_dataset_cameras(split)
+    @app.route("/dataset.json")
+    def dataset_cameras():
+        output = backend.get_dataset(
+            lambda split, idx, _: f"./dataset/images/{split}/{idx}.jpg",
+            lambda split, idx, _: f"./dataset/images/{split}/{idx}.jpg?thumb=1")
         return jsonify(output)
     del dataset_cameras
 

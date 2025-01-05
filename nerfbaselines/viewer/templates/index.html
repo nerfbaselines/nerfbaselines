@@ -614,20 +614,15 @@ rangeInputs.forEach(input => {
   });
   viewer.attach_gui();
 
-  if (data.renderer_websocket_url || data.renderer_http_url) {
-    viewer.set_remote_renderer({
-      websocket_url: data.renderer_websocket_url,
-      render_url: data.renderer_http_url,
-    });
-  }
+  viewer.set_renderer({
+    type: "3dgs",
+    scene_url: "https://huggingface.co/datasets/nerfbaselines/nerfbaselines-supplementary/resolve/main/gaussian-splatting/mipnerf360/bicycle_demo/scene.ksplat",
+  });
 
-
-  if (data.dataset_url) {
-    viewer.set_dataset({
-      url: data.dataset_url, 
-      parts: data.dataset_parts
-    });
-  }
+  //if (data.renderer)
+  //  viewer.set_renderer(data.renderer);
+  if (data.dataset)
+    viewer.set_dataset(data.dataset);
   </script>
 </body>
 </html>

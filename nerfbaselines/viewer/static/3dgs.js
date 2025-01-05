@@ -26,7 +26,9 @@ export class GaussianSplattingFrameRenderer {
 
     const updateProgress = (percentage, _, stage) => {
       if (stage === 1 && percentage >= 100) {
-        this._onready();
+        this._onready({
+          output_types: this.output_types,
+        });
         this.update_notification({
           id: this._notificationId,
           autoclose: 0,
@@ -76,6 +78,7 @@ export class GaussianSplattingFrameRenderer {
       }
     });
     this.scene.add(this.gs_viewer);
+    this.output_types = ["color"];
   }
 
   _flipY(imageBitmap) {
@@ -153,8 +156,8 @@ onmessage = async (e) => {
       update_notification: (notification) => {
         postMessage({ type: "notification", notification });
       },
-      onready: () => {
-        postMessage({ type: "ready" });
+      onready: (data) => {
+        postMessage({ type: "ready", ...data });
       }
     });
   }

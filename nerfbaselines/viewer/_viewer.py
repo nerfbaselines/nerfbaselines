@@ -16,34 +16,35 @@ from ._httpserver import run_simple_http_server
 
 def get_info(model_info, datasets, nb_info, dataset_metadata):
     info = {
-        "dataset_parts": [],
         "state": {
             "method_info": None,
             "dataset_info": None,
-            "output_types": [],
         },
         "plugins": [],
+        "renderer": None,
+        "dataset": None,
     }
     if model_info is not None:
-        info["renderer_websocket_url"] = "./render-websocket"
-        info["renderer_http_url"] = "./render"
-    if datasets.get("train") is not None:
-        info["dataset_url"] = "./dataset"
+        output_types = model_info.get("supported_outputs", ("color",))
+        output_types = [x if isinstance(x, str) else x["name"] for x in output_types]
+        info["renderer"] = {
+            "type": "remote",
+            "websocket_url": "./render-websocket",
+            "http_url": "./render",
+            "output_types": output_types,
+        }
+
+    if datasets.get("train") is not None or datasets.get("test") is not None:
+        info["dataset"] = info["dataset"] or {}
+        info["dataset"]["url"] = "./dataset.json"
+        if datasets.get("train") is not None and datasets["train"].get("points3D_xyz") is not None:
+            info["dataset"]["pointcloud_url"] = "./dataset/pointcloud.ply"
 
     dataset_metadata_ = dataset_metadata or {}
     if dataset_metadata_.get("viewer_transform") is not None:
         info["viewer_transform"] = dataset_metadata_["viewer_transform"][:3, :4].flatten().tolist()
     if dataset_metadata_.get("viewer_initial_pose") is not None:
         info["viewer_initial_pose"] = dataset_metadata_["viewer_initial_pose"][:3, :4].flatten().tolist()
-    if model_info is not None:
-        output_types = model_info.get("supported_outputs", ("color",))
-        output_types = [x if isinstance(x, str) else x["name"] for x in output_types]
-        info["state"]["output_types"] = output_types
-
-    if datasets.get("train") is not None:
-        info["dataset_parts"].append("train")
-        if datasets["train"].get("points3D_xyz") is not None:
-            info["dataset_parts"].append("pointcloud")
 
     if dataset_metadata_:
         info["state"]["dataset_info"] = _dataset_info = info["state"]["dataset_info"] or {}
@@ -63,8 +64,6 @@ def get_info(model_info, datasets, nb_info, dataset_metadata):
         if dataset_info is not None:
             info["state"]["dataset_info"].update(dataset_info)
 
-    if datasets.get("test") is not None:
-        info["dataset_parts"].append("test")
     if model_info is not None:
         if "viewer_default_resolution" in model_info:
             default_resolution = model_info["viewer_default_resolution"]

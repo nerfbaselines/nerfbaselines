@@ -394,10 +394,10 @@ function _attach_persistent_state(viewer) {
       delete state.dataset_has_pointcloud;
       delete state.dataset_has_train_cameras;
       delete state.dataset_has_test_cameras;
-      delete state.has_method;
       delete state.dataset_images;
       delete state.viewer_is_embedded;
       delete state.viewer_public_url;
+      delete state.output_types;
 
       delete state.dataset_info;
       delete state.method_info;
@@ -1073,7 +1073,7 @@ export class WorkerFrameRenderer {
       }
       if (type === "ready") {
         this._isReady = true;
-        this._onready?.();
+        this._onready?.(data);
       }
       if (type === "rendered") {
         if (this._renderPromises[data.requestId]) {
@@ -1201,11 +1201,12 @@ class DatasetManager {
   constructor({
     viewer,
     url,
-    parts,
+    pointcloud_url,
   }) {
+    this.notificationId = "DatasetManager-" + (
+      DatasetManager._notificationIdCounter = (DatasetManager._notificationIdCounter || 0) + 1);
     this.viewer = viewer;
     this.scene = viewer.scene;
-    this.url = url;
     this._disposed = true;
 
     const state = viewer.state;
@@ -1220,26 +1221,30 @@ class DatasetManager {
     this._on_viewer_change = this._on_viewer_change.bind(this);
     this._frustums = {};
     viewer.addEventListener("change", this._on_viewer_change);
-    this._load(parts);
-  }
 
-  async _load(parts) {
-    if (parts === undefined || parts.includes("pointcloud")) {
+    // Load parts
+    if (pointcloud_url) {
       this.viewer.state.dataset_has_pointcloud = true;
       this.viewer.notifyChange({ property: 'dataset_has_pointcloud' });
+    } else {
+      this.viewer.state.dataset_has_pointcloud = false;
+      this.viewer.notifyChange({ property: 'dataset_has_pointcloud' });
     }
-    if (parts === undefined || parts.includes("test"))
-      await this._load_cameras("test");
-    if (parts === undefined || parts.includes("train"))
-      await this._load_cameras("train");
-
-    // Load images and pointcloud
-    if (this.viewer.state.dataset_show_test_cameras && this.viewer.state.dataset_has_test_cameras)
-      this._load_split_images("test");
-    if (this.viewer.state.dataset_show_train_cameras && this.viewer.state.dataset_has_train_cameras)
-      this._load_split_images("train");
-    if (this.viewer.state.dataset_show_pointcloud && this.viewer.state.dataset_has_pointcloud)
-      this._load_pointcloud();
+    this._train_load_images_tasks = null;
+    this._test_load_images_tasks = null;
+    this._pointcloud_url = pointcloud_url;
+    if (url) {
+      this._load_cameras(url).then(() => {
+        if (state.dataset_show_train_cameras && this._train_load_images_tasks !== null)
+          this._load_split_images("train");
+        if (state.dataset_show_test_cameras && this._test_load_images_tasks !== null)
+          this._load_split_images("test");
+      });
+    }
+    if (pointcloud_url) {
+      if (state.dataset_show_pointcloud)
+        this._load_pointcloud(this._pointcloud_url);
+    }
   }
 
   _update_gui({ 
@@ -1293,14 +1298,14 @@ class DatasetManager {
             this._load_split_images(split);
         } else {
           this.viewer.update_notification({
-            id: `dataset_${this.url}_${split}_images`, header: "", autoclose: 0,
+            id: `${this.notificationId}-${split}`, header: "", autoclose: 0,
           });
         }
       }
     }
     if (state[`dataset_has_pointcloud`] && property === 'dataset_show_pointcloud') {
       if (state.dataset_show_pointcloud)
-        this._load_pointcloud();
+        this._load_pointcloud(this._pointcloud_url);
       else if (this._cancel_load_pointcloud)
         this._cancel_load_pointcloud();
     }
@@ -1322,41 +1327,42 @@ class DatasetManager {
   async _load_split_images(split) {
     if (!this.viewer.state[`dataset_has_${split}_cameras`]) return;
     if (!this.viewer.state[`dataset_show_${split}_cameras`]) return;
+    const taskDefs = this[`_${split}_load_images_tasks`] || [];
+    if (this[`_${split}_loading_started`]) return;
 
     try {
       if (this[`_${split}_loading_started`]) return;
       this[`_${split}_loading_started`] = true;
       let errors = [];
-      let num_images = this[`_${split}_cameras`].children.length;
       const all_loaded = this[`_${split}_cameras`].children.every((frustum) => frustum._hasImage);
       if (all_loaded) return;
       let tasks = [];
       let num_loaded = 0;
       const cancel = () => {
+        this[`_${split}_loading_started`] = false;
         this.viewer.state[`dataset_show_${split}_cameras`] = false;
         this.viewer.notifyChange({ property: `dataset_show_${split}_cameras` });
       };
       this.viewer.update_notification({
-        id: `dataset_${this.url}_${split}_images`,
+        id: `${this.notificationId}-${split}`,
         header: `Loading ${split} dataset images`,
         progress: 0,
         onclose: cancel,
         closeable: true,
       });
-      for (let _i = 0; _i < num_images; ++_i) {
-        const i = _i;
+      for (let _i = 0; _i < taskDefs.length; ++_i) {
+        const { id, thumbnail_url } = taskDefs[_i];
         tasks.push(async () => {
           if (!this.viewer.state[`dataset_show_${split}_cameras`]) return;
           try {
-            const frustum = this[`_${split}_cameras`].children[i];
+            const frustum = this._frustums[id];
             if (frustum._hasImage) {
               ++num_loaded;
               return;
             }
 
             // Replace image_path extension with .jpg
-            const image_url = `${this.url}/images/${split}/${i}.jpg?thumb=1`;
-            const response = await fetch(image_url);
+            const response = await fetch(thumbnail_url);
             if (!response.ok) {
               try {
                 const error = await response.json();
@@ -1379,9 +1385,9 @@ class DatasetManager {
           }
           if (!this.viewer.state[`dataset_show_${split}_cameras`]) return;
           this.viewer.update_notification({
-            id: `dataset_${this.url}_${split}_images`,
+            id: `${this.notificationId}-${split}`,
             header: `Loading ${split} dataset images`,
-            progress: ++num_loaded / num_images,
+            progress: ++num_loaded / taskDefs.length,
             onclose: cancel,
             closeable: true,
           });
@@ -1393,15 +1399,15 @@ class DatasetManager {
 
       if (errors.length > 0) {
         this.viewer.update_notification({
-          id: `dataset_${this.url}_${split}_images`,
+          id: `${this.notificationId}-${split}`,
           header: `Failed to load ${split} dataset images`,
           detail: errors[0].message,
           type: "error",
           closeable: true,
         });
-      } else if (num_loaded === num_images) {
+      } else if (num_loaded === taskDefs.length) {
         this.viewer.update_notification({
-          id: `dataset_${this.url}_${split}_images`,
+          id: `${this.notificationId}-${split}`,
           header: `Loaded ${split} dataset images`,
           autoclose: notification_autoclose,
           closeable: true,
@@ -1412,104 +1418,132 @@ class DatasetManager {
     }
   }
 
-  async _load_cameras(split) {
+  async _load_cameras(url) {
     // Load dataset train/test frustums
-    const response = await fetch(`${this.url}/${split}.json`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-    // TODO: Handle errors
-    const result = await response.json();
-    // TODO: Handle errors
+    let result;
     try {
-      const { cameras } = result;
-      this.viewer.state[`dataset_has_${split}_cameras`] = true;
-      this.viewer.notifyChange({ property: `dataset_has_${split}_cameras` });
-      let i = 0;
-      const appearance_options = [{label: "none", value: ""}];
-      for (const camera of cameras) {
-        const pose = camera.pose; // Assuming pose is a flat array representing a 3x4 matrix
-        if (pose.length !== 12) {
-          console.error('Invalid pose array. Expected 12 elements for 3x4 matrix.');
-          continue;
-        }
-
-        const poseMatrix = new THREE.Matrix4();
-        poseMatrix.set(...pose, 0, 0, 0, 1); // Add the last row to make it a full 4x4 matrix
-
-        // Optional: Decompose the pose matrix into position, quaternion, and scale
-        const position = new THREE.Vector3();
-        const quaternion = new THREE.Quaternion();
-        const scale = new THREE.Vector3();
-        poseMatrix.decompose(position, quaternion, scale);
-
-        const [fx, fy, cx, cy] = camera.intrinsics;
-        const [width, height] = camera.image_size;
-        const fov = THREE.MathUtils.radToDeg(2 * Math.atan2(cy, fy));
-        const aspect = width / height;
-
-        const frustum = new CameraFrustum({ 
-          fov,
-          aspect,
-          position,
-          quaternion,
-          scale: 0.1,
-          color: this.viewer.state.dataset_frustum_color,
-          interactive: true,
-        });
-        const id = `${split}/${i}`;
-        this._frustums[id] = frustum;
-        frustum.addEventListener("click", () => {
-          // If camera path frustum is selected, clear the selection
-          if (this.viewer.state.camera_path_selected_keyframe !== undefined) {
-            this.viewer.state.camera_path_selected_keyframe = undefined;
-            this.viewer.notifyChange({ property: 'camera_path_selected_keyframe' });
-          }
-
-          frustum.focused = true;
-          this.viewer.state.dataset_selected_image_id = id;
-          this.viewer.notifyChange({ property: 'dataset_selected_image_id' });
-        });
-        this[`_${split}_cameras`].add(frustum);
-        this.viewer.state.dataset_images = this.viewer.state.dataset_images || {};
-        this.viewer.state.dataset_images[id] = {
-          id,
-          index: i,
-          split,
-          image_name: camera.image_name,
-          image_url: `${this.url}/images/${split}/${i}.jpg`,
-          matrix: poseMatrix,
-          width, height,
-          cx, cy, fx, fy,
-        };
-        appearance_options.push({
-          value: i,
-          label: `${i}: ${camera.image_name}`
-        });
-        i++;
+      const response = await fetch(url, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+      if (!response.ok) {
+        let error = `Failed to load dataset: ${response.statusText}`;
+        try {
+          const error = await response.json();
+          error = `Failed to load dataset: ${error.message}`;
+        } catch (error) {}
+        throw new Error(error);
       }
-      this.viewer.notifyChange({ property: 'dataset_images' });
-      this.viewer.state[`dataset_${split}_appearance_options`] = appearance_options;
-      this.viewer.notifyChange({ property: `dataset_${split}_appearance_options` });
+      result = await response.json();
     } catch (error) {
       console.error('An error occurred while loading the cameras:', error);
       this.viewer.update_notification({
-        id: this.url + "-" + split,
-        header: `Error loading dataset ${split} cameras`,
+        id: `${this.notificationId}-cameras`,
+        header: "Error loading dataset cameras",
         detail: error.message,
         type: "error",
       });
-      this.update_notification();
+      return null;
+    }
+    for (const split of ['train', 'test']) {
+      if (!result[split]) continue;
+      const tasks = this[`_${split}_load_images_tasks`] = [];
+      try {
+        const { cameras } = result[split];
+        this.viewer.state[`dataset_has_${split}_cameras`] = true;
+        this.viewer.notifyChange({ property: `dataset_has_${split}_cameras` });
+        let i = 0;
+        const appearance_options = [{label: "none", value: ""}];
+        for (const camera of cameras) {
+          const pose = camera.pose; // Assuming pose is a flat array representing a 3x4 matrix
+          if (pose.length !== 12) {
+            console.error('Invalid pose array. Expected 12 elements for 3x4 matrix.');
+            continue;
+          }
+
+          const poseMatrix = new THREE.Matrix4();
+          poseMatrix.set(...pose, 0, 0, 0, 1); // Add the last row to make it a full 4x4 matrix
+
+          // Optional: Decompose the pose matrix into position, quaternion, and scale
+          const position = new THREE.Vector3();
+          const quaternion = new THREE.Quaternion();
+          const scale = new THREE.Vector3();
+          poseMatrix.decompose(position, quaternion, scale);
+
+          const [fx, fy, cx, cy] = camera.intrinsics;
+          const [width, height] = camera.image_size;
+          const fov = THREE.MathUtils.radToDeg(2 * Math.atan2(cy, fy));
+          const aspect = width / height;
+
+          const frustum = new CameraFrustum({ 
+            fov,
+            aspect,
+            position,
+            quaternion,
+            scale: 0.1,
+            color: this.viewer.state.dataset_frustum_color,
+            interactive: true,
+          });
+          const id = `${split}/${i}`;
+          this._frustums[id] = frustum;
+          frustum.addEventListener("click", () => {
+            // If camera path frustum is selected, clear the selection
+            if (this.viewer.state.camera_path_selected_keyframe !== undefined) {
+              this.viewer.state.camera_path_selected_keyframe = undefined;
+              this.viewer.notifyChange({ property: 'camera_path_selected_keyframe' });
+            }
+
+            frustum.focused = true;
+            this.viewer.state.dataset_selected_image_id = id;
+            this.viewer.notifyChange({ property: 'dataset_selected_image_id' });
+          });
+          this[`_${split}_cameras`].add(frustum);
+          this.viewer.state.dataset_images = this.viewer.state.dataset_images || {};
+          this.viewer.state.dataset_images[id] = {
+            id,
+            index: i,
+            split,
+            image_name: camera.image_name,
+            image_url: camera.image_url,
+            thumbnail_url: camera.thumbnail_url,
+            matrix: poseMatrix,
+            width, height,
+            cx, cy, fx, fy,
+          };
+          tasks.push({
+            id,
+            thumbnail_url: camera.thumbnail_url,
+          });
+          appearance_options.push({
+            value: i,
+            label: `${i}: ${camera.image_name}`
+          });
+          i++;
+        }
+        this.viewer.notifyChange({ property: 'dataset_images' });
+        this.viewer.state[`dataset_${split}_appearance_options`] = appearance_options;
+        this.viewer.notifyChange({ property: `dataset_${split}_appearance_options` });
+      } catch (error) {
+        console.error('An error occurred while loading the cameras:', error);
+        this.viewer.update_notification({
+          id: `${this.notificationId}-${split}`,
+          header: `Error loading dataset ${split} cameras`,
+          detail: error.message,
+          type: "error",
+        });
+        this.update_notification();
+        return null;
+      }
     }
   }
 
-  async _load_pointcloud() {
+  async _load_pointcloud(url) {
     // Load PLY file
     if (this._cancel_load_pointcloud) return; // Already loading
     if (this._pointcloud.children.length > 0) return; // Already loaded
-    const notificationId = this.url + "-pointcloud";
+    const notificationId = this.notificationId + "-pointcloud";
     let cancelled = false;
     const controller = new AbortController();
     this._cancel_load_pointcloud = () => {
@@ -1539,7 +1573,7 @@ class DatasetManager {
       updateProgress(0);
 
       // Fetch
-      let response = await fetch(`${this.url}/pointcloud.ply`, {
+      let response = await fetch(url, {
         signal: controller.signal,
       });
       if (!response.ok) {
@@ -2336,7 +2370,7 @@ export class Viewer extends THREE.EventDispatcher {
     return params;
   }
 
-  set_frame_renderer(frame_renderer) {
+  _set_frame_renderer(frame_renderer) {
     // Connect HTTP renderer
     if (this.frame_renderer)
       throw new Error("Frame renderer is already set.")
@@ -2371,18 +2405,30 @@ export class Viewer extends THREE.EventDispatcher {
     };
 
     run();
+  }
 
-    // Update state
-    this.state.has_method = true;
-    this.notifyChange({ property: 'has_method' });
+  _on_renderer_ready({ output_types }) {
+    const old_output_type = this.state.output_type;
+    const old_split_output_type = this.state.split_output_type;
+    this.state.output_types = output_types;
+    this.notifyChange({ property: 'output_types' });
+    if (!output_types.includes(old_output_type)) {
+      this.state.output_type = output_types[0];
+      this.notifyChange({ property: 'output_type' });
+    }
+    if (!output_types.includes(old_split_output_type)) {
+      this.state.split_output_type = output_types[0];
+      this.notifyChange({ property: 'split_output_type' });
+    }
+    this.force_render()
   }
 
   set_mesh_renderer(params) {
     try {
-      this.set_frame_renderer(new MeshFrameRenderer({
+      this._set_frame_renderer(new MeshFrameRenderer({
         ...params,
         update_notification: (notification) => this.update_notification(notification),
-        onready: () => this.force_render()
+        onready: ({ output_types }) => this._on_renderer_ready({ output_types }),
       }));
     } catch (error) {
       this.update_notification({
@@ -2394,13 +2440,12 @@ export class Viewer extends THREE.EventDispatcher {
     }
   }
 
-  async set_3dgs_renderer(params) {
+  set_3dgs_renderer(params) {
     try {
-      //const gs = await import("./3dgs.js");
-      this.set_frame_renderer(new GaussianSplattingFrameRenderer({
+      this._set_frame_renderer(new GaussianSplattingFrameRenderer({
         ...params,
         update_notification: (notification) => this.update_notification(notification),
-        onready: () => this.force_render()
+        onready: ({ output_types }) => this._on_renderer_ready({ output_types }),
       }));
     } catch (error) {
       this.update_notification({
@@ -2415,6 +2460,7 @@ export class Viewer extends THREE.EventDispatcher {
   set_remote_renderer({
     websocket_url,
     render_url,
+    output_types,
   }) {
     try {
       if (websocket_url)
@@ -2430,7 +2476,7 @@ export class Viewer extends THREE.EventDispatcher {
         if (websocket_url.startsWith("http://")) websocket_url = "ws://" + websocket_url.slice(7);
         if (websocket_url.startsWith("https://")) websocket_url = "wss://" + websocket_url.slice(8);
 
-        this.set_frame_renderer(new WebSocketFrameRenderer({ 
+        this._set_frame_renderer(new WebSocketFrameRenderer({ 
           url: websocket_url,
           update_notification: (notification) => {
             viewer.update_notification(notification);
@@ -2439,7 +2485,7 @@ export class Viewer extends THREE.EventDispatcher {
         this.state.frame_renderer_url = websocket_url;
         this.notifyChange({ property: 'frame_renderer_url' });
       } else {
-        this.set_frame_renderer(new HTTPFrameRenderer({ 
+        this._set_frame_renderer(new HTTPFrameRenderer({ 
           url: render_url,
           update_notification: (notification) => {
             viewer.update_notification(notification);
@@ -2448,6 +2494,7 @@ export class Viewer extends THREE.EventDispatcher {
         this.state.frame_renderer_url = render_url;
         this.notifyChange({ property: 'frame_renderer_url' });
       }
+      this._on_renderer_ready({ output_types });
     } catch (error) {
       this.update_notification({
         header: "Error starting remote renderer",
@@ -2458,16 +2505,20 @@ export class Viewer extends THREE.EventDispatcher {
     }
   }
 
-  set_dataset({ url, parts }) {
+  set_renderer(params) {
+    const { type, ...rendererState } = params;
+    this.dispatchAction(`set_${type}_renderer`, rendererState);
+  }
+
+  set_dataset(options) {
     if (this.dataset_manager) {
       this.dataset_manager.dispose();
       this.dataset_manager = undefined;
     }
     // Add DatasetManager
     this.dataset_manager = new DatasetManager({ 
-      viewer: this, 
-      url,
-      parts,
+      ...options,
+      viewer: this
     });
   }
 
@@ -2739,9 +2790,14 @@ export class Viewer extends THREE.EventDispatcher {
 
   _attach_computed_properties() {
     this.addComputedProperty({
+      name: "has_method",
+      dependencies: ["output_types"],
+      getter: ({ output_types }) => output_types && output_types.length > 0
+    });
+    this.addComputedProperty({
       name: "has_output_split",
-      dependencies: ["has_method", "output_types"],
-      getter: ({ has_method, output_types }) => has_method && output_types && output_types.length > 1
+      dependencies: ["output_types"],
+      getter: ({ output_types }) => output_types && output_types.length > 1
     });
 
     // Add dataset's computed properties
