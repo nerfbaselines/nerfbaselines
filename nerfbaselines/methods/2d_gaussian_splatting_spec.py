@@ -43,7 +43,7 @@ git submodule update --init --recursive
 
 conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 'numpy<2.0.0' -c pytorch -c nvidia
 conda install -y cudatoolkit-dev=11.7 gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
-pip install -U pip 'setuptools<70.0.0'
+pip install -U pip 'setuptools<70.0.0' 'wheel==0.43.0'
 pip install plyfile==0.8.1 \
         mediapy==1.1.2 \
         open3d==0.18.0 \
@@ -51,10 +51,20 @@ pip install plyfile==0.8.1 \
         scikit-image==0.21.0 \
         tqdm==4.66.2 \
         trimesh==4.3.2 \
+        opencv-python-headless==4.10.0.84 \
+        importlib_metadata==8.5.0 \
+        typing_extensions==4.12.2 \
+        wandb==0.19.1 \
+        gdown==5.2.0 \
+        click==8.1.8 \
+        Pillow==11.1.0 \
+        requests==2.32.3 \
+        matplotlib==3.9.4 \
+        tensorboard==2.18.0 \
+        scipy==1.13.1 \
         submodules/diff-surfel-rasterization \
         submodules/simple-knn \
-        opencv-python-headless \
-        importlib_metadata typing_extensions
+        --no-build-isolation
 
 conda develop .
 

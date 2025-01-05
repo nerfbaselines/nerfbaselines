@@ -19,7 +19,7 @@ git clone https://github.com/deborahLevy130/seathru_NeRF seathru-nerf
 cd seathru-nerf
 git checkout 3f4ebfe2c9dcb93af7916a3c7e7e196b9b956160
 
-conda install -y pip conda-build
+conda install -y pip conda-build ffmpeg=7.1.0
 conda develop "$PWD"
 
 # Install requirements.
@@ -30,6 +30,14 @@ python -m pip install \
     "dm-pix==0.4.2" \
     "ffmpeg" \
     "flax==0.7.5" \
+    plyfile==1.1 \
+    tqdm==4.67.1 \
+    scikit-image==0.25.0 \
+    importlib_metadata==8.5.0 \
+    typing_extensions==4.12.2 \
+    wandb==0.19.1 \
+    gdown==5.2.0 \
+    click==8.1.8 \
     "gin-config==0.5.0" \
     "immutabledict==4.1.0" \
     "jax==0.4.23" \
@@ -46,7 +54,6 @@ python -m pip install \
     "tensorflow==2.15.0" \
     "ml-dtypes==0.2.0" \
     "orbax-checkpoint==0.4.4"
-
 
 # Manually install rmbrualla's `pycolmap` (don't use pip's! It's different).
 rm -rf ./internal/pycolmap

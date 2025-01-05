@@ -33,13 +33,29 @@ conda develop "$PWD/examples"
 
 # Install build dependencies
 conda install -y cuda-toolkit 'numpy<2.0.0' pytorch==2.1.2 torchvision==0.16.2 -c pytorch -c nvidia/label/cuda-11.8.0
+conda install -y ffmpeg=7.1.0
 export LIBRARY_PATH="$CONDA_PREFIX/lib/stubs"
 if [ "$NERFBASELINES_DOCKER_BUILD" != "1" ]; then
 conda install -y gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
 fi
 
 # Install dependencies
-pip install opencv-python-headless==4.10.0.84 -r examples/requirements.txt plyfile==0.8.1
+pip install opencv-python-headless==4.10.0.84 \
+    -r examples/requirements.txt \
+    plyfile==0.8.1 \
+    mediapy==1.1.2 \
+    scikit-image==0.21.0 \
+    tqdm==4.66.2 \
+    importlib_metadata==8.5.0 \
+    typing_extensions==4.12.2 \
+    wandb==0.19.1 \
+    gdown==5.2.0 \
+    click==8.1.8 \
+    Pillow==11.1.0 \
+    requests==2.32.3 \
+    matplotlib==3.9.4 \
+    tensorboard==2.18.0 \
+    scipy==1.13.1
 
 # Install and build gsplat
 pip install -e . --use-pep517 --no-build-isolation

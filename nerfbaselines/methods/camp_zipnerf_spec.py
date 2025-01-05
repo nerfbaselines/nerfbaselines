@@ -46,7 +46,23 @@ conda install -y pip conda-build
 # Install requirements.
 python -m pip install --upgrade pip
 python -m pip install --upgrade "jax[cuda11_pip]==0.4.23" 'numpy<2' -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-python -m pip install -r requirements.txt
+python -m pip install \
+    tqdm==4.67.1 \
+    plyfile==1.1 \
+    scikit-image==0.25.0 \
+    opencv-python-headless==4.10.0.84 \
+    importlib_metadata==8.5.0 \
+    typing_extensions==4.12.2 \
+    mediapy==1.1.2 \
+    wandb==0.19.1 \
+    gdown==5.2.0 \
+    click==8.1.8 \
+    Pillow==11.1.0 \
+    tensorboard==2.18.0 \
+    matplotlib==3.9.4 \
+    scipy==1.13.1 \
+    -r requirements.txt
+
 # scipy 1.13.0 is not supported by the older jax
 # https://github.com/google/jax/discussions/18995
 python -m pip install 'scipy<1.13.0'
@@ -60,7 +76,6 @@ conda develop "$PWD/internal/pycolmap/pycolmap"
 # Install other NB dependencies to allow metrics computation
 # without needing another container
 pip install torch==2.2.0 torchvision==0.17.0 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu118
-if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
 
 # Confirm that all the unit tests pass.
 # ./scripts/run_all_unit_tests.sh

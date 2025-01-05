@@ -7,7 +7,7 @@ GaussianOpacityFieldsSpec: MethodSpec = {
     "method_class": ".gaussian_opacity_fields:GaussianOpacityFields",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
-        "python_version": "3.8",
+        "python_version": "3.9",
         "install_script": """# Install mip-splatting
 git clone https://github.com/autonomousvision/gaussian-opacity-fields.git
 cd gaussian-opacity-fields
@@ -23,13 +23,32 @@ conda install -y cudatoolkit-dev=11.7 gcc_linux-64=11 gxx_linux-64=11 make=4.3 c
 conda install -c conda-forge -y nodejs==20.9.0
 conda install -y -c conda-forge conda-forge::gmp==6.3.0 conda-forge::cgal==5.6.1
 
-pip install -r requirements.txt
-pip install -U pip 'setuptools<70.0.0'
-pip install lpips==0.1.4
+pip install -U pip 'setuptools<70.0.0' 'wheel==0.43.0'
+pip install \
+        plyfile==0.8.1 \
+        mediapy==1.1.2 \
+        open3d==0.18.0 \
+        ninja==1.11.1.3 \
+        GPUtil==1.4.0 \
+        einops==0.8.0 \
+        lpips==0.1.4 \
+        scikit-image==0.21.0 \
+        tqdm==4.66.2 \
+        trimesh==4.3.2 \
+        opencv-python-headless==4.10.0.84 \
+        importlib_metadata==8.5.0 \
+        typing_extensions==4.12.2 \
+        wandb==0.19.1 \
+        gdown==5.2.0 \
+        click==8.1.8 \
+        Pillow==11.1.0 \
+        requests==2.32.3 \
+        matplotlib==3.9.4 \
+        tensorboard==2.18.0 \
+        scipy==1.13.1
 
-pip install submodules/diff-gaussian-rasterization
-pip install submodules/simple-knn/
-if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
+pip install submodules/diff-gaussian-rasterization --no-build-isolation
+pip install submodules/simple-knn --no-build-isolation
 
 # Add LD_LIBRARY_PATH to the environment
 mkdir -p $CONDA_PREFIX/etc/conda/activate.d

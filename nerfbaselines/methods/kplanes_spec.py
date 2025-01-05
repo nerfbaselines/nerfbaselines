@@ -19,8 +19,22 @@ fi
 LIBRARY_PATH="$CONDA_PREFIX/lib/stubs" pip install ninja git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
 pip install tqdm pillow opencv-python pandas lpips==0.1.4 imageio torchmetrics scikit-image tensorboard matplotlib
 conda install -y conda-build;conda develop .
-pip install lpips==0.1.4 importlib_metadata typing_extensions
-if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
+pip install lpips==0.1.4 \
+    plyfile==0.8.1 \
+    mediapy==1.1.2 \
+    scikit-image==0.21.0 \
+    tqdm==4.66.2 \
+    opencv-python-headless==4.10.0.84 \
+    importlib_metadata==8.5.0 \
+    typing_extensions==4.12.2 \
+    wandb==0.19.1 \
+    gdown==5.2.0 \
+    click==8.1.8 \
+    Pillow==11.1.0 \
+    requests==2.32.3 \
+    matplotlib==3.9.4 \
+    tensorboard==2.18.0 \
+    scipy==1.13.1
 
 function nb-post-install () {
 if [ "$NERFBASELINES_DOCKER_BUILD" = "1" ]; then

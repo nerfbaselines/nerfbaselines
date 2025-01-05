@@ -29,7 +29,7 @@ git clone https://github.com/google-research/multinerf.git
 cd multinerf
 git checkout 5b4d4f64608ec8077222c52fdf814d40acc10bc1
 
-conda install -y pip conda-build
+conda install -y pip conda-build 'ffmpeg=7.1.0'
 conda develop "$PWD"
 
 # Install requirements.
@@ -49,15 +49,25 @@ python -m pip install \
     "mediapy==1.2.0" \
     "ml_collections" \
     "numpy==1.26.4" \
-    "opencv-python==4.9.0.80" \
+    "opencv-python-headless==4.9.0.80" \
     "pillow==10.2.0" \
     "rawpy==0.19.0" \
     "scipy==1.11.4" \
     "tensorboard==2.15.1" \
     "tensorflow==2.15.0" \
     "ml-dtypes==0.2.0" \
-    "orbax-checkpoint==0.4.4"
-
+    "orbax-checkpoint==0.4.4" \
+    plyfile==0.8.1 \
+    scikit-image==0.21.0 \
+    tqdm==4.66.2 \
+    importlib_metadata==8.5.0 \
+    typing_extensions==4.12.2 \
+    wandb==0.19.1 \
+    gdown==5.2.0 \
+    click==8.1.8 \
+    Pillow==11.1.0 \
+    requests==2.32.3 \
+    matplotlib==3.9.4
 
 # Manually install rmbrualla's `pycolmap` (don't use pip's! It's different).
 git clone https://github.com/rmbrualla/pycolmap.git ./internal/pycolmap

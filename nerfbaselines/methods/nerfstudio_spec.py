@@ -38,8 +38,18 @@ pip install nerfstudio==0.3.4
 git clone https://github.com/nerfstudio-project/nerfstudio.git
 cd nerfstudio
 git checkout 3a90cb529f893fbf89625a915a53a7a71b97a575
-pip install -e .
-if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
+pip install \
+    plyfile==1.1 \
+    importlib_metadata==8.5.0 \
+    typing_extensions==4.12.2 \
+    wandb==0.19.1 \
+    gdown==5.2.0 \
+    click==8.1.8 \
+    Pillow==11.1.0 \
+    tensorboard==2.18.0 \
+    matplotlib==3.9.4 \
+    scipy==1.13.1 \
+    -e .
 
 function nb-post-install () {
 if [ "$NERFBASELINES_DOCKER_BUILD" = "1" ]; then

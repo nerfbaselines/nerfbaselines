@@ -8,10 +8,28 @@ ColmapMVSSpec: MethodSpec = {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.11",
         "install_script": """# Install COLMAP from conda-forge.
-conda install -y colmap=3.9.1 -c conda-forge
-pip install opencv-python-headless pyrender==0.1.45 trimesh==4.4.8 pyopengl-accelerate==3.1.7
-# For metric computation
-pip install torch==2.3.1 torchvision==0.18.1 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu118
+conda install -y colmap=3.9.1 'ffmpeg=7.1.0' -c conda-forge
+pip install \
+    pyrender==0.1.45 \
+    trimesh==4.4.8 \
+    pyopengl-accelerate==3.1.7 \
+    tqdm==4.67.1 \
+    plyfile==1.1 \
+    scikit-image==0.25.0 \
+    opencv-python-headless==4.10.0.84 \
+    importlib_metadata==8.5.0 \
+    typing_extensions==4.12.2 \
+    mediapy==1.1.2 \
+    wandb==0.19.1 \
+    gdown==5.2.0 \
+    click==8.1.8 \
+    Pillow==11.1.0 \
+    tensorboard==2.18.0 \
+    matplotlib==3.9.4 \
+    scipy==1.13.1
+pip install torch==2.3.1 \
+    torchvision==0.18.1 \
+    'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu118
 """,
     },
     "metadata": {

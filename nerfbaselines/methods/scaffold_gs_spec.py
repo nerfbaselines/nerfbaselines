@@ -49,11 +49,32 @@ conda install -y cudatoolkit-dev=11.7 gcc_linux-64=11 gxx_linux-64=11 make=4.3 c
 
 pip install -U pip 'setuptools<70.0.0'
 pip install torch-scatter -f https://data.pyg.org/whl/torch-2.0.1+cu117.html
-pip install plyfile==0.8.1 tqdm submodules/diff-gaussian-rasterization submodules/simple-knn
-
+pip install -U pip 'setuptools<70.0.0' 'wheel==0.43.0'
+pip install plyfile==0.8.1 \
+        mediapy==1.1.2 \
+        open3d==0.18.0 \
+        lpips==0.1.4 \
+        scikit-image==0.21.0 \
+        tqdm==4.66.2 \
+        trimesh==4.3.2 \
+        opencv-python-headless==4.10.0.84 \
+        importlib_metadata==8.5.0 \
+        typing_extensions==4.12.2 \
+        wandb==0.19.1 \
+        gdown==5.2.0 \
+        click==8.1.8 \
+        Pillow==11.1.0 \
+        requests==2.32.3 \
+        matplotlib==3.9.4 \
+        tensorboard==2.18.0 \
+        scipy==1.13.1 \
+        einops==0.8.0 \
+        laspy==2.5.4 \
+        jaxtyping==0.2.34 \
+        submodules/diff-gaussian-rasterization \
+        submodules/simple-knn \
+        --no-build-isolation
 conda develop .
-pip install lpips==0.1.4 einops==0.8.0 laspy==2.5.4 jaxtyping==0.2.34 importlib_metadata typing_extensions
-if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
 
 function nb-post-install () {
 if [ "$NERFBASELINES_DOCKER_BUILD" = "1" ]; then

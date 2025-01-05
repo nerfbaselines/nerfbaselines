@@ -34,7 +34,6 @@ def conda_get_environment_hash(spec: CondaBackendSpec):
 
     maybe_update(spec.get("python_version"))
     maybe_update(spec.get("install_script"))
-    maybe_update(",".join(get_package_dependencies(ignore_viewer=True)))
     return value.hexdigest()
 
 
@@ -54,9 +53,6 @@ def conda_get_install_script(spec: CondaBackendSpec, package_path: Optional[str]
     if python_version is not None:
         args.append(f"python={python_version}")
     install_dependencies_script = ''
-    dependencies = get_package_dependencies()
-    if dependencies:
-        install_dependencies_script = "pip install " + " ".join(f"'{x}'" for x in dependencies)
 
     def is_method_allowed(method):
         spec = get_method_spec(method)
@@ -139,7 +135,7 @@ conda deactivate
 {shlex_join(["conda", "create", "--prefix", env_path, "-y", "-c", "conda-forge", "--override-channels"] + args)}
 conda activate {shlex.quote(env_path)}
 echo -e 'channels:\n  - conda-forge\n' > {shlex.quote(os.path.join(env_path, ".condarc"))}
-conda install -y pip conda-build ffmpeg
+conda install -y pip conda-build
 pip install --upgrade pip setuptools
 mkdir -p {shlex.quote(os.path.join(env_path, "nb-sources"))}
 mkdir -p {shlex.quote(os.path.join(env_path, "src"))}

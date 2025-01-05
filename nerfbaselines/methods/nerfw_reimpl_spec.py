@@ -13,17 +13,26 @@ cd nerf_pl
 # Switch to nerfw branch
 git checkout 2dd2759619e435c66de48395b115207092967947
 
-conda install -y 'mkl<2024.1' pytorch==1.13.1 torchvision==0.14.1 pytorch-cuda=11.7 'numpy<2.0.0' -c pytorch -c nvidia
+conda install -y 'mkl<2024.1' pytorch==1.13.1 torchvision==0.14.1 pytorch-cuda=11.7 'numpy<2.0.0' ffmpeg=7.1.0 -c pytorch -c nvidia
 pip install 'pip<24.1' 'setuptools<70.0.0'
 pip install plyfile==0.8.1 \
     'pytorch-lightning==2.1.4' \
     'test-tube==0.7.5' \
     'kornia==0.7.2' \
     'opencv-python<=4.9.0.80' \
-    'matplotlib<=3.4.3' \
+    'matplotlib==3.4.3' \
     'einops==0.8.0' \
-    'torch-optimizer==0.3.0'
-pip install lpips==0.1.4 importlib_metadata typing_extensions
+    'torch-optimizer==0.3.0' \
+    tqdm==4.67.1 \
+    scikit-image==0.25.0 \
+    importlib_metadata==8.5.0 \
+    typing_extensions==4.12.2 \
+    tensorboard==2.18.0 \
+    wandb==0.19.1 \
+    gdown==5.2.0 \
+    click==8.1.8 \
+    lpips==0.1.4 \
+    scipy==1.13.1
 
 conda install -y conda-build
 conda develop "$PWD"
