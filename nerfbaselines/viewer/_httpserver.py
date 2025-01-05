@@ -70,6 +70,7 @@ def _make_render_fn(request_queue, output_queue):
                 out_type = out.get("type")
                 if out_type == "end":
                     for q in output_queues.values(): q.put(out)
+                    break
                 else:
                     feedid = out.pop("feedid")
                     assert feedid is not None
@@ -83,6 +84,7 @@ def _make_render_fn(request_queue, output_queue):
     try:
         yield render_fn
     finally:
+        output_queue.put({"type": "end"})
         multiplex_thread.join()
 
 

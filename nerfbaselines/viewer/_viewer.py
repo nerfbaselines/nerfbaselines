@@ -1,3 +1,4 @@
+import time
 import queue
 import math
 import multiprocessing
@@ -292,13 +293,17 @@ class Viewer:
         while self._process.is_alive():
             try:
                 message = self._request_queue.get(timeout=1)
-                if message.get("type") != "start":
+                msg_type = message.get("type")
+                if msg_type != "start":
                     logging.error(f"Unexpected message: {message}")
                     raise RuntimeError("Viewer backend process failed to start")
                 self._port = message.get("port")
                 break
             except queue.Empty:
                 pass
+
+        if self._process is None or not self._process.is_alive():
+            raise RuntimeError("Viewer backend process failed to start")
 
         # Log the viewer url
         logging.info(f"Viewer running at http://localhost:{self._port}")
@@ -314,6 +319,11 @@ class Viewer:
             self._output_queue.put({ "type": "end" })
             self._output_queue = None
         if self._process is not None:
+            _start = time.time()
+            while self._process.is_alive():
+                if time.time() - _start > 5:
+                    logging.error("Viewer process did not close in time")
+                    break
             self._process.kill()
             self._process = None
 
