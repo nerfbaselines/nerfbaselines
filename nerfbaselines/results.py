@@ -131,10 +131,13 @@ def _mock_build_method(spec: MethodSpec) -> Iterator[Type[Method]]:
         raise RuntimeError(f"Method does not have implementation in the nerfbaselines.methods package: {method_implementation}")
 
     old_import = __import__
+    blacklist = ["torch", "scipy", "jax", "jaxlib", "cv2", "pandas", "xml", "aiohttp", "datasets"]
+    def _is_blacklisted(name):
+        return any(name.startswith(x+".") or name == x for x in blacklist)
     def _patch_import(name, globals=None, locals=None, fromlist=(), level=0):
         if level > 0:
             return old_import(name, globals, locals, fromlist, level)
-        if name == 'torch' or name.startswith('torch.') or name == "scipy" or name.startswith("jax") or name == "cv2" or name.startswith("pandas") or name.startswith("xml.") or name.startswith("aiohttp") or name.startswith("datasets"):
+        if _is_blacklisted(name):
             return mock.MagicMock()
         try:
             return old_import(name, globals, locals, fromlist, level)
@@ -142,8 +145,12 @@ def _mock_build_method(spec: MethodSpec) -> Iterator[Type[Method]]:
             return mock.MagicMock()
 
     from nerfbaselines._method_utils import _build_method_class_internal
+    new_mods = sys.modules.copy()
+    for k in list(new_mods.keys()):
+        if _is_blacklisted(k):
+            new_mods[k] = mock.MagicMock()
     with mock.patch('builtins.__import__', side_effect=_patch_import), \
-        mock.patch('sys.modules', new=sys.modules.copy()):
+        mock.patch('sys.modules', new=new_mods):
         backend_impl = backends.get_backend(spec, "python")
         with backend_impl:
             build_method = _build_method_class_internal

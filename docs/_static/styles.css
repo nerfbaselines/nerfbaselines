@@ -3,6 +3,7 @@ section {
   text-align: justify;
 }
 
+
 figcaption {
   text-align: justify;
   font-size: 0.7rem;
@@ -34,9 +35,31 @@ figcaption {
 .sidebar-brand-text .sidebar-brand-version {
   font-size: 0.6rem;
   font-weight: 700;
-  margin-top: 0.1rem;
   display: block;
   color: var(--color-foreground-muted);
+}
+
+.sidebar-brand-text .sidebar-brand-version-active {
+  font-size: 1rem;
+  font-weight: 700;
+  display: block;
+  color: var(--color-foreground-muted);
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background: var(--color-background-primary);
+  border: 1px solid var(--color-foreground-muted);
+  border-radius: 2rem 2rem;
+  transform-origin: 0 50%;
+  padding: 0.3rem 0.5rem 0.3rem 0.5rem;
+  outline: none;
+  width: auto;
+  transform: scale(0.7);
+  transition: color 0.2s linear, border-color 0.2s linear;
+}
+.sidebar-brand-text .sidebar-brand-version-active:hover {
+  color: var(--color-foreground-primary);
+  border-color: var(--color-foreground-primary);
 }
 
 .sidebar-brand-links {

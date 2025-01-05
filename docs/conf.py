@@ -127,7 +127,6 @@ html_sidebars = {
         "sidebar/navigation.html",
         "sidebar/ethical-ads.html",
         "sidebar/scroll-end.html",
-        "versions.html",
     ]
 }
 

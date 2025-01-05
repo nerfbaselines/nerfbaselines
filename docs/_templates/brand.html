@@ -2,7 +2,26 @@
   {% block brand_content %}
   <div class="sidebar-logo-container">
     <img class="sidebar-logo" src="{{ logo_url }}" alt="Logo"/>
-    <span class="sidebar-brand-text">{{ docstitle if docstitle else project }}<span class="sidebar-brand-version">Version: {{ current_version }}</span></span>
+    <span class="sidebar-brand-text">{{ docstitle if docstitle else project }}
+    {% if versions.split(",")|length > 1 %}
+      <select class="sidebar-brand-version-active" onchange="window.location.href=this.value">
+      {% for the_version in versions.split(",") %}
+        {% set attr = "" %}
+        {% if the_version == current_version %}
+          {% set attr = " selected" %}
+        {% endif %}
+        {% set version_name = version_names.split(",")[versions.split(",").index(the_version)] %}
+        {% if version_name == "latest" %}
+        <option {{attr}} value="{{ base_path }}/">Version: {{ the_version }}</option>
+        {% else %}
+        <option {{attr}} value="{{ base_path }}/{{ the_version }}/">Version: {{ the_version }}</option>
+        {% endif %}
+      {% endfor %}
+      </select>
+    {% else %}
+      <span class="sidebar-brand-version">Version: {{ current_version }}</span>
+    {% endif %}
+    </span>
   </div>
   {% endblock brand_content %}
 </a>
