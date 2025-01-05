@@ -959,29 +959,48 @@ export class WebSocketFrameRenderer {
     if (this._socket === undefined) {
       this._socket = await new Promise((resolve, reject) => {
         try {
-          const socket = new WebSocket(this.url);
-          socket.binaryType = "blob";
-          socket.addEventListener("open", () => {
+          const onopen = () => {
+            socket.removeEventListener("open", onopen);
+            socket.removeEventListener("close", onclose);
+            socket.removeEventListener("error", onclose);
             console.log("WebSocket connection established");
             resolve(socket);
-          });
+          };
+          const onclose = (e) => {
+            console.log("WebSocket connection closed");
+            socket.removeEventListener("open", onopen);
+            socket.removeEventListener("close", onclose);
+            socket.removeEventListener("error", onclose);
+            reject(new Error("WebSocket connection closed"));
+          };
+          const socket = new WebSocket(this.url);
+          socket.binaryType = "blob";
+          socket.addEventListener("open", onopen);
+          socket.addEventListener("close", onclose);
+          socket.addEventListener("error", onclose);
         } catch (error) {
           reject(error);
         }
       });
+      const closeAll = (message) => {
+        const sub = this._subscriptions;
+        this._subscriptions = {};
+        for (const [thread, [resolve, reject]] of Object.entries(sub)) {
+          reject({
+            thread,
+            status: "error",
+            error: message,
+          });
+        }
+      }
       this._socket.addEventListener("close", () => {
         console.log("WebSocket connection closed");
         this._socket = undefined;
+        closeAll("WebSocket connection closed");
       });
       this._socket.addEventListener("error", (error) => {
         console.error("WebSocket error:", error);
-        update_notification({
-          id: "websocket",
-          header: "WebSocket error",
-          detail: error.message,
-          type: "error",
-          closeable: true,
-        });
+        closeAll("WebSocket error");
       });
       this._socket.addEventListener("message", async (event) => {
         let message;
@@ -2404,6 +2423,8 @@ export class Viewer extends THREE.EventDispatcher {
             id: "renderer",
             closeable: true,
           });
+          this._last_frames[0] = undefined;
+          this._draw_background();
         }
       }
     };
@@ -2743,7 +2764,7 @@ export class Viewer extends THREE.EventDispatcher {
     const keyframe = this.state.camera_path_keyframes[keyframeIndex];
     const copiedKeyframe = {
       ...keyframe,
-      id: "" + (this._keyframeCounter = (this._keyframeCounter || 0) + 1),
+      id: this._assign_keyframe_id(),
       quaternion: keyframe.quaternion.clone(),
       position: keyframe.position.clone(),
     };
@@ -2768,9 +2789,8 @@ export class Viewer extends THREE.EventDispatcher {
     const position = new THREE.Vector3();
     const scale = new THREE.Vector3();
     matrix.decompose(position, quaternion, scale);
-    const idInt = this._keyframeCounter = (this._keyframeCounter || 0) + 1;
     this.state.camera_path_keyframes.push({
-      id: idInt.toString(),
+      id: this._assign_keyframe_id(),
       quaternion,
       position,
       fov: undefined,
@@ -3260,6 +3280,16 @@ export class Viewer extends THREE.EventDispatcher {
     }
   }
 
+  _assign_keyframe_id() {
+    let i = this._keyframeCounter || 0;
+    this.state.camera_path_keyframes?.forEach((keyframe) => {
+      i = Math.max(i, parseInt(keyframe.id) || 0);
+    });
+    i = i + 1;
+    this._keyframeCounter = i;
+    return i.toString();
+  }
+
   load_trajectory({ data }) {
     try {
       if (!data) {
@@ -3338,9 +3368,8 @@ export class Viewer extends THREE.EventDispatcher {
         matrix.decompose(position, quaternion, scale);
         const appearance = validate_appearance(correctnull(k.appearance));
         const appearance_train_index = appearance ? appearance.embedding_train_index : undefined;
-        const intId = this._keyframeCounter = (this._keyframeCounter || 0) + 1;
         keyframes.push({
-          id: intId.toString(),
+          id: this._assign_keyframe_id(),
           quaternion,
           position,
           fov: correctnull(k.fov),
@@ -3732,7 +3761,10 @@ export class Viewer extends THREE.EventDispatcher {
   }
 
   _draw_background() {
-    if (!this._last_frames[0]) return;
+    if (!this._last_frames[0]) {
+      this.renderer_scene.background = null;
+      return
+    }
     if (!this.state.preview_is_preview_mode) {
       if (this._backgroundTexture === undefined) {
         this._backgroundTexture = new THREE.Texture(this._last_frames[0]);
