@@ -1,4 +1,11 @@
 include nerfbaselines/**/*.json
 include nerfbaselines/**/*.patch
 include nerfbaselines/**/*.html
+include nerfbaselines/**/*.js
+include nerfbaselines/**/*.css
+include nerfbaselines/**/*.woff
+include nerfbaselines/**/*.woff2
+include nerfbaselines/**/*.ttf
+include nerfbaselines/**/*.ico
+include nerfbaselines/**/*.png
 include nerfbaselines/**/Dockerfile

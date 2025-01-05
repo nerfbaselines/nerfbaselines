@@ -1,3 +1,15 @@
+
+section {
+  text-align: justify;
+}
+
+figcaption {
+  text-align: justify;
+  font-size: 0.7rem;
+  padding: 0 0rem 1rem 0rem;
+  margin: -0.5rem 0 0 0;
+}
+
 /* style for furo */
 /* foro - brand */
 .sidebar-logo {
@@ -129,4 +141,4 @@ div.cell.container div.cell_input, div.cell.container details.below-input>summar
   border-left-width: initial;
   background-color: initial;
 }
-}
+

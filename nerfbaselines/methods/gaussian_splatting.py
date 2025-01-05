@@ -311,6 +311,7 @@ class GaussianSplatting(Method):
             required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset(("pinhole",)),
             supported_outputs=("color",),
+            viewer_default_resolution=768,
         )
 
     def get_info(self) -> ModelInfo:

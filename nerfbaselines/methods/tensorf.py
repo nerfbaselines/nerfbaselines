@@ -242,6 +242,7 @@ class TensoRF(Method):
             required_features=frozenset(("color",)),
             supported_camera_models=frozenset(get_args(CameraModel)),
             supported_outputs=("color", "depth"),
+            viewer_default_resolution=(84, 512),
         )
 
     def get_info(self) -> ModelInfo:

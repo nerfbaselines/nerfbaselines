@@ -579,6 +579,7 @@ class KPlanes(Method):
             required_features=frozenset(("color", "points3D_xyz", "images_points3D_indices")),
             supported_camera_models=frozenset(("pinhole",)),
             supported_outputs=("color", "depth"),
+            viewer_default_resolution=(128, 512),
         )
 
     def get_info(self) -> ModelInfo:

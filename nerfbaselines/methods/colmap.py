@@ -274,6 +274,7 @@ class ColmapMVS(Method):
             required_features=frozenset(("color", "points3D_xyz", "points3D_rgb", "images_points3D_indices")),
             supported_camera_models=frozenset(("pinhole", "opencv", "opencv_fisheye", "full_opencv")),
             supported_outputs=("color", "depth"),
+            viewer_default_resolution=512,
         )
 
     def get_info(self):

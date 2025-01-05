@@ -516,6 +516,7 @@ class GSplat(Method):
             required_features=frozenset(("points3D_xyz", "points3D_rgb", "color", "images_points3D_indices")),
             supported_camera_models=frozenset(("pinhole",)),
             supported_outputs=("color", "depth", "accumulation"),
+            viewer_default_resolution=768,
         )
 
     def get_info(self):

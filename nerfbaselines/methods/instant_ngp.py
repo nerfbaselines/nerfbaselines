@@ -285,6 +285,7 @@ class InstantNGP(Method):
             required_features=frozenset(("color",)), 
             supported_camera_models=frozenset(("pinhole", "opencv", "opencv_fisheye")),
             supported_outputs=("color", "accumulation"),
+            viewer_default_resolution=(128, 512),
         )
 
     def get_info(self) -> ModelInfo:
