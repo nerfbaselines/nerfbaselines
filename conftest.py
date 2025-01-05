@@ -39,6 +39,17 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "dataset: mark test as running only a specific dataset")
 
 
+def pytest_runtest_call(item):
+    if "extras" in item.keywords:
+        testfunction = item.obj
+        def try_import(*args, **kwargs):
+            try:
+                return testfunction(*args, **kwargs)
+            except ImportError as e:
+                pytest.skip(str(e))
+        item.obj = try_import
+
+
 def pytest_collection_modifyitems(config, items: List[pytest.Item]):
     for i, item in reversed(list(enumerate(items))):
         if "method" in item.keywords:
@@ -69,10 +80,10 @@ def pytest_collection_modifyitems(config, items: List[pytest.Item]):
             if "apptainer" in item.keywords:
                 item.add_marker(skip_slow)
 
-    if not config.getoption("--run-extras"):
+    # When --run-extras, we remove the decorator to skip the test if import error
+    if config.getoption("--run-extras"):
         for item in items:
-            if "extras" in item.keywords:
-                item.add_marker(pytest.mark.skip(reason="need --run-extras option to run"))
+            item.keywords = {k: v for k, v in item.keywords.items() if k != "extras"}
 
     methods = config.getoption("--method")
     method_regex = config.getoption("--method-regex")
