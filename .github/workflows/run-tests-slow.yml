@@ -41,13 +41,33 @@ jobs:
           pip install -e '.[web]'
           nerfbaselines web build --output web-build --base-path "${{ steps.setup-pages.outputs.base_path }}" --docs all
 
+  py37-tests:
+    runs-on: ubuntu-22.04
+    name: run-tests-py37
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.7"
+      - uses: federicocarboni/setup-ffmpeg@v2
+      - name: Install nerfbaselines
+        run: |
+          pip install --upgrade pip
+          pip install -e '.[dev]'
+      - name: Run pyright, pytests
+        run: |
+          export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+          pip install tensorboard==2.11.2
+          pip install 'protobuf<4' 
+          pytest -vrA --require-ffmpeg
+
   common-tests:
     runs-on: ubuntu-latest
     name: run-tests-common
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.7","3.8","3.9","3.10","3.11","3.12"]
+        python: ["3.8","3.9","3.10","3.11","3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
