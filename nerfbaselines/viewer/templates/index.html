@@ -286,13 +286,13 @@
             <legend>Render options</legend>
             <div class="row slider">
               <label for="render_resolution">Max resolution</label>
-              <input type="range" id="render_resolution" name="render_resolution" min="32" max="2048" value="512" data-enable-if="has_method" disabled>
-              <input type="number" id="render_resolution_number" name="render_resolution" min="32" max="2048" step="1" value="1024" disabled data-enable-if="has_method" required>
+              <input type="range" id="render_resolution" name="render_resolution" min="32" max="2048" value="512" data-enable-if="has_renderer" disabled>
+              <input type="number" id="render_resolution_number" name="render_resolution" min="32" max="2048" step="1" value="1024" disabled data-enable-if="has_renderer" required>
             </div>
 
             <div class="row">
               <label for="prerender_enabled">Pre-render</label>
-              <input type="checkbox" id="prerender_enabled" name="prerender_enabled" disabled data-enable-if="has_method">
+              <input type="checkbox" id="prerender_enabled" name="prerender_enabled" disabled data-enable-if="has_renderer">
               <div class="input-hint">Renders faster at lower res. when moving.</div>
             </div>
 
@@ -322,7 +322,7 @@
 
             <div class="row">
               <label for="output_type">Output type</label>
-              <select id="output_type" name="output_type" data-enable-if="has_method" data-options="output_types" disabled>
+              <select id="output_type" name="output_type" data-enable-if="has_renderer" data-options="output_types" disabled>
               </select>
             </div>
 
@@ -549,7 +549,7 @@
             <button id="button_export_trajectory" data-action="save_trajectory" data-enable-if="camera_path_trajectory" disabled>Export trajectory</button>
           </div>
           <div class="row">
-            <button data-action="render_video" data-enable-if="camera_path_trajectory && has_method" disabled>Render video</a>
+            <button data-action="render_video" data-enable-if="camera_path_trajectory && has_renderer" disabled>Render video</a>
           </div>
         </div>
 

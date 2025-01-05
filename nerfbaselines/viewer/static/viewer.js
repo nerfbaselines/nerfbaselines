@@ -2790,7 +2790,7 @@ export class Viewer extends THREE.EventDispatcher {
 
   _attach_computed_properties() {
     this.addComputedProperty({
-      name: "has_method",
+      name: "has_renderer",
       dependencies: ["output_types"],
       getter: ({ output_types }) => output_types && output_types.length > 0
     });
