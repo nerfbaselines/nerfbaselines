@@ -516,7 +516,6 @@ def run_simple_http_server(*args, host=None, port=None, verbose=False, **kwargs)
     class ThreadingHTTPServerWithBind(ThreadingHTTPServer):
         def server_bind(self):
             host, port = self.server_address
-            orig_port = port
             for _ in range(100):
                 try:
                     out = super().server_bind()
@@ -529,8 +528,6 @@ def run_simple_http_server(*args, host=None, port=None, verbose=False, **kwargs)
                     raise
             else:
                 raise RuntimeError("Could not find a free port")
-            if orig_port != port and orig_port > 0:
-                logging.warning(f"Port {orig_port} is already in use, using port {port} instead")
             port = self.server_address[1]
             backend.notify_started(port)
             return out
@@ -675,7 +672,6 @@ def run_flask_server(*args, port, host=None, verbose=False, **kwargs):
     def socket_bind_wrapper(self):
         nonlocal port
         try:
-            orig_port = port
             for _ in range(100):
                 try:
                     ret = original_socket_bind(self)
@@ -688,8 +684,6 @@ def run_flask_server(*args, port, host=None, verbose=False, **kwargs):
                     raise
             else:
                 raise RuntimeError("Could not find a free port")
-            if orig_port != port and orig_port > 0:
-                logging.warning(f"Port {orig_port} is already in use, using port {port} instead")
             backend.notify_started(port)
             # Recover original implementation
             return ret

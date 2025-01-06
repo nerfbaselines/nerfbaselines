@@ -286,6 +286,7 @@ class Viewer:
         return frame
 
     def _run_backend(self):
+        orig_port = self._port
         datasets = {"train": self._train_dataset, "test": self._test_dataset}
         dataset_metadata = None if self._train_dataset is None else self._train_dataset.get("metadata")
         info = get_info(self._model_info, datasets, self._nb_info, dataset_metadata)
@@ -318,6 +319,8 @@ class Viewer:
         if self._process is None or not self._process.is_alive():
             raise RuntimeError("Viewer backend process failed to start")
 
+        if orig_port != self._port and orig_port > 0:
+            logging.warning(f"Port {orig_port} is already in use, using port {self._port} instead")
         # Log the viewer url
         logging.info(f"Viewer running at http://{self._get_hostname()}/")
 
