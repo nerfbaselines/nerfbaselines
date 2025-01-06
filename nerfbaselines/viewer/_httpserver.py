@@ -3,6 +3,7 @@ In this file, we implement two different implementations of the HTTP server for 
 The first implementation is a simple HTTP server using the built-in Python HTTP server.
 The second implementation is a Flask server that provides a more feature-rich experience.
 """
+import socket
 import shutil
 from functools import partial
 from typing import cast, Any
@@ -503,7 +504,9 @@ class ViewerRequestHandler(SimpleHTTPRequestHandler):
         return self.send_error(404)
 
 
-def run_simple_http_server(*args, port=None, verbose=False, **kwargs):
+def run_simple_http_server(*args, host=None, port=None, verbose=False, **kwargs):
+    if host is None or host == "" or host == "localhost":
+        host = ""
     setup_logging(verbose=verbose)
     from http.server import ThreadingHTTPServer
     if port is None:
@@ -516,13 +519,17 @@ def run_simple_http_server(*args, port=None, verbose=False, **kwargs):
             backend.notify_started(port)
             return out
 
+    if ":" in host:
+        ThreadingHTTPServer.address_family = socket.AF_INET6
     with ViewerBackend(*args, **kwargs) as backend, \
-            ThreadingHTTPServerWithBind(("", port), partial(ViewerRequestHandler, backend=backend)) as server:
+            ThreadingHTTPServerWithBind((host, port), partial(ViewerRequestHandler, backend=backend)) as server:
         port = server.server_address[1]
         server.serve_forever()
 
 
-def run_flask_server(*args, port, verbose=False, **kwargs):
+def run_flask_server(*args, port, host=None, verbose=False, **kwargs):
+    if host is None or host == "" or host == "localhost":
+        host = "127.0.0.1"
     setup_logging(verbose=verbose)
     from flask import Flask, request, jsonify, render_template, Response, send_file
     from flask import request, Response, send_from_directory, make_response
@@ -664,7 +671,7 @@ def run_flask_server(*args, port, verbose=False, **kwargs):
         with ViewerBackend(*args, **kwargs) as backend:
             try:
                 socketserver.TCPServer.server_bind = socket_bind_wrapper   #Hook the wrapper
-                app.run(host="0.0.0.0", port=port or 0)
+                app.run(host=host, port=port or 0)
             finally:
                 socketserver.TCPServer.server_bind = original_socket_bind
     except Exception as e:
