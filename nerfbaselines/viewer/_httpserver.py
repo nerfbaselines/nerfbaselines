@@ -3,6 +3,8 @@ In this file, we implement two different implementations of the HTTP server for 
 The first implementation is a simple HTTP server using the built-in Python HTTP server.
 The second implementation is a Flask server that provides a more feature-rich experience.
 """
+import errno
+import socket
 import shutil
 from functools import partial
 from typing import cast, Any
@@ -305,8 +307,8 @@ class ViewerBackend:
 
     def get_dataset(self, get_image_url, get_thumbnail_url):
         return {
-            "train": self.get_dataset_split_cameras("train", get_image_url, get_thumbnail_url) if "train" in self._datasets else None,
-            "test": self.get_dataset_split_cameras("test", get_image_url, get_thumbnail_url) if "test" in self._datasets else None,
+            "train": self.get_dataset_split_cameras("train", get_image_url, get_thumbnail_url) if self._datasets.get("train") is not None else None,
+            "test": self.get_dataset_split_cameras("test", get_image_url, get_thumbnail_url) if self._datasets.get("test") is not None else None,
         }
 
 
@@ -503,7 +505,9 @@ class ViewerRequestHandler(SimpleHTTPRequestHandler):
         return self.send_error(404)
 
 
-def run_simple_http_server(*args, port=None, verbose=False, **kwargs):
+def run_simple_http_server(*args, host=None, port=None, verbose=False, **kwargs):
+    if host is None or host == "" or host == "localhost":
+        host = ""
     setup_logging(verbose=verbose)
     from http.server import ThreadingHTTPServer
     if port is None:
@@ -511,18 +515,34 @@ def run_simple_http_server(*args, port=None, verbose=False, **kwargs):
 
     class ThreadingHTTPServerWithBind(ThreadingHTTPServer):
         def server_bind(self):
-            out = super().server_bind()
+            host, port = self.server_address
+            for _ in range(100):
+                try:
+                    out = super().server_bind()
+                    break
+                except OSError as e:
+                    if e.errno == errno.EADDRINUSE and port > 0:
+                        port = port + 1
+                        self.server_address = (host, port)
+                        continue
+                    raise
+            else:
+                raise RuntimeError("Could not find a free port")
             port = self.server_address[1]
             backend.notify_started(port)
             return out
 
+    if ":" in host:
+        ThreadingHTTPServer.address_family = socket.AF_INET6
     with ViewerBackend(*args, **kwargs) as backend, \
-            ThreadingHTTPServerWithBind(("", port), partial(ViewerRequestHandler, backend=backend)) as server:
+            ThreadingHTTPServerWithBind((host, port), partial(ViewerRequestHandler, backend=backend)) as server:
         port = server.server_address[1]
         server.serve_forever()
 
 
-def run_flask_server(*args, port, verbose=False, **kwargs):
+def run_flask_server(*args, port, host=None, verbose=False, **kwargs):
+    if host is None or host == "" or host == "localhost":
+        host = "127.0.0.1"
     setup_logging(verbose=verbose)
     from flask import Flask, request, jsonify, render_template, Response, send_file
     from flask import request, Response, send_from_directory, make_response
@@ -652,8 +672,18 @@ def run_flask_server(*args, port, verbose=False, **kwargs):
     def socket_bind_wrapper(self):
         nonlocal port
         try:
-            ret = original_socket_bind(self)
-            _, port = self.socket.getsockname()
+            for _ in range(100):
+                try:
+                    ret = original_socket_bind(self)
+                    _, port = self.socket.getsockname()
+                    break
+                except OSError as e:
+                    if e.errno == errno.EADDRINUSE and port > 0:
+                        port = port + 1
+                        continue
+                    raise
+            else:
+                raise RuntimeError("Could not find a free port")
             backend.notify_started(port)
             # Recover original implementation
             return ret
@@ -664,7 +694,7 @@ def run_flask_server(*args, port, verbose=False, **kwargs):
         with ViewerBackend(*args, **kwargs) as backend:
             try:
                 socketserver.TCPServer.server_bind = socket_bind_wrapper   #Hook the wrapper
-                app.run(host="0.0.0.0", port=port or 0)
+                app.run(host=host, port=port or 0)
             finally:
                 socketserver.TCPServer.server_bind = original_socket_bind
     except Exception as e:

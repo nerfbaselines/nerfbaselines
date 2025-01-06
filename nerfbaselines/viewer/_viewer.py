@@ -144,6 +144,7 @@ class Viewer:
                  train_dataset=None, 
                  test_dataset=None, 
                  nb_info=None, 
+                 host: str = "localhost",
                  port: Optional[int] = None):
         self._request_queue = multiprocessing.Queue()
         self._output_queue = multiprocessing.Queue()
@@ -166,6 +167,7 @@ class Viewer:
         self._server_fn = run_simple_http_server
         self._model = model
         self._running = False
+        self._host = host
 
     @property
     def port(self):
@@ -284,6 +286,7 @@ class Viewer:
         return frame
 
     def _run_backend(self):
+        orig_port = self._port
         datasets = {"train": self._train_dataset, "test": self._test_dataset}
         dataset_metadata = None if self._train_dataset is None else self._train_dataset.get("metadata")
         info = get_info(self._model_info, datasets, self._nb_info, dataset_metadata)
@@ -295,6 +298,7 @@ class Viewer:
         ), kwargs=dict(
             datasets={"train": self._train_dataset, "test": self._test_dataset},
             info=info,
+            host=self._host,
             port=self._port,
         ), daemon=True)
         self._process.start()
@@ -315,8 +319,15 @@ class Viewer:
         if self._process is None or not self._process.is_alive():
             raise RuntimeError("Viewer backend process failed to start")
 
+        if orig_port != self._port and orig_port > 0:
+            logging.warning(f"Port {orig_port} is already in use, using port {self._port} instead")
         # Log the viewer url
-        logging.info(f"Viewer running at http://localhost:{self._port}")
+        logging.info(f"Viewer running at http://{self._get_hostname()}/")
+
+    def _get_hostname(self):
+        if ":" in self._host:
+            return f"[{self._host}]:{self._port}"
+        return f"{self._host}:{self._port}"
 
     def close(self):
         # Empty request queue
@@ -364,12 +375,12 @@ class Viewer:
         port = self._port
         iframe_id = f"nb-iframe-{IPython.display._iframe_counter}"  # type: ignore
         display(HTML(f"""
-<iframe id="{iframe_id}" width="100%" height="600" allowfullscreen src="http://localhost:{port}/"></iframe>
+<iframe id="{iframe_id}" width="100%" height="600" allowfullscreen src="http://{self._get_hostname()}/"></iframe>
 <script>
 (function () {{
 const iframe = document.getElementById("{iframe_id}");
-fetch("http://localhost:{port}/").then(x => {{ 
-  if (!x.ok) throw new Error("Cannot reach default address http://localhost:{port}/"); 
+fetch("http://{self._get_hostname()}/").then(x => {{ 
+  if (!x.ok) throw new Error("Cannot reach default address http://{self._get_hostname()}/"); 
 }}).catch(() => {{
   fetch("/proxy/{port}/").then(x => {{ 
     if (!x.ok) throw new Error("Cannot reach proxy address /proxy/{port}/");
