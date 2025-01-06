@@ -3,6 +3,7 @@ In this file, we implement two different implementations of the HTTP server for 
 The first implementation is a simple HTTP server using the built-in Python HTTP server.
 The second implementation is a Flask server that provides a more feature-rich experience.
 """
+import errno
 import socket
 import shutil
 from functools import partial
@@ -514,7 +515,22 @@ def run_simple_http_server(*args, host=None, port=None, verbose=False, **kwargs)
 
     class ThreadingHTTPServerWithBind(ThreadingHTTPServer):
         def server_bind(self):
-            out = super().server_bind()
+            host, port = self.server_address
+            orig_port = port
+            for _ in range(100):
+                try:
+                    out = super().server_bind()
+                    break
+                except OSError as e:
+                    if e.errno == errno.EADDRINUSE and port > 0:
+                        port = port + 1
+                        self.server_address = (host, port)
+                        continue
+                    raise
+            else:
+                raise RuntimeError("Could not find a free port")
+            if orig_port != port and orig_port > 0:
+                logging.warning(f"Port {orig_port} is already in use, using port {port} instead")
             port = self.server_address[1]
             backend.notify_started(port)
             return out
@@ -659,8 +675,21 @@ def run_flask_server(*args, port, host=None, verbose=False, **kwargs):
     def socket_bind_wrapper(self):
         nonlocal port
         try:
-            ret = original_socket_bind(self)
-            _, port = self.socket.getsockname()
+            orig_port = port
+            for _ in range(100):
+                try:
+                    ret = original_socket_bind(self)
+                    _, port = self.socket.getsockname()
+                    break
+                except OSError as e:
+                    if e.errno == errno.EADDRINUSE and port > 0:
+                        port = port + 1
+                        continue
+                    raise
+            else:
+                raise RuntimeError("Could not find a free port")
+            if orig_port != port and orig_port > 0:
+                logging.warning(f"Port {orig_port} is already in use, using port {port} instead")
             backend.notify_started(port)
             # Recover original implementation
             return ret
