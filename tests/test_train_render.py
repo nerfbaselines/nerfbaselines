@@ -108,28 +108,28 @@ def _patch_wandb_for_py37():
 
 @pytest.fixture
 def wandb_init_run():
-    _patch_wandb_for_py37()
-    import wandb.sdk.wandb_run
+    def fn():
+        _patch_wandb_for_py37()
+        import wandb.sdk.wandb_run
 
-    mock_run = mock.Mock(wandb.sdk.wandb_run.Run)
-    with mock.patch.object(wandb, "init", mock.Mock(wandb.init, return_value=mock_run)), mock.patch.object(wandb, "run", mock_run):
-        yield
+        mock_run = mock.Mock(wandb.sdk.wandb_run.Run)
+        with mock.patch.object(wandb, "init", mock.Mock(wandb.init, return_value=mock_run)), mock.patch.object(wandb, "run", mock_run):
+            yield
+    return fn
 
 
-@pytest.mark.parametrize("vis", ["none", "wandb", "tensorboard", "wandb,tensorboard"])
-def test_train_command(mock_extras, tmp_path, wandb_init_run, vis):
-    del mock_extras, wandb_init_run
+@pytest.mark.parametrize("vis", ["none", "tensorboard"])
+def test_train_command(mock_extras, tmp_path, vis):
+    del mock_extras
     # if sys.version_info[:2] == (3, 7) and vis == "tensorboard":
     #     # TODO: Investigate why this test fails in Python 3.7
     #     pytest.skip("for some reason this test fails in Python 3.7 when run together with the other tests, but passes when run alone.")
     metrics._LPIPS_CACHE.clear()
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
-    _patch_wandb_for_py37()
     from nerfbaselines.cli._train import train_command
     from nerfbaselines import MethodSpec
     from nerfbaselines._registry import methods_registry as registry
-    import wandb
 
     _ns_prefix_backup = os.environ.get("NS_PREFIX", None)
     cwd = os.getcwd()
@@ -160,39 +160,6 @@ def test_train_command(mock_extras, tmp_path, wandb_init_run, vis):
         assert (tmp_path / "output" / "checkpoint-13").exists()
         assert _TestMethod._render_call_step == [4, 4, 9, 9, 12, 12]
 
-        wandb_init_mock: mock.Mock = cast(mock.Mock, wandb.init)
-        wandb_mock: mock.Mock = cast(mock.Mock, wandb.run)
-        if "wandb" not in vis:
-            wandb_init_mock.assert_not_called()
-            wandb_mock.log.assert_not_called()
-        else:
-            wandb_init_mock.assert_called_once()
-            wandb_mock.log.assert_called()
-
-            # Last log is the final evaluation
-            assert wandb_mock.log.call_args[1]["step"] == 13
-            all_keys = set(sum((list(k[0][0].keys()) for k in wandb_mock.log.call_args_list), []))
-            print(all_keys)
-            assert "eval-all-test/color" in all_keys
-
-            eval_single_calls = []
-            eval_all_calls = []
-            train_calls = []
-            must_have = {"train/loss", "eval-few-test/psnr", "eval-all-test/psnr"}
-            print(wandb_mock.log.call_args_list)
-            for args, kwargs in wandb_mock.log.call_args_list:
-                if "eval-few-test/color" in args[0]:
-                    eval_single_calls.append(kwargs["step"])
-                if "eval-all-test/color" in args[0]:
-                    eval_all_calls.append(kwargs["step"])
-                if "train/loss" in args[0]:
-                    train_calls.append(kwargs["step"])
-                must_have.difference_update(args[0].keys())
-            assert eval_single_calls == [5, 10]
-            assert eval_all_calls == [13]
-            assert train_calls == [13]
-            assert len(must_have) == 0
-
         if "tensorboard" in vis:
             assert (tmp_path / "output" / "tensorboard").exists()
         else:
@@ -214,13 +181,17 @@ def test_train_command(mock_extras, tmp_path, wandb_init_run, vis):
 
 
 @pytest.mark.extras
-def test_train_command_extras(tmp_path):
+@pytest.mark.parametrize("vis", ["none", "wandb", "wandb,tensorboard"])
+def test_train_command_extras(tmp_path, vis, wandb_init_run):
+    wandb_init_run()
     metrics._LPIPS_CACHE.clear()
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
     from nerfbaselines.cli._train import train_command
     from nerfbaselines import MethodSpec
     from nerfbaselines._registry import methods_registry as registry
+    _patch_wandb_for_py37()
+    import wandb
 
     assert train_command.callback is not None
 
@@ -240,7 +211,7 @@ def test_train_command_extras(tmp_path):
         # train_command.callback(method, checkpoint, data, output, no_wandb, backend, eval_single_iters, eval_all_iters)
         make_dataset(tmp_path / "data", num_images=10)
         (tmp_path / "output").mkdir()
-        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), "python", Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), logger="tensorboard")
+        train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), "python", Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), logger=vis)
 
         # By default, the model should render all images at the end
         print(os.listdir(tmp_path / "output"))
@@ -282,14 +253,53 @@ def test_train_command_extras(tmp_path):
         assert (tmp_path / "output" / "tensorboard").exists()
         assert (tmp_path / "output" / "output.zip").exists(), "output artifact should not be generated without extra metrics"
 
+        wandb_init_mock: mock.Mock = cast(mock.Mock, wandb.init)
+        wandb_mock: mock.Mock = cast(mock.Mock, wandb.run)
+        if "wandb" not in vis:
+            wandb_init_mock.assert_not_called()
+            wandb_mock.log.assert_not_called()
+        else:
+            wandb_init_mock.assert_called_once()
+            wandb_mock.log.assert_called()
+
+            # Last log is the final evaluation
+            assert wandb_mock.log.call_args[1]["step"] == 13
+            all_keys = set(sum((list(k[0][0].keys()) for k in wandb_mock.log.call_args_list), []))
+            print(all_keys)
+            assert "eval-all-test/color" in all_keys
+
+            eval_single_calls = []
+            eval_all_calls = []
+            train_calls = []
+            must_have = {"train/loss", "eval-few-test/psnr", "eval-all-test/psnr"}
+            print(wandb_mock.log.call_args_list)
+            for args, kwargs in wandb_mock.log.call_args_list:
+                if "eval-few-test/color" in args[0]:
+                    eval_single_calls.append(kwargs["step"])
+                if "eval-all-test/color" in args[0]:
+                    eval_all_calls.append(kwargs["step"])
+                if "train/loss" in args[0]:
+                    train_calls.append(kwargs["step"])
+                must_have.difference_update(args[0].keys())
+            assert eval_single_calls == [5, 10]
+            assert eval_all_calls == [13]
+            assert train_calls == [13]
+            assert len(must_have) == 0
+
+        if "tensorboard" in vis:
+            assert (tmp_path / "output" / "tensorboard").exists()
+        else:
+            assert not (tmp_path / "output" / "tensorboard").exists()
+
+
     finally:
         os.chdir(cwd)
         _TestMethod._reset()
         registry.pop("_test", None)
 
 
-def test_train_command_undistort(tmp_path, wandb_init_run, mock_extras):
-    del mock_extras, wandb_init_run
+def test_train_command_undistort(tmp_path, mock_extras):
+    del mock_extras
     metrics._LPIPS_CACHE.clear()
     metrics._LPIPS_GPU_AVAILABLE = None
     sys.modules.pop("nerfbaselines._metrics_lpips", None)
