@@ -219,35 +219,38 @@ class VideoWriter {
       latencyMode: "quality",
     });
     let lastKeyframeTimestamp = -Infinity;
-    this.addFrame = async (image) => {
-      if (errors.length > 0) throw errors[0];
-      const timestamp = framesGenerated * 1e6 / this.fps;
-      let frame = new VideoFrame(image, {
-        timestamp,
-        duration: 1e6 / this.fps,
-      });
-      let keyFrame = false;
-      // If keyframeInterval is string and ends with s, it is interpreted as seconds
-      if (this.keyframeInterval.endsWith('s')) {
-        const timeInterval = parseFloat(this.keyframeInterval.slice(0, -1));
-        if (timestamp - lastKeyframeTimestamp >= timeInterval * 1e6) {
-          keyFrame = true;
-          lastKeyframeTimestamp = timestamp;
+    this.addFrame = async (image, { repeats } = {}) => {
+      for (let i = 0; i < repeats; i++) {
+        repeats = repeats || 1;
+        if (errors.length > 0) throw errors[0];
+        const timestamp = framesGenerated * 1e6 / this.fps;
+        let frame = new VideoFrame(image, {
+          timestamp,
+          duration: 1e6 / this.fps,
+        });
+        let keyFrame = false;
+        // If keyframeInterval is string and ends with s, it is interpreted as seconds
+        if (this.keyframeInterval.endsWith('s')) {
+          const timeInterval = parseFloat(this.keyframeInterval.slice(0, -1));
+          if (timestamp - lastKeyframeTimestamp >= timeInterval * 1e6) {
+            keyFrame = true;
+            lastKeyframeTimestamp = timestamp;
+          }
+        } else {
+          if (framesGenerated % parseInt(this.keyframeInterval) === 0) {
+            keyFrame = true;
+          }
         }
-      } else {
-        if (framesGenerated % parseInt(this.keyframeInterval) === 0) {
-          keyFrame = true;
-        }
+        videoEncoder.encode(frame, { 
+          keyFrame,
+          vp9: { quantizer },
+          av1: { quantizer },
+          avc: { quantizer },
+          hevc: { quantizer },
+        });
+        frame.close();
+        framesGenerated++;
       }
-      videoEncoder.encode(frame, { 
-        keyFrame,
-        vp9: { quantizer },
-        av1: { quantizer },
-        avc: { quantizer },
-        hevc: { quantizer },
-      });
-      frame.close();
-      framesGenerated++;
     };
     this.close = async () => {
       try {
@@ -3034,6 +3037,20 @@ export class Viewer extends THREE.EventDispatcher {
     });
   }
 
+  _getFrameRepeats(durations, fps) {
+    // Add frame repeats to match target FPS
+    const frameRepeats = [];
+    let time = 0;
+    let nFrames = 0;
+    durations.forEach((duration, i) => {
+      const numFrames = Math.max(0, Math.round((time + duration) * fps) - nFrames);
+      frameRepeats.push(numFrames);
+      nFrames += numFrames;
+      time = nFrames / fps;
+    });
+    return frameRepeats
+  }
+
   export_trajectory() {
     const state = this.state;
     const w = state.camera_path_resolution_1;
@@ -3118,17 +3135,9 @@ export class Viewer extends THREE.EventDispatcher {
     }
     if (source.interpolation === "none") {
       // Add frame repeats to match target FPS
-      const frame_repeats = [];
-      let time = 0;
-      let nFrames = 0;
-      keyframes.forEach((keyframe, i) => {
-        const duration = keyframe.duration || 2;
-        const numFrames = Math.max(0, Math.round((time + duration) * fps) - nFrames);
-        frame_repeats.push(numFrames);
-        nFrames += numFrames;
-        time = nFrames / fps;
-      });
-      data.frame_repeats = frame_repeats;
+      data.frame_repeats = this._getFrameRepeats(
+        keyframes.map(x => x.duration || state.camera_path_default_transition_duration),
+        fps);
     }
     return data
   }
@@ -3153,17 +3162,32 @@ export class Viewer extends THREE.EventDispatcher {
   }
 
   async render_video() {
+    const state = this.state;
     const width = this.state.camera_path_resolution_1;
     const height = this.state.camera_path_resolution_2;
     const fps = this.state.camera_path_framerate;
-    const { positions, quaternions, fovs, weights, appearanceTrainIndices } = this.state.camera_path_trajectory;
+    const { 
+      positions, 
+      quaternions, 
+      fovs, 
+      weights, 
+      appearanceTrainIndices,
+      keyframeDurations,
+    } = this.state.camera_path_trajectory;
+    let repeats;
+    let numFrames = positions.length;
+    if (state.camera_path_interpolation === "none") {
+      repeats = this._getFrameRepeats(
+        keyframeDurations, fps);
+      numFrames = repeats.reduce((a, b) => a + b, 0);
+    }
     const writer = new VideoWriter({ 
       width, height, fps, 
       type: this.state.camera_path_render_format,
       mp4Codec: this.state.camera_path_render_mp4_codec,
       webmCodec: this.state.camera_path_render_webm_codec,
       keyframeInterval: this.state.camera_path_render_keyframe_interval,
-      numFrames: positions.length });
+      numFrames });
     try {
       await writer.saveAs();
     } catch (error) {
@@ -3207,7 +3231,6 @@ export class Viewer extends THREE.EventDispatcher {
           appearance_train_indices,
           lossless: true,
         };
-        const state = this.state;
         request.output_type = state.output_type === "" ? undefined : state.output_type;
         if (state.split_enabled && state.split_output_type) {
           request.split_output_type = state.split_output_type === "" ? undefined : state.split_output_type;
@@ -3217,7 +3240,7 @@ export class Viewer extends THREE.EventDispatcher {
         const frame = await this.frame_renderer.render(request);
         if (closed) break;
         try {
-          await writer.addFrame(frame);
+          await writer.addFrame(frame, { repeats: repeats?.[i] });
         } finally {
           frame?.close?.();
         }
