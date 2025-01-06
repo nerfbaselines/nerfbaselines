@@ -50,8 +50,9 @@ def test_dockerfile_has_dependencies(method_name, dependencies):
 def test_conda_installscript_has_dependencies(method_name, dependencies):
     from nerfbaselines.backends._conda import conda_get_install_script
     spec = get_method_spec(method_name)
-    assert spec["conda"] is not None
-    install_script = conda_get_install_script(spec["conda"]).lower()
+    conda_spec = spec.get("conda")
+    assert conda_spec is not None
+    install_script = conda_get_install_script(conda_spec).lower()
     for dep in dependencies:
         dep = dep.lower()
         if (dep.replace("_", "-") in install_script) or (dep.replace("-", "_") in install_script):

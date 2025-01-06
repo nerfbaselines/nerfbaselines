@@ -10,7 +10,7 @@ from PIL import Image
 import tarfile
 import zipfile
 try:
-    from typeguard import suppress_type_checks
+    from typeguard import suppress_type_checks  # type: ignore
 except ImportError:
     from contextlib import nullcontext as suppress_type_checks
 

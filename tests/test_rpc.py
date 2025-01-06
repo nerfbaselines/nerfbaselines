@@ -9,7 +9,7 @@ from time import sleep
 import gc
 from unittest import mock
 try:
-    from typeguard import typeguard_ignore
+    from typeguard import typeguard_ignore  # type: ignore
 except ImportError:
     def typeguard_ignore(x):  # type: ignore
         return x
