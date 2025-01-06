@@ -305,8 +305,8 @@ class ViewerBackend:
 
     def get_dataset(self, get_image_url, get_thumbnail_url):
         return {
-            "train": self.get_dataset_split_cameras("train", get_image_url, get_thumbnail_url) if "train" in self._datasets else None,
-            "test": self.get_dataset_split_cameras("test", get_image_url, get_thumbnail_url) if "test" in self._datasets else None,
+            "train": self.get_dataset_split_cameras("train", get_image_url, get_thumbnail_url) if self._datasets.get("train") is not None else None,
+            "test": self.get_dataset_split_cameras("test", get_image_url, get_thumbnail_url) if self._datasets.get("test") is not None else None,
         }
 
 
