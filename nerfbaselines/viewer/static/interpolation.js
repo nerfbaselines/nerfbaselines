@@ -635,7 +635,7 @@ export function compute_camera_path(props) {
     return {
       positions: k_positions,
       quaternions: k_quaternions,
-      fovs: k_fovs,
+      fovs: k_fovs.map(x => x === undefined ? default_fov : x),
       weights: k_weights,
       distance: 0,
       appearanceTrainIndices,
