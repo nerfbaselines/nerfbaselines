@@ -3260,10 +3260,8 @@ export class Viewer extends THREE.EventDispatcher {
   }
 
   set_up_direction() {
-    let forward = new THREE.Vector3(0, 0, 1).applyQuaternion(this.camera.quaternion);
-    let v = new THREE.Vector3().crossVectors(forward, this.camera.up).normalize();
-    v.crossVectors(v, forward).normalize();
-    this.camera.up.copy(v);
+    let up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+    this.camera.up.copy(up);
   }
 
   async load_plugin({ code, id }) {
