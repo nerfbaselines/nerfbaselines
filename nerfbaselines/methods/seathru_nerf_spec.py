@@ -32,7 +32,7 @@ python -m pip install \
     "flax==0.7.5" \
     plyfile==1.1 \
     tqdm==4.67.1 \
-    scikit-image==0.25.0 \
+    scikit-image<=0.25.0 \
     importlib_metadata==8.5.0 \
     typing_extensions==4.12.2 \
     wandb==0.19.1 \
@@ -49,7 +49,7 @@ python -m pip install \
     "opencv-python==4.9.0.80" \
     "pillow==10.2.0" \
     "rawpy==0.19.0" \
-    "scipy==1.11.4" \
+    "scipy==1.11.2" \
     "tensorboard==2.15.1" \
     "tensorflow==2.15.0" \
     "ml-dtypes==0.2.0" \
