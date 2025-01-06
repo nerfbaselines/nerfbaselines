@@ -5,6 +5,7 @@ import os
 from PIL import Image
 import numpy as np
 import io
+import time
 import contextlib
 
 from pathlib import Path
@@ -710,7 +711,9 @@ class TensorboardLogger(BaseLogger):
         summaries = []
         yield TensorboardLoggerEvent(self._writer.get_logdir(), summaries, step=step)
         summary = Summary(value=summaries)  # type: ignore
-        self._writer.add_event(Event(summary=summary, step=step))  # type: ignore
+                
+        event = Event(summary=summary, step=step, wall_time=time.time()) # type: ignore
+        self._writer.add_event(event)
 
     def add_hparams(self, hparams: Dict[str, Any]):
         from tensorboard.compat.proto.event_pb2 import Event
@@ -719,9 +722,9 @@ class TensorboardLogger(BaseLogger):
         hparam_domain_discrete = {}
         hparams = _flatten_simplify_hparams(hparams)
         exp, ssi, sei = _tensorboard_hparams(hparams, self._hparam_plugin_metrics or [], hparam_domain_discrete)
-        self._writer.add_event(Event(summary=exp, step=0))  # type: ignore
-        self._writer.add_event(Event(summary=ssi, step=0))  # type: ignore
-        self._writer.add_event(Event(summary=sei, step=0))  # type: ignore
+        self._writer.add_event(Event(summary=exp, step=0, wall_time=time.time()))  # type: ignore
+        self._writer.add_event(Event(summary=ssi, step=0, wall_time=time.time()))  # type: ignore
+        self._writer.add_event(Event(summary=sei, step=0, wall_time=time.time()))  # type: ignore
 
     def __str__(self):
         return "tensorboard"
