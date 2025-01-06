@@ -1,4 +1,3 @@
-import shutil
 import re
 from typing import List
 import pytest
