@@ -921,6 +921,14 @@ class HTTPFrameRenderer {
       body: JSON.stringify(params),
     });
 
+    if (!response.ok) {
+      try {
+        const error = await response.json();
+        throw new Error(error.message);
+      } catch (e) {
+        throw new Error(`Connection to renderer failed: ${response.statusText}`);
+      }
+    }
 
     // Read response as blob
     const blob = await response.blob();
@@ -2487,14 +2495,14 @@ export class Viewer extends THREE.EventDispatcher {
 
   set_remote_renderer({
     websocket_url,
-    render_url,
+    http_url,
     output_types,
   }) {
     try {
       if (websocket_url)
         websocket_url = new URL(websocket_url, window.location.href).href;
-      if (render_url)
-        render_url = new URL(render_url, window.location.href).href;
+      if (http_url)
+        http_url = new URL(http_url, window.location.href).href;
       // Google Colab does not support websocket connections
       const supportsWebsocket = !window.location.host.endsWith(".googleusercontent.com");
       if (!supportsWebsocket)
@@ -2514,12 +2522,12 @@ export class Viewer extends THREE.EventDispatcher {
         this.notifyChange({ property: 'frame_renderer_url' });
       } else {
         this._set_frame_renderer(new HTTPFrameRenderer({ 
-          url: render_url,
+          url: http_url,
           update_notification: (notification) => {
             viewer.update_notification(notification);
           }
         }));
-        this.state.frame_renderer_url = render_url;
+        this.state.frame_renderer_url = http_url;
         this.notifyChange({ property: 'frame_renderer_url' });
       }
       this._on_renderer_ready({ output_types });
