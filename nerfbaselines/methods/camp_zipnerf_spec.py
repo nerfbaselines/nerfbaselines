@@ -45,7 +45,7 @@ conda install -y pip conda-build
 
 # Install requirements.
 python -m pip install --upgrade pip
-python -m pip install --upgrade "jax[cuda11_pip]==0.4.23" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+python -m pip install --upgrade "jax[cuda11_pip]==0.4.23" 'numpy<2' -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 python -m pip install -r requirements.txt
 # scipy 1.13.0 is not supported by the older jax
 # https://github.com/google/jax/discussions/18995

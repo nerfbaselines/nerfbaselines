@@ -24,7 +24,7 @@ conda develop "$PWD"
 
 # Install requirements.
 python -m pip install --upgrade pip
-python -m pip install --upgrade "jax[cuda11_pip]==0.4.23" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+python -m pip install --upgrade "jax[cuda11_pip]==0.4.23" 'numpy<2' -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 python -m pip install \
     "chex==0.1.85" \
     "dm-pix==0.4.2" \
@@ -41,7 +41,7 @@ python -m pip install \
     "opencv-python==4.9.0.80" \
     "pillow==10.2.0" \
     "rawpy==0.19.0" \
-    "scipy==1.11.0" \
+    "scipy==1.11.4" \
     "tensorboard==2.15.1" \
     "tensorflow==2.15.0" \
     "ml-dtypes==0.2.0" \
