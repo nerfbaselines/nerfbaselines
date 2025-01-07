@@ -319,7 +319,7 @@ class Viewer:
         if self._process is None or not self._process.is_alive():
             raise RuntimeError("Viewer backend process failed to start")
 
-        if orig_port != self._port and orig_port > 0:
+        if orig_port != self._port and orig_port is not None and orig_port > 0:
             logging.warning(f"Port {orig_port} is already in use, using port {self._port} instead")
         # Log the viewer url
         logging.info(f"Viewer running at http://{self._get_hostname()}/")
@@ -357,7 +357,7 @@ class Viewer:
         del exc_type, exc_value, traceback
         self.close()
 
-    def show_in_notebook(self, use_jupyter_proxy=None):
+    def show_in_notebook(self, width: str = "100%", height: str = "600"):
         google_colab_output = None
         try:
             from google.colab import output as google_colab_output  # type: ignore
@@ -365,9 +365,8 @@ class Viewer:
             pass
         if google_colab_output is not None:
             logging.debug("Running in Google Colab, returning port")
-            if use_jupyter_proxy is not None:
-                logging.warning("use_jupyter_proxy is not supported in Google Colab")
-            google_colab_output.serve_kernel_port_as_iframe(self._port, height=600)
+            google_colab_output.serve_kernel_port_as_iframe(self._port, width=width, height=height)
+            return
 
         import IPython.display
         from IPython.display import display, HTML
@@ -375,7 +374,7 @@ class Viewer:
         port = self._port
         iframe_id = f"nb-iframe-{IPython.display._iframe_counter}"  # type: ignore
         display(HTML(f"""
-<iframe id="{iframe_id}" width="100%" height="600" allowfullscreen src="http://{self._get_hostname()}/"></iframe>
+<iframe id="{iframe_id}" width="{width}" height="{height}" allowfullscreen src="http://{self._get_hostname()}/"></iframe>
 <script>
 (function () {{
 const iframe = document.getElementById("{iframe_id}");

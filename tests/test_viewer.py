@@ -19,10 +19,10 @@ def test_viewer_simple_http_server():
         assert response.status_code == 200
         assert response.text.startswith("<!DOCTYPE html>")
 
-        with pytest.raises(Exception):
-            with Viewer(port=viewer.port) as viewer2:
-                del viewer2
-                pass
+        with Viewer(port=viewer.port) as viewer2:
+            assert viewer2.port == viewer.port+1
+            del viewer2
+            pass
 
     # Assert server is closed
     with pytest.raises(Exception):
