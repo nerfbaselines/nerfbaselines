@@ -1864,7 +1864,7 @@ function _attach_camera_control(viewer) {
     if (property === undefined || property === 'camera_control_zoom_sensitivity' || property === 'camera_control_zoom_inverted')
       viewer.controls.zoomSpeed = trans((state.camera_control_zoom_sensitivity-1)*2+0.5) * (state.camera_control_zoom_inverted ? -1 : 1);
     if (property === undefined || property === 'camera_control_key_speed')
-      viewer.controls.keyPanSpeed = viewer.controls.keyRotateSpeed = 7 * trans(state.camera_control_key_speed);
+      viewer.controls.keyPanSpeed = viewer.controls.keyRotateSpeed = 10 * trans(state.camera_control_key_speed);
   });
 }
 
@@ -3286,6 +3286,7 @@ export class Viewer extends THREE.EventDispatcher {
     this.set_camera({ matrix: this._viewer_initial_pose });
     const target = new THREE.Vector3(0, 0, 0);
     this.camera.up = new THREE.Vector3(0, 0, 1);
+    this.controls.updateUp();
     this.controls.target?.copy(target);
     this.controls.update();
   }
@@ -3293,6 +3294,7 @@ export class Viewer extends THREE.EventDispatcher {
   set_up_direction() {
     let up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
     this.camera.up.copy(up);
+    this.controls.updateUp();
   }
 
   async load_plugin({ code, id }) {

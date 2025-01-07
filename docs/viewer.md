@@ -17,14 +17,20 @@ where `<checkpoint>` is the path to the directory with the trained model checkpo
 ## Camera control
 Currently, there are two camera control options implemented ({menuselection}`Control --> Camera mode`):
 - `orbit` - the camera will orbit around a single point called **target**.
-- `free` - FPS-style camera control where moving mouse will rotate the camera around its center.
+- `fps` - first-person-shooter-style camera control where moving mouse will rotate the camera around its center.
 
 For both modes, camera movement is activated by pressing down the left mouse button and moving the mouse (or pressing the touch pad).
 Moving two fingers (without pressing) down/up will zoom-in/zoom-out (move camera forward/backward in the direction it is looking).
-The same can be achieved by using the mouse wheel. Two-finger press gesture will result in panning motion (moving the camera in the plane perpendicular to the look-at direction). Note, the sensitivity can by changed in the {octicon}`gear` *Settings* tab.
+The same can be achieved by using the mouse wheel. Two-finger press gesture or using right mouse key will result in panning 
+motion (moving the camera in the plane perpendicular to the look-at direction).
+Note, the sensitivity can by changed in the {octicon}`gear` *Settings* tab.
 
 Keyboard can also be used for the movement. {kbd}`W`, {kbd}`S`, {kbd}`A`, {kbd}`D` move across the plane perpendicular to the up direction.
-{kbd}`Q`, {kbd}`E` move up and down. The arrow keys {kbd}`←`, {kbd}`→`, {kbd}`↑`, {kbd}`↓` move the camera in the plane perpendicular to the look-at direction (panning). If any of keys {kbd}`Ctrl`, {kbd}`Shift`, {kbd}`Alt` are pressed, the arrow keys will rotate the camera instead of panning. Keys {kbd}`Z`, {kbd}`X` will rotate the camera around the look-at direction (changing the camera-up vector).
+{kbd}`Q`, {kbd}`E` move up and down. When {kbd}`Alt` is pressed, the movement is not perpendicular to the up direction, but relative to the
+current camera orientation. When {kbd}`Shift` is pressed, the movement is faster.
+For the `fps` mode, arrow keys {kbd}`←`, {kbd}`→`, {kbd}`↑`, {kbd}`↓` move the camera in the plane perpendicular to the look-at direction (panning).
+In the `orbit` mode, arrow keys {kbd}`←`, {kbd}`→`, {kbd}`↑`, {kbd}`↓` rotate the camera around the target point.
+Keys {kbd}`Z`, {kbd}`X` will rotate the camera around the look-at direction (changing the camera-up vector).
 The sensitivity can be changed in the {octicon}`gear` {menuselection}`Settings --> Keyboard speed`.
 
 (connecting-to-the-viewer-remotely)=

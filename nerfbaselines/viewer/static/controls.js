@@ -27,6 +27,7 @@ const _plane = new Plane();
 const _TILT_LIMIT = Math.cos( 70 * MathUtils.DEG2RAD );
 
 const _v = new Vector3();
+const _q = new Quaternion();
 const _quatInv = new Quaternion();
 const _euler = new Euler();
 const _twoPI = 2 * Math.PI;
@@ -55,7 +56,9 @@ class KeyboardManager {
     this._pointerActivated = false;
     this._activePointer = new Set();
     this._handledKeys = new Set([
-      'ControlLeft', 'ControlRight',
+      'ShiftLeft', 'ShiftRight',
+      'Space',
+      'AltLeft', 'AltRight',
       'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
       'KeyW', 'KeyA', 'KeyS', 'KeyD',
       'KeyQ', 'KeyE',
@@ -83,16 +86,18 @@ class KeyboardManager {
     }
     this._element.focus();
     this._activeKeys[event.code] = true;
-    event.shiftKey ? this._activeKeys["shift"] = true : delete this._activeKeys["shift"];
-    event.ctrlKey ? this._activeKeys["ctrl"] = true : delete this._activeKeys["ctrl"];
-    event.metaKey ? this._activeKeys["meta"] = true : delete this._activeKeys["meta"];
+    event.shiftKey ? this._activeKeys["Shift"] = true : delete this._activeKeys["Shift"];
+    event.ctrlKey ? this._activeKeys["Ctrl"] = true : delete this._activeKeys["Ctrl"];
+    event.altKey ? this._activeKeys["Alt"] = true : delete this._activeKeys["Alt"];
+    event.metaKey ? this._activeKeys["Meta"] = true : delete this._activeKeys["Meta"];
   }
 
   _onKeyUp(event) {
     delete this._activeKeys[event.code];
-    event.shiftKey ? this._activeKeys["shift"] = true : delete this._activeKeys["shift"];
-    event.ctrlKey ? this._activeKeys["ctrl"] = true : delete this._activeKeys["ctrl"];
-    event.metaKey ? this._activeKeys["meta"] = true : delete this._activeKeys["meta"];
+    event.shiftKey ? this._activeKeys["Shift"] = true : delete this._activeKeys["Shift"];
+    event.ctrlKey ? this._activeKeys["Ctrl"] = true : delete this._activeKeys["Ctrl"];
+    event.altKey ? this._activeKeys["Alt"] = true : delete this._activeKeys["Alt"];
+    event.metaKey ? this._activeKeys["Meta"] = true : delete this._activeKeys["Meta"];
   }
 
   dispose() {
@@ -111,7 +116,7 @@ class ViewerControls extends Controls {
 	constructor(object, domElement = null) {
 		super(object, domElement);
 		this.state = _STATE.NONE;
-    this.mode = "free";
+    this.mode = "fps";
 
 		// Set to false to disable this control
 		this.enabled = true;
@@ -151,7 +156,7 @@ class ViewerControls extends Controls {
 		// Set to false to disable panning
 		this.enablePan = true;
 		this.panSpeed = 1.0;
-		this.keyPanSpeed = 7.0;	// pixels moved per arrow key push
+		this.keyPanSpeed = 14.0;	// pixels moved per arrow key push
 		this.keyRotateSpeed = 7.0;
 
 		// Set to true to automatically rotate around the target
@@ -213,8 +218,6 @@ class ViewerControls extends Controls {
 		this._onPointerUp = onPointerUp.bind(this);
 		this._onContextMenu = onContextMenu.bind(this);
 		this._onMouseWheel = onMouseWheel.bind(this);
-		this._onKeyDown = onKeyDown.bind(this);
-		this._onKeyUp = onKeyUp.bind(this);
 
 		this._onTouchStart = onTouchStart.bind(this);
 		this._onTouchMove = onTouchMove.bind(this);
@@ -231,6 +234,12 @@ class ViewerControls extends Controls {
 
 		this.update();
 	}
+
+  updateUp() {
+		// so camera.up is the orbit axis
+		this._quat = new Quaternion().setFromUnitVectors(this.object.up, new Vector3(0, 1, 0));
+		this._quatInverse = this._quat.clone().invert();
+  }
 
 	connect() {
 		this.domElement.addEventListener('pointerdown', this._onPointerDown);
@@ -304,40 +313,43 @@ class ViewerControls extends Controls {
 
     // Rotate the camera around Z axis
     if (Math.abs(this._deltaZ) > 1e-6) {
-      _v.setFromMatrixColumn(this.object.matrix, 2);
-      _quatInv.setFromAxisAngle(_v, -this._deltaZ * m * 0.1);
+      _v.set(0, 0, 1).applyQuaternion(this.object.quaternion);
+      _quatInv.setFromAxisAngle(_v, -this._deltaZ * m * 0.4);
       this.object.quaternion.premultiply(_quatInv);
 
       // Rotate the up vector around lookAt
-      _v.crossVectors(this.object.up, _v).normalize();
-      _v.crossVectors(_v, this.object.up).normalize();
-      this.object.up.applyQuaternion(_quatInv);
+      if (this.mode === "orbit" || this.mode === "fps") {
+        _v.crossVectors(this.object.up, _v).normalize();
+        _v.crossVectors(_v, this.object.up).normalize();
+        this.object.up.applyQuaternion(_quatInv);
+
+        // Update quat
+        this._quat = new Quaternion().setFromUnitVectors(this.object.up, new Vector3(0, 1, 0));
+        this._quatInverse = this._quat.clone().invert();
+      }
       if (this.enableDamping) {
         this._deltaZ *= (1 - this.dampingFactor);
       } else {
         this._deltaZ = 0;
       }
-
-      // Update quat
-      this._quat = new Quaternion().setFromUnitVectors(this.object.up, new Vector3(0, 1, 0));
-      this._quatInverse = this._quat.clone().invert();
     }
 
-    if (this.mode === "free") {
+    if (this.mode === "fps") {
       // 1. Apply pan
       this.object.position.addScaledVector(this._panOffset, m);
 
       // 2. Apply the rotation
-      _v.set(0, 0, -1).applyQuaternion(this.object.quaternion);
-      _v.applyQuaternion(this._quat);
-      const sp = new Spherical().setFromVector3(_v);
-      sp.theta -= this._sphericalDelta.theta * m;
-      sp.phi += this._sphericalDelta.phi * m;
-      sp.phi = Math.max(0.000001, Math.min(Math.PI - 0.000001, sp.phi));
-      sp.makeSafe();
-      _v.setFromSpherical(sp);
-      _v.applyQuaternion(this._quatInverse).normalize();
-      this.object.lookAt(_v.add(this.object.position));
+      _q.copy(this.object.quaternion);
+      _q.premultiply(this._quat);
+      _quatInv.copy(this._quat).invert();
+
+      _euler.setFromQuaternion(_q, 'YXZ');
+      _euler.x -= this._sphericalDelta.phi * m;
+      _euler.y -= this._sphericalDelta.theta * m;
+      _euler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, _euler.x));
+      _q.setFromEuler(_euler);
+      _q.premultiply(_quatInv);
+      this.object.quaternion.copy(_q).normalize();
 
       if (this.enableDamping) {
         this._sphericalDelta.theta *= (1 - this.dampingFactor);
@@ -423,23 +435,24 @@ class ViewerControls extends Controls {
 	}
 
 	_getZoomScale(delta) {
-		const normalizedDelta = Math.abs( delta * 0.01 );
-		return Math.pow( 0.95, this.zoomSpeed * normalizedDelta );
+		const normalizedDelta = Math.abs( delta * 0.05);
+		return Math.pow(0.95, this.zoomSpeed * normalizedDelta);
 	}
 
 	_panAligned(deltaX, deltaY, deltaZ=0) {
 		const element = this.domElement;
 
+    let multiplier = 2.0;
     _v.setFromMatrixColumn(this.object.matrix, 0);
     _v.crossVectors(this.object.up, _v).normalize();
-    this._panOffset.addScaledVector(_v, -2 * deltaY / element.clientHeight);
+    this._panOffset.addScaledVector(_v, -multiplier * deltaY / element.clientHeight);
     _v.crossVectors(this.object.up, _v).normalize();
-    this._panOffset.addScaledVector(_v, -2 * deltaX / element.clientHeight);
-    this._panOffset.addScaledVector(this.object.up, -2 * deltaZ / element.clientHeight);
+    this._panOffset.addScaledVector(_v, -multiplier * deltaX / element.clientHeight);
+    this._panOffset.addScaledVector(this.object.up, -multiplier * deltaZ / element.clientHeight);
 	}
 
 	// deltaX and deltaY are in pixels; right and down are positive
-	_pan(deltaX, deltaY) {
+	_pan(deltaX, deltaY, deltaZ=0) {
 		const element = this.domElement;
     let multiplier = 2.0;
     if (this.mode === "orbit") {
@@ -448,10 +461,12 @@ class ViewerControls extends Controls {
       // half of the fov is center to top of screen
       multiplier *= _v.length() * Math.tan((this.object.fov / 2) * Math.PI / 180.0);
     }
-    _v.setFromMatrixColumn(this.object.matrix, 0);
+    _v.set(1, 0, 0).applyQuaternion(this.object.quaternion);
     this._panOffset.addScaledVector(_v, multiplier * deltaX / element.clientHeight);
-    _v.setFromMatrixColumn(this.object.matrix, 1);
-    this._panOffset.addScaledVector(_v, -multiplier * deltaY / element.clientHeight);
+    _v.set(0, 0, 1).applyQuaternion(this.object.quaternion);
+    this._panOffset.addScaledVector(_v, multiplier * deltaY / element.clientHeight);
+    _v.set(0, 1, 0).applyQuaternion(this.object.quaternion);
+    this._panOffset.addScaledVector(_v, -multiplier * deltaZ / element.clientHeight);
 	}
 
 	_clampDistance( dist ) {
@@ -479,9 +494,9 @@ class ViewerControls extends Controls {
 		this._rotateDelta.subVectors(this._rotateEnd, this._rotateStart).multiplyScalar(this.rotateSpeed);
 
 		const element = this.domElement;
-
-		this._sphericalDelta.theta -= _twoPI * this._rotateDelta.x / element.clientHeight; // yes, height
-		this._sphericalDelta.phi -= _twoPI * this._rotateDelta.y / element.clientHeight;
+    let m = 1.0;
+		this._sphericalDelta.theta -= m*_twoPI * this._rotateDelta.x / element.clientHeight; // yes, height
+		this._sphericalDelta.phi -= m*_twoPI * this._rotateDelta.y / element.clientHeight;
 
 		this._rotateStart.copy(this._rotateEnd);
 
@@ -506,14 +521,14 @@ class ViewerControls extends Controls {
 		this._panEnd.set( event.clientX, event.clientY );
 		this._panDelta.subVectors(this._panEnd, this._panStart).multiplyScalar(this.panSpeed);
 
-		this._pan(this._panDelta.x, this._panDelta.y);
+		this._pan(this._panDelta.x, 0, this._panDelta.y);
 		this._panStart.copy(this._panEnd);
 
 		this.update();
 	}
 
 	_handleMouseWheel(event) {
-    if (this.mode === "free") {
+    if (this.mode === "fps") {
       _v.setFromMatrixColumn(this.object.matrix, 2);
       this._panOffset.addScaledVector(_v, -event.deltaY * 0.01 * this.zoomSpeed);
     } else if (this.mode === "orbit") {
@@ -530,56 +545,48 @@ class ViewerControls extends Controls {
 
   _updateKeys(deltaTime) {
     if (!this._keyboardManager) return;
-    const d = (deltaTime || (1000.0 / 60.0)) * 0.04;
+    let d = (deltaTime || (1000.0 / 60.0)) * 0.02;
     const isPressed = this._keyboardManager.isPressed.bind(this._keyboardManager);
-    if (isPressed('KeyQ'))
-      this._panAligned(0, 0, -Math.abs(this.keyPanSpeed) * d);
-    if (isPressed('KeyE'))
-      this._panAligned(0, 0, Math.abs(this.keyPanSpeed) * d);
+    let m = 1;
+    if (isPressed('Shift')) m *= 4;
+    let pan;
+    if (isPressed('Alt')) {
+      pan = this._pan.bind(this);
+    } else {
+      pan = this._panAligned.bind(this);
+    }
     if (isPressed('KeyW'))
-      this._panAligned(0, Math.abs(this.keyPanSpeed) * d);
+      pan(0, Math.abs(this.keyPanSpeed) * d * m);
     if (isPressed('KeyS'))
-      this._panAligned(0, -Math.abs(this.keyPanSpeed) * d);
+      pan(0, -Math.abs(this.keyPanSpeed) * d * m);
+    if (isPressed('KeyE'))
+      pan(0, 0, Math.abs(this.keyPanSpeed) * d * m);
+    if (isPressed('KeyQ'))
+      pan(0, 0, -Math.abs(this.keyPanSpeed) * d * m);
     if (isPressed('KeyA'))
-      this._panAligned(Math.abs(this.keyPanSpeed) * d, 0);
+      pan(Math.abs(this.keyPanSpeed) * d * m, 0);
     if (isPressed('KeyD'))
-      this._panAligned(-Math.abs(this.keyPanSpeed * d), 0);
-    const isAnyMeta = isPressed('ctrl') || isPressed('meta') || isPressed('shift');
+      pan(-Math.abs(this.keyPanSpeed * d * m), 0);
     if (isPressed('KeyZ')) {
       // Rotate left
-      this._deltaZ += _twoPI * Math.abs(this.keyRotateSpeed) / this.domElement.clientHeight * d;
+      this._deltaZ += _twoPI * Math.abs(this.keyRotateSpeed) * d * 0.001 * m;
     }
     if (isPressed('KeyX')) {
       // Rotate right
-      this._deltaZ -= _twoPI * Math.abs(this.keyRotateSpeed) / this.domElement.clientHeight * d;
+      this._deltaZ -= _twoPI * Math.abs(this.keyRotateSpeed) * d * 0.001 * m;
     }
+    let mr = 0.0005 * m;
     if (isPressed('ArrowUp')) {
-      if (isAnyMeta) {
-        this._sphericalDelta.phi += _twoPI * Math.abs(this.keyRotateSpeed) / this.domElement.clientHeight * d;
-      } else {
-        this._pan(0, Math.abs(this.keyPanSpeed) * d);
-      }
+      this._sphericalDelta.phi += _twoPI * Math.abs(this.keyRotateSpeed) * d * mr;
     } 
     if (isPressed('ArrowDown')) {
-      if (isAnyMeta) {
-        this._sphericalDelta.phi -= _twoPI * Math.abs(this.keyRotateSpeed) / this.domElement.clientHeight * d;
-      } else {
-        this._pan(0, -Math.abs(this.keyPanSpeed) * d);
-      }
+      this._sphericalDelta.phi -= _twoPI * Math.abs(this.keyRotateSpeed) * d * mr;
     } 
     if (isPressed('ArrowLeft')) {
-      if (isAnyMeta) {
-        this._sphericalDelta.theta += _twoPI * Math.abs(this.keyRotateSpeed) / this.domElement.clientHeight * d;
-      } else {
-        this._pan(Math.abs(this.keyPanSpeed) * d, 0);
-      }
+      this._sphericalDelta.theta += _twoPI * Math.abs(this.keyRotateSpeed) * d * mr;
     } 
     if (isPressed('ArrowRight')) {
-      if (isAnyMeta) {
-        this._sphericalDelta.theta -= _twoPI * Math.abs(this.keyRotateSpeed) / this.domElement.clientHeight * d;
-      } else {
-        this._pan(-Math.abs(this.keyPanSpeed) * d, 0);
-      }
+      this._sphericalDelta.theta -= _twoPI * Math.abs(this.keyRotateSpeed) * d * mr;
     }
   }
 
@@ -664,7 +671,7 @@ class ViewerControls extends Controls {
 		const dy = event.pageY - position.y;
 		const distance = Math.sqrt(dx * dx + dy * dy);
 
-    if (this.mode === "free") {
+    if (this.mode === "fps") {
       _v.setFromMatrixColumn(this.object.matrix, 2);
       this._panOffset.addScaledVector(_v, -distance * 0.01 * this.zoomSpeed);
     } else if (this.mode === "orbit") {
@@ -891,23 +898,6 @@ function onMouseWheel(event) {
 	this.dispatchEvent(_endEvent);
 }
 
-function onKeyDown(event) {
-	if (this.enabled === false) return;
-  this._activeKeys = this._activeKeys || {};
-  this._activeKeys[event.code] = true;
-  event.shiftKey ? this._activeKeys["shift"] = true : delete this._activeKeys["shift"];
-  event.ctrlKey ? this._activeKeys["ctrl"] = true : delete this._activeKeys["ctrl"];
-  event.metaKey ? this._activeKeys["meta"] = true : delete this._activeKeys["meta"];
-	// this._handleKeyDown(event);
-}
-
-function onKeyUp(event) {
-  this._activeKeys = this._activeKeys || {};
-  delete this._activeKeys[event.code];
-  event.shiftKey ? this._activeKeys["shift"] = true : delete this._activeKeys["shift"];
-  event.ctrlKey ? this._activeKeys["ctrl"] = true : delete this._activeKeys["ctrl"];
-  event.metaKey ? this._activeKeys["meta"] = true : delete this._activeKeys["meta"];
-}
 
 function onTouchStart(event) {
 	this._trackPointer(event);
