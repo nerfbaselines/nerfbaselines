@@ -147,7 +147,9 @@ class VideoWriter {
       };
       fileHandle = await window.showSaveFilePicker(opts);
     } catch (ex) {
-      throw ex;
+      if (ex.name === 'AbortError') {
+        throw ex;
+      }
       console.error(ex);
       console.log("Error saving file, falling back to download.");
       fallback();
@@ -173,7 +175,8 @@ class VideoWriter {
       fastStart: (inMemory || !this.numFrames || this.numFrames < 1) ? 'in-memory' : {
         expectedVideoChunks: this.numFrames,
       },
-      firstTimestampBehavior: 'offset'
+      firstTimestampBehavior: 'offset',
+      options: {},
     });
     const videoEncoder = new VideoEncoder({
       output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
@@ -220,6 +223,7 @@ class VideoWriter {
     });
     let lastKeyframeTimestamp = -Infinity;
     this.addFrame = async (image, { repeats } = {}) => {
+      repeats = repeats || 1;
       for (let i = 0; i < repeats; i++) {
         repeats = repeats || 1;
         if (errors.length > 0) throw errors[0];
@@ -500,7 +504,7 @@ async function saveAs(blob, opts) {
     writable = await (await window.showSaveFilePicker(opts)).createWritable();
   } catch (ex) {
     if (ex.name === 'AbortError') {
-      return;
+      throw ex;
     }
     console.error(ex);
     console.log("Error saving file, falling back to download.");
@@ -3160,6 +3164,7 @@ export class Viewer extends THREE.EventDispatcher {
         description: "Camera trajectory JSON",
       });
     } catch (error) {
+      if (error.name === "AbortError") return;
       console.error("Error saving camera path:", error);
       this.update_notification({
         header: "Error saving camera path",
@@ -3199,9 +3204,7 @@ export class Viewer extends THREE.EventDispatcher {
     try {
       await writer.saveAs();
     } catch (error) {
-      if (error.name === "AbortError") {
-        return;
-      }
+      if (error.name === "AbortError") { return; }
       console.error("Error saving video:", error);
       this.update_notification({
         header: "Error saving video",
@@ -3272,6 +3275,7 @@ export class Viewer extends THREE.EventDispatcher {
         });
       }
     } catch (error) {
+      console.error("Error rendering video:", error);
       this.update_notification({
         id: renderId,
         header: "Rendering failed",
