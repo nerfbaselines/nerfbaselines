@@ -926,12 +926,12 @@ class HTTPFrameRenderer {
     });
 
     if (!response.ok) {
+      let errorMessage = "Connection to HTTP renderer failed";
       try {
         const error = await response.json();
-        throw new Error(error.message);
-      } catch (e) {
-        throw new Error(`Connection to renderer failed: ${response.statusText}`);
-      }
+        errorMessage = error.message;
+      } catch (e) {}
+      throw new Error(errorMessage);
     }
 
     // Read response as blob
