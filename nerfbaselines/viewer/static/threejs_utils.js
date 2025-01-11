@@ -561,6 +561,9 @@ export class PivotControls extends THREE.Group {
 
 
 export class MouseInteractions {
+  // Only objects with this layer will be considered for mouse interactions.
+  static MouseInteractionLayer = 10;
+
   constructor(renderer, camera, scene, element) {
     this.renderer = renderer;
     this.scene = scene;
@@ -568,6 +571,7 @@ export class MouseInteractions {
     this.enabled = true;
 
     this._raycaster = new THREE.Raycaster();
+    this._raycaster.layers.set(MouseInteractions.MouseInteractionLayer);
     this._pointer = new THREE.Vector2();
     this._currentlyIntersected = [];
     this._currentEvent = undefined;

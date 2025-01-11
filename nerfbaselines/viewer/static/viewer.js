@@ -1247,7 +1247,7 @@ class DatasetManager {
 
     const state = viewer.state;
     this._train_cameras = new THREE.Group();
-    this._test_cameras = new THREE.Group();
+    this._test_cameras = new THREE.Group();    
     this._pointcloud = new THREE.Group();
     this._update_gui(state);
     this.scene.add(this._train_cameras);
@@ -1281,6 +1281,15 @@ class DatasetManager {
       if (state.dataset_show_pointcloud)
         this._load_pointcloud(this._pointcloud_url);
     }
+
+    // Enable mouse interactions for all objects except pointcloud.
+    // TODO: Only explicitly enable mouse interactions for objects that need it.
+    this.scene.traverse((object) => {
+      object.layers.enable(MouseInteractions.MouseInteractionLayer);
+    });
+    this._pointcloud.traverse((object) => {
+      object.layers.disable(MouseInteractions.MouseInteractionLayer);
+    });
   }
 
   _update_gui({ 
