@@ -28,6 +28,7 @@ dependencies = [
     "tqdm>=4.61.1",
     "Pillow>=8.2.0",
     "matplotlib>=3.4.2",
+    "plyfile>=0.7.3",
     "requests>=2.25.1",
     "gdown>=4.7.1",
     "tensorboard>=2.5.0",

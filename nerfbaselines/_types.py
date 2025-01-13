@@ -569,6 +569,7 @@ class Trajectory(TypedDict, total=True):
     frames: List[TrajectoryFrame]
     appearances: NotRequired[List[TrajectoryFrameAppearance]]
     fps: float
+    source: Any
 
 
 @runtime_checkable

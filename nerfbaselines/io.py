@@ -351,16 +351,6 @@ def save_trajectory(trajectory: Trajectory, file) -> None:
             appearance["embedding"] = appearance["embedding"].tolist()
         return appearance
 
-    if data.get("source"):
-        data["source"] = data["source"].copy()
-        data["source"]["keyframes"] = data["source"]["keyframes"].copy()
-        for i, kf in enumerate(data["source"].get("keyframes", [])):
-            kf = data["source"]["keyframes"][i] = kf.copy()
-            kf["pose"] = kf["pose"].flatten().tolist()
-            if "appearance" in kf:
-                kf["appearance"] = _fix_appearance(kf["appearance"])
-        if data["source"]["default_appearance"]:
-            data["source"]["default_appearance"] = _fix_appearance(data["source"]["default_appearance"])
     if data.get("frames"):
         data["frames"] = data["frames"].copy()
         for i, frame in enumerate(data["frames"]):
@@ -389,16 +379,6 @@ def load_trajectory(file) -> Trajectory:
 
     data["image_size"] = tuple(data["image_size"])
 
-    if data.get("source"):
-        data["source"] = data["source"].copy()
-        data["source"]["keyframes"] = data["source"]["keyframes"].copy()
-        for i, kf in enumerate(data["source"].get("keyframes", [])):
-            kf = data["source"]["keyframes"][i] = kf.copy()
-            kf["pose"] = np.array(kf["pose"], dtype=np.float32).reshape(-1, 4)
-            if "appearance" in kf:
-                kf["appearance"] = _fix_appearance(kf["appearance"])
-        if data["source"]["default_appearance"]:
-            data["source"]["default_appearance"] = _fix_appearance(data["source"]["default_appearance"])
     if data.get("frames"):
         data["frames"] = data["frames"].copy()
         for i, frame in enumerate(data["frames"]):
