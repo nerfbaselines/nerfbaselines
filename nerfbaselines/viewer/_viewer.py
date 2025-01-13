@@ -105,8 +105,6 @@ def get_info(model_info, datasets, nb_info, dataset_metadata):
     return info
 
 
-
-
 def combine_outputs(o1, o2, *, split_percentage=0.5, split_tilt=0):
     """
     Combines two outputs o1 and o2 with a tilted splitting line.

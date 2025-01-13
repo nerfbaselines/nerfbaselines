@@ -665,12 +665,17 @@ export class MouseInteractions {
 
     this._raycaster.setFromCamera(this._pointer, this.camera);
     if (!this._capturedPointerIds.has(event.pointerId)) {
+      const objectsToIntersect = [];
+      const addObjects = (obj) => {
+        if (obj.type === "Points") return;  // Skip Points3D
+        obj.children.forEach(addObjects);
+        objectsToIntersect.push(obj);
+      };
+      objectsToIntersect.pop(); // Remove scene
+      addObjects(this.scene);
       const pointEvents = ['pointerdown', 'pointermove', 'pointerup', 'pointerout'];
       const intersectSet = new Set();
-      const intersects = 
-        this._raycaster.intersectObjects(this.scene.children, true)
-          .filter(x => x.object?.visibleRaycast !== false)
-          .sort((a, b) => a.distance - b.distance);
+      const intersects = this._raycaster.intersectObjects(objectsToIntersect, false);
       const newIntersected = [];
       const newIntersectedSet = new Set();
       let propagate = true;

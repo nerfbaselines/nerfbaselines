@@ -3135,7 +3135,7 @@ export class Viewer extends THREE.EventDispatcher {
       source.distance_alpha = state.camera_path_distance_alpha;
     }
     const data = {
-      version: 'nerfbaselines-v1',
+      format: 'nerfbaselines-v1',
       camera_model: "pinhole",
       image_size: [w, h],
       fps,
@@ -3330,8 +3330,8 @@ export class Viewer extends THREE.EventDispatcher {
       if (!data) {
         throw new Error("No data provided");
       }
-      if (data.version !== "nerfbaselines-v1") {
-        throw new Error(`Unsupported version ${data.version}. Only 'nerfbaselines-v1' is supported`);
+      if (data.format !== "nerfbaselines-v1") {
+        throw new Error(`Unsupported format ${data.format}. Only 'nerfbaselines-v1' is supported`);
       }
       const state = this.state;
       if (data.camera_model !== "pinhole") {
