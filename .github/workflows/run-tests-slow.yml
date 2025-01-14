@@ -231,7 +231,7 @@ jobs:
           pytest -sv --run-docker --method-regex "$method_regex" -rA -x
 
           # Run tests inside the container
-          nerfbaselines shell --method "${{ matrix.method }}" --backend docker pytest -sv -rA -x --run-extras
+          nerfbaselines shell --method "${{ matrix.method }}" --backend docker pytest -sv -rA -x --run-extras --typeguard-packages ""
 
   apptainer-tests:
     runs-on: ubuntu-22.04
@@ -288,7 +288,7 @@ jobs:
           pytest -sv --run-apptainer --method-regex "$method_regex" -rA -x
 
           # Run tests inside the container
-          nerfbaselines shell --method "${{ matrix.method }}" --backend apptainer pytest -sv -rA -x --run-extras
+          nerfbaselines shell --method "${{ matrix.method }}" --backend apptainer pytest -sv -rA -x --run-extras --typeguard-packages ""
 
   conda-tests:
     runs-on: ubuntu-latest
@@ -332,7 +332,7 @@ jobs:
           pytest -sv --run-conda --method-regex "$method_regex" -rA -x
 
           # Run tests inside the container
-          nerfbaselines shell --method "${{ matrix.method }}" --backend conda pytest -sv -rA -x --run-extras
+          nerfbaselines shell --method "${{ matrix.method }}" --backend conda pytest -sv -rA -x --run-extras --typeguard-packages ""
 
   dataset-tests:
     runs-on: ubuntu-latest
@@ -351,7 +351,7 @@ jobs:
       - name: Install nerfbaselines
         run: |
           pip install --upgrade pip
-          pip install -e '.[dev]'
+          pip install -e '.[dev]' gdown
       - name: Test datasets
         run: |
           pytest -vsrA --dataset "${{ matrix.dataset }}"
