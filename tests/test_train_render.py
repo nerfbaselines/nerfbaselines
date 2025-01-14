@@ -244,13 +244,13 @@ def test_train_command_extras(tmp_path, vis, wandb_init_run):
 
             # Test if output artifact is generated
             _TestMethod._reset()
-            (tmp_path / "output1").mkdir()
-            train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output"), "python", Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), generate_output_artifact=True, logger="tensorboard")
-            assert (tmp_path / "output" / "checkpoint-13").exists()
-            assert (tmp_path / "output" / "predictions-13.tar.gz").exists()
-            assert (tmp_path / "output" / "results-13.json").exists()
+            (tmp_path / "output2").mkdir()
+            train_command.callback("_test", None, str(tmp_path / "data"), str(tmp_path / "output2"), "python", Indices.every_iters(9), Indices.every_iters(5), Indices([-1]), generate_output_artifact=True, logger="tensorboard")
+            assert (tmp_path / "output2" / "checkpoint-13").exists()
+            assert (tmp_path / "output2" / "predictions-13.tar.gz").exists()
+            assert (tmp_path / "output2" / "results-13.json").exists()
             if "tensorboard" in vis:
-                assert (tmp_path / "output" / "output.zip").exists(), "output artifact should be generated with extra metrics"
+                assert (tmp_path / "output2" / "output.zip").exists(), "output artifact should be generated with extra metrics"
 
             wandb_init_mock: mock.Mock = cast(mock.Mock, wandb.init)
             wandb_mock: mock.Mock = cast(mock.Mock, wandb.run)
@@ -286,7 +286,7 @@ def test_train_command_extras(tmp_path, vis, wandb_init_run):
                 assert len(must_have) == 0
 
             if "tensorboard" in vis:
-                assert (tmp_path / "output" / "tensorboard").exists()
+                assert (tmp_path / "output2" / "tensorboard").exists()
 
 
         finally:
