@@ -88,9 +88,24 @@ def test_get_method_info_from_spec(method):
 
     spec = get_method_spec(method)
     method_info: MethodInfo = get_method_info_from_spec(spec)
-    print(method_info)
     # assert isinstance(method_info, MethodInfo)
     assert isinstance(method_info, dict)
+    # Assert all fields are standard
+    def assert_ok_type(x):
+        if x is None: return
+        if type(x) in (str, bytes, int, float, bool): return
+        if type(x) in (list, tuple, frozenset, set):
+            for y in x:
+                assert_ok_type(y)
+            return
+        if type(x) is dict:
+            for k, v in x.items():
+                assert_ok_type(k)
+                assert_ok_type(v)
+            return
+        raise ValueError(f"Unexpected type {type(x)}")
+
+    assert_ok_type(method_info)
     assert method_info["method_id"] == method
 
 

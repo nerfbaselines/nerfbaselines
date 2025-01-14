@@ -131,30 +131,39 @@ def _mock_build_method(spec: MethodSpec) -> Iterator[Type[Method]]:
         raise RuntimeError(f"Method does not have implementation in the nerfbaselines.methods package: {method_implementation}")
 
     old_import = __import__
-    blacklist = ["torch", "scipy", "jax", "jaxlib", "cv2", "pandas", "xml", "aiohttp", "datasets"]
+    whitelist = ["nerfbaselines", "numpy", 
+                 "io", "sys", "os", "glob", "json", "math",
+                 "types", "contextlib", "warnings", "struct",
+                 "importlib", "functools", "unittest", "mock", 
+                 "typing", "typing_extensions", "logging", "argparse",
+                 "copy", "typeguard", "abc", "tempfile", "_io", "ast",
+                 "dataclasses", "shlex", "tokenize", "builtins", 
+                 "inspect", "__builtin__",
+                 "re", "pickle", "base64", "shutil", "pathlib", "gc", "random",
+                 "itertools", "collections", "operator"]
     def _is_blacklisted(name):
-        return any(name.startswith(x+".") or name == x for x in blacklist)
+        return not any(name.startswith(x+".") or name == x for x in whitelist)
     def _patch_import(name, globals=None, locals=None, fromlist=(), level=0):
         if level > 0:
             return old_import(name, globals, locals, fromlist, level)
         if _is_blacklisted(name):
             return mock.MagicMock()
-        try:
-            return old_import(name, globals, locals, fromlist, level)
-        except ImportError:
-            return mock.MagicMock()
+        return old_import(name, globals, locals, fromlist, level)
 
     from nerfbaselines._method_utils import _build_method_class_internal
+    build_method = _build_method_class_internal
+    build_method_name = f"{build_method.__module__}:{build_method.__name__}"
     new_mods = sys.modules.copy()
     for k in list(new_mods.keys()):
         if _is_blacklisted(k):
-            new_mods[k] = mock.MagicMock()
+            del new_mods[k]
     with mock.patch('builtins.__import__', side_effect=_patch_import), \
+        mock.patch('importlib.__import__', side_effect=_patch_import), \
         mock.patch('sys.modules', new=new_mods):
         backend_impl = backends.get_backend(spec, "python")
         with backend_impl:
-            build_method = _build_method_class_internal
-            yield cast(Type[Method], backend_impl.static_call(f"{build_method.__module__}:{build_method.__name__}", spec))
+            method_cls = cast(Type[Method], backend_impl.static_call(build_method_name, spec))
+            yield method_cls
 
 
 def get_method_info_from_spec(spec: MethodSpec) -> MethodInfo:

@@ -12,8 +12,11 @@ from nerfbaselines import metrics
 @pytest.mark.parametrize("sigma", [None, 0.5])
 def test_torchmetrics_ssim(kernel_size, sigma):
     import torch
-    import torchmetrics
-    import dm_pix
+    try:
+        import torchmetrics
+        import dm_pix
+    except ImportError:
+        pytest.skip("torchmetrics or dm_pix not available")
 
     np.random.seed(42)
     a = np.random.rand(3, 47, 41, 3) * 0.9 + 0.05
@@ -47,7 +50,10 @@ def test_torchmetrics_ssim(kernel_size, sigma):
 @pytest.mark.parametrize("kernel_size", [None, 3])
 @pytest.mark.parametrize("sigma", [None, 0.5])
 def test_dmpix_ssim(kernel_size, sigma):
-    import dm_pix
+    try:
+        import dm_pix
+    except ImportError:
+        pytest.skip("dm_pix not available")
 
     np.random.seed(42)
     a = np.random.rand(3, 47, 41, 3) * 0.9 + 0.05
