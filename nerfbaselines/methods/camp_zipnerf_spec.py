@@ -60,7 +60,7 @@ python -m pip install \
     gdown==5.2.0 \
     click==8.1.8 \
     Pillow==10.2.0 \
-    tensorboard==2.18.0 \
+    tensorboard==2.15.1 \
     matplotlib==3.9.4 \
     'requests<=2.32.3' \
     pytest==8.3.4 \
