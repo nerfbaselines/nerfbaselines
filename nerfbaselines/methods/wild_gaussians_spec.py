@@ -29,7 +29,7 @@ pip install \
     mediapy==1.1.2 \
     lpips==0.1.4 \
     scikit-image==0.21.0 \
-    tqdm==4.66.2 \
+    tqdm==4.66.4 \
     trimesh==4.3.2 \
     opencv-python-headless==4.10.0.84 \
     importlib_metadata==8.5.0 \
