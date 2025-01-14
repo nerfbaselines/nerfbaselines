@@ -31,7 +31,7 @@ python -m pip install \
     "flax==0.7.5" \
     plyfile==1.1 \
     tqdm==4.67.1 \
-    scikit-image<=0.25.0 \
+    'scikit-image<=0.25.0' \
     importlib_metadata==8.5.0 \
     typing_extensions==4.12.2 \
     wandb==0.19.1 \

@@ -57,7 +57,7 @@ python -m pip install \
     wandb==0.19.1 \
     gdown==5.2.0 \
     click==8.1.8 \
-    Pillow==11.1.0 \
+    Pillow==10.2.0 \
     tensorboard==2.18.0 \
     matplotlib==3.9.4 \
     'requests<=2.32.3' \

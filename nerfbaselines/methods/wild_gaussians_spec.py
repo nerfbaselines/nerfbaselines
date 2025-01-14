@@ -23,7 +23,7 @@ pip install -U pip 'setuptools<70.0.0' 'wheel==0.43.0'
 # NOTE: torch included in requirements.txt
 pip install \
     'numpy<2.0.0' -r requirements.txt \
-    plyfile==0.8.1 \
+    plyfile==1.0.3 \
     mediapy==1.1.2 \
     lpips==0.1.4 \
     scikit-image==0.21.0 \

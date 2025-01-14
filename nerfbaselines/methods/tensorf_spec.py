@@ -34,8 +34,7 @@ git clone https://github.com/apchenstu/TensoRF.git tensorf
 cd tensorf
 git checkout 9370a87c88bf41b309da694833c81845cc960d50
 
-conda install -y conda-build
-conda develop .
+conda install -y conda-build && conda develop .
 
 conda install -y pytorch==2.2.0 torchvision==0.17.0 pytorch-cuda=11.8 'numpy<2.0.0' -c pytorch -c nvidia
 pip install \
@@ -53,7 +52,7 @@ pip install \
     click==8.1.8 \
     Pillow==11.1.0 \
     imageio-ffmpeg==0.5.1 \
-    kornia==0.7.4
+    kornia==0.7.4 \
     tensorboard==2.18.0 \
     six==1.17.0 \
     'pytest<=8.3.4' \
