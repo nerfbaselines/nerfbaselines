@@ -17,8 +17,7 @@ git clone https://github.com/cvg/nerf-on-the-go.git
 cd nerf-on-the-go
 git checkout 1aba52266a9330095feab74f3a8e5d8a5f4c3ef3
 
-conda install -y pip conda-build 'ffmpeg=7.1.0'
-conda develop "$PWD"
+conda install -y pip conda-build && conda develop "$PWD"
 
 # Install requirements.
 python -m pip install --upgrade pip

@@ -4,6 +4,7 @@ RUN apt-get update --fix-missing && \
     apt-get install -y wget \
                        bzip2 \
                        build-essential \
+                       ffmpeg \
                        ca-certificates \
                        curl \
                        libgtk2.0-dev \

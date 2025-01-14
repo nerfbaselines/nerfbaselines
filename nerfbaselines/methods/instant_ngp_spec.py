@@ -61,7 +61,7 @@ cmake . \
 cmake --build build --config RelWithDebInfo -j
 
 # NOTE: torch is needed for nerfbaselines
-conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 'numpy<2.0.0' 'ffmpeg=7.1.0' -c pytorch -c nvidia
+conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 'numpy<2.0.0' -c pytorch -c nvidia
 pip install msgpack==1.0.8 \
     plyfile==0.8.1 \
     mediapy==1.1.2 \

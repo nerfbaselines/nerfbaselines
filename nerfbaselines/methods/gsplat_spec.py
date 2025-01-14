@@ -33,7 +33,6 @@ conda develop "$PWD/examples"
 
 # Install build dependencies
 conda install -y cuda-toolkit 'numpy<2.0.0' pytorch==2.1.2 torchvision==0.16.2 -c pytorch -c nvidia/label/cuda-11.8.0
-conda install -y ffmpeg=7.1.0
 export LIBRARY_PATH="$CONDA_PREFIX/lib/stubs"
 if [ "$NERFBASELINES_DOCKER_BUILD" != "1" ]; then
 conda install -y gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge

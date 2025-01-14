@@ -19,8 +19,7 @@ git clone https://github.com/deborahLevy130/seathru_NeRF seathru-nerf
 cd seathru-nerf
 git checkout 3f4ebfe2c9dcb93af7916a3c7e7e196b9b956160
 
-conda install -y pip conda-build ffmpeg=7.1.0
-conda develop "$PWD"
+conda install -y pip conda-build && conda develop "$PWD"
 
 # Install requirements.
 python -m pip install --upgrade pip

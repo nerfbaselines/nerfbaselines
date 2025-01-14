@@ -32,7 +32,7 @@ sed '239a\
 ' -i "$CONDA_PREFIX/src/nerf/run_nerf.py"
 
 # Install requirements.
-conda install -y imagemagick conda-build 'ffmpeg=7.1.0'
+conda install -y imagemagick conda-build
 pip install torch==2.3.0 torchvision==0.18.0 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu118
 # nvidia-pyindex modifies paths to install older TF with newer CUDA support
 # However, we do not want to corrupt user's environment, so we set the options manually

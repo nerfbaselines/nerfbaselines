@@ -11,7 +11,6 @@ cd kplanes
 git checkout 7e3a82dbdda31eddbe2a160bc9ef89e734d9fc54
 git submodule update --init --recursive
 
-conda install -y ffmpeg=7.1.0 -c conda-forge
 conda install -y --override-channels -c nvidia/label/cuda-11.8.0 cuda-toolkit
 conda install -y pytorch==2.3.0 torchvision==0.18.0 pytorch-cuda=11.8 'numpy<2.0.0' -c pytorch -c nvidia
 if [ "$NERFBASELINES_DOCKER_BUILD" != "1" ]; then

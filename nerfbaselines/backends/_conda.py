@@ -134,6 +134,7 @@ conda deactivate
 conda activate {shlex.quote(env_path)}
 echo -e 'channels:\n  - conda-forge\n' > {shlex.quote(os.path.join(env_path, ".condarc"))}
 conda install -y pip conda-build
+command -v ffmpeg >/dev/null || conda install -y ffmpeg=7.1.0
 pip install --upgrade pip setuptools
 mkdir -p {shlex.quote(os.path.join(env_path, "nb-sources"))}
 mkdir -p {shlex.quote(os.path.join(env_path, "src"))}

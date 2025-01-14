@@ -13,7 +13,7 @@ cd nerf_pl
 # Switch to nerfw branch
 git checkout 2dd2759619e435c66de48395b115207092967947
 
-conda install -y 'mkl<2024.1' pytorch==1.13.1 torchvision==0.14.1 pytorch-cuda=11.7 'numpy<2.0.0' ffmpeg=7.1.0 -c pytorch -c nvidia
+conda install -y 'mkl<2024.1' pytorch==1.13.1 torchvision==0.14.1 pytorch-cuda=11.7 'numpy<2.0.0' -c pytorch -c nvidia
 pip install 'pip<24.1' 'setuptools<70.0.0'
 pip install plyfile==0.8.1 \
     'pytorch-lightning==2.1.4' \

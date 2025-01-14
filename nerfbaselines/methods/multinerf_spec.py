@@ -29,7 +29,7 @@ git clone https://github.com/google-research/multinerf.git
 cd multinerf
 git checkout 5b4d4f64608ec8077222c52fdf814d40acc10bc1
 
-conda install -y pip conda-build 'ffmpeg=7.1.0'
+conda install -y pip conda-build
 conda develop "$PWD"
 
 # Install requirements.

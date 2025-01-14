@@ -24,7 +24,7 @@ NerfStudioSpec: MethodSpec = {
         "python_version": "3.10",
         "install_script": r"""
 conda install -y --override-channels -c nvidia/label/cuda-11.8.0 cuda-toolkit
-conda install -y pytorch==2.3.0 torchvision==0.18.0 pytorch-cuda=11.8 'numpy<2.0.0' ffmpeg=7.1.0 -c pytorch -c nvidia
+conda install -y pytorch==2.3.0 torchvision==0.18.0 pytorch-cuda=11.8 'numpy<2.0.0' -c pytorch -c nvidia
 if [ "$NERFBASELINES_DOCKER_BUILD" != "1" ]; then
 conda install -y gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
 fi

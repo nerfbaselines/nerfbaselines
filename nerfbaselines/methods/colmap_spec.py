@@ -8,7 +8,7 @@ ColmapMVSSpec: MethodSpec = {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.11",
         "install_script": """# Install COLMAP from conda-forge.
-conda install -y colmap=3.9.1 'ffmpeg=7.1.0' -c conda-forge
+conda install -y colmap=3.9.1 -c conda-forge
 pip install \
     pyrender==0.1.45 \
     trimesh==4.4.8 \
