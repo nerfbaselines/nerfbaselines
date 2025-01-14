@@ -47,7 +47,7 @@ def pytest_runtest_call(item):
             except ImportError as e:
                 pytest.skip(str(e))
             except Exception as e:
-                if str(e).lower().index("program 'ffmpeg' is not found") >= 0:
+                if "program 'ffmpeg' is not found" in str(e).lower():
                     pytest.skip("ffmpeg not found")
                 else:
                     raise
