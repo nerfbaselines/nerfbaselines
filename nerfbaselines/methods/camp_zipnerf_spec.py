@@ -42,6 +42,8 @@ git checkout 16206bd88f37d5c727976557abfbd9b4fa28bbe1
 
 # Prepare pip.
 conda install -y pip conda-build -c conda-forge
+# Install ffmpeg if not available
+command -v ffmpeg >/dev/null || conda install -y ffmpeg=7.1.0
 
 # Install requirements.
 python -m pip install --upgrade pip

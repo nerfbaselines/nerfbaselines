@@ -50,6 +50,8 @@ git checkout 2eee0e26d2d5fd00ec462df47752223952f6bf4e
 git submodule update --init --recursive
 
 conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 'numpy<2.0.0' -c pytorch -c nvidia
+# Install ffmpeg if not available
+command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
 conda install -y cudatoolkit-dev=11.7 gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
 conda install -c conda-forge -y nodejs==20.9.0
 conda develop .

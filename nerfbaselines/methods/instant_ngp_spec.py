@@ -32,6 +32,8 @@ conda install -y  \
     gcc_linux-64=11 gxx_linux-64=11 binutils=2.40 \
     mesalib=24.0.2 mesa-libgl-cos7-x86_64=18.3.4 mesa-libgl-devel-cos7-x86_64=18.3.4 \
     libvulkan-headers=1.3.250.0 -c conda-forge
+# Install ffmpeg if not available
+command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
 _prefix="$CONDA_PREFIX"
 conda deactivate; conda activate "$_prefix"
 ln -s "$CC" "$CONDA_PREFIX/bin/gcc"

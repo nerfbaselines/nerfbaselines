@@ -77,6 +77,8 @@ conda develop "$PWD/internal/pycolmap/pycolmap"
 
 # Install default torch to compute metrics on cuda inside the container
 pip install torch==2.2.0 torchvision==0.17.0 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu118
+# Install ffmpeg if not available
+command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
 
 # Confirm that all the unit tests pass.
 # ./scripts/run_all_unit_tests.sh

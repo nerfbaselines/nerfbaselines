@@ -59,6 +59,9 @@ pip install \
     'pytest<=8.3.4' \
     'scipy<=1.13.1'
 
+# Install ffmpeg if not available
+command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
+
 conda develop "$PWD"
 """,
     },

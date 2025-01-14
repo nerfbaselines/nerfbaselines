@@ -65,6 +65,8 @@ pip install \
 
 # Ensure nerfbaselines is executable
 echo -e '#!/usr/bin/env python3\\nfrom nerfbaselines.__main__ import main;main()' > /home/user/.local/bin/nerfbaselines && chmod +x /home/user/.local/bin/nerfbaselines
+# Install ffmpeg if not available
+command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
 
 # Delete pip cache
 pip cache purge

@@ -20,6 +20,8 @@ conda install -y gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-
 fi
 conda install -y --override-channels -c nvidia/label/cuda-11.8.0 cuda-toolkit
 pip install -U pip 'setuptools<70.0.0' 'wheel==0.43.0'
+# Install ffmpeg if not available
+command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
 # NOTE: torch included in requirements.txt
 pip install \
     'numpy<2.0.0' -r requirements.txt \

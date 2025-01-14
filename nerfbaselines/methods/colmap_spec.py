@@ -9,6 +9,8 @@ ColmapMVSSpec: MethodSpec = {
         "python_version": "3.11",
         "install_script": """# Install COLMAP from conda-forge.
 conda install -y colmap=3.9.1 -c conda-forge
+# Install ffmpeg if not available
+command -v ffmpeg >/dev/null || conda install -y ffmpeg=7.1.0
 pip install \
     pyrender==0.1.45 \
     trimesh==4.4.8 \

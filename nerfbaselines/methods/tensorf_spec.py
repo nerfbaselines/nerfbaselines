@@ -35,8 +35,9 @@ cd tensorf
 git checkout 9370a87c88bf41b309da694833c81845cc960d50
 
 conda install -y conda-build && conda develop .
-
 conda install -y pytorch==2.2.0 torchvision==0.17.0 pytorch-cuda=11.8 'numpy<2.0.0' -c pytorch -c nvidia
+# Install ffmpeg if not available
+command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
 pip install \
     tqdm==4.67.1 \
     plyfile==1.1 \
