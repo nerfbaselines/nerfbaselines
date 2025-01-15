@@ -46,7 +46,6 @@ import scene.dataset_readers  # type: ignore
 from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # type: ignore
 from scene.dataset_readers import storePly, fetchPly  # type: ignore
 ## from nerfbaselines.utils import get_transform_and_scale
-## from nerfbaselines.utils import rotate_spherical_harmonics, rotation_matrix_to_quaternion
 ## from scene.gaussian_model import inverse_sigmoid, build_rotation, PlyData, PlyElement  # noqa: E402
 from scene.dataset_readers import CameraInfo as _old_CameraInfo  # type: ignore
 from utils.general_utils import safe_state  # type: ignore
