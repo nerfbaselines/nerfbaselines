@@ -18,7 +18,7 @@ import tempfile
 import logging
 import shutil
 from tqdm import tqdm
-import requests
+import urllib.request
 from . import (
     Trajectory, 
     Method,
@@ -48,18 +48,23 @@ def _assert_not_none(value: Optional[T]) -> T:
 
 def wget(url: str, output: Union[str, Path]):
     output = Path(output)
-    response = requests.get(url, stream=True)
-    response.raise_for_status()
-    total_size_in_bytes = int(response.headers.get("content-length", 0))
-    block_size = 1024  # 1 Kibibyte
-    progress_bar = tqdm(
-        total=total_size_in_bytes, unit="iB", unit_scale=True, desc="Downloading"
-    )
-    with open(output, "wb") as f:
-        for data in response.iter_content(block_size):
-            progress_bar.update(len(data))
-            f.write(data)
-    progress_bar.close()
+    with urllib.request.urlopen(url) as response:
+        if response.getcode() != 200:
+            raise RuntimeError(f"Failed to download {url}.")
+        total_size_in_bytes = int(response.getheader("Content-Length", 0))
+        block_size = 1024
+        with tqdm(
+            total=total_size_in_bytes, unit="iB", unit_scale=True, desc="Downloading"
+        ) as progress_bar:
+            with open(output, "wb") as f:
+                while True:
+                    data = response.read(block_size)
+                    if not data:
+                        break
+                    progress_bar.update(len(data))
+                    f.write(data)
+                f.flush()
+
     if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
         logging.error(
             f"Failed to download {url}. {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes."
@@ -112,27 +117,30 @@ def open_any(
     # Download from url
     if path.startswith("http://") or path.startswith("https://"):
         assert mode == "r", "Only reading from remote files is supported."
-        response = requests.get(path, stream=True)
-        response.raise_for_status()
-        total_size_in_bytes = int(response.headers.get("content-length", 0))
-        block_size = 1024  # 1 Kibibyte
-        progress_bar = tqdm(
-            total=total_size_in_bytes, unit="iB", unit_scale=True, desc="Downloading"
-        )
-        name = path.split("/")[-1]
-        with tempfile.TemporaryFile("w+b", suffix=name) as file:
-            for data in response.iter_content(block_size):
-                progress_bar.update(len(data))
-                file.write(data)
-            file.flush()
-            file.seek(0)
-            progress_bar.close()
-            if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
-                logging.warning(
-                    f"While downloading {path}, {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes."
-                )
-            file = getattr(file, "file", file)  # Fix typeguard on windows
-            yield file
+        with urllib.request.urlopen(path) as f:
+            if f.getcode() != 200:
+                raise RuntimeError(f"Failed to download {path}.")
+            total_size_in_bytes = int(f.getheader("Content-Length", 0))
+            block_size = 1024  # 1 Kibibyte
+            progress_bar = tqdm(
+                total=total_size_in_bytes, unit="iB", unit_scale=True, desc="Downloading"
+            )
+            name = path.split("/")[-1]
+            with tempfile.TemporaryFile("w+b", suffix=name) as file:
+                data = f.read(block_size)
+                while data:
+                    progress_bar.update(len(data))
+                    file.write(data)
+                    data = f.read(block_size)
+                file.flush()
+                file.seek(0)
+                progress_bar.close()
+                if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
+                    logging.warning(
+                        f"While downloading {path}, {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes."
+                    )
+                file = getattr(file, "file", file)  # Fix typeguard on windows
+                yield file
         return
 
     # Normal file

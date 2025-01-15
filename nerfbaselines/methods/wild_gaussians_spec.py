@@ -37,7 +37,6 @@ pip install \
     wandb==0.19.1 \
     click==8.1.7 \
     Pillow==11.1.0 \
-    requests==2.28.1 \
     matplotlib==3.9.0 \
     tensorboard==2.17.0 \
     'pytest<=8.3.4' \

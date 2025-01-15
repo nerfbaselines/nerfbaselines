@@ -65,7 +65,6 @@ pip install plyfile==0.8.1 \
         wandb==0.19.1 \
         click==8.1.8 \
         Pillow==11.1.0 \
-        requests==2.32.3 \
         matplotlib==3.9.4 \
         tensorboard==2.18.0 \
         scipy==1.13.1 \

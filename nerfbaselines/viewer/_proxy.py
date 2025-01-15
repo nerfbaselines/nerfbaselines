@@ -1,3 +1,4 @@
+import shutil
 import json
 import signal
 import tempfile
@@ -9,9 +10,9 @@ import os
 import stat
 import platform
 import pathlib
-import requests
 import subprocess
 import logging
+import urllib.request
 from contextlib import contextmanager
 
 
@@ -58,30 +59,25 @@ def _download_file(url: str, dest: pathlib.Path) -> None:
     Download a file from `url` to `dest`.
     """
     logger.info(f"Downloading {url} -> {dest}")
-    resp = requests.get(url, stream=True)
-    resp.raise_for_status()
-    with open(dest, "wb") as f:
-        if str(dest).endswith(".tgz"):
-            resp = requests.get(url, stream=True)
-            resp.raise_for_status()
-            with io.BytesIO() as buffered:
-                for chunk in resp.iter_content(chunk_size=8192):
-                    buffered.write(chunk)
-                buffered.seek(0)
-                with tarfile.open(fileobj=buffered, mode="r:gz") as tar:
-                    for member in tar.getmembers():
-                        if not member.isfile():
-                            continue
-                        file = tar.extractfile(member)
-                        if file is None:
-                            continue
-                        with file:
-                            f.write(file.read())
-        else:
-            resp = requests.get(url, stream=True)
-            resp.raise_for_status()
-            for chunk in resp.iter_content(chunk_size=8192):
-                f.write(chunk)
+    with urllib.request.urlopen(url) as response:
+        if response.getcode() != 200:
+            raise RuntimeError(f"Failed to download {url} (HTTP {response.getcode()})")
+        with open(dest, "wb") as f:
+            if str(dest).endswith(".tgz"):
+                with io.BytesIO() as buffered:
+                    shutil.copyfileobj(response, buffered)
+                    buffered.seek(0)
+                    with tarfile.open(fileobj=buffered, mode="r:gz") as tar:
+                        for member in tar.getmembers():
+                            if not member.isfile():
+                                continue
+                            file = tar.extractfile(member)
+                            if file is None:
+                                continue
+                            with file:
+                                f.write(file.read())
+            else:
+                shutil.copyfileobj(response, f)
 
     # On Unix-like systems, make the file executable
     if os.name != "nt":
@@ -106,9 +102,10 @@ def _get_cloudflared_binary_path() -> pathlib.Path:
     print("Cloudflared not found in cache; downloading the latest release...")
 
     # Hit the GitHub releases API to get the latest version
-    resp = requests.get(CLOUDFLARED_LATEST_API)
-    resp.raise_for_status()
-    data = resp.json()
+    with urllib.request.urlopen(CLOUDFLARED_LATEST_API) as response:
+        if response.getcode() != 200:
+            raise RuntimeError(f"Failed to fetch the latest cloudflared release (HTTP {response.getcode()})")
+        data = json.load(response)
 
     # data["assets"] is a list of all published binaries
     # We'll search for the one that matches our `filename`

@@ -1,16 +1,15 @@
 import json
 import os
-import warnings
 from typing import List, Tuple, Union
 import logging
 from itertools import groupby
 import shutil
-import requests
 from pathlib import Path
 import numpy as np
 import zipfile
 from tqdm import tqdm
 import tempfile
+import urllib.request
 from nerfbaselines import DatasetNotFoundError
 from ._common import single, dataset_index_select
 from .colmap import load_colmap_dataset
@@ -77,64 +76,68 @@ def download_mipnerf360_dataset(path: str, output: Union[Path, str]):
         captures_to_download.append((url, scene, output))
     captures_to_download.sort(key=lambda x: x[0])
     for url, _captures in groupby(captures_to_download, key=lambda x: x[0]):
-        response = requests.get(url, stream=True)
-        response.raise_for_status()
-        total_size_in_bytes = int(response.headers.get("content-length", 0))
-        block_size = 1024  # 1 Kibibyte
-        progress_bar = tqdm(total=total_size_in_bytes, unit="iB", unit_scale=True, desc=f"Downloading {url.split('/')[-1]}", dynamic_ncols=True)
-        with tempfile.TemporaryFile("rb+") as file:
-            for data in response.iter_content(block_size):
-                progress_bar.update(len(data))
-                file.write(data)
-            file.flush()
-            file.seek(0)
-            progress_bar.close()
-            if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
-                logging.error(f"Failed to download dataset. {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes.")
+        with urllib.request.urlopen(url) as response:
+            if response.getcode() != 200:
+                raise RuntimeError(f"Failed to fetch {DATASET_NAME} - HTTP error {response.getcode()})")
+            total_size_in_bytes = int(response.getheader("Content-Length", 0))
+            block_size = 1024  # 1 Kibibyte
+            progress_bar = tqdm(total=total_size_in_bytes, unit="iB", unit_scale=True, desc=f"Downloading {url.split('/')[-1]}", dynamic_ncols=True)
+            with tempfile.TemporaryFile("rb+") as file:
+                while True:
+                    data = response.read(block_size)
+                    if not data:
+                        break
+                    file.write(data)
+                    progress_bar.update(len(data))
+                file.flush()
+                file.seek(0)
+                progress_bar.close()
+                if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
+                    logging.error(f"Failed to download dataset. {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes.")
 
-            has_any = False
-            with zipfile.ZipFile(file) as z:
-                for _, scene, output in _captures:
-                    output_tmp = output.with_suffix(".tmp")
-                    output_tmp.mkdir(exist_ok=True, parents=True)
-                    for info in z.infolist():
-                        if not info.filename.startswith(scene + "/"):
-                            continue
-                        # z.extract(name, output_tmp)
-                        has_any = True
-                        relname = info.filename[len(scene) + 1 :]
-                        target = output_tmp / relname
-                        target.parent.mkdir(exist_ok=True, parents=True)
-                        if info.is_dir():
-                            target.mkdir(exist_ok=True, parents=True)
-                        else:
-                            with z.open(info) as source, open(target, "wb") as target:
-                                shutil.copyfileobj(source, target)
-                    if not has_any:
-                        raise RuntimeError(f"Capture '{scene}' not found in {url}.")
+                has_any = False
+                with zipfile.ZipFile(file) as z:
+                    for _, scene, output in _captures:
+                        output_tmp = output.with_suffix(".tmp")
+                        output_tmp.mkdir(exist_ok=True, parents=True)
+                        for info in z.infolist():
+                            if not info.filename.startswith(scene + "/"):
+                                continue
+                            # z.extract(name, output_tmp)
+                            has_any = True
+                            relname = info.filename[len(scene) + 1 :]
+                            target = output_tmp / relname
+                            target.parent.mkdir(exist_ok=True, parents=True)
+                            if info.is_dir():
+                                target.mkdir(exist_ok=True, parents=True)
+                            else:
+                                with z.open(info) as source, open(target, "wb") as target:
+                                    shutil.copyfileobj(source, target)
+                        if not has_any:
+                            raise RuntimeError(f"Capture '{scene}' not found in {url}.")
 
-                    res = _scenes360_res[scene]
-                    images_path = "images" if res == 1 else f"images_{res}"
+                        res = _scenes360_res[scene]
+                        images_path = "images" if res == 1 else f"images_{res}"
 
-                    with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f:
-                        json.dump({
-                            "loader": "colmap",
-                            "loader_kwargs": {
-                                "images_path": images_path,
-                            },
-                            "id": DATASET_NAME,
-                            "scene": scene,
-                            "downscale_factor": res,
-                            "evaluation_protocol": "nerf",
-                            "type": "object-centric",
-                        }, f)
+                        with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f:
+                            json.dump({
+                                "loader": "colmap",
+                                "loader_kwargs": {
+                                    "images_path": images_path,
+                                },
+                                "id": DATASET_NAME,
+                                "scene": scene,
+                                "downscale_factor": res,
+                                "evaluation_protocol": "nerf",
+                                "type": "object-centric",
+                            }, f)
 
-                    # Generate split files
-                    _save_colmap_splits(output_tmp)
+                        # Generate split files
+                        _save_colmap_splits(output_tmp)
 
-                    shutil.rmtree(output, ignore_errors=True)
-                    shutil.move(str(output_tmp), str(output))
-                    logging.info(f"Downloaded {DATASET_NAME}/{scene} to {output}")
+                        shutil.rmtree(output, ignore_errors=True)
+                        shutil.move(str(output_tmp), str(output))
+                        logging.info(f"Downloaded {DATASET_NAME}/{scene} to {output}")
 
 
 __all__ = ["download_mipnerf360_dataset"]

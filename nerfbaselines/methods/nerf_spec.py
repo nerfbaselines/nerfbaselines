@@ -52,7 +52,6 @@ pip install \
     'wandb<=0.19.1' \
     'click<=8.1.8' \
     'Pillow<=11.1.0' \
-    'requests<=2.32.3' \
     'matplotlib<=3.9.4' \
     'tensorboard==1.15.0' \
     'pytest<=8.3.4' \

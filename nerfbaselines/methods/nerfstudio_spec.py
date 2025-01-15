@@ -48,7 +48,6 @@ pip install \
     tensorboard==2.18.0 \
     matplotlib==3.9.4 \
     'tqdm<=4.67.1' \
-    'requests<=2.32.3' \
     'mediapy<=1.1.2' \
     'opencv-python-headless<=4.10.0.84' \
     'pytest<=8.3.4' \

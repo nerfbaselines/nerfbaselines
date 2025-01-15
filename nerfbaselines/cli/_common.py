@@ -1,3 +1,4 @@
+import io
 import time
 import logging
 import traceback
@@ -9,9 +10,9 @@ import io
 import hashlib
 import os
 import itertools
-
 from typing import Any, cast
-import itertools
+import urllib.request
+
 import numpy as np
 import pprint
 import json
@@ -450,7 +451,6 @@ def click_backend_option():
 def warn_if_newer_version_available():
     if os.environ.get("NERFBASELINES_NO_UPDATE_CHECK", "0") == "1":
         return
-    import requests
     from packaging import version
     from nerfbaselines import __version__
     if __version__ in ("dev", "develop"):
@@ -467,16 +467,18 @@ def warn_if_newer_version_available():
 
     if latest_version_str is None:
         try:
-            r = requests.get("https://pypi.org/pypi/nerfbaselines/json")
-            r.raise_for_status()
-            latest_version_str = r.json()["info"]["version"]
-            try:
-                os.makedirs(NB_PREFIX, exist_ok=True)
-                with open(os.path.join(NB_PREFIX, ".latest-version-cache"), "w") as f:
-                    f.write(f"{latest_version_str}\n{time.time()}")
-                logging.debug("Updated latest version cache")
-            except Exception as e:
-                logging.exception(e)
+            with urllib.request.urlopen("https://pypi.org/pypi/nerfbaselines/json") as f:
+                if f.status != 200:
+                    raise RuntimeError(f"Failed to fetch latest version: {f.status}")
+                data = json.load(f)
+                latest_version_str = data["info"]["version"]
+                try:
+                    os.makedirs(NB_PREFIX, exist_ok=True)
+                    with open(os.path.join(NB_PREFIX, ".latest-version-cache"), "w") as f:
+                        f.write(f"{latest_version_str}\n{time.time()}")
+                    logging.debug("Updated latest version cache")
+                except Exception as e:
+                    logging.exception(e)
         except Exception:
             # No network connection
             return

@@ -65,7 +65,6 @@ python -m pip install \
     wandb==0.19.1 \
     click==8.1.8 \
     Pillow==10.2.0 \
-    requests==2.32.3 \
     'pytest<=8.3.4' \
     matplotlib==3.9.4
 

@@ -16,7 +16,7 @@ import numpy as np
 import PIL.Image
 import PIL.ExifTags
 from tqdm import tqdm
-import requests
+import urllib.request
 from typing import (
     Optional, TypeVar, Tuple, Union, List, Dict, Any, 
     FrozenSet, Iterable,
@@ -642,28 +642,31 @@ def download_archive_dataset(url: str,
                              nb_info: Dict[str, Any],
                              callback=None,
                              file_type = None):
-    response = requests.get(url, stream=True)
-    response.raise_for_status()
-    total_size_in_bytes = int(response.headers.get("content-length", 0))
-    block_size = 1024  # 1 Kibibyte
-    progress_bar = tqdm(
-        total=total_size_in_bytes,
-        unit="iB",
-        unit_scale=True,
-        desc=f"Downloading {url.split('/')[-1]}", 
-        dynamic_ncols=True,
-    )
-    with tempfile.TemporaryFile("rb+") as file:
-        for data in response.iter_content(block_size):
-            progress_bar.update(len(data))
-            file.write(data)
+
+    with tempfile.TemporaryFile("rb+") as file, \
+        urllib.request.urlopen(url) as response:
+        if response.getcode() != 200:
+            raise RuntimeError(f"Failed to download dataset - HTTP error {response.getcode()}.")
+        total_size_in_bytes = int(response.getheader("Content-Length", 0))
+        block_size = 1024  # 1 Kibibyte
+        with tqdm(
+            total=total_size_in_bytes,
+            unit="iB",
+            unit_scale=True,
+            desc=f"Downloading {url.split('/')[-1]}", 
+            dynamic_ncols=True) as progress_bar:
+            while True:
+                data = response.read(block_size)
+                if not data:
+                    break
+                file.write(data)
+                progress_bar.update(len(data))
+            if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:  # noqa: PLR1714
+                logger.error(
+                    f"Failed to download dataset. {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes."
+                )
         file.flush()
         file.seek(0)
-        progress_bar.close()
-        if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:  # noqa: PLR1714
-            logger.error(
-                f"Failed to download dataset. {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes."
-            )
 
         has_any = False
         if file_type is None:

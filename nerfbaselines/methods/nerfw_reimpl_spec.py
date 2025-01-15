@@ -33,7 +33,6 @@ pip install plyfile==0.8.1 \
     wandb==0.19.1 \
     'Pillow<=11.1.0' \
     click==8.1.8 \
-    'requests==2.32.3' \
     mediapy==1.1.2 \
     lpips==0.1.4 \
     'pytest<=8.3.4' \

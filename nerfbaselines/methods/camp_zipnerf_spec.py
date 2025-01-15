@@ -61,7 +61,6 @@ python -m pip install \
     Pillow==10.2.0 \
     tensorboard==2.15.1 \
     matplotlib==3.9.4 \
-    'requests<=2.32.3' \
     pytest==8.3.4 \
     scipy==1.13.1 \
     -r requirements.txt

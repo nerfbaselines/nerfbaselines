@@ -27,7 +27,6 @@ dependencies = [
     "Pillow>=8.2.0",
     "matplotlib>=3.4.2",
     "plyfile>=0.7.3",
-    "requests>=2.25.1",
     "numpy>=1.19.5,<2.0.0",
     "tensorboard>=2.5.0",
     "scipy",
