@@ -7,7 +7,7 @@ import setuptools.command.sdist
 try:
     from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
 except ImportError:
-    _bdist_wheel = None
+    _bdist_wheel = None  # type: ignore
 
 
 _LPIPS_WEIGHTS_URL = "https://github.com/richzhang/PerceptualSimilarity/raw/c33f89e9f46522a584cf41d8880eb0afa982708b/lpips/weights/v{version}/{net}.pth"
@@ -47,7 +47,7 @@ if _bdist_wheel is not None:
             _ensure_files_exist()
             super().run()
 
-    cmdclass['bdist_wheel'] = bdist_wheel
+    cmdclass['bdist_wheel'] = bdist_wheel  # type: ignore
 
 
 if __name__ == "__main__":
