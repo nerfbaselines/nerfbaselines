@@ -2,9 +2,12 @@
 # This file downloads the required resources for the package.
 # It is run both for sdist and bdist, and the resources are included in the package.
 import os
-import setuptools.command.sdist
-import setuptools.command.bdist_wheel
 import urllib.request
+import setuptools.command.sdist
+try:
+    from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
+except ImportError:
+    _bdist_wheel = None
 
 
 _LPIPS_WEIGHTS_URL = "https://github.com/richzhang/PerceptualSimilarity/raw/c33f89e9f46522a584cf41d8880eb0afa982708b/lpips/weights/v{version}/{net}.pth"
@@ -33,11 +36,18 @@ class sdist(setuptools.command.sdist.sdist):
         super().run()
 
 
-class bdist_wheel(setuptools.command.bdist_wheel.bdist_wheel):
-    def run(self):
-        # generate data files
-        _ensure_files_exist()
-        super().run()
+cmdclass = {
+    'sdist': sdist,
+}
+
+if _bdist_wheel is not None:
+    class bdist_wheel(_bdist_wheel):
+        def run(self):
+            # generate data files
+            _ensure_files_exist()
+            super().run()
+
+    cmdclass['bdist_wheel'] = bdist_wheel
 
 
 if __name__ == "__main__":
@@ -45,8 +55,5 @@ if __name__ == "__main__":
         data_files=[
             ('generated', [x[1] for x in _pull_data]),
         ],
-        cmdclass={
-            'sdist': sdist,
-            'bdist_wheel': bdist_wheel
-        },
+        cmdclass=cmdclass,
     )
