@@ -57,7 +57,6 @@ python -m pip install \
     typing_extensions==4.12.2 \
     mediapy==1.2.0 \
     wandb==0.19.1 \
-    gdown==5.2.0 \
     click==8.1.8 \
     Pillow==10.2.0 \
     tensorboard==2.15.1 \

@@ -35,7 +35,6 @@ python -m pip install \
     importlib_metadata==8.5.0 \
     typing_extensions==4.12.2 \
     wandb==0.19.1 \
-    gdown==5.2.0 \
     click==8.1.8 \
     "gin-config==0.5.0" \
     "immutabledict==4.1.0" \

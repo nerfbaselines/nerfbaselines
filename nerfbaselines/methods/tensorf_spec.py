@@ -49,7 +49,6 @@ pip install \
     mediapy==1.1.2 \
     lpips==0.1.4 \
     wandb==0.19.1 \
-    gdown==5.2.0 \
     click==8.1.8 \
     Pillow==11.1.0 \
     imageio-ffmpeg==0.5.1 \

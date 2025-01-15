@@ -31,7 +31,6 @@ pip install plyfile==0.8.1 \
     typing_extensions==4.12.2 \
     tensorboard==2.18.0 \
     wandb==0.19.1 \
-    gdown==5.2.0 \
     'Pillow<=11.1.0' \
     click==8.1.8 \
     'requests==2.32.3' \

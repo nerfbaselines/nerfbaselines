@@ -23,7 +23,6 @@ pip install \
     typing_extensions==4.12.2 \
     mediapy==1.1.2 \
     wandb==0.19.1 \
-    gdown==5.2.0 \
     click==8.1.8 \
     Pillow==11.1.0 \
     requests==2.32.3 \
