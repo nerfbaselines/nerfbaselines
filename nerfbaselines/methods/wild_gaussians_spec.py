@@ -26,7 +26,7 @@ command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
 pip install \
     'numpy<2.0.0' -r requirements.txt \
     plyfile==1.0.3 \
-    mediapy==1.1.2 \
+    mediapy==1.2.2 \
     lpips==0.1.4 \
     scikit-image==0.21.0 \
     tqdm==4.66.4 \
@@ -38,9 +38,9 @@ pip install \
     gdown==5.2.0 \
     click==8.1.7 \
     Pillow==11.1.0 \
-    requests==2.32.3 \
-    matplotlib==3.9.4 \
-    tensorboard==2.18.0 \
+    requests==2.28.1 \
+    matplotlib==3.9.0 \
+    tensorboard==2.17.0 \
     'pytest<=8.3.4' \
     scipy==1.13.1
 
