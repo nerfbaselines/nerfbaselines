@@ -58,7 +58,6 @@ conda develop .
 pip install lpips==0.1.4 importlib_metadata typing_extensions
 if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
 
-function nb-post-install () {
 if [ "$NERFBASELINES_DOCKER_BUILD" = "1" ]; then
 # Reduce size of the environment by removing unused files
 find "$CONDA_PREFIX" -name '*.a' -delete
@@ -71,7 +70,6 @@ for lib in "$CONDA_PREFIX"/lib/*.so*; do
     if [ -f "$tgt" ]; then echo "Deleting $lib"; rm "$lib"*; for tgtlib in "$tgt"*; do ln -s "$tgtlib" "$(dirname "$lib")"; done; fi;
 done
 fi
-}
 """,
     },
     "metadata": {

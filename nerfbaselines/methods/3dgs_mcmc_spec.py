@@ -65,7 +65,6 @@ pip install plyfile==0.8.1 \
 
 conda develop .
 
-function nb-post-install () {
 if [ "$NERFBASELINES_DOCKER_BUILD" = "1" ]; then
 # Reduce size of the environment by removing unused files
 find "$CONDA_PREFIX" -name '*.a' -delete
@@ -78,7 +77,6 @@ for lib in "$CONDA_PREFIX"/lib/*.so*; do
     if [ -f "$tgt" ]; then echo "Deleting $lib"; rm "$lib"*; for tgtlib in "$tgt"*; do ln -s "$tgtlib" "$(dirname "$lib")"; done; fi;
 done
 fi
-}
 """,
     },
     "metadata": {

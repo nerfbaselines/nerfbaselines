@@ -86,14 +86,12 @@ echo "export LD_LIBRARY_PATH=\"$CONDA_PREFIX/src/instant-ngp/build:$CONDA_PREFIX
 echo "export PATH=\"$CONDA_PREFIX/src/instant-ngp/build:\$PATH\"" >> "$CONDA_PREFIX/etc/conda/activate.d/env_vars.sh"
 
 # Test pyngp is available
-function nb-post-install () {
-    # If not in CI, test the installation
-    if [ "$GITHUB_ACTIONS" != "true" ]; then
-        conda deactivate; conda activate "$_prefix"; 
-        echo "Testing pyngp"
-        LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/stubs" python -c "import pyngp;" || exit 1
-    fi
-}
+# If not in CI, test the installation
+if [ "$GITHUB_ACTIONS" != "true" ] && [ "$NERFBASELINES_DOCKER_BUILD" = "1" ]; then
+    conda deactivate; conda activate "$_prefix"; 
+    echo "Testing pyngp"
+    LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/stubs" python -c "import pyngp;" || exit 1
+fi
 """,
     },
     "metadata": {

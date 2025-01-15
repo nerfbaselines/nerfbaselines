@@ -58,13 +58,11 @@ pip install \
 # Install ffmpeg if not available
 command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
 
-function nb-post-install () {
 if [ "$NERFBASELINES_DOCKER_BUILD" = "1" ]; then
 # Reduce size of the environment by removing unused files
 find "$CONDA_PREFIX" -name '*.a' -delete
 find "$CONDA_PREFIX" -type d -name 'nsight*' -exec rm -r {} +
 fi
-}
 """,
     },
     "metadata": {

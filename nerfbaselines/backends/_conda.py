@@ -146,10 +146,6 @@ echo 'eval "$(conda shell.bash hook)"' >> {shlex.quote(os.path.join(env_path, ".
 echo 'conda activate {shlex.quote(env_path)};export NERFBASELINES_BACKEND=python;export NERFBASELINES_ALLOWED_METHODS="{allowed_methods}"' >> {shlex.quote(os.path.join(env_path, ".activate.sh"))}
 echo 'exec "$@"' >> {shlex.quote(os.path.join(env_path, ".activate.sh"))}
 chmod +x {shlex.quote(os.path.join(env_path, ".activate.sh"))}
-# If function nb-post-install is declared, run it
-if declare -f nb-post-install >/dev/null; then
-    nb-post-install || exit 1
-fi
 touch {shlex.quote(env_path + ".ack.txt")}
 echo "0" > {shlex.quote(env_path + ".ack.txt")}
 fi

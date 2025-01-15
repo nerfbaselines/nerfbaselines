@@ -38,13 +38,11 @@ pip install lpips==0.1.4 \
     'pytest<=8.3.4' \
     scipy==1.13.1
 
-function nb-post-install () {
 if [ "$NERFBASELINES_DOCKER_BUILD" = "1" ]; then
 # Reduce size of the environment by removing unused files
 find "$CONDA_PREFIX" -name '*.a' -delete
 find "$CONDA_PREFIX" -type d -name 'nsight*' -exec rm -r {} +
 fi
-}
 """,
     },
     "metadata": {

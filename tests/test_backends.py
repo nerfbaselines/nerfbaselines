@@ -27,7 +27,6 @@ def dependencies():
     dependencies.append("ffmpeg")
     dependencies.append("wandb")
     dependencies.append("mediapy")
-    dependencies.append("gdown")
     dependencies.append("pytest")
     return dependencies
 
