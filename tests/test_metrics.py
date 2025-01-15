@@ -155,3 +155,27 @@ def test_lpips(metric):
         # Different shape raises error
         with pytest.raises(Exception):
             getattr(metrics, metric)(a, b[:-1])
+
+
+@pytest.mark.extras
+def test_lpips_v0():
+    metrics._LPIPS_CACHE.clear()
+    metrics._LPIPS_GPU_AVAILABLE = None
+    sys.modules.pop("nerfbaselines._metrics_lpips", None)
+    np.random.seed(42)
+    batch_shapes = [
+        (3,),
+        (2, 2),
+        (
+            2,
+            1,
+            1,
+        ),
+    ]
+    for bs in batch_shapes:
+        a = np.random.rand(*bs, 33, 38, 3)
+        b = np.random.rand(*bs, 33, 38, 3)
+
+        val = metrics._lpips(a, b, net="vgg", version="0.0")
+        assert isinstance(val, np.ndarray)
+        assert val.shape == bs

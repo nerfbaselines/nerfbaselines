@@ -9,3 +9,4 @@ include nerfbaselines/**/*.ttf
 include nerfbaselines/**/*.ico
 include nerfbaselines/**/*.png
 include nerfbaselines/**/Dockerfile
+include nerfbaselines/_lpips_weights/*.pth
