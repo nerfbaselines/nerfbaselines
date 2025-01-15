@@ -102,7 +102,7 @@ def pytest_collection_modifyitems(config, items: List[pytest.Item]):
                 method_name = item.keywords["method"].args[0]
                 assert isinstance(method_name, str), "method name must be a string"
                 if method_re.match(method_name) is None:
-                    item.add_marker(pytest.mark.skip(reason="method not enabled"))
+                    item.add_marker(pytest.mark.skip(reason=f"method '{method_name}' not enabled"))
                     
     datasets = config.getoption("--dataset")
     # Apply datasets' filter

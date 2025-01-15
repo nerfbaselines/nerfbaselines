@@ -97,39 +97,6 @@ function nb-post-install () {
 }
 """,
     },
-    "docker": {
-        "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
-        "image": "kulhanek/ingp:latest",
-        "python_path": "python3",
-        "home_path": "/root",
-        "build_script": """
-# Install ffmpeg
-sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg && sudo apt-get clean && sudo rm -rf /var/lib/apt/lists/*
-
-# Install default torch to compute metrics on cuda inside the container
-pip install 'opencv-python-headless<=4.10.0.84' torch==2.0.1 torchvision==0.15.2 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu117
-pip install \
-    "msgpack<=1.0.8" \
-    "plyfile==0.8.1" \
-    "mediapy<=1.1.2" \
-    "scikit-image<=0.21.0" \
-    "tqdm<=4.66.2" \
-    "importlib_metadata==8.5.0" \
-    "typing_extensions==4.12.2" \
-    "wandb<=0.19.1" \
-    "gdown<=5.2.0" \
-    "click<=8.1.8" \
-    "Pillow<=11.1.0" \
-    "requests<=2.32.3" \
-    "matplotlib<=3.9.4" \
-    "tensorboard<=2.18.0" \
-    'pytest<=8.3.4' \
-    "scipy<=1.13.1"
-
-# Delete pip cache
-pip cache purge
-""",
-    },
     "metadata": {
         "name": "Instant NGP",
         "description": """Instant-NGP is a method that uses hash-grid and a shallow MLP to accelerate training and rendering.
