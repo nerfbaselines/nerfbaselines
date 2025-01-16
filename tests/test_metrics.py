@@ -1,3 +1,4 @@
+import importlib.resources
 import sys
 from typing import cast
 import numpy as np
@@ -179,3 +180,9 @@ def test_lpips_v0():
         val = metrics._lpips(a, b, net="vgg", version="0.0")
         assert isinstance(val, np.ndarray)
         assert val.shape == bs
+
+
+def test_lpips_checkpoints_exists():
+    import nerfbaselines._lpips_weights
+    assert importlib.resources.is_resource(nerfbaselines._lpips_weights, "vgg-0.1.pth")
+    assert importlib.resources.is_resource(nerfbaselines._lpips_weights, "alex-0.1.pth")

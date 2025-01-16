@@ -20,6 +20,7 @@ from PIL import Image
 from nerfbaselines import BackendName
 from nerfbaselines.backends import run_on_host
 from nerfbaselines.utils import Indices
+from nerfbaselines.io import wget
 from nerfbaselines import NB_PREFIX
 try:
     from typing import get_args
@@ -467,9 +468,7 @@ def warn_if_newer_version_available():
 
     if latest_version_str is None:
         try:
-            with urllib.request.urlopen("https://pypi.org/pypi/nerfbaselines/json") as f:
-                if f.status != 200:
-                    raise RuntimeError(f"Failed to fetch latest version: {f.status}")
+            with wget("https://pypi.org/pypi/nerfbaselines/json") as f:
                 data = json.load(f)
                 latest_version_str = data["info"]["version"]
                 try:

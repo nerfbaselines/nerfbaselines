@@ -1,3 +1,4 @@
+import zlib
 import io
 import struct
 import base64
@@ -46,29 +47,52 @@ def _assert_not_none(value: Optional[T]) -> T:
     return value
 
 
-def wget(url: str, output: Union[str, Path]):
-    output = Path(output)
-    with urllib.request.urlopen(url) as response:
+def wget(url: str, output: Union[str, Path, None, BinaryIO] = None, *, desc: Optional[str] = None):
+    if output is None:
+        @contextlib.contextmanager
+        def _wget():
+            with io.BytesIO() as f:
+                wget(url, f, desc=desc)
+                f.seek(0)
+                yield f
+        return _wget()
+
+    if isinstance(output, (str, Path)):
+        output = str(output)
+        with open_any(output, "w") as f:
+            wget(url, f, desc=desc)
+        return
+
+    with contextlib.ExitStack() as stack:
+        request = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0",
+            "Accept-Encoding": "gzip",
+            "Accept": "*/*",
+        })
+        response = stack.enter_context(urllib.request.urlopen(request))
         if response.getcode() != 200:
             raise RuntimeError(f"Failed to download {url}.")
         total_size_in_bytes = int(response.getheader("Content-Length", 0))
-        block_size = 1024
-        with tqdm(
-            total=total_size_in_bytes, unit="iB", unit_scale=True, desc="Downloading"
-        ) as progress_bar:
-            with open(output, "wb") as f:
-                while True:
-                    data = response.read(block_size)
-                    if not data:
-                        break
-                    progress_bar.update(len(data))
-                    f.write(data)
-                f.flush()
-
-    if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
-        logging.error(
-            f"Failed to download {url}. {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes."
-        )
+        block_size = 1024 * 32
+        rfile = response
+        if desc is not None:
+            rfile = stack.enter_context(tqdm.wrapattr(
+                rfile, "read", total=total_size_in_bytes,
+                unit="iB", unit_scale=True, desc=desc, dynamic_ncols=True))
+        decompressor = None
+        if response.getheader("Content-Encoding", "") == "gzip":
+            decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
+        while True:
+            data = rfile.read(block_size)
+            if not data:
+                break
+            if decompressor is not None:
+                data = decompressor.decompress(data)
+            output.write(data)
+        if decompressor is not None:
+            data = decompressor.flush()
+            output.write(data)
+        output.flush()
 
 
 @contextlib.contextmanager
@@ -117,35 +141,17 @@ def open_any(
     # Download from url
     if path.startswith("http://") or path.startswith("https://"):
         assert mode == "r", "Only reading from remote files is supported."
-        with urllib.request.urlopen(path) as f:
-            if f.getcode() != 200:
-                raise RuntimeError(f"Failed to download {path}.")
-            total_size_in_bytes = int(f.getheader("Content-Length", 0))
-            block_size = 1024  # 1 Kibibyte
-            progress_bar = tqdm(
-                total=total_size_in_bytes, unit="iB", unit_scale=True, desc="Downloading"
-            )
-            name = path.split("/")[-1]
-            with tempfile.TemporaryFile("w+b", suffix=name) as file:
-                data = f.read(block_size)
-                while data:
-                    progress_bar.update(len(data))
-                    file.write(data)
-                    data = f.read(block_size)
-                file.flush()
-                file.seek(0)
-                progress_bar.close()
-                if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
-                    logging.warning(
-                        f"While downloading {path}, {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes."
-                    )
-                file = getattr(file, "file", file)  # Fix typeguard on windows
-                yield file
+        name = path.split("/")[-1]
+        with tempfile.TemporaryFile("w+b", suffix=name) as file:
+            wget(path, file, desc="Downloading")
+            file.seek(0)
+            file = getattr(file, "file", file)  # Fix typeguard on windows
+            yield file
         return
 
     # Normal file
     if mode == "w":
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, mode=mode + "b") as f:
         yield f
 

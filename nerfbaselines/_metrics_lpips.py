@@ -31,9 +31,10 @@ from torchvision import models as tv
 from torch import nn
 import torch.nn
 import importlib.resources
+from nerfbaselines.io import wget
 import nerfbaselines._lpips_weights
-import urllib.request
 import logging
+import gzip
 
 
 def normalize_tensor(in_feat,eps=1e-10):
@@ -138,9 +139,8 @@ class LPIPS(nn.Module):
                         logging.info('Loading LPIPS model from package resources')
                     else:
                         model_url = WEIGHTS_URL.format(version=version, net=net)
-                        with urllib.request.urlopen(model_url) as f:
-                            with io.BytesIO(f.read()) as f:
-                                weights = torch.load(f, map_location='cpu')
+                        with wget(model_url) as f, io.BufferedReader(f) as f:
+                            weights = torch.load(f, map_location='cpu')
                         logging.info('Loading LPIPS model from: %s'%model_url)
                 else:
                     weights = torch.load(model_path, map_location='cpu')

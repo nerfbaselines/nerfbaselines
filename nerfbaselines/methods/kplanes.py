@@ -346,7 +346,10 @@ class CameraBoundsIndex:
         if dataset_name == "phototourism" and scene in _phototourism_bounds:
             logging.info(f"Using official K-planes pre-computed camera bounds for scene {scene}")
             assert scene is not None, "Scene is required"  # pyright not clever enough
-            with urllib.request.urlopen(_phototourism_bounds[scene]) as r:
+            request = urllib.request.Request(_phototourism_bounds[scene], headers={
+                "User-Agent": "Mozilla/5.0",
+            })
+            with urllib.request.urlopen(request) as r:
                 if r.getcode() != 200:
                     raise RuntimeError(f"Failed to download camera bounds for scene {scene} (HTTP {r.getcode()})")
                 names, bounds_data = [], []

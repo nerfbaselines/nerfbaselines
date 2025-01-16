@@ -12,8 +12,8 @@ import platform
 import pathlib
 import subprocess
 import logging
-import urllib.request
 from contextlib import contextmanager
+from nerfbaselines.io import wget
 
 
 logging.basicConfig(level=logging.INFO)
@@ -59,25 +59,22 @@ def _download_file(url: str, dest: pathlib.Path) -> None:
     Download a file from `url` to `dest`.
     """
     logger.info(f"Downloading {url} -> {dest}")
-    with urllib.request.urlopen(url) as response:
-        if response.getcode() != 200:
-            raise RuntimeError(f"Failed to download {url} (HTTP {response.getcode()})")
-        with open(dest, "wb") as f:
-            if str(dest).endswith(".tgz"):
-                with io.BytesIO() as buffered:
-                    shutil.copyfileobj(response, buffered)
-                    buffered.seek(0)
-                    with tarfile.open(fileobj=buffered, mode="r:gz") as tar:
-                        for member in tar.getmembers():
-                            if not member.isfile():
-                                continue
-                            file = tar.extractfile(member)
-                            if file is None:
-                                continue
-                            with file:
-                                f.write(file.read())
-            else:
-                shutil.copyfileobj(response, f)
+    with open(dest, "wb") as fout:
+        if str(dest).endswith(".tgz"):
+            with io.BytesIO() as buffered:
+                wget(url, buffered)
+                buffered.seek(0)
+                with tarfile.open(fileobj=buffered, mode="r:gz") as tar:
+                    for member in tar.getmembers():
+                        if not member.isfile():
+                            continue
+                        file = tar.extractfile(member)
+                        if file is None:
+                            continue
+                        with file:
+                            fout.write(file.read())
+        else:
+            wget(url, buffered)
 
     # On Unix-like systems, make the file executable
     if os.name != "nt":
@@ -102,10 +99,8 @@ def _get_cloudflared_binary_path() -> pathlib.Path:
     print("Cloudflared not found in cache; downloading the latest release...")
 
     # Hit the GitHub releases API to get the latest version
-    with urllib.request.urlopen(CLOUDFLARED_LATEST_API) as response:
-        if response.getcode() != 200:
-            raise RuntimeError(f"Failed to fetch the latest cloudflared release (HTTP {response.getcode()})")
-        data = json.load(response)
+    with wget(CLOUDFLARED_LATEST_API) as f:
+        data = json.load(f)
 
     # data["assets"] is a list of all published binaries
     # We'll search for the one that matches our `filename`

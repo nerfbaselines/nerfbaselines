@@ -7,7 +7,8 @@ from .nerfstudio import NerfStudio
 
 
 def download_pointcloud(url):
-    with urllib.request.urlopen(url) as response:
+    request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(request) as response:
         if response.getcode() != 200:
             raise RuntimeError(f"Failed to download {url} (HTTP {response.getcode()})")
         total_size_in_bytes = int(response.getheader("Content-Length", 0))

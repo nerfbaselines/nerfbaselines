@@ -5,10 +5,10 @@ import logging
 from pathlib import Path
 from typing import Union, cast, Dict, Iterable
 from functools import partial
-import urllib.request
 
 import numpy as np
 
+from nerfbaselines.io import wget
 from nerfbaselines import (
     Dataset, EvaluationProtocol, Method, 
     RenderOutput, DatasetNotFoundError, RenderOptions
@@ -61,9 +61,7 @@ def _add_split_lists(output, scene):
     # Download test list if available
     if scene in _split_lists:
         split_list_url = _split_lists[scene]
-        with urllib.request.urlopen(split_list_url) as response:
-            if response.getcode() != 200:
-                raise RuntimeError(f"Failed to download {split_list_url} (HTTP {response.getcode()})")
+        with wget(split_list_url) as response:
             encoding = response.headers.get_content_charset()
             with open(os.path.join(output, "nerfw_split.csv"), "w", encoding="utf8") as f:
                 with io.TextIOWrapper(response, encoding=encoding) as f:

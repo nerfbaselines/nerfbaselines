@@ -16,12 +16,12 @@ import numpy as np
 import PIL.Image
 import PIL.ExifTags
 from tqdm import tqdm
-import urllib.request
 from typing import (
     Optional, TypeVar, Tuple, Union, List, Dict, Any, 
     FrozenSet, Iterable,
     overload, cast,
 )
+from nerfbaselines.io import wget
 from nerfbaselines import (
     Dataset, UnloadedDataset, DatasetFeature,
     Cameras, CameraModel,
@@ -643,29 +643,8 @@ def download_archive_dataset(url: str,
                              callback=None,
                              file_type = None):
 
-    with tempfile.TemporaryFile("rb+") as file, \
-        urllib.request.urlopen(url) as response:
-        if response.getcode() != 200:
-            raise RuntimeError(f"Failed to download dataset - HTTP error {response.getcode()}.")
-        total_size_in_bytes = int(response.getheader("Content-Length", 0))
-        block_size = 1024  # 1 Kibibyte
-        with tqdm(
-            total=total_size_in_bytes,
-            unit="iB",
-            unit_scale=True,
-            desc=f"Downloading {url.split('/')[-1]}", 
-            dynamic_ncols=True) as progress_bar:
-            while True:
-                data = response.read(block_size)
-                if not data:
-                    break
-                file.write(data)
-                progress_bar.update(len(data))
-            if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:  # noqa: PLR1714
-                logger.error(
-                    f"Failed to download dataset. {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes."
-                )
-        file.flush()
+    with tempfile.TemporaryFile("rb+") as file:
+        wget(url, file, desc=f"Downloading {url.split('/')[-1]}")
         file.seek(0)
 
         has_any = False
