@@ -86,7 +86,7 @@ echo "export PATH=\"$CONDA_PREFIX/src/instant-ngp/build:\$PATH\"" >> "$CONDA_PRE
 
 # Test pyngp is available
 # If not in CI, test the installation
-if [ "$GITHUB_ACTIONS" != "true" ] && [ "$NERFBASELINES_DOCKER_BUILD" = "1" ]; then
+if [ "$GITHUB_ACTIONS" != "true" ] && [ "$NERFBASELINES_DOCKER_BUILD" != "1" ]; then
     conda deactivate; conda activate "$_prefix"; 
     echo "Testing pyngp"
     LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/stubs" python -c "import pyngp;" || exit 1
