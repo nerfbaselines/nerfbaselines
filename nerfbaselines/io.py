@@ -12,7 +12,7 @@ import tarfile
 import os
 from typing import (
     Union, Iterator, Any, Dict, List, Iterable, Optional, TypeVar, overload,
-    ContextManager, IO
+    ContextManager, IO, cast
 )
 import zipfile
 import contextlib
@@ -156,8 +156,8 @@ def open_any(
         with tempfile.TemporaryFile("w+b", suffix=name) as file:
             wget(path, file, desc="Downloading")
             file.seek(0)
-            file = getattr(file, "file", file)  # Fix typeguard on windows
-            yield file
+            # file = getattr(file, "file", file)  # Fix typeguard on windows
+            yield cast(IO[bytes], file)
         return
 
     # Normal file
