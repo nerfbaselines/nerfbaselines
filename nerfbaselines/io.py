@@ -10,11 +10,13 @@ import numpy as np
 import time
 import tarfile
 import os
-from typing import Union, Iterator, IO, Any, Dict, List, Iterable, Optional, TypeVar
+from typing import (
+    Union, Iterator, Any, Dict, List, Iterable, Optional, TypeVar, overload,
+    ContextManager, IO
+)
 import zipfile
 import contextlib
 from pathlib import Path
-from typing import BinaryIO
 import tempfile
 import logging
 import shutil
@@ -47,7 +49,16 @@ def _assert_not_none(value: Optional[T]) -> T:
     return value
 
 
-def wget(url: str, output: Union[str, Path, None, BinaryIO] = None, *, desc: Optional[str] = None):
+@overload
+def wget(url: str, output: Literal[None] = None, *, desc: Optional[str] = ...) -> ContextManager[IO[bytes]]:
+    ...
+
+@overload
+def wget(url: str, output: Union[str, Path, IO[bytes]], *, desc: Optional[str] = ...) -> None:
+    ...
+
+
+def wget(url: str, output: Union[str, Path, None, IO[bytes]] = None, *, desc: Optional[str] = None) -> Union[ContextManager[IO[bytes]], None]:
     if output is None:
         @contextlib.contextmanager
         def _wget():
@@ -97,7 +108,7 @@ def wget(url: str, output: Union[str, Path, None, BinaryIO] = None, *, desc: Opt
 
 @contextlib.contextmanager
 def open_any(
-    path: Union[str, Path, BinaryIO], mode: OpenMode = "r"
+    path: Union[str, Path, IO[bytes]], mode: OpenMode = "r"
 ) -> Iterator[IO[bytes]]:
     if not isinstance(path, (str, Path)):
         yield path
@@ -759,7 +770,7 @@ def get_torch_checkpoint_sha(checkpoint_data):
     return sha.hexdigest()
 
 
-def save_image(file: Union[BinaryIO, str, Path], tensor: np.ndarray):
+def save_image(file: Union[IO[bytes], str, Path], tensor: np.ndarray):
     if isinstance(file, (str, Path)):
         with open(file, "wb") as f:
             return save_image(f, tensor)
@@ -777,7 +788,7 @@ def save_image(file: Union[BinaryIO, str, Path], tensor: np.ndarray):
         image.save(file, format="png")
 
 
-def read_image(file: Union[BinaryIO, str, Path]) -> np.ndarray:
+def read_image(file: Union[IO[bytes], str, Path]) -> np.ndarray:
     if isinstance(file, (str, Path)):
         with open(file, "rb") as f:
             return read_image(f)
@@ -794,7 +805,7 @@ def read_image(file: Union[BinaryIO, str, Path]) -> np.ndarray:
         return np.array(Image.open(file))
 
 
-def save_depth(file: Union[BinaryIO, str, Path], tensor: np.ndarray):
+def save_depth(file: Union[IO[bytes], str, Path], tensor: np.ndarray):
     if isinstance(file, (str, Path)):
         with open(file, "wb") as f:
             return save_depth(f, tensor)

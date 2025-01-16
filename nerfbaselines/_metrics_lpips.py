@@ -139,7 +139,7 @@ class LPIPS(nn.Module):
                         logging.info('Loading LPIPS model from package resources')
                     else:
                         model_url = WEIGHTS_URL.format(version=version, net=net)
-                        with wget(model_url) as f, io.BufferedReader(f) as f:
+                        with wget(model_url) as f:
                             weights = torch.load(f, map_location='cpu')
                         logging.info('Loading LPIPS model from: %s'%model_url)
                 else:

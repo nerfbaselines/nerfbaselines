@@ -62,10 +62,9 @@ def _add_split_lists(output, scene):
     if scene in _split_lists:
         split_list_url = _split_lists[scene]
         with wget(split_list_url) as response:
-            encoding = response.headers.get_content_charset()
             with open(os.path.join(output, "nerfw_split.csv"), "w", encoding="utf8") as f:
-                with io.TextIOWrapper(response, encoding=encoding) as f:
-                    f.write(response.read())
+                with io.TextIOWrapper(response) as fin:
+                    f.write(fin.read())
 
         split_lists = {}
         for split in ["train", "test"]:

@@ -74,7 +74,7 @@ def _download_file(url: str, dest: pathlib.Path) -> None:
                         with file:
                             fout.write(file.read())
         else:
-            wget(url, buffered)
+            wget(url, fout)
 
     # On Unix-like systems, make the file executable
     if os.name != "nt":
