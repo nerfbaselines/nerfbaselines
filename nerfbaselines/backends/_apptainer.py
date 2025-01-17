@@ -125,7 +125,7 @@ def apptainer_run(spec: ApptainerBackendSpec, args, env,
     torch_home = os.path.expanduser(env.get("TORCH_HOME", "~/.cache/torch/hub"))
     os.makedirs(torch_home, exist_ok=True)
     image = spec.get("image") or f"docker://{BASE_IMAGE}"
-    export_envs = ["TCNN_CUDA_ARCHITECTURES", "TORCH_CUDA_ARCH_LIST", "CUDAARCHS", "GITHUB_ACTIONS", "CI"]
+    export_envs = ["CUDA_VISIBLE_DEVICES", "GITHUB_ACTIONS", "CI"]
     package_path = str(Path(__file__).absolute().parent.parent)
 
     return [
