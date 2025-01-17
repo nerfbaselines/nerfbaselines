@@ -7,6 +7,17 @@ from nerfbaselines import Method, MethodInfo, ModelInfo
 import numpy as np
 
 
+@pytest.fixture
+def clear_allowed_methods():
+    allowed_methods = os.environ.get("NERFBASELINES_ALLOWED_METHODS", None)
+    try:
+        os.environ.pop("NERFBASELINES_ALLOWED_METHODS", None)
+        yield
+    finally:
+        if allowed_methods is not None:
+            os.environ["NERFBASELINES_ALLOWED_METHODS"] = allowed_methods
+
+
 class _TestMethod(Method):
     _test = 1
 
@@ -368,17 +379,6 @@ register({{
         specs = registry._discover_specs()
         assert len(specs) == 1
         assert specs[0]["metadata"]["test"] == 1
-
-
-@pytest.fixture
-def clear_allowed_methods():
-    allowed_methods = os.environ.get("NERFBASELINES_ALLOWED_METHODS", None)
-    try:
-        del os.environ["NERFBASELINES_ALLOWED_METHODS"]
-        yield
-    finally:
-        if allowed_methods is not None:
-            os.environ["NERFBASELINES_ALLOWED_METHODS"] = allowed_methods
 
 
 def test_install_method_spec(clear_allowed_methods, tmp_path):

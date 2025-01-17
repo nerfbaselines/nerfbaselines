@@ -20,7 +20,7 @@ import tempfile
 def test_supported_methods():
     allowed_methods = os.environ.get("NERFBASELINES_ALLOWED_METHODS")
     try:
-        del os.environ["NERFBASELINES_ALLOWED_METHODS"]
+        os.environ.pop("NERFBASELINES_ALLOWED_METHODS", None)
         methods = get_supported_methods()
         assert len(methods) > 0
         assert "nerf" in methods
