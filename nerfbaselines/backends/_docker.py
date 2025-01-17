@@ -120,7 +120,8 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
 
         # Add install conda script
         install_conda = conda_get_install_script(conda_spec, package_path="/var/nb-package/nerfbaselines", environment_path=environment_path)
-        script += f"RUN {_bash_encode(install_conda)} && \\\n"
+        run_script = f'export NERFBASELINES_DOCKER_BUILD=1;{install_conda}'
+        script += f"RUN {_bash_encode(run_script)} && \\\n"
         script += shlex_join(shell_args) + " bash -c 'conda clean -afy && rm -Rf /root/.cache/pip'\n"
         # Fix permissions when changing the user inside the container
         script += "RUN chmod -R og=u /var/conda-envs\n"
