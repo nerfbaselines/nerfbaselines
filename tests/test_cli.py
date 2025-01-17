@@ -1,12 +1,16 @@
 import sys
+import os
 from click import Command
 import pytest
 from unittest import mock
 
 
+_method = os.environ.get("NERFBASELINES_ALLOWED_METHODS", "zipnerf").split(",")[0]
+
+
 @pytest.mark.parametrize("args", [
     "fix-checkpoint --checkpoint checkpoint --data data --new-checkpoint new_checkpoint".split(),
-    "train --data data --method zipnerf --checkpoint checkpoint --output output".split(),
+    f"train --data data --method {_method} --checkpoint checkpoint --output output".split(),
     "render --data data --checkpoint checkpoint --output output".split(),
     "render-trajectory --checkpoint checkpoint --output output --trajectory trajectory".split(),
     "evaluate predictions --output output".split(),
