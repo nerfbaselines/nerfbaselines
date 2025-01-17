@@ -1,3 +1,4 @@
+import os
 from unittest import mock
 import contextlib
 import numpy as np
@@ -17,16 +18,22 @@ import tempfile
 
 
 def test_supported_methods():
-    methods = get_supported_methods()
-    assert len(methods) > 0
-    assert "nerf" in methods
-    assert "mipnerf360" in methods
-    assert "instant-ngp" in methods
-    assert "gaussian-splatting" in methods
-    assert "nerfacto" in methods
-    assert "tetra-nerf" in methods
-    assert "zipnerf" in methods
-    assert "mip-splatting" in methods
+    allowed_methods = os.environ.get("NERFBASELINES_ALLOWED_METHODS")
+    try:
+        del os.environ["NERFBASELINES_ALLOWED_METHODS"]
+        methods = get_supported_methods()
+        assert len(methods) > 0
+        assert "nerf" in methods
+        assert "mipnerf360" in methods
+        assert "instant-ngp" in methods
+        assert "gaussian-splatting" in methods
+        assert "nerfacto" in methods
+        assert "tetra-nerf" in methods
+        assert "zipnerf" in methods
+        assert "mip-splatting" in methods
+    finally:
+        if allowed_methods is not None:
+            os.environ["NERFBASELINES_ALLOWED_METHODS"] = allowed_methods
 
 
 ## ## TODO: Run this test inside containers to test the methods

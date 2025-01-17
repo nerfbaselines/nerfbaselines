@@ -370,7 +370,19 @@ register({{
         assert specs[0]["metadata"]["test"] == 1
 
 
-def test_install_method_spec(tmp_path):
+@pytest.fixture
+def clear_allowed_methods():
+    allowed_methods = os.environ.get("NERFBASELINES_ALLOWED_METHODS", None)
+    try:
+        del os.environ["NERFBASELINES_ALLOWED_METHODS"]
+        yield
+    finally:
+        if allowed_methods is not None:
+            os.environ["NERFBASELINES_ALLOWED_METHODS"] = allowed_methods
+
+
+def test_install_method_spec(clear_allowed_methods, tmp_path):
+    del clear_allowed_methods
     from nerfbaselines import _registry as registry
 
     (tmp_path / "input").mkdir()
