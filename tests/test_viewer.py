@@ -33,6 +33,8 @@ def test_viewer_simple_http_server():
             assert plydata["vertex"].count == len(dataset["points3D_xyz"])
 
         with Viewer(port=viewer.port) as viewer2:
+            assert viewer2.port is not None
+            assert viewer.port is not None
             assert viewer2.port > viewer.port and viewer2.port < viewer.port + 10
             del viewer2
             pass
