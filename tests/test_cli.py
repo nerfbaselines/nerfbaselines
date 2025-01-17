@@ -5,7 +5,7 @@ import pytest
 from unittest import mock
 
 
-_method = os.environ.get("NERFBASELINES_ALLOWED_METHODS", "zipnerf").split(",")[0]
+_method = os.environ.get("NERFBASELINES_ALLOWED_METHODS", "").split(",")[0] or "zipnerf"
 
 
 @pytest.mark.parametrize("args", [

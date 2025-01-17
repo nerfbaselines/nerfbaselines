@@ -56,10 +56,11 @@ def conda_get_install_script(spec: CondaBackendSpec, package_path: Optional[str]
         spec = get_method_spec(method)
         conda_spec = spec.get("conda")
         if conda_spec is not None:
-            return conda_spec.get("environment_name") == spec.get("environment_name")
+            return conda_get_environment_hash(conda_spec) == environment_hash
         return False
 
     allowed_methods = ",".join((k for k in get_supported_methods() if is_method_allowed(k)))
+    assert allowed_methods, "No methods are allowed in the environment"
     script = "set -eo pipefail\n"
 
     if not custom_environment_path:
