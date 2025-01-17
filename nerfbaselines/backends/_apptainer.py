@@ -25,7 +25,6 @@ class ApptainerBackendSpec(TypedDict, total=False):
     image: Optional[str]
     home_path: str
     python_path: str
-    default_cuda_archs: str
     conda_spec: Optional[CondaBackendSpec]
 
 
@@ -47,7 +46,7 @@ def get_apptainer_spec(spec: 'MethodSpec') -> Optional[ApptainerBackendSpec]:
         # Try to build apptainer spec from docker spec
         apptainer_spec = cast(ApptainerBackendSpec, {
             k: v for k, v in docker_spec.items() if k in 
-            ["environment_name", "home_path", "python_path", "default_cuda_archs"]
+            ["environment_name", "home_path", "python_path"]
         })
         docker_image_name = get_docker_image_name(docker_spec)
         # If docker_image_name is the BASE_IMAGE, it be used, force conda build

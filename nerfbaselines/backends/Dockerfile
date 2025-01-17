@@ -24,6 +24,9 @@ RUN echo "[global]\nno-cache-dir = True\n[install]\ncompile = no\n" > /etc/pip.c
 
 ENV PATH /opt/conda/bin:$PATH
 
+ARG TORCH_CUDA_ARCH_LIST="7.0 7.5 8.0 8.6+PTX"
+ARG TCNN_CUDA_ARCHITECTURES="7.0;7.5;8.0;8.6"
+
 # Fix permissions for singularity - not needed for docker
 RUN chmod -R go=u $HOME && \
     chmod -R go=u /opt/conda
