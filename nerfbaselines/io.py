@@ -154,10 +154,10 @@ def open_any(
         assert mode == "r", "Only reading from remote files is supported."
         name = path.split("/")[-1]
         with tempfile.TemporaryFile("w+b", suffix=name) as file:
+            file = getattr(file, "file", file)  # Fix typeguard on windows
             wget(path, file, desc="Downloading")
             file.seek(0)
-            # file = getattr(file, "file", file)  # Fix typeguard on windows
-            yield cast(IO[bytes], file)
+            yield file
         return
 
     # Normal file
