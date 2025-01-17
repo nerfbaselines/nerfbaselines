@@ -11,6 +11,7 @@ def mock_results(results_path, datasets, methods):
     from nerfbaselines import get_method_spec, get_dataset_spec
     from nerfbaselines.io import _encode_values
 
+    results_path.mkdir(parents=True, exist_ok=True)
     for method in methods:
         spec = get_method_spec(method)
         for dataset in datasets:
@@ -130,7 +131,8 @@ def test_render_dataset_results_json_capture_command(tmp_path, capsys, dataset):
             nerfbaselines.cli.main()
             assert excinfo.value.code == 0
 
-        out, _ = capsys.readouterr()
+        out, stderr = capsys.readouterr()
+        print(stderr, file=sys.stderr)
         results = json.loads(out)
         assert_compile_dataset_results_correct(results, dataset)
 
