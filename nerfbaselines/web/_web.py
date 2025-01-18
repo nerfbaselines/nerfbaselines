@@ -1,6 +1,5 @@
 import glob
 import contextlib
-import numpy as np
 import shutil
 import shlex
 from typing import Optional, Tuple, cast, Dict, Any
@@ -14,7 +13,7 @@ import os
 from nerfbaselines._constants import RESULTS_REPOSITORY, SUPPLEMENTARY_RESULTS_REPOSITORY, DATASETS_REPOSITORY
 from nerfbaselines import viewer
 from nerfbaselines import get_supported_datasets
-from nerfbaselines.results import DEFAULT_DATASET_ORDER, compile_dataset_results
+from nerfbaselines.results import DEFAULT_DATASET_ORDER
 from nerfbaselines import results
 import packaging.version
 import urllib.parse
@@ -92,76 +91,6 @@ def _sort_versions(versions, *, reverse=True):
             out = tuple(int(y) for y in x.split("."))
         return out + (0,) * (5 - len(out))
     return sorted(versions, key=_version_tuple, reverse=reverse)
-
-
-def _generate_demo_pages(output, configuration):
-    # 3dgs demo
-    del configuration
-    os.makedirs(os.path.join(output, "demos", "3dgs"), exist_ok=True)
-    from nerfbaselines.methods._gaussian_splatting_demo import export_generic_demo
-    from ._multidemo import make_multidemo
-    export_generic_demo(os.path.join(output, "demos", "3dgs"), options={
-        'dataset_metadata': {
-            'viewer_transform': np.eye(4),
-            'viewer_initial_pose': np.eye(4),
-        },
-        'mock_cors': True,
-        'enable_shared_memory': True,
-    })
-    make_multidemo(os.path.join(output, "demos", "3dgs"))
-    os.remove(os.path.join(output, "demos", "3dgs", "params.json"))
-
-    # Mesh demo
-    os.makedirs(os.path.join(output, "demos", "mesh"), exist_ok=True)
-    from nerfbaselines.methods._mesh_demo import export_generic_demo
-    export_generic_demo(os.path.join(output, "demos", "mesh"), options={
-        'dataset_metadata': {
-            'viewer_transform': np.eye(4),
-            'viewer_initial_pose': np.eye(4),
-        },
-    })
-    make_multidemo(os.path.join(output, "demos", "mesh"))
-    os.remove(os.path.join(output, "demos", "mesh", "params.json"))
-
-
-def _build(input_path, output, raw_data, configuration):
-    if os.path.exists(output):
-        raise FileExistsError(f"Output directory {output} already exists.")
-
-    # Build docs
-    if configuration.get("include_docs") is not None:
-        logging.info("Building docs")
-        _build_docs(configuration, output=os.path.join(output, "docs"))
-
-    # Generate all routes
-    logging.info("Generating pages")
-    _generate_pages(data, input_path, output, configuration)
-
-    # Copy static files
-    logging.info("Copying static files")
-    _copy_static_files(input_path, output)
-
-    # Add demos
-    logging.info("Generating demo pages")
-    _generate_demo_pages(output, configuration)
-
-
-def _reload_data_loading():
-    global __name__
-    if not os.path.exists(__file__):
-        logging.warning("Data loading skipped (file not found)")
-        return
-    with open(__file__, "r", encoding="utf8") as f:
-        code = f.read()
-    old_name = __name__
-    try:
-        __name__ = "__nomain__"
-        exec(code, globals(), globals())
-        logging.info("Data loading reloaded")
-    except Exception as e:
-        logging.error(e)
-    finally:
-        __name__ = old_name
 
 
 def _get_method_licenses():
