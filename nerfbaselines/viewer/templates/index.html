@@ -151,11 +151,11 @@
               </label>
             </div>
           </div>
-          <div class="row">
+          <div class="row" data-visible-if="!disable_public_url">
             <label for="viewer_public_url">Public URL</label>
             <input type="text" id="viewer_public_url" name="viewer_public_url" value="" disabled>
           </div>
-          <div class="row">
+          <div class="row" data-visible-if="!disable_public_url">
             <button data-action="create_public_url" data-enable-if="!viewer_requesting_public_url">
               <span data-visible-if="!viewer_public_url">Setup public URL</span>
               <span data-visible-if="viewer_public_url">Renew public URL</span>
@@ -312,8 +312,8 @@
               <label for="render_appearance_train_index_1">Appearance</label>
               <select id="render_appearance_train_index_1" 
                 name="render_appearance_train_index"
-                data-enable-if="dataset_train_appearance_options"
-                data-options="dataset_train_appearance_options"
+                data-enable-if="render_appearance_train_index_enabled"
+                data-options="render_appearance_train_index_options"
                 disabled>
               </select>
               <img class="appearance-preview" data-visible-if="render_appearance_image_url" data-bind-attr="src:render_appearance_image_url"  style="display: none" />

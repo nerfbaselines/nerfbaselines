@@ -7,7 +7,7 @@ import shutil
 import nerfbaselines
 from nerfbaselines.datasets import load_dataset
 from nerfbaselines.viewer._static import export_viewer_dataset
-from nerfbaselines.viewer._httpserver import create_ply_bytes
+from nerfbaselines.viewer import write_dataset_pointcloud
 
 
 parser = argparse.ArgumentParser(description='Export all datasets.')
@@ -45,9 +45,8 @@ for k in keys:
 
     # Generate ply file
     if train_dataset.get("points3D_xyz") is not None:
-        ply_bytes = create_ply_bytes(train_dataset["points3D_xyz"], train_dataset["points3D_rgb"])
         with open(os.path.join(args.output, k+"-pointcloud.ply"), "wb") as f:
-            shutil.copyfileobj(ply_bytes, f)
+            write_dataset_pointcloud(f, train_dataset["points3D_xyz"], train_dataset["points3D_rgb"])
 
     dataset["pointcloud_url"] = "./" + k.split("/")[-1]+"-pointcloud.ply"
     with open(os.path.join(args.output, k+"-nbv.json"), "w") as f:

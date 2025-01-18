@@ -3,7 +3,7 @@ import contextlib
 import numpy as np
 import shutil
 import shlex
-from typing import Optional, Tuple
+from typing import Optional, Tuple, cast, Dict, Any
 import logging
 import subprocess
 import copy
@@ -12,10 +12,10 @@ import math
 import json
 import os
 from nerfbaselines._constants import RESULTS_REPOSITORY, SUPPLEMENTARY_RESULTS_REPOSITORY, DATASETS_REPOSITORY
-from nerfbaselines.viewer import _static as viewer_static
 from nerfbaselines import viewer
 from nerfbaselines import get_supported_datasets
 from nerfbaselines.results import DEFAULT_DATASET_ORDER, compile_dataset_results
+from nerfbaselines import results
 import packaging.version
 import urllib.parse
 try:
@@ -29,6 +29,16 @@ def _get_average(scenes, metric, sign):
     if not values or any(v is None for v in values):
         return float("inf") * sign
     return sum(values) / len(values)
+
+
+def _get_dataset_info_from_registry(dataset_id):
+    dataset_info = None
+    try:
+        dataset_info = cast(Dict[str, Any], results.get_dataset_info(dataset_id))
+    except RuntimeError as e:
+        if "does not have metadata" not in str(e):
+            raise e
+    return dataset_info
 
 
 def _format_cell(value, id):
@@ -60,19 +70,6 @@ def _format_cell(value, id):
             return f"{memory:.2f} MB"
     else:
         return value
-
-
-def _resolve_data_link(data, method, dataset, scene):
-    output_artifact = method["scenes"][scene].get("output_artifact")
-    if output_artifact is not None:
-        if output_artifact.get("link", None) is not None:
-            return output_artifact["link"]
-
-    resolved_paths = data.get("resolved_paths", {})
-    link = resolved_paths.get(f"{method['id']}/{dataset}/{scene}.zip", None)
-    return link
-
-
 
 
 def _clean_slug(slug):
@@ -186,7 +183,6 @@ def _get_method_licenses():
 
 class WebBuilder:
     def __init__(self, data_path, output, datasets=None, include_docs=None, include_demos=False, base_path: str = ""):
-        # def _prepare_data(data_path, datasets=None, include_docs=None, include_demos=False):
         self.data_path = data_path
         self.datasets = datasets
         self.include_docs = include_docs
@@ -244,8 +240,10 @@ class WebBuilder:
     def get_raw_data(self):
         if self._raw_data is not None:
             return self._raw_data
+        self._raw_scene_data = {}
         datasets = self.datasets
         if self.data_path is not None:
+            # TODO: fix this!!
             logging.info(f"Loading data from {self.data_path}")
             raw_datasets = get_raw_data(self.data_path)
             if datasets is None:
@@ -271,16 +269,24 @@ class WebBuilder:
             raw_data = []
             tmpdir = self._get_results_path()
 
-            # List all paths in tmpdir
-            existing_paths = [os.path.relpath(os.path.join(root, file), tmpdir) for root, _, files in os.walk(tmpdir) for file in files]
-            resolved_paths = {
-                path: f"https://{RESULTS_REPOSITORY}/resolve/main/{path}"
-                for path in existing_paths
-            }
             for dataset in datasets:
-                dataset_info = compile_dataset_results(tmpdir, dataset)
+                dataset_info = (_get_dataset_info_from_registry(dataset) or {}).copy()
+                scene_results = results._list_dataset_results(tmpdir, dataset, scenes=None, dataset_info=dataset_info)
+                for _, scene_data in scene_results:
+                    method_id = scene_data["nb_info"]["method"]
+                    scene_id = scene_data["nb_info"]["dataset_metadata"]["scene"]
+                    self._raw_scene_data[f"{method_id}/{dataset}/{scene_id}"] = scene_data
+                dataset_info = results._compile_dataset_results(
+                    [x[1] for x in scene_results], dataset, scenes=None, dataset_info=dataset_info)
                 dataset_info["id"] = dataset
-                dataset_info["resolved_paths"] = resolved_paths
+                rel_paths = [os.path.relpath(path, tmpdir) for path, _ in scene_results]
+                def replace_ext(p):
+                    assert p.endswith(".json")
+                    return p[:-len(".json")] + ".zip"
+                dataset_info["resolved_paths"] = {
+                    replace_ext(path): f"https://{RESULTS_REPOSITORY}/resolve/main/{path}"
+                    for path in rel_paths
+                }
                 raw_data.append(dataset_info)
         self._raw_data = raw_data
         return raw_data
@@ -363,16 +369,25 @@ class WebBuilder:
                         with open(os.path.join(tmpdir, f"{method['id']}/{dataset['id']}/{scene}_demo/params.json"), "r", encoding="utf8") as f:
                             demo_params = json.load(f)
                         url = f"https://{SUPPLEMENTARY_RESULTS_REPOSITORY}/resolve/main/{method['id']}/{dataset['id']}/{scene}_demo/params.json"
-                        url = url
+                        scene_url = urllib.parse.urljoin(url, demo_params.get("scene_url", ""))
+                        demo_params["scene_url"] = scene_url
+                        if demo_params.get("scene_url_per_appearance") is not None:
+                            scene_url_per_appearance = {
+                                k: urllib.parse.urljoin(url, v)
+                                for k, v in demo_params["scene_url_per_appearance"].items()
+                            }
+                            demo_params["scene_url_per_appearance"] = scene_url_per_appearance
                         local_path = "viewer/" + _clean_slug(relname) + ".json" 
                         method_demo_params[f"{method['id']}/{dataset['id']}/{scene}"] = url, local_path, demo_params
+                        if demo_params.get("type") == "mesh":
+                            mesh_demo_params[f"{method['id']}/{dataset['id']}/{scene}"] = url, local_path, demo_params
 
                     # Add mesh demo
-                    if os.path.exists(os.path.join(tmpdir, f"{method['id']}/{dataset['id']}/{scene}_mesh/params.json")):
-                        with open(os.path.join(tmpdir, f"{method['id']}/{dataset['id']}/{scene}_mesh/params.json"), "r", encoding="utf8") as f:
-                            demo_params = json.load(f)
-                        url = f"https://{SUPPLEMENTARY_RESULTS_REPOSITORY}/resolve/main/{method['id']}/{dataset['id']}/{scene}_mesh/params.json"
-                        url = url
+                    if os.path.exists(os.path.join(tmpdir, f"{method['id']}/{dataset['id']}/{scene}_mesh/mesh.ply")):
+                        demo_params = {
+                            "type": "mesh",
+                            "mesh_url": f"https://{SUPPLEMENTARY_RESULTS_REPOSITORY}/resolve/main/{method['id']}/{dataset['id']}/{scene}_mesh/mesh.ply",
+                        }
                         local_path = "viewer/" + _clean_slug(relname) + "-m.json" 
                         mesh_demo_params[f"{method['id']}/{dataset['id']}/{scene}"] = url, local_path, demo_params
 
@@ -383,6 +398,15 @@ class WebBuilder:
             "dataset": dataset_params,
         }
         return self._raw_demo_params
+
+    def _resolve_data_link(self, dataset_data, method, dataset, scene):
+        output_artifact = method["scenes"][scene].get("output_artifact")
+        if output_artifact is not None:
+            if output_artifact.get("link", None) is not None:
+                return output_artifact["link"]
+
+        resolved_paths = dataset_data.get("resolved_paths", {})
+        return resolved_paths.get(f"{method['id']}/{dataset}/{scene}.zip", None)
 
     def _get_method_data(self, data, method: str):
         raw_params = self.get_raw_demo_params()
@@ -399,7 +423,7 @@ class WebBuilder:
                 **scenes_map.get(s["id"], {}),
             }
             if s["id"] in m["scenes"]:
-                out["data_link"] = _resolve_data_link(data, m, dataset, s["id"])
+                out["data_link"] = self._resolve_data_link(data, m, dataset, s["id"])
             demo_path = f"{m['id']}/{dataset}/{s['id']}"
             if demo_path in raw_params["demo"]:
                 _, local_link, _ = raw_params["demo"][demo_path]
@@ -694,7 +718,9 @@ class WebBuilder:
         logging.info("Generating viewer")
         viewer_output = os.path.join(self._output, "viewer")
         os.makedirs(viewer_output, exist_ok=True)
-        viewer_static.build_viewer(viewer_output)
+        viewer.build_static_viewer(viewer_output, {
+            "state": { "disable_public_url": True },
+        })
 
     def build_viewer_params(self):
         raw_params = self.get_raw_demo_params()
@@ -710,32 +736,32 @@ class WebBuilder:
             if tp == "dataset":
                 params = viewer.get_viewer_params_from_dataset_metadata(par)
                 params["dataset"] = {"url": url}
-            elif tp == "demo" and par.get("type") == "gaussian-splatting":
-                mesh_url = urllib.parse.urljoin(url, par["sceneUri"])
-                dataset_url, _ , dataset_par = raw_params["dataset"][path.split("/", 1)[-1]]
-                dataset_par = viewer.get_viewer_params_from_dataset_metadata(dataset_par)
-                params = {
-                    "renderer": {
-                        "type": "3dgs",
-                        "scene_url": mesh_url,
-                    },
-                    "dataset": {"url": dataset_url}
-                }
-                params = viewer.merge_viewer_params(params, dataset_par)
-            elif tp == "mesh":
-                mesh_url = urllib.parse.urljoin(url, par["meshUri"])
-                dataset_url, _ , dataset_par = raw_params["dataset"][path.split("/", 1)[-1]]
-                dataset_par = viewer.get_viewer_params_from_dataset_metadata(dataset_par)
-                params = {
-                    "renderer": {
-                        "type": "mesh",
-                        "mesh_url": mesh_url,
-                    },
-                    "dataset": {"url": dataset_url}
-                }
-                params = viewer.merge_viewer_params(params, dataset_par)
             else:
-                continue
+                if "sceneUri" in par:
+                    par["scene_url"] = urllib.parse.urljoin(url, par["sceneUri"])
+                if "meshUri" in par:
+                    par["mesh_url"] = urllib.parse.urljoin(url, par["meshUri"])
+                if "backgroundColor" in par and (par["backgroundColor"] or "").lower() == "#ffffff":
+                    par["background_color"] = [1., 1., 1.]
+                if par.get("mesh_url") is not None:
+                    par["mesh_url"] = urllib.parse.urljoin(url, par["mesh_url"])
+                if par.get("scene_url") is not None:
+                    par["scene_url"] = urllib.parse.urljoin(url, par["scene_url"])
+                if par.get("scene_url_per_appearance") is not None:
+                    par["scene_url_per_appearance"] = {
+                        k: urllib.parse.urljoin(url, v)
+                        for k, v in par["scene_url_per_appearance"].items()
+                    }
+                dataset_url, _ , dataset_par = raw_params["dataset"][path.split("/", 1)[-1]]
+                nb_info = self._raw_scene_data.get(path)['nb_info']
+                params = {
+                    "renderer": par,
+                    "dataset": {"url": dataset_url}
+                }
+                params = viewer.merge_viewer_params(
+                    viewer.get_viewer_params_from_nb_info(nb_info),
+                    params, 
+                    viewer.get_viewer_params_from_dataset_metadata(dataset_par))
 
             # Save params
             fpath = os.path.join(self._output, local_path)

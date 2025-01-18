@@ -13,10 +13,14 @@ function makeMatrix4(elements) {
 
 export class GaussianSplattingFrameRenderer {
   constructor({ 
-    scene_url, background_color, 
+    scene_url, 
+    scene_url_per_appearance,
+    background_color, 
     znear=0.001, zfar=1000,
     update_notification,
     onready,
+    is_2DGS=false,
+    antialias_2D_kernel_size,
     ...options
   }) {
     this._notificationId = "GaussianSplattingFrameRenderer-" + (
@@ -24,39 +28,15 @@ export class GaussianSplattingFrameRenderer {
     this._onready = onready;
     this.update_notification = update_notification;
 
-    const updateProgress = (percentage, _, stage) => {
-      if (stage === 1 && percentage >= 100) {
-        this._onready({
-          output_types: this.output_types,
-        });
-        this.update_notification({
-          id: this._notificationId,
-          autoclose: 0,
-        });
-      } else if (stage === 0) {
-        this.update_notification({
-          id: this._notificationId,
-          header: "Loading 3DGS renderer - downloading scene",
-          progress: percentage / 100,
-          closeable: false,
-        });
-      } else if (stage === 1) {
-        this.update_notification({
-          id: this._notificationId,
-          header: "Loading 3DGS renderer - processing",
-          closeable: false,
-        });
-      }
-    };
-
     this.near = znear || 0.001;
     this.far = zfar || 1000;
     this.scene = new THREE.Scene();
+    if (Array.isArray(background_color))
+      background_color = new THREE.Color(...background_color);
     this.scene.background = new THREE.Color(background_color || 0x000000);
     this.camera = new THREE.Camera();
     this.canvas = new OffscreenCanvas(1, 1);
     this._flipCanvas = new OffscreenCanvas(1, 1);
-    updateProgress(0, undefined, 0);
     this.renderer = new THREE.WebGLRenderer({ antialias: true, canvas: this.canvas });
     this.gs_viewer = new GaussianSplats3D.DropInViewer({
       ignoreDevicePixelRatio: true,
@@ -64,21 +44,75 @@ export class GaussianSplattingFrameRenderer {
       sharedMemoryForWorkers: false,
       sceneRevealMode: GaussianSplats3D.SceneRevealMode.Instant,
     });
-    this.gs_viewer.addSplatScene(scene_url, {
-      showLoadingUI: false,
-      onProgress: updateProgress,
-      onError: (error) => {
-        this.update_notification({
-          id: this._notificationId,
-          header: "Error loading 3DGS renderer",
-          detail: error.message,
-          type: "error",
-          closeable: true,
-        });
-      }
-    });
+    this.scene_url = scene_url;
+    this.scene_url_per_appearance = scene_url_per_appearance;
+    this.antialias_2D_kernel_size = antialias_2D_kernel_size;
+    this.is_2DGS = is_2DGS;
     this.scene.add(this.gs_viewer);
     this.output_types = ["color"];
+    this._changeScene(scene_url);
+  }
+
+  _changeScene(scene_url) {
+    if (this._currentSceneUrl === scene_url) {
+      return;
+    }
+    this._currentSceneUrl = scene_url;
+    const changeScene = () => new Promise(async (resolve, reject) => {
+      const updateProgress = (percentage, _, stage) => {
+        if (stage === 1 && percentage >= 100) {
+          this._onready({
+            output_types: this.output_types,
+            supported_appearance_train_indices: this.scene_url_per_appearance ? Object.keys(this.scene_url_per_appearance) : null,
+          });
+          this.update_notification({
+            id: this._notificationId,
+            autoclose: 0,
+          });
+          resolve();
+        } else if (stage === 0) {
+          this.update_notification({
+            id: this._notificationId,
+            header: "Loading 3DGS renderer - downloading scene",
+            progress: percentage / 100,
+            closeable: false,
+          });
+        } else if (stage === 1) {
+          this.update_notification({
+            id: this._notificationId,
+            header: "Loading 3DGS renderer - processing",
+            closeable: false,
+          });
+        }
+      };
+
+      updateProgress(0, undefined, 0);
+      if (this.gs_viewer.getSceneCount() > 0) {
+        await this.gs_viewer.removeSplatScene(0);
+      }
+      this.gs_viewer.addSplatScene(scene_url, {
+        showLoadingUI: false,
+        antialiased: this.antialias_2D_kernel_size > 0,
+        kernel2DSize: this.antialias_2D_kernel_size || 0.3,
+        splatRenderMode: this.is_2DGS ? "TwoD" : "ThreeD",
+        onProgress: updateProgress,
+        onError: (error) => {
+          this.update_notification({
+            id: this._notificationId,
+            header: "Error loading 3DGS renderer",
+            detail: error.message,
+            type: "error",
+            closeable: true,
+          });
+          reject(error);
+        }
+      });
+    });
+    if (this._changeScenePromise) {
+      this._changeScenePromise = this._changeScenePromise.then(() => changeScene());
+    } else {
+      this._changeScenePromise = changeScene();
+    }
   }
 
   _flipY(imageBitmap) {
@@ -128,6 +162,11 @@ export class GaussianSplattingFrameRenderer {
     );
 		this.camera.projectionMatrixInverse.copy(this.camera.projectionMatrix).invert();
     const _R_threecam_cam = new THREE.Matrix4().makeRotationX(Math.PI);
+
+    if (this.scene_url_per_appearance) {
+      const scene_url = this.scene_url_per_appearance[params.appearance_train_indices?.[0]] || this.scene_url;
+      this._changeScene(scene_url);
+    }
 
     const matrix = makeMatrix4(params.pose);
     matrix.multiply(_R_threecam_cam.clone().invert());

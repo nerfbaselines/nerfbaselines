@@ -7,12 +7,45 @@ import numpy as np
 import nerfbaselines
 from nerfbaselines import __version__
 from nerfbaselines.utils import image_to_srgb, visualize_depth, apply_colormap
-from nerfbaselines.results import get_dataset_info
+from nerfbaselines.results import get_dataset_info, get_method_info_from_spec
 try:
     from typing import Optional
 except ImportError:
     from typing_extensions import Optional
 from ._httpserver import run_simple_http_server
+
+
+def get_viewer_params_from_nb_info(nb_info, include_registry_data: bool = True):
+    if not nb_info: return {}
+    model_info = nb_info.copy()
+    dataset_metadata = nb_info.pop("dataset_metadata", {})
+    info = get_viewer_params_from_dataset_metadata(dataset_metadata, include_registry_data=include_registry_data)
+    method_id = model_info.pop("method", None)
+
+    if method_id is not None and include_registry_data:
+        # Pull more details from the registry
+        method_info = get_method_info_from_spec(
+            nerfbaselines.get_method_spec(method_id))
+        # Update with default model info
+        info = merge_viewer_params(
+            info,
+            get_viewer_params_from_model_info(method_info, include_registry_data=include_registry_data))
+
+    # Finally, update with nb_info itself
+    info["state"].setdefault("method_info", {}).update(_fix_types(model_info))
+    info["method_id"] = method_id
+    info.pop("renderer", None)
+    return info
+    
+
+def _fix_types(x):
+    if isinstance(x, (list, tuple, set, frozenset)):
+        return [_fix_types(y) for y in x]
+    elif isinstance(x, dict):
+        return {k: _fix_types(v) for k, v in x.items()}
+    elif isinstance(x, np.ndarray):
+        return x.tolist()
+    return x
 
 
 def get_viewer_params_from_dataset_metadata(dataset_metadata, include_registry_data: bool = True):
@@ -38,8 +71,8 @@ def get_viewer_params_from_dataset_metadata(dataset_metadata, include_registry_d
     if dataset_metadata.get("id") is not None and include_registry_data:
         # Add dataset info
         try:
-            dataset_info = get_dataset_info(dataset_metadata["id"])
-            _dataset_info.update(dataset_info)
+            dataset_info = get_dataset_info(dataset_metadata["id"]).copy()
+            _dataset_info.update(_fix_types(dataset_info))
         except Exception:
             # Perhaps different NB version or custom dataset
             pass
@@ -85,9 +118,12 @@ def get_viewer_params_from_model_info(model_info, include_registry_data: bool = 
     info["state"]["method_info"] = _method_info = {}
     _method_info["method_id"] = model_info["method_id"]
     _method_info["hparams"] = model_info.get("hparams", {})
-    for k in ["num_iterations", "loaded_step", "loaded_checkpoint"]:
-        if model_info.get(k) is not None:
-            _method_info[k] = model_info[k]
+    if model_info.get("num_iterations") is not None:
+        _method_info["num_iterations"] = model_info["num_iterations"]
+    if model_info.get("loaded_step") is not None:
+        _method_info["loaded_step"] = model_info["loaded_step"]
+    if model_info.get("loaded_checkpoint") is not None:
+        _method_info["loaded_checkpoint"] = model_info["loaded_checkpoint"]
     if model_info.get("supported_camera_models") is not None:
         _method_info["supported_camera_models"] = list(sorted(model_info["supported_camera_models"]))
     if model_info.get("supported_outputs") is not None:
@@ -102,7 +138,9 @@ def get_viewer_params_from_model_info(model_info, include_registry_data: bool = 
         except Exception:
             pass
         if spec is not None:
-            info["state"]["method_info"].update(spec.get("metadata") or {})
+            metadata = (spec.get("metadata") or {}).copy()
+            metadata.pop("paper_results", None)
+            info["state"]["method_info"].update(_fix_types(metadata))
     return info
 
 
@@ -113,10 +151,6 @@ def merge_viewer_params(*args):
         return merge_viewer_params(args[0], merge_viewer_params(*args[1:]))
     a, b = args
     out = {**a, **b}
-    if "state" in a or "state" in b:
-        a_state = a.get("state", {})
-        b_state = b.get("state", {})
-        out["state"] = {**a_state, **b_state}
     if "renderer" in a or "renderer" in b:
         a_renderer = a.get("renderer", {})
         b_renderer = b.get("renderer", {})
@@ -125,14 +159,27 @@ def merge_viewer_params(*args):
         a_dataset = a.get("dataset", {})
         b_dataset = b.get("dataset", {})
         out["dataset"] = {**a_dataset, **b_dataset}
+    if "state" in a or "state" in b:
+        astate = a.get("state", {})
+        bstate = b.get("state", {})
+        out["state"] = state = {**astate, **bstate}
+        if "method_info" in astate or "method_info" in bstate:
+            state["method_info"] = {
+                **astate.get("method_info", {}),
+                **bstate.get("method_info", {}),
+            }
+        if "dataset_info" in astate or "dataset_info" in bstate:
+            state["dataset_info"] = {
+                **astate.get("dataset_info", {}),
+                **bstate.get("dataset_info", {}),
+            }
     return out
 
 
-def get_viewer_params(model_info, datasets, nb_info, dataset_metadata):
-    # TODO: use nb_info
+def get_viewer_params(model_info, datasets, nb_info):
     return merge_viewer_params(
+        get_viewer_params_from_nb_info(nb_info),
         get_viewer_params_from_model_info(model_info),
-        get_viewer_params_from_dataset_metadata(dataset_metadata),
         get_viewer_params_from_dataset(datasets.get("train"), datasets.get("test")),
     )
 

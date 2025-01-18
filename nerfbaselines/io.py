@@ -305,7 +305,7 @@ def deserialize_nb_info(info: dict) -> dict:
             # Fix legacy format
             if viewer_transform.shape[0] == 4:
                 viewer_transform = viewer_transform[:3]
-            dm["viewer_transform"] = viewer_transform
+            dm["viewer_transform"] = viewer_transform.reshape(3, 4)
         return dm
     if "dataset_metadata" in info:
         info["dataset_metadata"] = fix_dm(info["dataset_metadata"])

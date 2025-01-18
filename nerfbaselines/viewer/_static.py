@@ -10,14 +10,14 @@ from PIL import Image
 from nerfbaselines.utils import image_to_srgb
 
 
-def build_viewer(output):
+def build_static_viewer(output, params=None):
     """
     Builds the viewer in the given path.
 
     Args:
         output: The path to write the viewer to.
     """
-    params = {}
+    params = params or {}
     path = importlib.resources.files(nerfbaselines.viewer)
     for file in path.glob("static/**/*"):
         if file.is_file():

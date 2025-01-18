@@ -1569,7 +1569,7 @@ class DatasetManager {
             thumbnail_url: camera.thumbnail_url,
           });
           appearance_options.push({
-            value: i,
+            value: `${i}`,
             label: `${i}: ${camera.image_name}`
           });
           i++;
@@ -2463,11 +2463,14 @@ export class Viewer extends THREE.EventDispatcher {
     run();
   }
 
-  _on_renderer_ready({ output_types }) {
+  _on_renderer_ready({ output_types, supported_appearance_train_indices }) {
     const old_output_type = this.state.output_type;
     const old_split_output_type = this.state.split_output_type;
     this.state.output_types = output_types;
+    this.state.supported_appearance_train_indices = 
+      supported_appearance_train_indices === "all" ? "all" : supported_appearance_train_indices?.map(x => x.toString());
     this.notifyChange({ property: 'output_types' });
+    this.notifyChange({ property: 'supported_appearance_train_indices' });
     if (!output_types.includes(old_output_type)) {
       this.state.output_type = output_types[0];
       this.notifyChange({ property: 'output_type' });
@@ -2475,6 +2478,12 @@ export class Viewer extends THREE.EventDispatcher {
     if (!output_types.includes(old_split_output_type)) {
       this.state.split_output_type = output_types[0];
       this.notifyChange({ property: 'split_output_type' });
+    }
+    if (this.state.supported_appearance_train_indices !== "all" && 
+        this.state.render_appearance_train_index !== '' && 
+        !supported_appearance_train_indices?.includes(this.state.render_appearance_train_index)) {
+      this.state.render_appearance_train_index = '';
+      this.notifyChange({ property: 'render_appearance_train_index' });
     }
     this.force_render()
   }
@@ -2484,7 +2493,7 @@ export class Viewer extends THREE.EventDispatcher {
       this._set_frame_renderer(new MeshFrameRenderer({
         ...params,
         update_notification: (notification) => this.update_notification(notification),
-        onready: ({ output_types }) => this._on_renderer_ready({ output_types }),
+        onready: (e) => this._on_renderer_ready(e),
       }));
     } catch (error) {
       this.update_notification({
@@ -2501,7 +2510,7 @@ export class Viewer extends THREE.EventDispatcher {
       this._set_frame_renderer(new GaussianSplattingFrameRenderer({
         ...params,
         update_notification: (notification) => this.update_notification(notification),
-        onready: ({ output_types }) => this._on_renderer_ready({ output_types }),
+        onready: (e) => this._on_renderer_ready(e),
       }));
     } catch (error) {
       this.update_notification({
@@ -2550,7 +2559,8 @@ export class Viewer extends THREE.EventDispatcher {
         this.state.frame_renderer_url = http_url;
         this.notifyChange({ property: 'frame_renderer_url' });
       }
-      this._on_renderer_ready({ output_types });
+      const supported_appearance_train_indices = "all";
+      this._on_renderer_ready({ output_types, supported_appearance_train_indices });
     } catch (error) {
       this.update_notification({
         header: "Error starting remote renderer",
@@ -2853,6 +2863,31 @@ export class Viewer extends THREE.EventDispatcher {
       name: "has_output_split",
       dependencies: ["output_types"],
       getter: ({ output_types }) => output_types && output_types.length > 1
+    });
+
+    this.addComputedProperty({
+      name: "render_appearance_train_index_options",
+      dependencies: [
+        "dataset_train_appearance_options",
+        "supported_appearance_train_indices",
+      ],
+      getter: ({ 
+        dataset_train_appearance_options, 
+        supported_appearance_train_indices 
+      }) => [
+        { value: "", label: "none" }, 
+          ...(dataset_train_appearance_options?.filter(x => {
+            if (x.value === "") return false;
+            if (supported_appearance_train_indices === "all") return true;
+            if (!supported_appearance_train_indices) return false;
+            return supported_appearance_train_indices.includes(x.value);
+        }) || [])],
+    });
+    this.addComputedProperty({
+      name: "render_appearance_train_index_enabled",
+      dependencies: ["render_appearance_train_index_options"],
+      getter: ({ render_appearance_train_index_options }) =>
+        render_appearance_train_index_options.length > 1,
     });
 
     // Add dataset's computed properties
@@ -3856,6 +3891,10 @@ export class Viewer extends THREE.EventDispatcher {
   }
 }
 
+function formatTime(seconds) {
+  return Math.round(seconds / 3600) + "h " + (seconds % 3600 / 60).toFixed(0) + "m";
+}
+
 function buildMethodInfo(info) {
   let out = "";
   if (info.method_id !== undefined)
@@ -3874,18 +3913,39 @@ function buildMethodInfo(info) {
   }
   if (info.paper_authors !== undefined)
     out += `<strong>Paper authors:</strong><span>${info.paper_authors.join(', ')}</span>\n`;
-  if (method_info.nb_version !== undefined)
-    out += `<strong>NB version:</strong><span>${method_info.nb_version}</span>\n`;
-  if (method_info.presets !== undefined)
-    out += `<strong>Presets:</strong><span>${method_info.presets.join(', ')}</span>\n`;
-  if (method_info.config_overrides !== undefined) {
-    const config_overrides = ""
-    for (const k in method_info.config_overrides) {
-      const v = method_info.config_overrides[k];
+  if (info.licenses !== undefined) {
+    const licenses = info.licenses.map(x => x.url ? `<a href="${x.url}" target="_blank">${x.name}</a>` : x.name);
+    out += `<strong>Licenses:</strong><span>${licenses.join(", ")}</span>\n`;
+  }
+  if (info.supported_outputs !== undefined)
+    out += `<strong>Outputs:</strong><span>${info.supported_outputs.join(", ")}</span>\n`;
+  if (info.nb_version !== undefined)
+    out += `<strong>NB version:</strong><span>${info.nb_version}</span>\n`;
+  if (info.applied_presets !== undefined)
+    out += `<strong>Presets:</strong><span>${info.applied_presets.join(', ')}</span>\n`;
+  if (info.config_overrides !== undefined) {
+    let config_overrides = "";
+    for (const k in info.config_overrides) {
+      const v = info.config_overrides[k];
       config_overrides += `${k} = ${v}<br/>\n`
     }
     out += `<strong>Config overrides:</strong><span>${config_overrides}</span>\n`;
   }
+  if (info.datetime !== undefined)
+    out += `<strong>Datetime:</strong><span>${info.datetime}</span>\n`;
+  if (info.total_train_time !== undefined)
+    out += `<strong>Train time:</strong><span>${formatTime(info.total_train_time)}</span>\n`;
+  if (info.num_iterations !== undefined)
+    out += `<strong>Iterations:</strong><span>${info.num_iterations}</span>\n`;
+  if (info.resources_utilization !== undefined && info.resources_utilization.gpu_memory > 0) {
+    const { gpu_memory, gpu_name } = info.resources_utilization;
+    out += `<strong>GPU mem:</strong><span>${(gpu_memory/1024).toFixed(2)} GB</span>\n`;
+    out += `<strong>GPU type:</strong><span>${gpu_name}</span>\n`;
+  }
+  if (info.nb_version !== undefined)
+    out += `<strong>NB version:</strong><span>${info.nb_version}</span>\n`;
+  if (info.checkpoint_sha !== undefined)
+    out += `<strong>Checkpoint SHA:</strong><span>${info.checkpoint_sha}</span>\n`;
   return out;
 }
 
@@ -3911,6 +3971,15 @@ function buildDatasetInfo(info) {
   }
   if (info.paper_authors !== undefined)
     out += `<strong>Paper authors:</strong><span>${info.paper_authors.join(', ')}</span>\n`;
+  if (info.color_space !== undefined)
+    out += `<strong>Color space:</strong><span>${info.color_space}</span>\n`;
+  if (info.downscale_factor !== undefined)
+    out += `<strong>Downscale factor:</strong><span>${info.downscale_factor}</span>\n`;
+  if (info.type !== undefined)
+    out += `<strong>Type:</strong><span>${info.type}</span>\n`;
+  if (info.metrics !== undefined) {
+    out += `<strong>Metrics:</strong><span>${info.metrics.map(x=>x.name).join(", ")}</span>\n`;
+  }
   return out;
 }
 
