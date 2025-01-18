@@ -25,11 +25,29 @@ sed -i '80s/.*/        intr = cam_intrinsics[extr.camera_id]/' scene/dataset_rea
 
 conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 'numpy<2.0.0' -c pytorch -c nvidia
 conda install -y cudatoolkit-dev=11.7 gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
+# Install ffmpeg if not available
+command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
 pip install -U pip 'setuptools<70.0.0' 'wheel==0.43.0'
-pip install pandas==2.2.2 \
-        plyfile==0.8.1 \
+pip install \
+        pandas==2.2.2 \
         kornia==0.7.3 \
-        tqdm \
+        plyfile==0.8.1 \
+        mediapy==1.1.2 \
+        open3d==0.18.0 \
+        lpips==0.1.4 \
+        scikit-image==0.21.0 \
+        tqdm==4.66.2 \
+        trimesh==4.3.2 \
+        opencv-python-headless==4.10.0.84 \
+        importlib_metadata==8.5.0 \
+        typing_extensions==4.12.2 \
+        wandb==0.19.1 \
+        click==8.1.8 \
+        Pillow==11.1.0 \
+        matplotlib==3.9.4 \
+        tensorboard==2.18.0 \
+        pytest==8.3.4 \
+        scipy==1.13.1 \
         submodules/diff-gaussian-rasterization \
         submodules/simple-knn \
         --no-build-isolation
@@ -39,7 +57,6 @@ conda develop .
 pip install lpips==0.1.4 importlib_metadata typing_extensions
 if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
 
-function nb-post-install () {
 if [ "$NERFBASELINES_DOCKER_BUILD" = "1" ]; then
 # Reduce size of the environment by removing unused files
 find "$CONDA_PREFIX" -name '*.a' -delete
@@ -52,7 +69,6 @@ for lib in "$CONDA_PREFIX"/lib/*.so*; do
     if [ -f "$tgt" ]; then echo "Deleting $lib"; rm "$lib"*; for tgtlib in "$tgt"*; do ln -s "$tgtlib" "$(dirname "$lib")"; done; fi;
 done
 fi
-}
 """,
     },
     "metadata": {

@@ -11,6 +11,7 @@ def mock_results(results_path, datasets, methods):
     from nerfbaselines import get_method_spec, get_dataset_spec
     from nerfbaselines.io import _encode_values
 
+    results_path.mkdir(parents=True, exist_ok=True)
     for method in methods:
         spec = get_method_spec(method)
         for dataset in datasets:
@@ -88,9 +89,24 @@ def test_get_method_info_from_spec(method):
 
     spec = get_method_spec(method)
     method_info: MethodInfo = get_method_info_from_spec(spec)
-    print(method_info)
     # assert isinstance(method_info, MethodInfo)
     assert isinstance(method_info, dict)
+    # Assert all fields are standard
+    def assert_ok_type(x):
+        if x is None: return
+        if type(x) in (str, bytes, int, float, bool): return
+        if type(x) in (list, tuple, frozenset, set):
+            for y in x:
+                assert_ok_type(y)
+            return
+        if type(x) is dict:
+            for k, v in x.items():
+                assert_ok_type(k)
+                assert_ok_type(v)
+            return
+        raise ValueError(f"Unexpected type {type(x)}")
+
+    assert_ok_type(method_info)
     assert method_info["method_id"] == method
 
 
@@ -115,7 +131,8 @@ def test_render_dataset_results_json_capture_command(tmp_path, capsys, dataset):
             nerfbaselines.cli.main()
             assert excinfo.value.code == 0
 
-        out, _ = capsys.readouterr()
+        out, stderr = capsys.readouterr()
+        print(stderr, file=sys.stderr)
         results = json.loads(out)
         assert_compile_dataset_results_correct(results, dataset)
 

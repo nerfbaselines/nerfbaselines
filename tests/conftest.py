@@ -18,7 +18,6 @@ class _nullcontext(contextlib.nullcontext):
         return fn
 
 
-
 @contextlib.contextmanager
 def patch_modules(update):
     _empty = object()

@@ -1,6 +1,8 @@
+import numpy as np
 import pytest
-import requests
 import platform
+import plyfile
+import urllib.request
 
 
 def test_viewer_simple_http_server():
@@ -10,21 +12,34 @@ def test_viewer_simple_http_server():
 
     from nerfbaselines.viewer import Viewer
 
-    with Viewer() as viewer:
+    dataset = {
+        "points3D_xyz" : np.random.rand(100, 3),
+        "points3D_rgb" : np.random.rand(100, 3).astype(np.uint8),
+    }
+
+    with Viewer(train_dataset=dataset) as viewer:
         assert viewer.port is not None
 
         # Test index.html
         host = f"http://localhost:{viewer.port}"
-        response = requests.get(host)
-        assert response.status_code == 200
-        assert response.text.startswith("<!DOCTYPE html>")
+        with urllib.request.urlopen(host) as response:
+            assert response.getcode() == 200
+            assert response.read().decode("utf-8").startswith("<!DOCTYPE html>")
+
+        # Test get dataset pointcloud
+        with urllib.request.urlopen(f"{host}/dataset/pointcloud.ply") as response:
+            assert response.getcode() == 200
+            plydata = plyfile.PlyData.read(response)
+            assert plydata["vertex"].count == len(dataset["points3D_xyz"])
 
         with Viewer(port=viewer.port) as viewer2:
-            assert viewer2.port == viewer.port+1
+            assert viewer2.port is not None
+            assert viewer.port is not None
+            assert viewer2.port > viewer.port and viewer2.port < viewer.port + 10
             del viewer2
             pass
 
     # Assert server is closed
     with pytest.raises(Exception):
-        response = requests.get(host)
-        assert response.status_code != 200
+        with urllib.request.urlopen(host) as response:
+            assert response.getcode() != 200

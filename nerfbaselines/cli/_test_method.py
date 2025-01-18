@@ -13,6 +13,7 @@ import tempfile
 from tqdm import trange
 import nerfbaselines
 from typing import Type
+import urllib.request
 from nerfbaselines import (
     build_method_class,
     MethodSpec,
@@ -71,24 +72,25 @@ def _resolve_checkpoint_path(spec: MethodSpec, dataset_scene: str, local_results
                 data = json.load(f)
             return artifact, data
 
-    import requests
     output_artifact = spec.get("output_artifacts", {}).get(dataset_scene, None)
     if output_artifact is not None:
         artifact = output_artifact["link"]
         assert artifact.endswith(".zip")
         artifact_json = artifact[:-4] + ".json"
-        result = requests.get(artifact_json)
-        result.raise_for_status()
-        data = result.json()
+        with urllib.request.urlopen(artifact_json) as response:
+            if response.getcode() != 200:
+                raise error(f"Failed to fetch the checkpoint info (HTTP {response.getcode()})")
+            data = json.load(response)
         return artifact, data
 
     artifact = f"https://{RESULTS_REPOSITORY}/resolve/main/{method_id}/{dataset_scene}.zip"
     artifact_json = f"https://{RESULTS_REPOSITORY}/resolve/main/{method_id}/{dataset_scene}.json"
-    result = requests.get(artifact_json)
-    if result.status_code == 404:
-        raise skip("Skipping public checkpoint verification - checkpoint not available")
-    result.raise_for_status()
-    data = result.json()
+    with urllib.request.urlopen(artifact_json) as response:
+        if response.getcode() == 404:
+            raise skip("Skipping public checkpoint verification - checkpoint not available")
+        if response.getcode() != 200:
+            raise error(f"Failed to fetch the checkpoint info (HTTP {response.getcode()})")
+        data = json.load(response)
     return artifact, data
 
 

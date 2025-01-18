@@ -1,13 +1,11 @@
 import re
 import os
 import subprocess
-from pathlib import Path
 import shlex
 from typing import Optional
 import hashlib
 
 from nerfbaselines import get_supported_methods, get_method_spec, NB_PREFIX
-from ._common import get_package_dependencies
 from ._rpc import RemoteProcessRPCBackend, get_safe_environment
 try:
     from typing import TypedDict, Required
@@ -34,7 +32,6 @@ def conda_get_environment_hash(spec: CondaBackendSpec):
 
     maybe_update(spec.get("python_version"))
     maybe_update(spec.get("install_script"))
-    maybe_update(",".join(get_package_dependencies(ignore_viewer=True)))
     return value.hexdigest()
 
 
@@ -54,18 +51,16 @@ def conda_get_install_script(spec: CondaBackendSpec, package_path: Optional[str]
     if python_version is not None:
         args.append(f"python={python_version}")
     install_dependencies_script = ''
-    dependencies = get_package_dependencies()
-    if dependencies:
-        install_dependencies_script = "pip install " + " ".join(f"'{x}'" for x in dependencies)
 
     def is_method_allowed(method):
         spec = get_method_spec(method)
         conda_spec = spec.get("conda")
         if conda_spec is not None:
-            return conda_spec.get("environment_name") == spec.get("environment_name")
+            return conda_get_environment_hash(conda_spec) == environment_hash
         return False
 
     allowed_methods = ",".join((k for k in get_supported_methods() if is_method_allowed(k)))
+    assert allowed_methods, "No methods are allowed in the environment"
     script = "set -eo pipefail\n"
 
     if not custom_environment_path:
@@ -139,7 +134,7 @@ conda deactivate
 {shlex_join(["conda", "create", "--prefix", env_path, "-y", "-c", "conda-forge", "--override-channels"] + args)}
 conda activate {shlex.quote(env_path)}
 echo -e 'channels:\n  - conda-forge\n' > {shlex.quote(os.path.join(env_path, ".condarc"))}
-conda install -y pip conda-build ffmpeg
+conda install -y pip conda-build
 pip install --upgrade pip setuptools
 mkdir -p {shlex.quote(os.path.join(env_path, "nb-sources"))}
 mkdir -p {shlex.quote(os.path.join(env_path, "src"))}
@@ -152,10 +147,6 @@ echo 'eval "$(conda shell.bash hook)"' >> {shlex.quote(os.path.join(env_path, ".
 echo 'conda activate {shlex.quote(env_path)};export NERFBASELINES_BACKEND=python;export NERFBASELINES_ALLOWED_METHODS="{allowed_methods}"' >> {shlex.quote(os.path.join(env_path, ".activate.sh"))}
 echo 'exec "$@"' >> {shlex.quote(os.path.join(env_path, ".activate.sh"))}
 chmod +x {shlex.quote(os.path.join(env_path, ".activate.sh"))}
-# If function nb-post-install is declared, run it
-if declare -f nb-post-install >/dev/null; then
-    nb-post-install || exit 1
-fi
 touch {shlex.quote(env_path + ".ack.txt")}
 echo "0" > {shlex.quote(env_path + ".ack.txt")}
 fi

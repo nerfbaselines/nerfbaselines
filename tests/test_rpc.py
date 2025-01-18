@@ -7,8 +7,12 @@ import pytest
 import time
 from time import sleep
 import gc
-from typeguard import typeguard_ignore
 from unittest import mock
+try:
+    from typeguard import typeguard_ignore  # type: ignore
+except ImportError:
+    def typeguard_ignore(x):  # type: ignore
+        return x
 
 from nerfbaselines.utils import CancelledException, CancellationToken
 from nerfbaselines.backends._common import SimpleBackend

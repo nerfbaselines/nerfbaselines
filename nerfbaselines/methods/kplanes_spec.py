@@ -13,22 +13,35 @@ git submodule update --init --recursive
 
 conda install -y --override-channels -c nvidia/label/cuda-11.8.0 cuda-toolkit
 conda install -y pytorch==2.3.0 torchvision==0.18.0 pytorch-cuda=11.8 'numpy<2.0.0' -c pytorch -c nvidia
+# Install ffmpeg if not available
+command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
 if [ "$NERFBASELINES_DOCKER_BUILD" != "1" ]; then
     conda install -y gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
 fi
 LIBRARY_PATH="$CONDA_PREFIX/lib/stubs" pip install ninja git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
 pip install tqdm pillow opencv-python pandas lpips==0.1.4 imageio torchmetrics scikit-image tensorboard matplotlib
 conda install -y conda-build;conda develop .
-pip install lpips==0.1.4 importlib_metadata typing_extensions
-if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
+pip install lpips==0.1.4 \
+    plyfile==0.8.1 \
+    mediapy==1.1.2 \
+    scikit-image==0.21.0 \
+    tqdm==4.66.2 \
+    opencv-python-headless==4.10.0.84 \
+    importlib_metadata==8.5.0 \
+    typing_extensions==4.12.2 \
+    wandb==0.19.1 \
+    click==8.1.8 \
+    Pillow==11.1.0 \
+    matplotlib==3.9.4 \
+    tensorboard==2.18.0 \
+    'pytest<=8.3.4' \
+    scipy==1.13.1
 
-function nb-post-install () {
 if [ "$NERFBASELINES_DOCKER_BUILD" = "1" ]; then
 # Reduce size of the environment by removing unused files
 find "$CONDA_PREFIX" -name '*.a' -delete
 find "$CONDA_PREFIX" -type d -name 'nsight*' -exec rm -r {} +
 fi
-}
 """,
     },
     "metadata": {

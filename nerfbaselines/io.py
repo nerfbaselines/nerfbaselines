@@ -1,3 +1,4 @@
+import zlib
 import io
 import struct
 import base64
@@ -9,16 +10,18 @@ import numpy as np
 import time
 import tarfile
 import os
-from typing import Union, Iterator, IO, Any, Dict, List, Iterable, Optional, TypeVar
+from typing import (
+    Union, Iterator, Any, Dict, List, Iterable, Optional, TypeVar, overload,
+    ContextManager, IO, cast
+)
 import zipfile
 import contextlib
 from pathlib import Path
-from typing import BinaryIO
 import tempfile
 import logging
 import shutil
 from tqdm import tqdm
-import requests
+import urllib.request
 from . import (
     Trajectory, 
     Method,
@@ -46,29 +49,66 @@ def _assert_not_none(value: Optional[T]) -> T:
     return value
 
 
-def wget(url: str, output: Union[str, Path]):
-    output = Path(output)
-    response = requests.get(url, stream=True)
-    response.raise_for_status()
-    total_size_in_bytes = int(response.headers.get("content-length", 0))
-    block_size = 1024  # 1 Kibibyte
-    progress_bar = tqdm(
-        total=total_size_in_bytes, unit="iB", unit_scale=True, desc="Downloading"
-    )
-    with open(output, "wb") as f:
-        for data in response.iter_content(block_size):
-            progress_bar.update(len(data))
-            f.write(data)
-    progress_bar.close()
-    if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
-        logging.error(
-            f"Failed to download {url}. {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes."
-        )
+@overload
+def wget(url: str, output: Literal[None] = None, *, desc: Optional[str] = ...) -> ContextManager[IO[bytes]]:
+    ...
+
+@overload
+def wget(url: str, output: Union[str, Path, IO[bytes]], *, desc: Optional[str] = ...) -> None:
+    ...
+
+
+def wget(url: str, output: Union[str, Path, None, IO[bytes]] = None, *, desc: Optional[str] = None) -> Union[ContextManager[IO[bytes]], None]:
+    if output is None:
+        @contextlib.contextmanager
+        def _wget():
+            with io.BytesIO() as f:
+                wget(url, f, desc=desc)
+                f.seek(0)
+                yield f
+        return _wget()
+
+    if isinstance(output, (str, Path)):
+        output = str(output)
+        with open_any(output, "w") as f:
+            wget(url, f, desc=desc)
+        return
+
+    with contextlib.ExitStack() as stack:
+        request = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0",
+            "Accept-Encoding": "gzip",
+            "Accept": "*/*",
+        })
+        response = stack.enter_context(urllib.request.urlopen(request))
+        if response.getcode() != 200:
+            raise RuntimeError(f"Failed to download {url}.")
+        total_size_in_bytes = int(response.getheader("Content-Length", 0))
+        block_size = 1024 * 32
+        rfile = response
+        if desc is not None:
+            rfile = stack.enter_context(tqdm.wrapattr(
+                rfile, "read", total=total_size_in_bytes,
+                unit="iB", unit_scale=True, desc=desc, dynamic_ncols=True))
+        decompressor = None
+        if response.getheader("Content-Encoding", "") == "gzip":
+            decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
+        while True:
+            data = rfile.read(block_size)
+            if not data:
+                break
+            if decompressor is not None:
+                data = decompressor.decompress(data)
+            output.write(data)
+        if decompressor is not None:
+            data = decompressor.flush()
+            output.write(data)
+        output.flush()
 
 
 @contextlib.contextmanager
 def open_any(
-    path: Union[str, Path, BinaryIO], mode: OpenMode = "r"
+    path: Union[str, Path, IO[bytes]], mode: OpenMode = "r"
 ) -> Iterator[IO[bytes]]:
     if not isinstance(path, (str, Path)):
         yield path
@@ -112,32 +152,17 @@ def open_any(
     # Download from url
     if path.startswith("http://") or path.startswith("https://"):
         assert mode == "r", "Only reading from remote files is supported."
-        response = requests.get(path, stream=True)
-        response.raise_for_status()
-        total_size_in_bytes = int(response.headers.get("content-length", 0))
-        block_size = 1024  # 1 Kibibyte
-        progress_bar = tqdm(
-            total=total_size_in_bytes, unit="iB", unit_scale=True, desc="Downloading"
-        )
         name = path.split("/")[-1]
         with tempfile.TemporaryFile("w+b", suffix=name) as file:
-            for data in response.iter_content(block_size):
-                progress_bar.update(len(data))
-                file.write(data)
-            file.flush()
-            file.seek(0)
-            progress_bar.close()
-            if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
-                logging.warning(
-                    f"While downloading {path}, {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes."
-                )
             file = getattr(file, "file", file)  # Fix typeguard on windows
+            wget(path, file, desc="Downloading")
+            file.seek(0)
             yield file
         return
 
     # Normal file
     if mode == "w":
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, mode=mode + "b") as f:
         yield f
 
@@ -745,7 +770,7 @@ def get_torch_checkpoint_sha(checkpoint_data):
     return sha.hexdigest()
 
 
-def save_image(file: Union[BinaryIO, str, Path], tensor: np.ndarray):
+def save_image(file: Union[IO[bytes], str, Path], tensor: np.ndarray):
     if isinstance(file, (str, Path)):
         with open(file, "wb") as f:
             return save_image(f, tensor)
@@ -763,7 +788,7 @@ def save_image(file: Union[BinaryIO, str, Path], tensor: np.ndarray):
         image.save(file, format="png")
 
 
-def read_image(file: Union[BinaryIO, str, Path]) -> np.ndarray:
+def read_image(file: Union[IO[bytes], str, Path]) -> np.ndarray:
     if isinstance(file, (str, Path)):
         with open(file, "rb") as f:
             return read_image(f)
@@ -780,7 +805,7 @@ def read_image(file: Union[BinaryIO, str, Path]) -> np.ndarray:
         return np.array(Image.open(file))
 
 
-def save_depth(file: Union[BinaryIO, str, Path], tensor: np.ndarray):
+def save_depth(file: Union[IO[bytes], str, Path], tensor: np.ndarray):
     if isinstance(file, (str, Path)):
         with open(file, "wb") as f:
             return save_depth(f, tensor)
