@@ -15,83 +15,87 @@ except ImportError:
 from ._httpserver import run_simple_http_server
 
 
-def get_info(model_info, datasets, nb_info, dataset_metadata):
-    info = {
-        "state": {
-            "method_info": None,
-            "dataset_info": None,
-        },
-        "plugins": [],
-        "renderer": None,
-        "dataset": None,
-    }
-    if model_info is not None:
-        output_types = model_info.get("supported_outputs", ("color",))
-        output_types = [x if isinstance(x, str) else x["name"] for x in output_types]
-        info["renderer"] = {
-            "type": "remote",
-            "websocket_url": "./render-websocket",
-            "http_url": "./render",
-            "output_types": output_types,
-        }
+def get_viewer_params_from_dataset_metadata(dataset_metadata, include_registry_data: bool = True):
+    if not dataset_metadata: return {}
+    info = {"state": {}}
+    if dataset_metadata.get("viewer_transform") is not None:
+        viewer_transform = dataset_metadata["viewer_transform"]
+        if isinstance(viewer_transform, np.ndarray):
+            viewer_transform = viewer_transform[:3, :4].flatten().tolist()
+        info["viewer_transform"] = viewer_transform
+    if dataset_metadata.get("viewer_initial_pose") is not None:
+        viewer_initial_pose = dataset_metadata["viewer_initial_pose"]
+        if isinstance(viewer_initial_pose, np.ndarray):
+            viewer_initial_pose = viewer_initial_pose[:3, :4].flatten().tolist()
+        info["viewer_initial_pose"] = viewer_initial_pose
 
-    if datasets.get("train") is not None or datasets.get("test") is not None:
-        info["dataset"] = info["dataset"] or {}
-        info["dataset"]["url"] = "./dataset.json"
-        if datasets.get("train") is not None and datasets["train"].get("points3D_xyz") is not None:
-            info["dataset"]["pointcloud_url"] = "./dataset/pointcloud.ply"
+    info["state"]["dataset_info"] = _dataset_info = {}
+    _dataset_info.update({
+        k: v.tolist() if hasattr(v, "tolist") else v for k, v in dataset_metadata.items()
+        if not k.startswith("viewer_")
+    })
 
-    dataset_metadata_ = dataset_metadata or {}
-    if dataset_metadata_.get("viewer_transform") is not None:
-        info["viewer_transform"] = dataset_metadata_["viewer_transform"][:3, :4].flatten().tolist()
-    if dataset_metadata_.get("viewer_initial_pose") is not None:
-        info["viewer_initial_pose"] = dataset_metadata_["viewer_initial_pose"][:3, :4].flatten().tolist()
-
-    if dataset_metadata_:
-        info["state"]["dataset_info"] = _dataset_info = info["state"]["dataset_info"] or {}
-        _dataset_info.update({
-            k: v.tolist() if hasattr(v, "tolist") else v for k, v in dataset_metadata_.items()
-            if not k.startswith("viewer_")
-        })
-
-    if dataset_metadata_.get("id") is not None:
+    if dataset_metadata.get("id") is not None and include_registry_data:
         # Add dataset info
-        dataset_info = None
         try:
-            dataset_info = get_dataset_info(dataset_metadata_["id"])
+            dataset_info = get_dataset_info(dataset_metadata["id"])
+            _dataset_info.update(dataset_info)
         except Exception:
             # Perhaps different NB version or custom dataset
             pass
-        if dataset_info is not None:
-            info["state"]["dataset_info"].update(dataset_info)
+    return info
 
-    if model_info is not None:
-        if "viewer_default_resolution" in model_info:
-            default_resolution = model_info["viewer_default_resolution"]
-            if isinstance(default_resolution, int):
-                info["state"]["render_resolution"] = default_resolution
-                info["state"]["prerender_enabled"] = False
-            elif isinstance(default_resolution, (list, tuple)) and len(default_resolution) == 2:
-                prerender_resolution, default_resolution = default_resolution
-                info["state"]["render_resolution"] = default_resolution
-                info["state"]["prerender_resolution"] = prerender_resolution
-                info["state"]["prerender_enabled"] = True
-        info["state"]["method_info"] = _method_info = info["state"]["method_info"] or {}
-        _method_info["method_id"] = model_info["method_id"]
-        _method_info["hparams"] = model_info.get("hparams", {})
-        if model_info.get("num_iterations") is not None:
-            _method_info["num_iterations"] = model_info["num_iterations"]
-        if model_info.get("loaded_step") is not None:
-            _method_info["loaded_step"] = model_info["loaded_step"]
-        if model_info.get("loaded_checkpoint") is not None:
-            _method_info["loaded_checkpoint"] = model_info["loaded_checkpoint"]
-        if model_info.get("supported_camera_models") is not None:
-            _method_info["supported_camera_models"] = list(sorted(model_info["supported_camera_models"]))
-        if model_info.get("supported_outputs") is not None:
-            supported_outputs = [x if isinstance(x, str) else x["name"] for x in model_info["supported_outputs"]]
-            _method_info["supported_outputs"] = list(sorted(supported_outputs))
 
-        # Pull more details from the registry
+def get_viewer_params_from_dataset(train_dataset, test_dataset, include_registry_data: bool = True):
+    info = {}
+    if train_dataset is not None or test_dataset is not None:
+        info["dataset"] = info["dataset"] or {}
+        info["dataset"]["url"] = "./dataset.json"
+        if train_dataset is not None and train_dataset.get("points3D_xyz") is not None:
+            info["dataset"]["pointcloud_url"] = "./dataset/pointcloud.ply"
+
+    if train_dataset and train_dataset.get("metadata") is not None:
+        dataset_metadata = train_dataset["metadata"]
+        info.update(get_viewer_params_from_dataset_metadata(dataset_metadata, include_registry_data=include_registry_data))
+    return info
+
+
+def get_viewer_params_from_model_info(model_info, include_registry_data: bool = True):
+    if not model_info: return {}
+    info = {"state":{}}
+    output_types = model_info.get("supported_outputs", ("color",))
+    output_types = [x if isinstance(x, str) else x["name"] for x in output_types]
+    info["renderer"] = {
+        "type": "remote",
+        "websocket_url": "./render-websocket",
+        "http_url": "./render",
+        "output_types": output_types,
+    }
+
+    if "viewer_default_resolution" in model_info:
+        default_resolution = model_info["viewer_default_resolution"]
+        if isinstance(default_resolution, int):
+            info["state"]["render_resolution"] = default_resolution
+            info["state"]["prerender_enabled"] = False
+        elif isinstance(default_resolution, (list, tuple)) and len(default_resolution) == 2:
+            prerender_resolution, default_resolution = default_resolution
+            info["state"]["render_resolution"] = default_resolution
+            info["state"]["prerender_resolution"] = prerender_resolution
+            info["state"]["prerender_enabled"] = True
+    info["state"]["method_info"] = _method_info = {}
+    _method_info["method_id"] = model_info["method_id"]
+    _method_info["hparams"] = model_info.get("hparams", {})
+    for k in ["num_iterations", "loaded_step", "loaded_checkpoint"]:
+        if model_info.get(k) is not None:
+            _method_info[k] = model_info[k]
+    if model_info.get("supported_camera_models") is not None:
+        _method_info["supported_camera_models"] = list(sorted(model_info["supported_camera_models"]))
+    if model_info.get("supported_outputs") is not None:
+        supported_outputs = [x if isinstance(x, str) else x["name"] for x in model_info["supported_outputs"]]
+        _method_info["supported_outputs"] = list(sorted(supported_outputs))
+
+    # Pull more details from the registry
+    if include_registry_data:
         spec = None
         try:
             spec = nerfbaselines.get_method_spec(model_info["method_id"])
@@ -99,10 +103,38 @@ def get_info(model_info, datasets, nb_info, dataset_metadata):
             pass
         if spec is not None:
             info["state"]["method_info"].update(spec.get("metadata") or {})
-    if nb_info is not None:
-        # Fill in config_overrides, presets, nb_version, and others
-        pass
     return info
+
+
+def merge_viewer_params(*args):
+    if not args: return {}
+    if len(args) == 1: return args[0]
+    if len(args) > 2:
+        return merge_viewer_params(args[0], merge_viewer_params(*args[1:]))
+    a, b = args
+    out = {**a, **b}
+    if "state" in a or "state" in b:
+        a_state = a.get("state", {})
+        b_state = b.get("state", {})
+        out["state"] = {**a_state, **b_state}
+    if "renderer" in a or "renderer" in b:
+        a_renderer = a.get("renderer", {})
+        b_renderer = b.get("renderer", {})
+        out["renderer"] = {**a_renderer, **b_renderer}
+    if "dataset" in a or "dataset" in b:
+        a_dataset = a.get("dataset", {})
+        b_dataset = b.get("dataset", {})
+        out["dataset"] = {**a_dataset, **b_dataset}
+    return out
+
+
+def get_viewer_params(model_info, datasets, nb_info, dataset_metadata):
+    # TODO: use nb_info
+    return merge_viewer_params(
+        get_viewer_params_from_model_info(model_info),
+        get_viewer_params_from_dataset_metadata(dataset_metadata),
+        get_viewer_params_from_dataset(datasets.get("train"), datasets.get("test")),
+    )
 
 
 def combine_outputs(o1, o2, *, split_percentage=0.5, split_tilt=0):
@@ -286,8 +318,7 @@ class Viewer:
     def _run_backend(self):
         orig_port = self._port
         datasets = {"train": self._train_dataset, "test": self._test_dataset}
-        dataset_metadata = None if self._train_dataset is None else self._train_dataset.get("metadata")
-        info = get_info(self._model_info, datasets, self._nb_info, dataset_metadata)
+        info = get_viewer_params(self._model_info, datasets, self._nb_info)
         assert self._request_queue is not None, "Request queue is not initialized"
 
         self._process = multiprocessing.Process(target=self._server_fn, args=(

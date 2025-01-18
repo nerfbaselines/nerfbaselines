@@ -358,16 +358,17 @@ class SettingsManager {
 
 function _attach_persistent_state(viewer) {
   let changed = true;
+  const sessionId = window.location.search;
   viewer.addEventListener("change", ({ property, state, trigger }) => {
     changed = true;
   });
   viewer.addEventListener("start", ({ state }) => {
-    if (sessionStorage.getItem('viewer_state') === null) {
+    if (sessionStorage.getItem('viewer_state'+sessionId) === null) {
       return;
     }
     const { 
       state: savedState, cameraMatrix: cameraMatrixArray, cameraUpVector: cameraUpVectorArray,
-    } = JSON.parse(sessionStorage.getItem('viewer_state'));
+    } = JSON.parse(sessionStorage.getItem('viewer_state'+sessionId));
     // Fix types in the saved state
     if (savedState.camera_path_keyframes) {
       for (const keyframe of savedState.camera_path_keyframes) {
@@ -391,8 +392,10 @@ function _attach_persistent_state(viewer) {
       viewer.scene.updateMatrixWorld();
       viewer.set_camera({ matrix: cameraMatrix });
     }
-    if (cameraUpVector)
+    if (cameraUpVector) {
       viewer.camera.up.copy(cameraUpVector);
+      viewer.controls.updateUp();
+    }
     viewer.notifyChange({ property: undefined, trigger: "restore_state" });
   });
   setInterval(() => {
@@ -421,7 +424,7 @@ function _attach_persistent_state(viewer) {
       let cameraMatrix = viewer.get_camera_params().matrix;
       viewer.dispatchEvent("saving_state", { state, cameraMatrix, cameraUpVector: viewer.camera.up });
       cameraMatrix = matrix4ToArray(cameraMatrix);
-      sessionStorage.setItem('viewer_state', JSON.stringify({ 
+      sessionStorage.setItem('viewer_state'+sessionId, JSON.stringify({ 
         state, 
         cameraMatrix, 
         cameraUpVector: viewer.camera.up.toArray() }));
@@ -1259,6 +1262,7 @@ class DatasetManager {
     viewer.addEventListener("change", this._on_viewer_change);
 
     // Load parts
+    this._pointcloud_url = pointcloud_url;
     if (pointcloud_url) {
       this.viewer.state.dataset_has_pointcloud = true;
       this.viewer.notifyChange({ property: 'dataset_has_pointcloud' });
@@ -1268,18 +1272,16 @@ class DatasetManager {
     }
     this._train_load_images_tasks = null;
     this._test_load_images_tasks = null;
-    this._pointcloud_url = pointcloud_url;
     if (url) {
       this._load_cameras(url).then(() => {
         if (state.dataset_show_train_cameras && this._train_load_images_tasks !== null)
           this._load_split_images("train");
         if (state.dataset_show_test_cameras && this._test_load_images_tasks !== null)
           this._load_split_images("test");
+        if (state.dataset_show_pointcloud && this._pointcloud_url) {
+          this._load_pointcloud(this._pointcloud_url);
+        }
       });
-    }
-    if (pointcloud_url) {
-      if (state.dataset_show_pointcloud)
-        this._load_pointcloud(this._pointcloud_url);
     }
   }
 
@@ -1482,6 +1484,20 @@ class DatasetManager {
         type: "error",
       });
       return null;
+    }
+    if (result.pointcloud_url && !this._pointcloud_url) {
+      // Make pointcloud_url relative to the dataset url
+      const urlObj = new URL(url);
+      const pointcloud_url = new URL(result.pointcloud_url, urlObj);
+      this._pointcloud_url = pointcloud_url.href;
+      this.viewer.state.dataset_has_pointcloud = true;
+      this.viewer.notifyChange({ property: 'dataset_has_pointcloud' });
+    }
+    if (result.metadata) {
+      this.viewer.state.dataset_info = (
+        Object.assign(result.metadata, this.viewer.state.dataset_info || {})
+      );
+      this.viewer.notifyChange({ property: 'dataset_info' });
     }
     for (const split of ['train', 'test']) {
       if (!result[split]) continue;
@@ -3879,6 +3895,8 @@ function buildDatasetInfo(info) {
     out += `<strong>Dataset ID:</strong><span>${info.id}</span>\n`;
   if (info.name !== undefined)
     out += `<strong>Name:</strong><span>${info.name}</span>\n`;
+  if (info.scene !== undefined)
+    out += `<strong>Scene:</strong><span>${info.scene}</span>\n`;
   if (info.link !== undefined)
     out += `<strong>Web:</strong><a href="${info.link}">${info.link}</a>\n`;
   if (info.description !== undefined)

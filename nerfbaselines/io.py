@@ -259,9 +259,9 @@ def serialize_nb_info(info: dict) -> dict:
         if isinstance(dm.get("background_color"), np.ndarray):
             dm["background_color"] = dm["background_color"].tolist()
         if "viewer_initial_pose" in dm:
-            dm["viewer_initial_pose"] = np.round(dm["viewer_initial_pose"][:3, :4].astype(np.float64), 6).tolist()
+            dm["viewer_initial_pose"] = np.round(dm["viewer_initial_pose"][:3, :4].astype(np.float64), 6).flatten().tolist()
         if "viewer_transform" in dm:
-            dm["viewer_transform"] = np.round(dm["viewer_transform"][:3, :4].astype(np.float64), 6).tolist()
+            dm["viewer_transform"] = np.round(dm["viewer_transform"][:3, :4].astype(np.float64), 6).flatten().tolist()
         if dm.get("expected_scene_scale") is not None:
             dm["expected_scene_scale"] = round(dm["expected_scene_scale"], 6)
         return dm
@@ -294,9 +294,18 @@ def deserialize_nb_info(info: dict) -> dict:
         if dm.get("background_color") is not None:
             dm["background_color"] = np.array(dm["background_color"], dtype=np.uint8)
         if "viewer_initial_pose" in dm:
-            dm["viewer_initial_pose"] = np.array(dm["viewer_initial_pose"], dtype=np.float32)
+            viewer_initial_pose = np.array(dm["viewer_initial_pose"], dtype=np.float32)
+            # Fix legacy format
+            if viewer_initial_pose.shape[0] == 4:
+                viewer_initial_pose = viewer_initial_pose[:3]
+            viewer_initial_pose = viewer_initial_pose.reshape(3, 4)
+            dm["viewer_initial_pose"] = viewer_initial_pose
         if "viewer_transform" in dm:
-            dm["viewer_transform"] = np.array(dm["viewer_transform"], dtype=np.float32)
+            viewer_transform = np.array(dm["viewer_transform"], dtype=np.float32)
+            # Fix legacy format
+            if viewer_transform.shape[0] == 4:
+                viewer_transform = viewer_transform[:3]
+            dm["viewer_transform"] = viewer_transform
         return dm
     if "dataset_metadata" in info:
         info["dataset_metadata"] = fix_dm(info["dataset_metadata"])
