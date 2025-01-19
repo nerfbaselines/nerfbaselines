@@ -1,3 +1,4 @@
+import os
 import logging
 import click
 from pathlib import Path
@@ -7,9 +8,152 @@ from nerfbaselines import (
     get_method_spec, build_method_class,
 )
 from nerfbaselines.io import open_any_directory, deserialize_nb_info
-from nerfbaselines.datasets import load_dataset
+from nerfbaselines.datasets import load_dataset, dataset_load_features
+from nerfbaselines.utils import apply_transform, invert_transform
+from nerfbaselines import viewer
 from ._common import click_backend_option
 from ._common import SetParamOptionType, NerfBaselinesCliCommand
+
+
+def try_export_gaussian_splats(output, method, train_embedding, dataset_metadata):
+    # Try export gaussian splats
+    output_name = "scene.ksplat"
+    if train_embedding is not None:
+        output_name = f"scene-{train_embedding}.ksplat"
+    export_splats = None
+    try:
+        export_splats = method.export_gaussian_splats  # type: ignore
+    except AttributeError:
+        return None
+
+    camera_pose = None
+    if "viewer_transform" in dataset_metadata and "viewer_initial_pose" in dataset_metadata:
+        viewer_initial_pose_ws = apply_transform(
+            invert_transform(dataset_metadata["viewer_transform"], has_scale=True), 
+            dataset_metadata["viewer_initial_pose"])
+        camera_pose = viewer_initial_pose_ws[:3, :4]
+
+    # If train embedding is enabled, select train_embedding
+    embedding = None
+    if train_embedding is not None:
+        embedding = method.get_train_embedding(train_embedding)
+        if train_embedding is None:
+            logging.error(f"Train embedding {train_embedding} not found or not supported by the method.")
+    splats = export_splats(
+        options=dict(
+            embedding=embedding,
+            camera_pose=camera_pose))
+
+    # Export ksplat and params
+    from nerfbaselines._export_3dgs import generate_ksplat_file
+    generate_ksplat_file(
+        os.path.join(output, output_name),
+        means=splats["means"],
+        scales=splats["scales"],
+        opacities=splats["opacities"],
+        quaternions=splats["quaternions"],
+        spherical_harmonics=splats["spherical_harmonics"])
+    params = {}
+    if splats.get("transform") is not None:
+        params["transform"] = splats["transform"][:3, :4].flatten().tolist()
+    if splats.get("is_2DGS"):
+        params["is_2DGS"] = True
+    if splats.get("antialias_2D_kernel_size") is not None:
+        params["antialias_2D_kernel_size"] = splats["antialias_2D_kernel_size"]
+    with open(os.path.join(output, f"{output_name}.json"), "w", encoding="utf8") as f:
+        json.dump(params, f, indent=2)
+    params["scene_url"] = f"./{output_name}"
+    params["type"] = "3dgs"
+    return params
+
+
+def try_export_mesh(output, method, train_embedding, train_dataset):
+    try:
+        export_mesh = method.export_mesh  # type: ignore
+    except AttributeError:
+        return None
+
+    if train_dataset is None:
+        raise ValueError("Training dataset is required for export_mesh. Please pass --data option.")
+
+    # If train embedding is enabled, select train_embedding
+    embedding = None
+    if train_embedding is not None:
+        embedding = method.get_train_embedding(train_embedding)
+        if train_embedding is None:
+            logging.error(f"Train embedding {train_embedding} not found or not supported by the method.")
+
+    train_dataset = dataset_load_features(train_dataset)
+    dataset_metadata = train_dataset["metadata"]
+    export_mesh(
+        output,
+        train_dataset=train_dataset,
+        options=dict(
+            embedding=embedding,
+            dataset_metadata=dataset_metadata))
+    # Exported as mesh.ply
+    return {
+        "type": "mesh",
+        "mesh_url": "./mesh.ply"
+    }
+
+
+def _export_demo(output, method, train_embedding, train_dataset):
+    dataset_metadata = train_dataset["metadata"]
+    rparams = try_export_gaussian_splats(output, method, train_embedding, dataset_metadata)
+
+    # Try export mesh
+    if rparams is None:
+        rparams = try_export_mesh(output, method, train_embedding, dataset_metadata, train_dataset)
+    if rparams is None:
+        raise NotImplementedError(f"Method {method.__class__.__name__} does not support demo (supported demos: mesh,3dgs).")
+    return rparams
+
+
+def export_demo(output, method, 
+                train_embedding, 
+                train_dataset,
+                test_dataset):
+    # Try export gaussian splats
+    os.makedirs(output, exist_ok=True)
+
+    if isinstance(train_embedding, int):
+        train_embedding = [train_embedding]
+    if isinstance(train_embedding, (list, tuple)):
+        rparams = None
+        for i in train_embedding:
+            single_params = _export_demo(output, method, i, train_dataset)
+            if rparams is None:
+                rparams = single_params
+            if i is not None:
+                if "scene_url" in single_params:
+                    rparams.setdefault("scene_url_per_appearance", {})[str(i)] = single_params["scene_url"]
+                elif "mesh_url" in single_params:
+                    rparams.setdefault("mesh_url_per_appearance", {})[str(i)] = single_params["mesh_url"]
+    else:
+        rparams = _export_demo(output, method, None, train_dataset)
+    with open(os.path.join(output, "params.json"), "w") as f:
+        f.write(json.dumps(rparams, indent=2))
+
+    # Export dataset
+    dataset = viewer.export_viewer_dataset(train_dataset, test_dataset)
+
+    # Generate ply file
+    if train_dataset.get("points3D_xyz") is not None:
+        with open(os.path.join(output, "dataset-pointcloud.ply"), "wb") as f:
+            viewer.write_dataset_pointcloud(f, train_dataset["points3D_xyz"], train_dataset["points3D_rgb"])
+
+        dataset["pointcloud_url"] = "./dataset-pointcloud.ply"
+    with open(os.path.join(output, "dataset.json"), "w") as f:
+        f.write(json.dumps(dataset, indent=2))
+
+    # Export the viewer
+    dataset_metadata = train_dataset["metadata"]
+    params = viewer.merge_viewer_params({
+        "renderer": rparams,
+        "dataset": { "url": "./dataset.json" }
+    }, viewer.get_viewer_params_from_dataset_metadata(dataset_metadata))
+    viewer.build_static_viewer(output, params)
 
 
 @click.command("export-demo", cls=NerfBaselinesCliCommand, help=(
@@ -20,12 +164,11 @@ from ._common import SetParamOptionType, NerfBaselinesCliCommand
     "Path to the checkpoint directory. It can also be a remote path (starting with `http(s)://`) or be a path inside a zip file."
 ))
 @click.option("--output", "-o", type=str, required=True, help="Output directory for the demo.")
-@click.option("--data", type=str, default=None, required=False, help=(
+@click.option("--data", type=str, default=None, required=True, help=(
     "A path to the dataset to load which matches the dataset used to train the model. "
     "The dataset can be either an external dataset (e.g., a path starting with `external://{dataset}/{scene}`) or a local path to a dataset. If the dataset is an external dataset, the dataset will be downloaded and cached locally. "
-    "If the dataset is a local path, the dataset will be loaded directly from the specified path. "
-    "While only some methods require the dataset, it is recommended to always specify it as it can improve viewing experience."))
-@click.option("--train-embedding", type=int, default=None, help="Select the train embedding index to use for the demo (if the method supports appearance modelling.")
+    "If the dataset is a local path, the dataset will be loaded directly from the specified path. "))
+@click.option("--train-embedding", type=str, default=None, help="Select the train embedding index to use for the demo (if the method supports appearance modelling. A comma-separated list of indices can be provided to select multiple embeddings.")
 @click.option("--set", "options", type=SetParamOptionType(), multiple=True, default=None, help=(
     "Set a parameter for demo export. " 
     "The argument should be in the form of `--set key=value` and can be used multiple times to set multiple parameters. "
@@ -50,32 +193,15 @@ def main(*, checkpoint: str, output: str, backend_name, data=None, train_embeddi
         method_spec = get_method_spec(method_name)
         with build_method_class(method_spec, backend=backend_name) as method_cls:
             method = method_cls(checkpoint=str(checkpoint_path))
-            dataset_metadata = nb_info.get("dataset_metadata")
-            if data is not None:
-                dataset = load_dataset(data, split="train", load_features=False)
-                if dataset_metadata is not None:
-                    logging.warning("Overwriting dataset metadata stored in the checkpoint")
-                dataset_metadata = dataset["metadata"]
-            if dataset_metadata is None:
-                logging.warning("No dataset metadata found in the checkpoint and no dataset provided as input. Some methods may require dataset metadata to export a demo. Please provide a dataset using the --data option.")
-            try:
-                method_export_demo = method.export_demo  # type: ignore
-            except AttributeError:
-                raise NotImplementedError(f"Method {method_name} does not support export_demo")
+            info = method.get_info()
+            train_dataset = load_dataset(data, split="train", load_features=True, features=info["required_features"])
+            test_dataset = load_dataset(data, split="train", load_features=True, features=info["required_features"])
 
-            # If train embedding is enabled, select train_embedding
-            embedding = None
-            if train_embedding is not None:
-                embedding = method.get_train_embedding(train_embedding)
-                if train_embedding is None:
-                    logging.error(f"Train embedding {train_embedding} not found or not supported by the method.")
-            method_export_demo(
-                path=output,
-                options=dict(
-                    **options,
-                    embedding=embedding,
-                    dataset_metadata=dataset_metadata)
-            )
+            export_demo(output, 
+                        method, 
+                        [int(x) if x.lower() != "none" else None for x in train_embedding.split(",")] if train_embedding else None,
+                        train_dataset=train_dataset,
+                        test_dataset=test_dataset)
 
 
 if __name__ == "__main__":

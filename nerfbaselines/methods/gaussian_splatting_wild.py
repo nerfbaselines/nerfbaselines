@@ -575,8 +575,7 @@ class GaussianSplattingWild(Method):
         return self.gaussians.color_net.cache_outd.detach().cpu().numpy().reshape(-1)
 
     @torch.no_grad()
-    def export_demo(self, path: str, *, options=None):
-        from ._gaussian_splatting_demo import export_demo
+    def export_gaussian_splats(self, *, options=None):
         from nerfbaselines.utils import apply_transform, invert_transform
 
         options = options or {}
@@ -603,10 +602,9 @@ class GaussianSplattingWild(Method):
         # Convert to spherical harmonics of deg 0
         C0 = 0.28209479177387814
         spherical_harmonics = (colors[..., None] - 0.5) / C0
-        export_demo(path, 
-                    options=options,
-                    xyz=gaussians.get_xyz.detach().cpu().numpy(),
-                    scales=self.gaussians.get_scaling.detach().cpu().numpy(),
-                    opacities=self.gaussians.get_opacity_dealed.detach().cpu().numpy(),
-                    quaternions=self.gaussians.get_rotation.detach().cpu().numpy(),
-                    spherical_harmonics=spherical_harmonics.detach().cpu().numpy())
+        return dict(
+            means=gaussians.get_xyz.detach().cpu().numpy(),
+            scales=self.gaussians.get_scaling.detach().cpu().numpy(),
+            opacities=self.gaussians.get_opacity_dealed.detach().cpu().numpy(),
+            quaternions=self.gaussians.get_rotation.detach().cpu().numpy(),
+            spherical_harmonics=spherical_harmonics.detach().cpu().numpy())

@@ -77,11 +77,6 @@ find $inpath -iname '*.zip' -print0  | while IFS= read -r -d '' file; do
     unzip -p $file results.json > $out.json || exit 1
     echo "Extracted $name.json"
 
-    # For each splat result, generate the ksplat file
-    if [ "$method" == "gaussian-splatting" ] || [ "$method" == "mip-splatting" ]; then
-        $(dirname $0)/make_ksplat.sh $method $out.zip $out.ksplat || exit 1
-    fi
-
     # Store new sha
     echo $newsha > "$out.zip.sha256" || exit 1
 done
