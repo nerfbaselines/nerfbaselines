@@ -82,7 +82,7 @@ def get_viewer_params_from_dataset_metadata(dataset_metadata, include_registry_d
 def get_viewer_params_from_dataset(train_dataset, test_dataset, include_registry_data: bool = True):
     info = {}
     if train_dataset is not None or test_dataset is not None:
-        info["dataset"] = info["dataset"] or {}
+        info.setdefault("dataset", {})
         info["dataset"]["url"] = "./dataset.json"
         if train_dataset is not None and train_dataset.get("points3D_xyz") is not None:
             info["dataset"]["pointcloud_url"] = "./dataset/pointcloud.ply"

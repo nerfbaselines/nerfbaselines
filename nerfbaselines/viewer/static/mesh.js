@@ -27,6 +27,7 @@ export class MeshFrameRenderer {
     this.scene = new THREE.Scene();
     if (Array.isArray(background_color))
       background_color = new THREE.Color(...background_color);
+    this.mesh_url = mesh_url;
     this.scene.background = new THREE.Color(background_color || 0x000000);
     this.camera = new THREE.Camera();
     this.canvas = new OffscreenCanvas(1, 1);

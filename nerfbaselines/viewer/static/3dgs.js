@@ -21,6 +21,7 @@ export class GaussianSplattingFrameRenderer {
     onready,
     is_2DGS=false,
     antialias_2D_kernel_size,
+    transform,
     ...options
   }) {
     this._notificationId = "GaussianSplattingFrameRenderer-" + (
@@ -50,6 +51,18 @@ export class GaussianSplattingFrameRenderer {
     this.is_2DGS = is_2DGS;
     this.scene.add(this.gs_viewer);
     this.output_types = ["color"];
+    this.transform = {}
+    if (transform) {
+      const rotation = new THREE.Quaternion();
+      const position = new THREE.Vector3();
+      const scale = new THREE.Vector3();
+      makeMatrix4(transform).decompose(position, rotation, scale);
+      this.transform = { 
+        position: position.toArray(),
+        rotation: rotation.toArray(),
+        scale: scale.toArray(),
+      };
+    }
     this._changeScene(scene_url);
   }
 
@@ -105,7 +118,8 @@ export class GaussianSplattingFrameRenderer {
             closeable: true,
           });
           reject(error);
-        }
+        },
+        ...this.transform
       });
     });
     if (this._changeScenePromise) {

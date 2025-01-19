@@ -14,6 +14,262 @@ import { downloadZip } from 'client-zip';
 const notification_autoclose = 5000;
 
 
+function drawChart({ svg, ...data }) {
+  // Clear the SVG
+  while (svg.firstChild) {
+    svg.removeChild(svg.firstChild);
+  }
+  svg.remoteSvgListeners?.();
+  const computedStyles = getComputedStyle(svg);
+  const aspectRatio = computedStyles.aspectRatio;
+  const aspect = aspectRatio.split('/')[0] / aspectRatio.split('/')[1];
+  if (!aspect) {
+    throw new Error("Aspect ratio must be defined for the SVG element.");
+  }
+
+  const svgNs = "http://www.w3.org/2000/svg"
+  const width = 287;
+  const height = width / aspect;
+  const axiso = 15;
+  const axisStroke = 1;
+  console.log(computedStyles);
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.style.width = "100%";
+  svg.style['aspect-ratio'] = `${aspect}`;
+  svg.style.height = "auto";
+
+  const bottom = height - 12;
+  const left = 20;
+  const right = width - 15;
+  const top = 15;
+
+  const polyline = document.createElementNS(svgNs, 'polyline');
+  polyline.setAttribute('fill', 'none');
+  polyline.setAttribute('stroke-width', '2');
+  polyline.style.stroke = 'var(--theme-color)';
+  svg.appendChild(polyline);
+
+  // Add x-axis
+  const xAxis = document.createElementNS(svgNs, 'line');
+  xAxis.setAttribute('x1', left-axisStroke/2);
+  xAxis.setAttribute('y1', bottom);
+  xAxis.setAttribute('x2', right+axiso-5);
+  xAxis.setAttribute('y2', bottom);
+  xAxis.style.stroke = 'var(--primary-color)';
+  xAxis.setAttribute('stroke-width', axisStroke);
+  svg.appendChild(xAxis);
+  // Add x-axis arrowhead
+  const xArrowhead = document.createElementNS(svgNs, 'polygon');
+  xArrowhead.setAttribute('points', `${right+axiso},${bottom} ${right+axiso-8},${bottom-4} ${right+axiso-8},${bottom+4}`);
+  xArrowhead.style.fill = 'var(--primary-color)';
+  svg.appendChild(xArrowhead);
+
+  // Add y-axis
+  const yAxis = document.createElementNS(svgNs, 'line');
+  yAxis.setAttribute('x1', left);
+  yAxis.setAttribute('y1', bottom+axisStroke/2);
+  yAxis.setAttribute('x2', left);
+  yAxis.setAttribute('y2', top-10);
+  yAxis.style.stroke = 'var(--primary-color)';
+  yAxis.setAttribute('stroke-width', axisStroke);
+  svg.appendChild(yAxis);
+  // Add y-axis arrowhead
+  const yArrowhead = document.createElementNS(svgNs, 'polygon');
+  yArrowhead.setAttribute('points', `${left},${top-15} ${left-4},${top-5} ${left+4},${top-5}`);
+  yArrowhead.style.fill = 'var(--primary-color)';
+  svg.appendChild(yArrowhead);
+
+  // Add mouse focus line
+  const focusLine = document.createElementNS(svgNs, 'line');
+  focusLine.setAttribute('x1', -100);
+  focusLine.setAttribute('y1', bottom+axisStroke/2);
+  focusLine.setAttribute('x2', -100);
+  focusLine.setAttribute('y2', top-10);
+  focusLine.style.stroke = 'var(--secondary-color)';
+  focusLine.setAttribute('stroke-width', axisStroke);
+  svg.appendChild(focusLine);
+
+  // Add mouse focus circle
+  const focusCircle = document.createElementNS(svgNs, 'circle');
+  focusCircle.setAttribute('cx', -100);
+  focusCircle.setAttribute('cy', -100);
+  focusCircle.setAttribute('r', 3);
+  focusCircle.style.fill = 'var(--theme-color)';
+  svg.appendChild(focusCircle);
+  
+  // Add mouse focus text
+  const focusText = document.createElementNS(svgNs, 'text');
+  focusText.setAttribute('x', -100);
+  focusText.setAttribute('y', -100);
+  focusText.setAttribute('text-anchor', 'middle');
+  focusText.setAttribute('font-size', '12');
+  focusText.setAttribute('font-weight', 'bold');
+  focusText.style.fill = 'var(--highlight-color)';
+  focusText.textContent = '';
+  svg.appendChild(focusText);
+
+  // Add axis labels
+  const xLabelEl = document.createElementNS(svgNs, 'text');
+  xLabelEl.setAttribute('x', width- 10);
+  xLabelEl.setAttribute('y', bottom-5);
+  xLabelEl.setAttribute('text-anchor', 'end');
+  xLabelEl.setAttribute('font-size', '12');
+  xLabelEl.style.fill = 'var(--primary-color)';
+  xLabelEl.style.visibility = 'hidden';
+  svg.appendChild(xLabelEl);
+  // Add y-axis label
+  const yLabelEl = document.createElementNS(svgNs, 'text');
+  yLabelEl.setAttribute('x', left+8);
+  yLabelEl.setAttribute('y', top);
+  yLabelEl.setAttribute('text-anchor', 'begin');
+  yLabelEl.setAttribute('font-size', '12');
+  yLabelEl.style.fill = 'var(--primary-color)';
+  yLabelEl.style.visibility = 'hidden';
+  svg.appendChild(yLabelEl);
+
+  // Prepare x-axis ticks
+  const xtickElements = Array.from({ length: 3 }, (_, i) => {
+    const tick = document.createElementNS(svgNs, 'line');
+    tick.setAttribute('y1', bottom-2);
+    tick.setAttribute('y2', bottom+2);
+    tick.style.stroke = 'var(--primary-color)';
+    tick.setAttribute('stroke-width', axisStroke);
+    svg.appendChild(tick);
+
+    // Add x-axis labels
+    const label = document.createElementNS(svgNs, 'text');
+    label.setAttribute('y', bottom+10);
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('font-size', '10');
+    label.style.fill = 'var(--primary-color)';
+    svg.appendChild(label);
+    return { tick, label };
+  });
+
+  // Prepare y-axis ticks
+  const ytickElements = Array.from({ length: 3 }, (_, i) => {
+    const tick = document.createElementNS(svgNs, 'line');
+    tick.setAttribute('x1', left-2);
+    tick.setAttribute('x2', left+2);
+    tick.style.stroke = 'var(--primary-color)';
+    tick.setAttribute('stroke-width', axisStroke);
+    svg.appendChild(tick);
+
+    // Add y-axis labels
+    const label = document.createElementNS(svgNs, 'text');
+    label.setAttribute('x', left-3);
+    label.setAttribute('text-anchor', 'end');
+    label.setAttribute('dominant-baseline', 'middle');
+    label.setAttribute('font-size', '10');
+    label.style.fill = 'var(--primary-color)';
+    svg.appendChild(label);
+    return { tick, label };
+  });
+
+  let getYValue = null;
+
+  // Update with the data
+  const setData = ({ x, y, xLabel, yLabel }) => {
+    let xmax = parseFloat(Math.max(...x).toPrecision(2));
+    let xmin = parseFloat(Math.min(...x).toPrecision(2));
+    let ymax = parseFloat(Math.max(...y).toPrecision(2));
+    let ymin = parseFloat(Math.min(...y).toPrecision(2));
+    const xScale = (right-left) / (x[x.length - 1] - x[0]);
+    const yScale = (bottom-top) / (y[y.length - 1] - y[0]);
+
+    xtickElements.forEach(({ tick, label }, i) => {
+      const xValue = parseFloat(xmin+(xmax-xmin)*(i+1)/xtickElements.length).toPrecision(2);
+      tick.setAttribute('x1', left+xValue*xScale);
+      tick.setAttribute('x2', left+xValue*xScale);
+      label.setAttribute('x', left+xValue*xScale);
+      label.textContent = (parseFloat(xValue)).toPrecision(2);
+    });
+    ytickElements.forEach(({ tick, label }, i) => {
+      const yValue = parseFloat(ymin+(ymax-ymin)*i/(ytickElements.length-1)).toPrecision(2);
+      tick.setAttribute('y1', bottom-yValue*yScale);
+      tick.setAttribute('y2', bottom-yValue*yScale);
+      label.setAttribute('y', bottom-yValue*yScale+1);
+      label.textContent = (parseFloat(yValue)).toPrecision(2);
+    });
+
+    const points = x.map((x, i) => `${left+x * xScale},${bottom-y[i] * yScale}`).join(' ');
+    polyline.setAttribute('points', points);
+
+    // Set axis labels
+    if (xLabel) {
+      xLabelEl.style.visibility = 'visible';
+      xLabelEl.textContent = xLabel;
+    } else { xLabelEl.style.visibility = 'hidden'; }
+    if (yLabel) {
+      yLabelEl.style.visibility = 'visible';
+      yLabelEl.textContent = yLabel;
+    } else { yLabelEl.style.visibility = 'hidden'; }
+    
+    // Set getYValue function
+    getYValue = (vOrig) => {
+      const v = (vOrig - left) / xScale;
+      let yValue;
+      if (v < x[0]) yValue = y[0];
+      else if (v > x[x.length - 1]) yValue = y[y.length - 1];
+      else {
+        for (let i = 0; i < x.length - 1; i++) {
+          if (x[i] <= v && v <= x[i+1]) {
+            const t = (v - x[i]) / (x[i+1] - x[i]);
+            yValue = y[i] * (1-t) + y[i+1] * t;
+            break;
+          }
+        }
+      }
+      const out = bottom-yValue*yScale;
+      return { y: out, yValue };
+    };
+  };
+
+  const hideMouseFocus = () => {
+    focusLine.setAttribute('x1', -100);
+    focusLine.setAttribute('x2', -100);
+    focusCircle.setAttribute('cx', -100);
+    focusCircle.setAttribute('cy', -100);
+    focusText.setAttribute('x', -100);
+    focusText.setAttribute('y', -100);
+  };
+
+  const mousemove = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const svgLeft = svg.getBoundingClientRect().left;
+    const x = (e.clientX - svgLeft) / svg.clientWidth * width;
+    if (x < left || x > right || !getYValue) {
+      // Make invisible
+      return;
+    }
+    const {y, yValue } = getYValue(x);
+    focusLine.setAttribute('x1', x);
+    focusLine.setAttribute('x2', x);
+    focusCircle.setAttribute('cx', x);
+    focusCircle.setAttribute('cy', y);
+    focusText.setAttribute('x', x);
+    focusText.setAttribute('y', y-8);
+    focusText.textContent = yValue.toPrecision(5);
+  };
+  const mouseleave = (e) => {
+    if (e.target !== svg) return;
+    e.preventDefault();
+    e.stopPropagation();
+    hideMouseFocus();
+  };
+
+  svg.addEventListener('mousemove', mousemove, { passive: false, capture: true });
+  svg.addEventListener('mouseleave', mouseleave, { passive: false, capture: true });
+  svg.removeSvgListeners = () => {
+    svg.removeEventListener('mousemove', mousemove, { passive: false, capture: true });
+    svg.removeEventListener('mouseleave', mouseleave, { passive: false, capture: true });
+  }
+  svg.setData = setData;
+  setData(data);
+}
+
+
 class VideoWriter {
   constructor({ 
     width, height, 
@@ -1273,7 +1529,8 @@ class DatasetManager {
     this._train_load_images_tasks = null;
     this._test_load_images_tasks = null;
     if (url) {
-      this._load_cameras(url).then(() => {
+      const absUrl = new URL(url, window.location.href).href;
+      this._load_cameras(absUrl).then(() => {
         if (state.dataset_show_train_cameras && this._train_load_images_tasks !== null)
           this._load_split_images("train");
         if (state.dataset_show_test_cameras && this._test_load_images_tasks !== null)
@@ -1487,8 +1744,8 @@ class DatasetManager {
     }
     if (result.pointcloud_url && !this._pointcloud_url) {
       // Make pointcloud_url relative to the dataset url
-      const urlObj = new URL(url);
-      const pointcloud_url = new URL(result.pointcloud_url, urlObj);
+      url = new URL(url, window.location.href);
+      const pointcloud_url = new URL(result.pointcloud_url, url);
       this._pointcloud_url = pointcloud_url.href;
       this.viewer.state.dataset_has_pointcloud = true;
       this.viewer.notifyChange({ property: 'dataset_has_pointcloud' });
@@ -2489,6 +2746,7 @@ export class Viewer extends THREE.EventDispatcher {
   }
 
   set_mesh_renderer(params) {
+    params.mesh_url = new URL(mesh_url, window.location.href).href;
     try {
       this._set_frame_renderer(new MeshFrameRenderer({
         ...params,
@@ -2506,6 +2764,12 @@ export class Viewer extends THREE.EventDispatcher {
   }
 
   set_3dgs_renderer(params) {
+    params.scene_url = new URL(params.scene_url, window.location.href).href;
+    if (params.scene_url_per_appearance) {
+      for (const key in params.scene_url_per_appearance) {
+        params.scene_url_per_appearance[key] = new URL(params.scene_url_per_appearance[key], window.location.href).href;
+      }
+    }
     try {
       this._set_frame_renderer(new GaussianSplattingFrameRenderer({
         ...params,
@@ -4017,3 +4281,9 @@ function formatMatrix4(matrix, round) {
   }
   return `${a[0]}, ${a[1]}, ${a[2]}, ${a[3]},\n${a[4]}, ${a[5]}, ${a[6]}, ${a[7]},\n${a[8]}, ${a[9]}, ${a[10]}, ${a[11]}`
 }
+
+
+// TODO: Add metrics
+// const x = [0, 1, 2, 3, 4, 5];
+// const y = [0, 1, 4, 9, 16, 25];
+// const chart = [...document.getElementsByTagName('svg')].forEach((svg) => drawChart({svg, x, y, xLabel: "iterations", yLabel: "PSNR"}));
