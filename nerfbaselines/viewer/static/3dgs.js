@@ -73,16 +73,23 @@ export class GaussianSplattingFrameRenderer {
     this._currentSceneUrl = scene_url;
     const changeScene = () => new Promise(async (resolve, reject) => {
       const updateProgress = (percentage, _, stage) => {
+        if (stage === 2 && percentage >= 100) {
+          // Trigger render to start sorting
+          this.renderer.render(this.scene, this.camera);
+        }
         if (stage === 1 && percentage >= 100) {
-          this._onready({
-            output_types: this.output_types,
-            supported_appearance_train_indices: this.scene_url_per_appearance ? Object.keys(this.scene_url_per_appearance) : null,
-          });
-          this.update_notification({
-            id: this._notificationId,
-            autoclose: 0,
-          });
-          resolve();
+          const complete = () => {
+            this._onready({
+              output_types: this.output_types,
+              supported_appearance_train_indices: this.scene_url_per_appearance ? Object.keys(this.scene_url_per_appearance) : null,
+            });
+            this.update_notification({
+              id: this._notificationId,
+              autoclose: 0,
+            });
+            resolve();
+          };
+          setTimeout(complete, 0);
         } else if (stage === 0) {
           this.update_notification({
             id: this._notificationId,
@@ -108,6 +115,7 @@ export class GaussianSplattingFrameRenderer {
         antialiased: this.antialias_2D_kernel_size > 0,
         kernel2DSize: this.antialias_2D_kernel_size || 0.3,
         splatRenderMode: this.is_2DGS ? "TwoD" : "ThreeD",
+        sceneRevealMode: GaussianSplats3D.SceneRevealMode.Instant,
         onProgress: updateProgress,
         onError: (error) => {
           this.update_notification({
@@ -192,6 +200,16 @@ export class GaussianSplattingFrameRenderer {
     this.camera.position.copy(position);
     this.camera.quaternion.copy(quaternion);
     this.renderer.render(this.scene, this.camera);
+    // We need to do the re-rendering due to imperfect sorting
+    if (!this._lastCameraPosition || 
+      (this._lastCameraPosition.distanceTo(position) > 0.001 && 
+        performance.now() - this._lastRenderTime > 300)) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      this.renderer.render(this.scene, this.camera);
+    }
+    this._lastCameraPosition = position.clone();
+    this._lastRenderTime = performance.now();
     // Flip the image vertically
     let imageBitmap = await this.canvas.transferToImageBitmap();
     if (flipY)

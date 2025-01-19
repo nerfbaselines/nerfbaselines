@@ -67,11 +67,11 @@ while IFS= read -r -d '' file; do
         if [[ "$name" == "phototourism/"* ]]; then
             # For phototourism, we generate demos for different appearances
             if [[ "$name" == *"/trevi-fountain" ]]; then
-                embedding_ids="none,5,174"
+                embedding_ids="none,5,7,174"
             elif [[ "$name" == *"/sacre-coeur" ]]; then
-                embedding_ids="none,7,14"
+                embedding_ids="none,7,14,29"
             elif [[ "$name" == *"/brandenburg-gate" ]]; then
-                embedding_ids="none,1,9"
+                embedding_ids="none,0,1,9"
             else
                 echo "Unknown phototourism scene: $name"
                 exit 1

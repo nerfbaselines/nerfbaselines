@@ -2611,7 +2611,7 @@ export class Viewer extends THREE.EventDispatcher {
     this.set_camera({ matrix });
   }
 
-  _get_render_params() {
+  _get_render_params({ force=false } = {}) {
     const state = this.state;
     if (this._force_render) {
       this._force_render = false;
@@ -2674,7 +2674,7 @@ export class Viewer extends THREE.EventDispatcher {
         width, height, ...cameraParams });
       paramsJSON = JSON.stringify(params);
     }
-    if (paramsJSON === this._last_render_params) return;
+    if (paramsJSON === this._last_render_params && !force) return;
     this._last_render_params = paramsJSON;
     return params;
   }
@@ -2746,7 +2746,12 @@ export class Viewer extends THREE.EventDispatcher {
   }
 
   set_mesh_renderer(params) {
-    params.mesh_url = new URL(mesh_url, window.location.href).href;
+    params.mesh_url = new URL(params.mesh_url, window.location.href).href;
+    if (params.mesh_url_per_appearance) {
+      for (const key in params.mesh_url_per_appearance) {
+        params.mesh_url_per_appearance[key] = new URL(params.mesh_url_per_appearance[key], window.location.href).href;
+      }
+    }
     try {
       this._set_frame_renderer(new MeshFrameRenderer({
         ...params,

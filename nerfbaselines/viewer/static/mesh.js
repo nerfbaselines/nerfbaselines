@@ -55,7 +55,7 @@ export class MeshFrameRenderer {
           id: this._notificationId,
           header: "Loading mesh renderer",
           progress: percentage,
-          closeable: true,
+          closeable: false,
           onclose: () => this._cancelLoading?.(),
         });
       };

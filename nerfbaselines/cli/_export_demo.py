@@ -1,3 +1,4 @@
+import numpy as np
 import os
 import logging
 import click
@@ -9,10 +10,23 @@ from nerfbaselines import (
 )
 from nerfbaselines.io import open_any_directory, deserialize_nb_info
 from nerfbaselines.datasets import load_dataset, dataset_load_features
-from nerfbaselines.utils import apply_transform, invert_transform
+from nerfbaselines.utils import apply_transform, invert_transform, convert_image_dtype
 from nerfbaselines import viewer
 from ._common import click_backend_option
 from ._common import SetParamOptionType, NerfBaselinesCliCommand
+
+
+def _get_float_background_color(background_color):
+    if background_color is None:
+        return None
+    if hasattr(background_color, "dtype"):
+        background_color = convert_image_dtype(background_color, "float32")
+        return background_color.tolist()
+    if isinstance(background_color, (tuple, list)):
+        if all(isinstance(x, int) for x in background_color):
+            return [x / 255 for x in background_color]
+        return list(background_color)
+    raise ValueError(f"Invalid background color {background_color}")
 
 
 def try_export_gaussian_splats(output, method, train_embedding, dataset_metadata):
@@ -64,10 +78,17 @@ def try_export_gaussian_splats(output, method, train_embedding, dataset_metadata
         json.dump(params, f, indent=2)
     params["scene_url"] = f"./{output_name}"
     params["type"] = "3dgs"
+    background_color = _get_float_background_color(
+        dataset_metadata.get("background_color", None))
+    if background_color is not None:
+        params["background_color"] = background_color
     return params
 
 
 def try_export_mesh(output, method, train_embedding, train_dataset):
+    output_name = "mesh.ply"
+    if train_embedding is not None:
+        output_name = f"mesh-{train_embedding}.ply"
     try:
         export_mesh = method.export_mesh  # type: ignore
     except AttributeError:
@@ -91,11 +112,19 @@ def try_export_mesh(output, method, train_embedding, train_dataset):
         options=dict(
             embedding=embedding,
             dataset_metadata=dataset_metadata))
+    background_color = _get_float_background_color(
+        dataset_metadata.get("background_color", None))
+    # Rename mesh.ply to output_name
+    os.rename(os.path.join(output, "mesh.ply"), os.path.join(output, output_name))
+
     # Exported as mesh.ply
-    return {
+    out = {
         "type": "mesh",
-        "mesh_url": "./mesh.ply"
+        "mesh_url": f"./{output_name}",
     }
+    if background_color is not None:
+        out["background_color"] = background_color
+    return out
 
 
 def _export_demo(output, method, train_embedding, train_dataset):
