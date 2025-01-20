@@ -1,3 +1,4 @@
+import sys
 import base64
 import os
 import json
@@ -5,10 +6,10 @@ import io
 from typing import Dict, cast
 import nerfbaselines.viewer
 from pathlib import Path
-import importlib.resources
 import numpy as np
 from PIL import Image
 from nerfbaselines.utils import image_to_srgb
+
 
 
 def _yield_files(path, _path=None):
@@ -30,7 +31,7 @@ def build_static_viewer(output, params=None):
         output: The path to write the viewer to.
     """
     params = params or {}
-    path = importlib.resources.files(nerfbaselines.viewer)
+    path = Path(nerfbaselines.viewer.__file__).absolute().parent
     for p, file in _yield_files(path/"static"):
         dirname = (Path(output) / p).parent
         dirname.mkdir(parents=True, exist_ok=True)

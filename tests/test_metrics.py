@@ -5,6 +5,11 @@ import numpy as np
 import pytest
 from nerfbaselines.metrics import torchmetrics_ssim, dmpix_ssim
 from nerfbaselines import metrics
+# For Python>=3.9, use importlib.resources
+if sys.version_info >= (3, 9):
+    import importlib.resources as importlib_resources
+else:
+    import importlib_resources
 
 
 @pytest.mark.extras
@@ -184,5 +189,5 @@ def test_lpips_v0():
 
 def test_lpips_checkpoints_exists():
     import nerfbaselines._lpips_weights
-    assert importlib.resources.is_resource(nerfbaselines._lpips_weights, "vgg-0.1.pth")
-    assert importlib.resources.is_resource(nerfbaselines._lpips_weights, "alex-0.1.pth")
+    assert importlib_resources.is_resource(nerfbaselines._lpips_weights, "vgg-0.1.pth")
+    assert importlib_resources.is_resource(nerfbaselines._lpips_weights, "alex-0.1.pth")

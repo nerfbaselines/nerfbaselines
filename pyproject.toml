@@ -31,6 +31,7 @@ dependencies = [
     "tensorboard>=2.5.0",
     "scipy",
     'importlib-metadata>=6.0.0; python_version < "3.10"',
+    'importlib-resources; python_version < "3.9"',
 ]
 dynamic = ["version"]
 

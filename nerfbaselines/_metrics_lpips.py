@@ -23,6 +23,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
+import sys
 from typing import cast, Sequence
 import io
 from collections import namedtuple
@@ -30,11 +31,14 @@ import torch
 from torchvision import models as tv
 from torch import nn
 import torch.nn
-import importlib.resources
 from nerfbaselines.io import wget
 import nerfbaselines._lpips_weights
 import logging
-import gzip
+# For Python>=3.9, use importlib.resources
+if sys.version_info >= (3, 9):
+    import importlib.resources as importlib_resources
+else:
+    import importlib_resources
 
 
 def normalize_tensor(in_feat,eps=1e-10):
@@ -133,8 +137,8 @@ class LPIPS(nn.Module):
 
             if(pretrained):
                 if(model_path is None):
-                    if importlib.resources.is_resource(nerfbaselines._lpips_weights, f'{net}-{version}.pth'):
-                        with importlib.resources.open_binary(nerfbaselines._lpips_weights, f'{net}-{version}.pth') as f:
+                    if importlib_resources.is_resource(nerfbaselines._lpips_weights, f'{net}-{version}.pth'):
+                        with importlib_resources.open_binary(nerfbaselines._lpips_weights, f'{net}-{version}.pth') as f:
                             weights = torch.load(f, map_location='cpu')
                         logging.info('Loading LPIPS model from package resources')
                     else:
