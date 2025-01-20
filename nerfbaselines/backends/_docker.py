@@ -15,15 +15,14 @@ from .._constants import DOCKER_REPOSITORY
 
 from ._conda import CondaBackendSpec, conda_get_environment_hash, conda_get_install_script
 from ._rpc import RemoteProcessRPCBackend, get_safe_environment, customize_wrapper_separated_fs
-from ._common import get_package_dependencies, get_mounts
+from ._common import get_mounts
 try:
     from typing import TypedDict, Required
 except ImportError:
     from typing_extensions import TypedDict, Required
 
 
-EXPORT_ENVS = ["TCNN_CUDA_ARCHITECTURES", "TORCH_CUDA_ARCH_LIST", "CUDAARCHS", "GITHUB_ACTIONS", "CI"]
-DEFAULT_CUDA_ARCHS = "7.0 7.5 8.0 8.6+PTX"
+EXPORT_ENVS = ["CUDA_VISIBLE_DEVICES", "CUDAARCHS", "GITHUB_ACTIONS", "CI"]
 DOCKER_TAG_HASH_LENGTH = 10
 
 
@@ -36,7 +35,6 @@ class DockerBackendSpec(TypedDict, total=False):
     image: Optional[str]
     home_path: str
     python_path: str
-    default_cuda_archs: str
     conda_spec: CondaBackendSpec
     replace_user: bool
     build_script: str
@@ -51,16 +49,14 @@ def docker_get_environment_hash(spec: Union[DockerBackendSpec, Dict]):
 
     maybe_update(spec.get("image"))
     maybe_update(spec.get("home_path"))
-    maybe_update(spec.get("default_cuda_archs"))
     maybe_update(spec.get("build_script"))
-    maybe_update(",".join(get_package_dependencies(ignore_viewer=True)))
     conda_spec = spec.get("conda_spec")
     if conda_spec:
         maybe_update(conda_get_environment_hash(conda_spec))
     return value.hexdigest()
 
 
-BASE_IMAGE = f"{DOCKER_REPOSITORY}:base-{docker_get_environment_hash(cast(DockerBackendSpec, { 'default_cuda_archs': DEFAULT_CUDA_ARCHS }))[:DOCKER_TAG_HASH_LENGTH]}"
+BASE_IMAGE = f"{DOCKER_REPOSITORY}:base-{docker_get_environment_hash(cast(DockerBackendSpec, {}))[:DOCKER_TAG_HASH_LENGTH]}"
 
 
 def get_docker_spec(spec: 'MethodSpec') -> Optional[DockerBackendSpec]:
@@ -109,12 +105,9 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
 
     conda_spec = spec.get("conda_spec")
     build_script = spec.get("build_script")
-    default_cuda_archs = spec.get("default_cuda_archs") or DEFAULT_CUDA_ARCHS
-    tcnn_cuda_archs = default_cuda_archs.replace(".", "").replace("+PTX", "").replace(" ", ";")
+    script += "ARG NERFBASELINES_DOCKER_BUILD=1"
     if build_script:
-        run_command = f'set -e;export TORCH_CUDA_ARCH_LIST="{default_cuda_archs}";export TCNN_CUDA_ARCHITECTURES="{tcnn_cuda_archs}";export NERFBASELINES_DOCKER_BUILD=1;{build_script}'
-        script += f"RUN {_bash_encode(run_command)} && \\\n"
-        script += "rm -Rf /root/.cache/pip || echo 'Failed to remove pip cache'\n"
+        script += build_script
 
     if conda_spec is not None:
         environment_name = conda_spec.get("environment_name")
@@ -127,8 +120,8 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
 
         # Add install conda script
         install_conda = conda_get_install_script(conda_spec, package_path="/var/nb-package/nerfbaselines", environment_path=environment_path)
-        run_command = f'export TORCH_CUDA_ARCH_LIST="{default_cuda_archs}" && export TCNN_CUDA_ARCHITECTURES="{tcnn_cuda_archs}" && export NERFBASELINES_DOCKER_BUILD=1 && {install_conda}'
-        script += f"RUN {_bash_encode(run_command)} && \\\n"
+        run_script = f'export NERFBASELINES_DOCKER_BUILD=1;{install_conda}'
+        script += f"RUN {_bash_encode(run_script)} && \\\n"
         script += shlex_join(shell_args) + " bash -c 'conda clean -afy && rm -Rf /root/.cache/pip'\n"
         # Fix permissions when changing the user inside the container
         script += "RUN chmod -R og=u /var/conda-envs\n"
@@ -137,12 +130,7 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
 
     else:
         # If not inside conda env, we install the dependencies
-        python_path = spec.get("python_path") or "python"
-        package_dependencies = get_package_dependencies()
-        script += "RUN "
-        if package_dependencies:
-            script += shlex_join([python_path, "-m", "pip", "--no-cache-dir", "install"] + package_dependencies)+ " && \\\n"
-        script += f'if ! command -v nerfbaselines >/dev/null 2>&1; then echo "#!/usr/bin/env python3\\nfrom nerfbaselines.__main__ import main; main()">"/usr/bin/nerfbaselines" && chmod +x "/usr/bin/nerfbaselines" || echo "Failed to create nerfbaselines in the bin folder"; fi\n'
+        script += f'RUN if ! command -v nerfbaselines >/dev/null 2>&1; then echo "#!/usr/bin/env python3\\nfrom nerfbaselines.__main__ import main; main()">"/usr/bin/nerfbaselines" && chmod +x "/usr/bin/nerfbaselines" || echo "Failed to create nerfbaselines in the bin folder"; fi\n'
         # We manually add nb-package to the PYTHONPATH
         script += f'ENV PYTHONPATH="/var/nb-package:$PYTHONPATH"\n'
 
@@ -157,6 +145,7 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
     # Add nerfbaselines to the path
     script += 'CMD ["nerfbaselines"]\n'
     script += "COPY . /var/nb-package/nerfbaselines\n"
+    print(script)
     return script
 
 

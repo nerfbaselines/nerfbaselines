@@ -1,3 +1,4 @@
+import io
 import os
 import csv
 import logging
@@ -6,8 +7,8 @@ from typing import Union, cast, Dict, Iterable
 from functools import partial
 
 import numpy as np
-import requests
 
+from nerfbaselines.io import wget
 from nerfbaselines import (
     Dataset, EvaluationProtocol, Method, 
     RenderOutput, DatasetNotFoundError, RenderOptions
@@ -60,10 +61,10 @@ def _add_split_lists(output, scene):
     # Download test list if available
     if scene in _split_lists:
         split_list_url = _split_lists[scene]
-        response = requests.get(split_list_url)
-        response.raise_for_status()
-        with open(os.path.join(output, "nerfw_split.csv"), "w", encoding="utf8") as f:
-            f.write(response.text)
+        with wget(split_list_url) as response:
+            with open(os.path.join(output, "nerfw_split.csv"), "w", encoding="utf8") as f:
+                with io.TextIOWrapper(response) as fin:
+                    f.write(fin.read())
 
         split_lists = {}
         for split in ["train", "test"]:

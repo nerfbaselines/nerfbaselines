@@ -52,7 +52,7 @@ except ImportError:
 # Hack for older versions of NerfBaselines requiring viser
 import importlib
 from unittest.mock import MagicMock
-for module in ["viser", "viser.transforms", "viser.theme", "splines", "splines.quaternion"]:
+for module in ["viser", "viser.transforms", "viser.theme", "splines", "splines.quaternion", "mediapy"]:
     try:
         importlib.import_module(module)
     except ImportError:

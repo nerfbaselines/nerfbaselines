@@ -38,7 +38,30 @@ pip install torch==2.3.0 torchvision==0.18.0 'numpy<2.0.0' --index-url https://d
 # However, we do not want to corrupt user's environment, so we set the options manually
 # pip install -I nvidia-pyindex==1.0.9
 pip install nvidia-tensorflow==1.15.5+nv22.10 --extra-index-url https://pypi.ngc.nvidia.com --no-cache-dir --trusted-host pypi.ngc.nvidia.com
-pip install configargparse==1.7 'opencv-python-headless<=4.10.0.82' imageio==2.34.1 numpy==1.23.5 importlib_metadata typing_extensions
+pip install \
+    configargparse==1.7 \
+    'opencv-python-headless<=4.10.0.82' \
+    imageio==2.34.1 \
+    numpy==1.23.5 \
+    'plyfile<=0.8.1' \
+    'mediapy<=1.1.2' \
+    'scikit-image<=0.21.0' \
+    'tqdm<=4.66.2' \
+    'importlib_metadata<=8.5.0' \
+    'typing_extensions<=4.12.2' \
+    'wandb<=0.19.1' \
+    'click<=8.1.8' \
+    'Pillow<=11.1.0' \
+    'matplotlib<=3.9.4' \
+    'tensorboard==1.15.0' \
+    'pytest<=8.3.4' \
+    'scipy<=1.13.1'
+
+# Fix tensorboard being installed incorrectly
+pip install tensorboard==1.15.0 --no-deps --force-reinstall
+
+# Install ffmpeg if not available
+command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
 
 conda develop "$PWD"
 """,

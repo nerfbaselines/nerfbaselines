@@ -237,54 +237,6 @@ class SimpleBackend(Backend):
         del obj
 
 
-def get_package_dependencies(extra=None, ignore: Optional[Set[str]] = None, ignore_viewer: bool = False):
-    assert __package__ is not None, "Package must be set"
-    if sys.version_info < (3, 10):
-        from importlib_metadata import distribution
-        import importlib_metadata
-    else:
-        from importlib import metadata as importlib_metadata
-        from importlib.metadata import distribution
-
-    requires = set()
-    requires_with_conditions = None
-    try:
-        requires_with_conditions = distribution("nerfbaselines").requires
-    except importlib_metadata.PackageNotFoundError:
-        # Package not installed
-        pass
-    for r in (requires_with_conditions or ()):
-        if ";" in r:
-            r, condition = r.split(";")
-            r = r.strip().replace(" ", "")
-            condition = condition.strip().replace(" ", "")
-            if condition.startswith("extra=="):
-                extracond = condition.split("==")[1][1:-1]
-                if extra is not None and extracond in extra:
-                    requires.add(r)
-                continue
-            elif condition.startswith("python_version"):
-                requires.add(r)
-                continue
-            else:
-                raise ValueError(f"Unknown condition {condition}")
-        r = r.strip().replace(" ", "")
-        requires.add(r)
-    if ignore_viewer:
-        # NOTE: Viewer is included in the package by default
-        # See https://github.com/pypa/setuptools/pull/1503
-        ignore = set(ignore or ())
-        ignore.add("viser")
-
-    if ignore is not None:
-        ignore = set(x.lower() for x in ignore)
-        for r in list(requires):
-            rsimple = re.sub(r"[^a-zA-Z0-9_-].*", "", r).lower()
-            if rsimple in ignore:
-                requires.remove(r)
-    return sorted(requires)
-
-
 def run_on_host():
     def wrap(fn):
         @functools.wraps(fn)

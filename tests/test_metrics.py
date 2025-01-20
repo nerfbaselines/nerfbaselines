@@ -1,3 +1,4 @@
+import importlib.resources
 import sys
 from typing import cast
 import numpy as np
@@ -12,8 +13,11 @@ from nerfbaselines import metrics
 @pytest.mark.parametrize("sigma", [None, 0.5])
 def test_torchmetrics_ssim(kernel_size, sigma):
     import torch
-    import torchmetrics
-    import dm_pix
+    try:
+        import torchmetrics
+        import dm_pix
+    except ImportError:
+        pytest.skip("torchmetrics or dm_pix not available")
 
     np.random.seed(42)
     a = np.random.rand(3, 47, 41, 3) * 0.9 + 0.05
@@ -47,7 +51,10 @@ def test_torchmetrics_ssim(kernel_size, sigma):
 @pytest.mark.parametrize("kernel_size", [None, 3])
 @pytest.mark.parametrize("sigma", [None, 0.5])
 def test_dmpix_ssim(kernel_size, sigma):
-    import dm_pix
+    try:
+        import dm_pix
+    except ImportError:
+        pytest.skip("dm_pix not available")
 
     np.random.seed(42)
     a = np.random.rand(3, 47, 41, 3) * 0.9 + 0.05
@@ -149,3 +156,33 @@ def test_lpips(metric):
         # Different shape raises error
         with pytest.raises(Exception):
             getattr(metrics, metric)(a, b[:-1])
+
+
+@pytest.mark.extras
+def test_lpips_v0():
+    metrics._LPIPS_CACHE.clear()
+    metrics._LPIPS_GPU_AVAILABLE = None
+    sys.modules.pop("nerfbaselines._metrics_lpips", None)
+    np.random.seed(42)
+    batch_shapes = [
+        (3,),
+        (2, 2),
+        (
+            2,
+            1,
+            1,
+        ),
+    ]
+    for bs in batch_shapes:
+        a = np.random.rand(*bs, 33, 38, 3)
+        b = np.random.rand(*bs, 33, 38, 3)
+
+        val = metrics._lpips(a, b, net="vgg", version="0.0")
+        assert isinstance(val, np.ndarray)
+        assert val.shape == bs
+
+
+def test_lpips_checkpoints_exists():
+    import nerfbaselines._lpips_weights
+    assert importlib.resources.is_resource(nerfbaselines._lpips_weights, "vgg-0.1.pth")
+    assert importlib.resources.is_resource(nerfbaselines._lpips_weights, "alex-0.1.pth")

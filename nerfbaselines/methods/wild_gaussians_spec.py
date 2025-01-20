@@ -19,12 +19,32 @@ if [ "$NERFBASELINES_DOCKER_BUILD" != "1" ]; then
 conda install -y gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
 fi
 conda install -y --override-channels -c nvidia/label/cuda-11.8.0 cuda-toolkit
-pip install --upgrade pip
-pip install opencv-python-headless 'numpy<2.0.0' -r requirements.txt
+pip install -U pip 'setuptools<70.0.0' 'wheel==0.43.0'
+# Install ffmpeg if not available
+command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
+# NOTE: torch included in requirements.txt
+pip install \
+    'numpy<2.0.0' -r requirements.txt \
+    plyfile==1.0.3 \
+    mediapy==1.2.2 \
+    lpips==0.1.4 \
+    scikit-image==0.21.0 \
+    tqdm==4.66.4 \
+    trimesh==4.3.2 \
+    opencv-python-headless==4.10.0.84 \
+    importlib_metadata==8.5.0 \
+    typing_extensions==4.12.2 \
+    wandb==0.19.1 \
+    click==8.1.7 \
+    Pillow==11.1.0 \
+    matplotlib==3.9.0 \
+    tensorboard==2.17.0 \
+    'pytest<=8.3.4' \
+    scipy==1.13.1
+
 LIBRARY_PATH="$CONDA_PREFIX/lib/stubs" pip install -e ./submodules/diff-gaussian-rasterization ./submodules/simple-knn --no-build-isolation
 pip install -e .
 
-function nb-post-install () {
 if [ "$NERFBASELINES_DOCKER_BUILD" = "1" ]; then
 # Reduce size of the environment by removing unused files
 find "$CONDA_PREFIX" -name '*.a' -delete
@@ -37,7 +57,6 @@ for lib in "$CONDA_PREFIX"/lib/*.so*; do
     if [ -f "$tgt" ]; then echo "Deleting $lib"; rm "$lib"*; for tgtlib in "$tgt"*; do ln -s "$tgtlib" "$(dirname "$lib")"; done; fi;
 done
 fi
-}
 """
     },
     "presets": {

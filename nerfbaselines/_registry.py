@@ -245,13 +245,17 @@ def _auto_register(force=False):
         register(spec)
 
     # If we restrict methods to some subset, remove all other registered methods from the registry
-    allowed_methods = set(v for v in os.environ.get("NERFBASELINES_ALLOWED_METHODS", "").split(",") if v)
-    if allowed_methods:
-        for k in list(methods_registry.keys()):
-            if k not in allowed_methods:
-                del methods_registry[k]
-
     _auto_register_completed = True
+
+
+def _filter_visible_methods(method_ids):
+    nb_allowed_methods = os.environ.get("NERFBASELINES_ALLOWED_METHODS", "")
+    if not nb_allowed_methods:
+        yield from method_ids
+    allowed_methods = set(nb_allowed_methods.split(","))
+    for m in method_ids:
+        if m in allowed_methods:
+            yield m
 
 
 def _make_entrypoint_absolute(entrypoint: str) -> str:
@@ -367,10 +371,13 @@ def get_supported_methods(backend_name: Optional[BackendName] = None) -> FrozenS
     """
     from .backends import get_implemented_backends
     _auto_register()
+    method_ids = _filter_visible_methods(methods_registry.keys())
     if backend_name is None:
-        return frozenset(methods_registry.keys())
+        return frozenset(
+            method_ids)
     else:
-        return frozenset(name for name, spec in methods_registry.items() if backend_name in get_implemented_backends(spec))
+        return frozenset(
+            name for name in method_ids if backend_name in get_implemented_backends(get_method_spec(name)))
 
 
 def get_method_spec(id: str) -> MethodSpec:

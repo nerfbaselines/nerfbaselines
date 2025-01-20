@@ -54,7 +54,7 @@ try:
 except ImportError:
     from typing_extensions import Literal
 try:
-    from typeguard import suppress_type_checks
+    from typeguard import suppress_type_checks  # type: ignore
 except ImportError:
     from contextlib import nullcontext as suppress_type_checks
 
@@ -432,7 +432,10 @@ def render_frames(
     def _video_writer(output):
         nonlocal vidwriter
         # Handle video
-        import mediapy
+        try:
+            import mediapy
+        except ImportError:
+            raise ImportError("mediapy is required to write videos. Install it with `pip install mediapy`")
 
         codec = 'gif' if output.endswith(".gif") else "h264"
         writer = None

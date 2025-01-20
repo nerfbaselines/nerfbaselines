@@ -1,15 +1,29 @@
-import shutil
 import re
 from typing import List
 import pytest
 
+try:
+    from pytest_benchmark import plugin # type: ignore
+    del plugin
+except ImportError:
+    # Register benchmark pollyfill
+    @pytest.fixture()
+    def benchmark():
+        return lambda x: x()
 
-def pytest_addoption(parser):
+
+def pytest_addoption(parser, pluginmanager):
+    if not pluginmanager.hasplugin("benchmark"):
+        parser.addoption("--benchmark-name")
+        parser.addoption("--benchmark-columns")
+
+    if not pluginmanager.hasplugin("typeguard"):
+        parser.addoption("--typeguard-packages", action="append", default=[])
+
     parser.addoption("--run-docker", action="store_true", default=False, help="run docker tests")
     parser.addoption("--run-conda", action="store_true", default=False, help="run conda tests")
     parser.addoption("--run-apptainer", action="store_true", default=False, help="run apptainer tests")
     parser.addoption("--run-extras", action="store_true", default=False, help="run extras tests")
-    parser.addoption("--require-ffmpeg", action="store_true", default=False, help="require ffmpeg tests to be run")
     parser.addoption("--method", action="append", default=[], help="run only these methods")
     parser.addoption("--method-regex", default=None, help="run only methods matching regex")
     parser.addoption("--dataset", action="append", default=[], help="run only these datasets' tests")
@@ -21,8 +35,23 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "apptainer: mark test as requiring apptainer")
     config.addinivalue_line("markers", "extras: mark test as requiring other dependencies")
     config.addinivalue_line("markers", "method: mark test as running only a specific method")
-    config.addinivalue_line("markers", "ffmpeg: mark test as requiring ffmpeg to be present")
     config.addinivalue_line("markers", "dataset: mark test as running only a specific dataset")
+
+
+def pytest_runtest_call(item):
+    if "extras" in item.keywords:
+        testfunction = item.obj
+        def try_import(*args, **kwargs):
+            try:
+                return testfunction(*args, **kwargs)
+            except ImportError as e:
+                pytest.skip(str(e))
+            except Exception as e:
+                if "program 'ffmpeg' is not found" in str(e).lower():
+                    pytest.skip("ffmpeg not found")
+                else:
+                    raise
+        item.obj = try_import
 
 
 def pytest_collection_modifyitems(config, items: List[pytest.Item]):
@@ -55,16 +84,10 @@ def pytest_collection_modifyitems(config, items: List[pytest.Item]):
             if "apptainer" in item.keywords:
                 item.add_marker(skip_slow)
 
-    if not config.getoption("--run-extras"):
+    # When --run-extras, we remove the decorator to skip the test if import error
+    if config.getoption("--run-extras"):
         for item in items:
-            if "extras" in item.keywords:
-                item.add_marker(pytest.mark.skip(reason="need --run-extras option to run"))
-
-    if not config.getoption("--require-ffmpeg"):
-        has_ffmpeg = shutil.which("ffmpeg") is not None
-        for item in items:
-            if "ffmpeg" in item.keywords and not has_ffmpeg:
-                item.add_marker(pytest.mark.skip(reason="need --require-ffmpeg option or ffmpeg installed to run"))
+            item.keywords = {k: v for k, v in item.keywords.items() if k != "extras"}
 
     methods = config.getoption("--method")
     method_regex = config.getoption("--method-regex")
@@ -79,7 +102,7 @@ def pytest_collection_modifyitems(config, items: List[pytest.Item]):
                 method_name = item.keywords["method"].args[0]
                 assert isinstance(method_name, str), "method name must be a string"
                 if method_re.match(method_name) is None:
-                    item.add_marker(pytest.mark.skip(reason="method not enabled"))
+                    item.add_marker(pytest.mark.skip(reason=f"method '{method_name}' not enabled"))
                     
     datasets = config.getoption("--dataset")
     # Apply datasets' filter

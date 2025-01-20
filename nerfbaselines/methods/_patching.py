@@ -57,9 +57,14 @@ class _MetaFinder(importlib.abc.MetaPathFinder):
     @staticmethod
     def patch_ast_import(module: str):
         def wrap(callback: Callable[[ast.Module], None]):
+            def _callback(*args, **kwargs):
+                try:
+                    return callback(*args, **kwargs)
+                except Exception as e:
+                    raise ImportError(f"Error in patching {module}: {e}")
             if module not in _MetaFinder._module_overrides:
                 _MetaFinder._module_overrides[module] = []
-            _MetaFinder._module_overrides[module].append(callback)
+            _MetaFinder._module_overrides[module].append(_callback)
         if module in sys.modules:
             sys.modules.pop(module)
         return wrap

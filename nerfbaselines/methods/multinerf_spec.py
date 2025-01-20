@@ -49,15 +49,24 @@ python -m pip install \
     "mediapy==1.2.0" \
     "ml_collections" \
     "numpy==1.26.4" \
-    "opencv-python==4.9.0.80" \
+    "opencv-python-headless==4.9.0.80" \
     "pillow==10.2.0" \
     "rawpy==0.19.0" \
     "scipy==1.11.4" \
     "tensorboard==2.15.1" \
     "tensorflow==2.15.0" \
     "ml-dtypes==0.2.0" \
-    "orbax-checkpoint==0.4.4"
-
+    "orbax-checkpoint==0.4.4" \
+    plyfile==0.8.1 \
+    scikit-image==0.21.0 \
+    tqdm==4.66.2 \
+    importlib_metadata==8.5.0 \
+    typing_extensions==4.12.2 \
+    wandb==0.19.1 \
+    click==8.1.8 \
+    Pillow==10.2.0 \
+    'pytest<=8.3.4' \
+    matplotlib==3.9.4
 
 # Manually install rmbrualla's `pycolmap` (don't use pip's! It's different).
 git clone https://github.com/rmbrualla/pycolmap.git ./internal/pycolmap
@@ -66,6 +75,8 @@ conda develop "$PWD/internal/pycolmap/pycolmap"
 
 # Install default torch to compute metrics on cuda inside the container
 pip install torch==2.2.0 torchvision==0.17.0 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu118
+# Install ffmpeg if not available
+command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
 
 # Confirm that all the unit tests pass.
 # ./scripts/run_all_unit_tests.sh

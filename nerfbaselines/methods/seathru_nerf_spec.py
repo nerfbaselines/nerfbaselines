@@ -19,8 +19,7 @@ git clone https://github.com/deborahLevy130/seathru_NeRF seathru-nerf
 cd seathru-nerf
 git checkout 3f4ebfe2c9dcb93af7916a3c7e7e196b9b956160
 
-conda install -y pip conda-build
-conda develop "$PWD"
+conda install -y pip conda-build && conda develop "$PWD"
 
 # Install requirements.
 python -m pip install --upgrade pip
@@ -30,6 +29,13 @@ python -m pip install \
     "dm-pix==0.4.2" \
     "ffmpeg" \
     "flax==0.7.5" \
+    plyfile==1.1 \
+    tqdm==4.67.1 \
+    'scikit-image<=0.25.0' \
+    importlib_metadata==8.5.0 \
+    typing_extensions==4.12.2 \
+    wandb==0.19.1 \
+    click==8.1.8 \
     "gin-config==0.5.0" \
     "immutabledict==4.1.0" \
     "jax==0.4.23" \
@@ -41,12 +47,13 @@ python -m pip install \
     "opencv-python==4.9.0.80" \
     "pillow==10.2.0" \
     "rawpy==0.19.0" \
-    "scipy==1.11.4" \
+    "scipy==1.11.2" \
     "tensorboard==2.15.1" \
     "tensorflow==2.15.0" \
     "ml-dtypes==0.2.0" \
+    'matplotlib==3.9.4' \
+    'pytest<=8.3.4' \
     "orbax-checkpoint==0.4.4"
-
 
 # Manually install rmbrualla's `pycolmap` (don't use pip's! It's different).
 rm -rf ./internal/pycolmap
@@ -56,6 +63,8 @@ conda develop "$PWD/internal/pycolmap/pycolmap"
 
 # Install default torch to compute metrics on cuda inside the container
 pip install torch==2.2.0 torchvision==0.17.0 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu118
+# Install ffmpeg if not available
+command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
 
 # Confirm that all the unit tests pass.
 # ./scripts/run_all_unit_tests.sh
