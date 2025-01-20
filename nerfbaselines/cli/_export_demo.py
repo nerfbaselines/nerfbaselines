@@ -133,7 +133,7 @@ def _export_demo(output, method, train_embedding, train_dataset):
 
     # Try export mesh
     if rparams is None:
-        rparams = try_export_mesh(output, method, train_embedding, dataset_metadata, train_dataset)
+        rparams = try_export_mesh(output, method, train_embedding, train_dataset)
     if rparams is None:
         raise NotImplementedError(f"Method {method.__class__.__name__} does not support demo (supported demos: mesh,3dgs).")
     return rparams
