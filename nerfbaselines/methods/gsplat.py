@@ -684,8 +684,7 @@ class GSplat(Method):
             "embedding": embedding_th.detach().cpu().numpy(),
         }
 
-    def export_demo(self, path: str, *, options=None):
-        from ._gaussian_splatting_demo import export_demo
+    def export_gaussian_splats(self, *, options=None):
         from nerfbaselines.utils import invert_transform
 
         options = options or {}
@@ -719,22 +718,19 @@ class GSplat(Method):
         else:
             spherical_harmonics = torch.cat((splats["sh0"], splats["shN"]), dim=1).transpose(1, 2)
 
-        # Apply transform to viewer transform
+        out = dict(
+            means=splats["means"].detach().cpu().numpy(),
+            scales=splats["scales"].exp().detach().cpu().numpy(),
+            opacities=torch.nn.functional.sigmoid(splats["opacities"]).detach().cpu().numpy(),
+            quaternions=torch.nn.functional.normalize(splats["quats"]).detach().cpu().numpy(),
+            spherical_harmonics=spherical_harmonics.detach().cpu().numpy())
+        if self.cfg.antialiased:
+            out["antialias_2D_kernel_size"] = 0.3
+
+        # Add transform params
         options = options or {}
         if self.runner.parser.transform is not None:
             transform = self.runner.parser.transform.copy()
             inv_transform = invert_transform(transform, has_scale=True)
-            options["dataset_metadata"] = options.get("dataset_metadata", {})
-            viewer_transform = options["dataset_metadata"].get("viewer_transform", np.eye(4))
-            _transform = viewer_transform @ inv_transform
-            options["dataset_metadata"]["viewer_transform"] = _transform
-
-        options = (options or {}).copy()
-        options["antialiased"] = self.cfg.antialiased
-        export_demo(path, 
-                    options=options,
-                    xyz=splats["means"].detach().cpu().numpy(),
-                    scales=splats["scales"].exp().detach().cpu().numpy(),
-                    opacities=torch.nn.functional.sigmoid(splats["opacities"]).detach().cpu().numpy(),
-                    quaternions=torch.nn.functional.normalize(splats["quats"]).detach().cpu().numpy(),
-                    spherical_harmonics=spherical_harmonics.detach().cpu().numpy())
+            out["transform"] = inv_transform[:3, :4]
+        return out

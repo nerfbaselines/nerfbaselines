@@ -90,7 +90,7 @@ def _make_render_fn(request_queue, output_queue):
         multiplex_thread.join()
 
 
-def create_ply_bytes(points3D_xyz, points3D_rgb=None):
+def write_dataset_pointcloud(file, points3D_xyz, points3D_rgb=None):
     from plyfile import PlyData, PlyElement
 
     # Check if points3D_xyz is a valid array
@@ -123,10 +123,7 @@ def create_ply_bytes(points3D_xyz, points3D_rgb=None):
 
     # Write to a PLY file in memory
     plydata = PlyData([vertex_element])
-    output = io.BytesIO()
-    plydata.write(output)
-    output.seek(0)
-    return output
+    plydata.write(file)
 
 
 class ViewerBackend:
@@ -279,7 +276,10 @@ class ViewerBackend:
         points3D_rgb = dataset.get("points3D_rgb")
         if points3D_xyz is None:
             raise NotFound("No pointcloud in dataset")
-        return create_ply_bytes(points3D_xyz, points3D_rgb)
+        output = io.BytesIO()
+        write_dataset_pointcloud(output, points3D_xyz, points3D_rgb)
+        output.seek(0)
+        return output
 
     def get_dataset_split_cameras(self, split, get_image_url, get_thumbnail_url):
         if not isinstance(split, str):

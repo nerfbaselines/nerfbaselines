@@ -3,7 +3,7 @@ import contextlib
 import logging
 from unittest import mock
 import math
-from typing import List, Dict, Any, cast, Union, Type, Iterator, Optional
+from typing import List, Dict, Any, cast, Union, Type, Iterator, Optional, Tuple
 import base64
 import os
 import struct
@@ -216,19 +216,53 @@ def _is_scene_results(data: Dict) -> bool:
         "metrics_raw" in data)
 
 
-def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes: Optional[List[str]] = None) -> Dict[str, Any]:
-    """
-    Compile the results.json file from the results repository.
-    """
-    results_path = Path(results_path)
+def _list_dataset_results(path: Union[str, Path], dataset: str, scenes: Optional[List[str]] = None, dataset_info=None) -> List[Tuple[str, Dict]]:
+    dataset_info = (dataset_info or {}).copy()
+    dataset_info_scenes = dataset_info.get("scenes", None)
+    if scenes is not None:
+        dataset_info_scenes = dataset_info["scenes"] = [next((y for y in dataset_info_scenes if x == y["id"]), dict(id=x)) for x in scenes]
+    out = []
+    for path in Path(path).glob("**/*.json"):
+        scene_results = json.loads(path.read_text(encoding="utf8"))
+        if not _is_scene_results(scene_results):
+            logging.warning(f"Skipping invalid results file {path}")
+            continue
 
-    try:
-        dataset_info = cast(Dict[str, Any], get_dataset_info(dataset))
-    except RuntimeError as e:
-        if "does not have metadata" in str(e):
-            dataset_info = {}
-        else:
-            raise e
+        render_dataset_metadata = scene_results.get("render_dataset_metadata", 
+                                                    scene_results.get("info", scene_results.get("nb_info", {})).get("dataset_metadata", {}))
+        scene_results.setdefault("nb_info", {}).setdefault("dataset_metadata", render_dataset_metadata)
+        dataset_ = render_dataset_metadata.get("id", render_dataset_metadata.get("name", None))
+        scene_id = render_dataset_metadata.get("scene", None)
+        method_id = scene_results.get("nb_info", {}).get("method", None)
+
+        # For old data we try to get method from the scene results
+        if method_id is None:
+            method_id = os.path.basename(os.path.dirname(os.path.dirname(path)))
+            logging.warning(f"Method id not found in the results file {path}, using the method id from the path {method_id}")
+            scene_results.setdefault("nb_info", {})["method"] = method_id
+
+        if scene_id is None or dataset_ is None or method_id is None:
+            logging.warning(f"Skipping results file {path} without render_dataset_metadata (scene, dataset), or nb_info(method_id)")
+            continue
+
+        if dataset_ != dataset:
+            logging.debug(f"Skipping results file {path} with dataset {dataset_} != {dataset}")
+            continue
+
+        # Skip scenes missing from dataset_info_scenes
+        if dataset_info_scenes is not None and not any(x["id"] == scene_id for x in dataset_info_scenes):
+            logging.debug(f"Skipping scene {scene_id} not in dataset_info_scenes")
+            continue
+
+        out.append((str(path), scene_results))
+    return out
+
+
+def _compile_dataset_results(results_list: List[Any], dataset: str, scenes: Optional[List[str]] = None, dataset_info=None) -> Dict[str, Any]:
+    """
+    Compile list of per-scene results into a dataset results.
+    """
+    dataset_info = (dataset_info or {}).copy()
     dataset_info_scenes = dataset_info.get("scenes", None)
     if scenes is not None:
         dataset_info_scenes = dataset_info["scenes"] = [next((y for y in dataset_info_scenes if x == y["id"]), dict(id=x)) for x in scenes]
@@ -254,37 +288,19 @@ def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes
             method_data["scenes"][scene_id][k] = round(np.mean(v), 5)
         if output_artifact is not None:
             method_data["scenes"][scene_id]["output_artifact"] = output_artifact
-    
-    for path in results_path.glob("**/*.json"):
-        scene_results = json.loads(path.read_text(encoding="utf8"))
-        if not _is_scene_results(scene_results):
-            logging.warning(f"Skipping invalid results file {path}")
-            continue
 
+    if isinstance(results_list, (Path, str)):
+        results_path = Path(results_list)
+        results_list = []
+        for path in results_path.glob("**/*.json"):
+            scene_results = json.loads(path.read_text(encoding="utf8"))
+            results_list.append((path, scene_results))
+    
+    for scene_results in results_list:
         render_dataset_metadata = scene_results.get("render_dataset_metadata", 
                                                     scene_results.get("info", scene_results.get("nb_info", {})).get("dataset_metadata", {}))
-        dataset_ = render_dataset_metadata.get("id", render_dataset_metadata.get("name", None))
         scene_id = render_dataset_metadata.get("scene", None)
         method_id = scene_results.get("nb_info", {}).get("method", None)
-
-        # For old data we try to get method from the scene results
-        if method_id is None:
-            method_id = os.path.basename(os.path.dirname(os.path.dirname(path)))
-            logging.warning(f"Method id not found in the results file {path}, using the method id from the path {method_id}")
-
-        if scene_id is None or dataset_ is None or method_id is None:
-            logging.warning(f"Skipping results file {path} without render_dataset_metadata (scene, dataset), or nb_info(method_id)")
-            continue
-
-        if dataset_ != dataset:
-            logging.debug(f"Skipping results file {path} with dataset {dataset_} != {dataset}")
-            continue
-
-        # Skip scenes missing from dataset_info_scenes
-        if dataset_info_scenes is not None and not any(x["id"] == scene_id for x in dataset_info_scenes):
-            logging.debug(f"Skipping scene {scene_id} not in dataset_info_scenes")
-            continue
-
         method_spec = get_method_spec(method_id)
         method_data = method_spec.get("metadata", {})
         _add_scene_data(scene_id, method_id, method_data, scene_results)
@@ -345,6 +361,22 @@ def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes
     for method_data in dataset_info["methods"]:
         method_data["scenes"] = {x["id"]: {**x, **method_data["scenes"][x["id"]]} for x in dataset_info_scenes if x["id"] in method_data["scenes"]}
     return dataset_info
+
+
+def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes: Optional[List[str]] = None) -> Dict[str, Any]:
+    """
+    Compile the results.json file from the results repository.
+    """
+    results_path = Path(results_path)
+    try:
+        dataset_info = cast(Dict[str, Any], get_dataset_info(dataset))
+    except RuntimeError as e:
+        if "does not have metadata" in str(e):
+            dataset_info = {}
+        else:
+            raise e
+    scene_results = [x for _, x in _list_dataset_results(results_path, dataset, scenes, dataset_info)]
+    return _compile_dataset_results(scene_results, dataset, scenes, dataset_info)
 
 
 def format_duration(seconds: Optional[float]) -> str:

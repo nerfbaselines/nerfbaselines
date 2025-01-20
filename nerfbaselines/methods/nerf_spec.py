@@ -49,6 +49,7 @@ pip install \
     'tqdm<=4.66.2' \
     'importlib_metadata<=8.5.0' \
     'typing_extensions<=4.12.2' \
+    'importlib_resources<=6.5.2' \
     'wandb<=0.19.1' \
     'click<=8.1.8' \
     'Pillow<=11.1.0' \

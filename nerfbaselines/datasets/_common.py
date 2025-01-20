@@ -164,7 +164,7 @@ def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np
 
         poses[:, :3, 3] -= lookat
         transform[:3, 3] -= lookat
-        return transform, poses[0][..., :3, :4]
+        return transform[..., :3, :4], poses[0][..., :3, :4]
 
     elif dataset_type == "forward-facing":
         # First, we compute the average pose
@@ -191,7 +191,7 @@ def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np
         transform = np.diag([dataparser_scale, dataparser_scale, dataparser_scale, 1]) @ transform
 
         initial_pose = apply_transform(transform, poses[1])
-        return transform, initial_pose[..., :3, :4]
+        return transform[..., :3, :4], initial_pose[..., :3, :4]
     elif dataset_type is None:
         # Unknown dataset type
         # We move all center the scene on the mean of the camera origins
@@ -212,7 +212,7 @@ def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np
         transform = np.diag([dataparser_scale, dataparser_scale, dataparser_scale, 1]) @ transform
 
         camera = apply_transform(transform, poses[0])
-        return transform, camera[..., :3, :4]
+        return transform[..., :3, :4], camera[..., :3, :4]
     else:
         raise ValueError(f"Dataset type {dataset_type} is not supported")
 

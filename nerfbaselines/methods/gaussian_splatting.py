@@ -435,13 +435,11 @@ class GaussianSplatting(Method):
         with open(str(path) + "/args.txt", "w", encoding="utf8") as f:
             f.write(" ".join(shlex.quote(x) for x in self._args_list))
 
-    def export_demo(self, path: str, *, options=None):
-        from ._gaussian_splatting_demo import export_demo
-
-        export_demo(path, 
-                    options=options,
-                    xyz=self.gaussians.get_xyz.detach().cpu().numpy(),
-                    scales=self.gaussians.get_scaling.detach().cpu().numpy(),
-                    opacities=self.gaussians.get_opacity.detach().cpu().numpy(),
-                    quaternions=self.gaussians.get_rotation.detach().cpu().numpy(),
-                    spherical_harmonics=self.gaussians.get_features.transpose(1, 2).detach().cpu().numpy())
+    def export_gaussian_splats(self, *, options=None):
+        del options
+        return dict(
+            means=self.gaussians.get_xyz.detach().cpu().numpy(),
+            scales=self.gaussians.get_scaling.detach().cpu().numpy(),
+            opacities=self.gaussians.get_opacity.detach().cpu().numpy(),
+            quaternions=self.gaussians.get_rotation.detach().cpu().numpy(),
+            spherical_harmonics=self.gaussians.get_features.transpose(1, 2).detach().cpu().numpy())

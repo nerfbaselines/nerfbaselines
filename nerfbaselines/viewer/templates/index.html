@@ -151,11 +151,11 @@
               </label>
             </div>
           </div>
-          <div class="row">
+          <div class="row" data-visible-if="!disable_public_url">
             <label for="viewer_public_url">Public URL</label>
             <input type="text" id="viewer_public_url" name="viewer_public_url" value="" disabled>
           </div>
-          <div class="row">
+          <div class="row" data-visible-if="!disable_public_url">
             <button data-action="create_public_url" data-enable-if="!viewer_requesting_public_url">
               <span data-visible-if="!viewer_public_url">Setup public URL</span>
               <span data-visible-if="viewer_public_url">Renew public URL</span>
@@ -312,8 +312,8 @@
               <label for="render_appearance_train_index_1">Appearance</label>
               <select id="render_appearance_train_index_1" 
                 name="render_appearance_train_index"
-                data-enable-if="dataset_train_appearance_options"
-                data-options="dataset_train_appearance_options"
+                data-enable-if="render_appearance_train_index_enabled"
+                data-options="render_appearance_train_index_options"
                 disabled>
               </select>
               <img class="appearance-preview" data-visible-if="render_appearance_image_url" data-bind-attr="src:render_appearance_image_url"  style="display: none" />
@@ -567,6 +567,10 @@
             <legend>Model hyperparameters</legend>
             <div class="row info-fields" id="method_hparams"></div>
           </fieldset>
+          <!--<fieldset>
+            <legend>Metrics</legend>
+            <div class="row"><svg id="svg-chart" style="aspect-ratio: 2"></svg></div>
+          </fieldset>-->
         </div>
       </div>
     </div>
@@ -599,26 +603,65 @@ rangeInputs.forEach(input => {
   </script>
   <script type="module">
   import { Viewer } from './viewer.js';
-  const data = JSON.parse(document.getElementById('viewer-setup').textContent);
-  const state = data.state;
-  const defaultOutputType = state?.output_types?.length > 0 ? state.output_types[0] : undefined;
-  if (!state.output_type) state.output_type = defaultOutputType;
-  if (!state.split_output_type) state.split_output_type = state.output_type;
-  if (!state.camera_path_render_output_type) state.camera_path_render_output_type = state.output_type;
-  if (state.dataset_info?.type === 'object-centric')
-    state.camera_control_mode = 'orbit';
-  const viewer = new Viewer({
-    viewer_transform: data.viewer_transform,
-    viewer_initial_pose: data.viewer_initial_pose,
-    state,
-  });
-  viewer.attach_gui();
+  async function main () {
+    const data = JSON.parse(document.getElementById('viewer-setup').textContent);
+    //Parse window.location.search
+    const searchParams = new URLSearchParams(window.location.search);
+    const errors = [];
+    function mergeParams(p1, p2) {
+      Object.assign(p1, p2, {
+        state: Object.assign(p1.state || {}, p2.state || {}, {
+          dataset_info: Object.assign(p1.state?.dataset_info || {}, p2.state?.dataset_info || {}),
+          method_info: Object.assign(p1.state?.method_info || {}, p2.state?.method_info || {}),
+        }),
+      })
+    }
+    for (const [key, value] of searchParams) {
+      if (key === 'p') {
+        try {
+          const response = await fetch(value);
+          if (!response.ok) {
+            throw new Error(`Failed to load state from ${value}`);
+          }
+          mergeParams(data, await response.json());
+        } catch (e) {
+          console.error(e);
+          errors.push({
+            type: 'error',
+            header: 'Failed to load params',
+            detail: `Failed to load state from ${value}`
+          });
+          continue;
+        }
+      }
+    }
 
-  if (data.renderer)
-    viewer.set_renderer(data.renderer);
-  if (data.dataset)
-    viewer.set_dataset(data.dataset);
-  window.viewer = viewer;
+    const state = data.state;
+    const defaultOutputType = state?.output_types?.length > 0 ? state.output_types[0] : undefined;
+    if (!state.output_type) state.output_type = defaultOutputType;
+    if (!state.split_output_type) state.split_output_type = state.output_type;
+    if (!state.camera_path_render_output_type) state.camera_path_render_output_type = state.output_type;
+    if (state.dataset_info?.type === 'object-centric')
+      state.camera_control_mode = 'orbit';
+    const viewer = new Viewer({
+      viewer_transform: data.viewer_transform,
+      viewer_initial_pose: data.viewer_initial_pose,
+      state,
+    });
+    viewer.attach_gui();
+
+    // Add error messages from loading
+    for (const error of errors) {
+      viewer.update_notification(error);
+    }
+
+    if (data.renderer)
+      viewer.set_renderer(data.renderer);
+    if (data.dataset)
+      viewer.set_dataset(data.dataset);
+    window.viewer = viewer;
+  }
+  main();
   </script>
 </body>
 </html>

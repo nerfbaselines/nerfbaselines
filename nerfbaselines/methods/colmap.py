@@ -432,11 +432,3 @@ class ColmapMVS(Method):
         mesh_path = os.path.join(self._model_path, "mesh.ply")
         shutil.copy(mesh_path, os.path.join(path, "mesh.ply"))
         logger.info(f"Mesh exported to {path}/mesh.ply")
-
-    def export_demo(self, path: str, *, options=None):
-        from ._mesh_demo import export_generic_demo
-        os.makedirs(path, exist_ok=True)
-        # Copy scene to path/mesh.ply
-        shutil.copy(os.path.join(self._model_path, "mesh.ply"), os.path.join(path, "mesh.ply"))
-        # Generate index.html
-        export_generic_demo(path, options=options)

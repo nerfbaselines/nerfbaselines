@@ -12,7 +12,8 @@ function makeMatrix4(elements) {
 
 export class MeshFrameRenderer {
   constructor({ 
-    mesh_url, background_color, 
+    mesh_url, 
+    background_color, 
     znear=0.001, zfar=1000,
     update_notification,
     onready,
@@ -24,6 +25,9 @@ export class MeshFrameRenderer {
     this.near = znear || 0.001;
     this.far = zfar || 1000;
     this.scene = new THREE.Scene();
+    if (Array.isArray(background_color))
+      background_color = new THREE.Color(...background_color);
+    this.mesh_url = mesh_url;
     this.scene.background = new THREE.Color(background_color || 0x000000);
     this.camera = new THREE.Camera();
     this.canvas = new OffscreenCanvas(1, 1);
@@ -51,7 +55,7 @@ export class MeshFrameRenderer {
           id: this._notificationId,
           header: "Loading mesh renderer",
           progress: percentage,
-          closeable: true,
+          closeable: false,
           onclose: () => this._cancelLoading?.(),
         });
       };

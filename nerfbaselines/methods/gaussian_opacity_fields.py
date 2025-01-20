@@ -45,8 +45,6 @@ from scene import GaussianModel  # type: ignore
 import scene.dataset_readers  # type: ignore
 from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # type: ignore
 from scene.dataset_readers import storePly, fetchPly  # type: ignore
-## from nerfbaselines.utils import get_transform_and_scale
-## from scene.gaussian_model import inverse_sigmoid, build_rotation, PlyData, PlyElement  # noqa: E402
 from scene.dataset_readers import CameraInfo as _old_CameraInfo  # type: ignore
 from utils.general_utils import safe_state  # type: ignore
 from utils.graphics_utils import fov2focal  # type: ignore
@@ -535,19 +533,15 @@ class GaussianOpacityFields(Method):
         with open(str(path) + "/args.txt", "w", encoding="utf8") as f:
             f.write(" ".join(shlex.quote(x) for x in self._args_list))
 
-    def export_demo(self, path: str, *, options=None):
-        from ._gaussian_splatting_demo import export_demo
-
-        options = (options or {}).copy()
-        options["antialiased"] = True
-        options["kernel_2D_size"] = self.dataset.kernel_size
-        export_demo(path, 
-                    options=options,
-                    xyz=self.gaussians.get_xyz.detach().cpu().numpy(),
-                    scales=self.gaussians.get_scaling_with_3D_filter.detach().cpu().numpy(),
-                    opacities=self.gaussians.get_opacity_with_3D_filter.detach().cpu().numpy(),
-                    quaternions=self.gaussians.get_rotation.detach().cpu().numpy(),
-                    spherical_harmonics=self.gaussians.get_features.transpose(1, 2).detach().cpu().numpy())
+    def export_gaussian_splats(self, *, options=None):
+        del options
+        return dict(
+            antialias_2D_kernel_size=self.dataset.kernel_size,
+            means=self.gaussians.get_xyz.detach().cpu().numpy(),
+            scales=self.gaussians.get_scaling_with_3D_filter.detach().cpu().numpy(),
+            opacities=self.gaussians.get_opacity_with_3D_filter.detach().cpu().numpy(),
+            quaternions=self.gaussians.get_rotation.detach().cpu().numpy(),
+            spherical_harmonics=self.gaussians.get_features.transpose(1, 2).detach().cpu().numpy())
 
     def export_mesh(self, path: str, train_dataset=None, options=None, **kwargs):
         del kwargs

@@ -568,10 +568,8 @@ class ScaffoldGS(Method):
         return None
 
 
-    def export_demo(self, path: str, *, options=None):
+    def export_gaussian_splats(self, *, options=None):
         from nerfbaselines.utils import apply_transform, invert_transform
-        from ._gaussian_splatting_demo import export_demo
-        os.makedirs(path, exist_ok=True)
         options = (options or {}).copy()
         dataset_metadata = options.get("dataset_metadata") or {}
         logging.warning("Scaffold-GS does not support view-dependent demo. We will bake the appearance of a single appearance embedding and single viewing direction.")
@@ -590,11 +588,10 @@ class ScaffoldGS(Method):
                 self.gaussians._temp_appearance = torch.from_numpy(embedding).to(device)
 
             xyz, color, opacity, scaling, rot = generate_neural_gaussians(viewpoint_cam, self.gaussians, visible_mask=None, is_training=False)
-            export_demo(path, 
-                        options=options,
-                        xyz=xyz.detach().cpu().numpy(),
-                        scales=scaling.detach().cpu().numpy(),
-                        opacities=opacity.detach().cpu().numpy(),
-                        quaternions=torch.nn.functional.normalize(rot).detach().cpu().numpy(),
-                        spherical_harmonics=RGB2SH(color[..., None]).detach().cpu().numpy())
+            return dict(
+                means=xyz.detach().cpu().numpy(),
+                scales=scaling.detach().cpu().numpy(),
+                opacities=opacity.detach().cpu().numpy(),
+                quaternions=torch.nn.functional.normalize(rot).detach().cpu().numpy(),
+                spherical_harmonics=RGB2SH(color[..., None]).detach().cpu().numpy())
 

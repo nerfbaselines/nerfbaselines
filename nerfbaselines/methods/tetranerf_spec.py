@@ -63,6 +63,7 @@ RUN pip install --upgrade pip && \
         "click<=8.1.8" \
         "Pillow<=11.1.0" \
         "matplotlib<=3.9.4" \
+        'importlib-resources<=6.5.2' \
         'pytest<=8.3.4' \
         "tensorboard<=2.18.0" \
         "scipy<=1.13.1" && \
