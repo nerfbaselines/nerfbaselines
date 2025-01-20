@@ -28,3 +28,14 @@ def test_viewer_simple_http_server():
     with pytest.raises(Exception):
         response = requests.get(host)
         assert response.status_code != 200
+
+
+def test_build_static_viewer(tmp_path):
+    from nerfbaselines.viewer import build_static_viewer
+
+    build_static_viewer(tmp_path/"v1")
+    build_static_viewer(str(tmp_path/"v2"))
+    build_static_viewer(str(tmp_path/"v3"), {"test": "passed"})
+    assert (tmp_path/"v1"/"index.html").exists()
+    assert (tmp_path/"v1"/"viewer.js").exists()
+    assert (tmp_path/"v1"/"third-party"/"three.module.js").exists()

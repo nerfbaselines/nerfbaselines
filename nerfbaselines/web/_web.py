@@ -313,6 +313,7 @@ class WebBuilder:
 
                     # Add mesh demo
                     if os.path.exists(os.path.join(tmpdir, f"{method['id']}/{dataset['id']}/{scene}_mesh/mesh.ply")):
+                        url = f"https://{SUPPLEMENTARY_RESULTS_REPOSITORY}/resolve/main/{method['id']}/{dataset['id']}/{scene}_mesh/mesh.ply"
                         demo_params = {
                             "type": "mesh",
                             "mesh_url": f"https://{SUPPLEMENTARY_RESULTS_REPOSITORY}/resolve/main/{method['id']}/{dataset['id']}/{scene}_mesh/mesh.ply",
@@ -682,7 +683,7 @@ class WebBuilder:
                         for k, v in par["scene_url_per_appearance"].items()
                     }
                 dataset_url, _ , dataset_par = raw_params["dataset"][path.split("/", 1)[-1]]
-                nb_info = self._raw_scene_data.get(path)['nb_info']
+                nb_info = self._raw_scene_data[path]['nb_info']
                 params = {
                     "renderer": par,
                     "dataset": {"url": dataset_url}

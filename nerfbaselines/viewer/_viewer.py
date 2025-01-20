@@ -149,6 +149,7 @@ def merge_viewer_params(*args):
     if len(args) == 1: return args[0]
     if len(args) > 2:
         return merge_viewer_params(args[0], merge_viewer_params(*args[1:]))
+    assert len(args) == 2
     a, b = args
     out = {**a, **b}
     if "renderer" in a or "renderer" in b:

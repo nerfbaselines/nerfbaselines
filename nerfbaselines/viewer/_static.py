@@ -2,12 +2,24 @@ import base64
 import os
 import json
 import io
+from typing import Dict, cast
 import nerfbaselines.viewer
 from pathlib import Path
 import importlib.resources
 import numpy as np
 from PIL import Image
 from nerfbaselines.utils import image_to_srgb
+
+
+def _yield_files(path, _path=None):
+    if path.is_file():
+        if _path == None:
+            yield path.name, path
+        else:
+            yield _path, path
+    elif path.is_dir():
+        for p in path.iterdir():
+            yield from _yield_files(p, p.name if _path == None else f'{_path}/{p.name}')
 
 
 def build_static_viewer(output, params=None):
@@ -19,16 +31,14 @@ def build_static_viewer(output, params=None):
     """
     params = params or {}
     path = importlib.resources.files(nerfbaselines.viewer)
-    for file in path.glob("static/**/*"):
-        if file.is_file():
-            dirname = Path(output) / file.relative_to(path/"static").parent
-            dirname.mkdir(parents=True, exist_ok=True)
-            with open(Path(output) / file.relative_to(path/"static"), "wb") as f:
-                f.write(file.read_bytes())
+    for p, file in _yield_files(path/"static"):
+        dirname = (Path(output) / p).parent
+        dirname.mkdir(parents=True, exist_ok=True)
+        with open(Path(output) / p, "wb") as f:
+            f.write(file.read_bytes())
     # Add template
-    with open(path / "templates" / "index.html", "r") as f, \
-        open(Path(output) / "index.html", "w") as f2:
-        index = f.read()
+    index = (path/"templates"/"index.html").read_text()
+    with open(Path(output) / "index.html", "w") as f2:
         index = index.replace("{{ data|safe }}", json.dumps(params))
         f2.write(index)
 
@@ -49,7 +59,7 @@ def get_image_thumbnail_url(image, dataset):
     return f"data:image/jpeg;base64,{base64.b64encode(out).decode()}"
 
 
-def export_viewer_dataset(train_dataset=None, test_dataset=None):
+def export_viewer_dataset(train_dataset=None, test_dataset=None) -> Dict:
     def _get_thumbnail_url(image, dataset):
         if image is None: return None
         return get_image_thumbnail_url(image, dataset)
@@ -89,7 +99,7 @@ def export_viewer_dataset(train_dataset=None, test_dataset=None):
         "test": _make_split(test_dataset) if test_dataset else None,
         "metadata": metadata,
     }
-    dataset = fix_val(dataset)
+    dataset = cast(Dict, fix_val(dataset))
     return dataset
         
 
