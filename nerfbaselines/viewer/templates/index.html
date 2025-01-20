@@ -13,7 +13,10 @@
 
     <div class="notifications"></div>
 
-    <div class="controls">
+    <div class="show-menu-icon" data-action="show_menu" style="display:none" data-visible-if="!menu_visible">
+      <i class="ti ti-menu-2"></i>
+    </div>
+    <div class="controls" data-visible-if="menu_visible" data-visible-if="menu_visible">
       <div class="dialog" id="confirm_cloudflare_create_public_url">
         <div class="dialog-header">
           <div>Setup public URL</div>
@@ -271,6 +274,9 @@
             <a style="display:none" data-visible-if="viewer_show_in_new_window_visible" target="_blank" href="./" title="Open in new tab"><i class="ti ti-external-link" ></i></a>
             <a onclick="document.getElementById('settings_dialog').classList.add('dialog-open')">
               <i class="ti ti-settings" ></i>
+            </a>
+            <a data-action="hide_menu">
+              <i class="ti ti-layout-sidebar-right-collapse" ></i>
             </a>
           </div>
         </span>

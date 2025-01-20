@@ -46,6 +46,7 @@ a {
 }
 body {
   font-family: 'Roboto', sans-serif;
+  background: black;
 }
 * {
   box-sizing: border-box;
@@ -428,6 +429,28 @@ html, body {
   overflow: hidden;
   position: relative;
 }
+
+.show-menu-icon {
+  display: block;
+  position: absolute;
+  right: 1rem;
+  top: 1rem;
+  font-size: 1.6rem;
+  background: var(--primary-background-color);
+  padding: 0.3rem;
+  color: var(--primary-color);
+  width: 2.3rem;
+  height: 2.3rem;
+  text-align: center;
+  line-height: 1.6rem;
+  opacity: 0.6;
+  transition: all var(--transition-duration);
+}
+.show-menu-icon:hover {
+  opacity: 1.0;
+  color: var(--highlight-color);
+}
+
 .viewport {
   flex: 1;
   overflow: hidden;
