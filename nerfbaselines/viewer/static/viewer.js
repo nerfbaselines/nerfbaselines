@@ -567,8 +567,8 @@ class SettingsManager {
       dataset_frustum_color: "#d3d3d3",
       notification_autoclose: 5000,
       dataset_show_train_cameras: false,
-      dataset_show_test_cameras: true,
-      dataset_show_pointcloud: true,
+      dataset_show_test_cameras: false,
+      dataset_show_pointcloud: false,
 
       camera_control_inertia: 0.6,
       camera_control_rotation_sensitivity: 1.0,
@@ -2435,6 +2435,12 @@ function parseBinding(expr, type=undefined) {
 }
 
 
+const isNarrowScreen = () => window.innerWidth < 1000;
+const defaultState = {
+  menu_visible: !isNarrowScreen(),
+};
+
+
 export class Viewer extends THREE.EventDispatcher {
   constructor({ 
     viewport, 
@@ -2445,6 +2451,7 @@ export class Viewer extends THREE.EventDispatcher {
     plugins,
   }) {
     super();
+    state = Object.assign({}, defaultState, state || {});
     this._backgroundTexture = undefined;
     this.viewport = viewport || document.querySelector(".viewport");
     const width = this.viewport.clientWidth;
@@ -2537,6 +2544,9 @@ export class Viewer extends THREE.EventDispatcher {
         this.camera.fov = state.render_fov;
         this.camera.updateProjectionMatrix();
         this._draw_background();
+      }
+      if (property === undefined || property === 'menu_visible') {
+        setTimeout(() => this._resize(), 0);
       }
     });
 
@@ -3746,6 +3756,16 @@ export class Viewer extends THREE.EventDispatcher {
     }
   }
 
+  hide_menu() {
+    this.state.menu_visible = false;
+    this.notifyChange({ property: "menu_visible" });
+  }
+
+  show_menu() {
+    this.state.menu_visible = true;
+    this.notifyChange({ property: "menu_visible" });
+  }
+
   attach_gui({ elements } = {}) {
     elements = elements || [document.body];
     const state = this.state;
@@ -3756,7 +3776,6 @@ export class Viewer extends THREE.EventDispatcher {
       target: this,
       state,
     });
-
 
     // Handle state change
     function getValue(element) {
