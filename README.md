@@ -149,7 +149,6 @@ Detailed results are available on the project page: [https://nerfbaselines.githu
 | Method                    | Blender   | LLFF      | Mip-NeRF 360 | Nerfstudio | Photo Tourism | SeaThru-NeRF | Tanks and Temples |
 |:------------------------- |:--------- |:--------- |:------------ |:---------- |:------------- |:------------ |:----------------- |
 | 2D Gaussian Splatting     | 🥇 gold   | ❔        | 🥇 gold      | ❔         | ❔            | 🥇 gold      | 🥈 silver         |
-| 2D Gaussian Splatting     | ❔        | ❔        | ❔           | ❔         | ❔            | ❔           | ❔                |
 | 3DGS-MCMC                 | 🥈 silver | ❔        | 🥇 gold      | ❔         | ❔            | 🥇 gold      | 🥇 gold           |
 | CamP                      | ❔        | ❔        | ❔           | ❔         | ❔            | ❔           | ❔                |
 | COLMAP                    | 🥇 gold   | ❔        | 🥇 gold      | 🥇 gold    | ❔            | ❔           | 🥇 gold           |
@@ -167,6 +166,7 @@ Detailed results are available on the project page: [https://nerfbaselines.githu
 | NerfStudio                | 🥇 gold   | ❔        | 🥇 gold      | ❔         | ❔            | ❔           | 🥇 gold           |
 | Scaffold-GS               | 🥇 gold   | ❔        | 🥇 gold      | ❔         | ❔            | 🥇 gold      | 🥇 gold           |
 | SeaThru-NeRF              | ❔        | ❔        | ❔           | ❔         | ❔            | 🥇 gold      | ❔                |
+| Taming 3DGS               | 🥇 gold   | ❔        | 🥇 gold      | ❔         | ❔            | ❔           | 🥇 gold           |
 | TensoRF                   | 🥇 gold   | 🥇 gold   | ❌           | ❔         | ❔            | ❔           | ❔                |
 | Tetra-NeRF                | 🥈 silver | ❔        | 🥈 silver    | ❔         | ❔            | ❔           | ❔                |
 | WildGaussians             | ❔        | ❔        | ❔           | ❔         | 🥇 gold       | ❔           | ❔                |
@@ -193,7 +193,6 @@ This project is licensed under the [MIT license](https://raw.githubusercontent.c
 Each implemented method is licensed under the license provided by the authors of the method.
 For the currently implemented methods, the following licenses apply:
 - 2D Gaussian Splatting: [custom, research only](https://raw.githubusercontent.com/hbb1/2d-gaussian-splatting/main/LICENSE.md)
-- 2D Gaussian Splatting: [custom, research only](https://raw.githubusercontent.com/hbb1/2d-gaussian-splatting/main/LICENSE.md)
 - 3DGS-MCMC: [custom, research only](https://raw.githubusercontent.com/ubc-vision/3dgs-mcmc/refs/heads/main/LICENSE.md)
 - CamP: [Apache 2.0](https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE)
 - COLMAP: [BSD](https://colmap.github.io/license.html)
@@ -210,6 +209,7 @@ For the currently implemented methods, the following licenses apply:
 - NerfStudio: [Apache 2.0](https://raw.githubusercontent.com/nerfstudio-project/nerfstudio/main/LICENSE)
 - Scaffold-GS: [custom, research only](https://raw.githubusercontent.com/city-super/Scaffold-GS/main/LICENSE.md)
 - SeaThru-NeRF: [Apache 2.0](https://raw.githubusercontent.com/deborahLevy130/seathru_NeRF/master/LICENSE)
+- Taming 3DGS: [MIT](https://raw.githubusercontent.com/humansensinglab/taming-3dgs/refs/heads/main/LICENSE.md), [custom, research only](https://raw.githubusercontent.com/humansensinglab/taming-3dgs/refs/heads/main/LICENSE_ORIGINAL.md)
 - TensoRF: [MIT](https://github.com/apchenstu/TensoRF/blob/main/LICENSE)
 - Tetra-NeRF: [MIT](https://raw.githubusercontent.com/jkulhanek/tetra-nerf/master/LICENSE)
 - WildGaussians: [MIT](https://raw.githubusercontent.com/jkulhanek/wild-gaussians/main/LICENSE), [custom, research only](https://raw.githubusercontent.com/graphdeco-inria/gaussian-splatting/main/LICENSE.md)

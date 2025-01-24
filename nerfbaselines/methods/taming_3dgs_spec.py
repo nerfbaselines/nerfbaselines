@@ -63,48 +63,74 @@ fi
 """,
     },
     "metadata": {
-        "name": "2D Gaussian Splatting",
-        "description": "2DGS adopts 2D oriented disks as surface elements and allows high-quality rendering with Gaussian Splatting. In NerfBaselines, we fixed bug with cx,cy, added appearance embedding optimization, and added support for sampling masks.",
-        "paper_title": "2D Gaussian Splatting for Geometrically Accurate Radiance Fields",
-        "paper_authors": ["Binbin Huang", "Zehao Yu", "Anpei Chen", "Andreas Geiger", "Shenghua Gao"],
-        "paper_link": "https://arxiv.org/pdf/2403.17888.pdf",
-        "link": "https://surfsplatting.github.io/",
-        "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/hbb1/2d-gaussian-splatting/main/LICENSE.md"}],
+        "name": "Taming 3DGS",
+        "description": "Taming 3DGS improves the densification process to make the primitive count deterministic and implements several low-level optimizations for fast convergence",
+        "paper_title": "Taming 3DGS: High-Quality Radiance Fields with Limited Resources",
+        "paper_authors": ["Saswat Subhajyoti Mallick", "Rahul Goel", "Bernhard Kerbl", "Francisco Vicente Carrasco", "Markus Steinberger", "Fernando De La Torre"],
+        "paper_link": "https://humansensinglab.github.io/taming-3dgs/docs/paper_lite.pdf",
+        "link": "https://humansensinglab.github.io/taming-3dgs/",
+        "licenses": [
+            {"name": "MIT", "url": "https://raw.githubusercontent.com/humansensinglab/taming-3dgs/refs/heads/main/LICENSE.md" },
+            {"name": "custom, research only", "url": "https://raw.githubusercontent.com/humansensinglab/taming-3dgs/refs/heads/main/LICENSE_ORIGINAL.md"}],
     },
     "presets": {
         "blender": { 
             "@apply": [{"dataset": "blender"}], 
             "white_background": True, 
             "sh_lower": True, 
-            "mode": "final_count",
-            "budget": 1000000,
-            "densification_interval": 100},
-        "mipnerf360": { 
-            "@apply": [{"dataset": "mipnerf360"}],
+            "densification_interval": 500},
+        "big-mipnerf360": { 
             "mode": "final_count",
             "sh_lower": True,
             "budget": 4000000,
             "densification_interval": 100},
-        "tanksandtemples": { 
-            "@apply": [{"dataset": "tanksandtemples"}], 
+        "big-tanksandtemples": { 
             "mode": "final_count", 
             "sh_lower": True, 
             "densification_interval": 100, 
             "budget": 2000000},
-        "mipnerf360/bicycle": { "@apply": [{"dataset": "mipnerf360", "scene": "bicycle"}], "budget": 5987095, },
-        "mipnerf360/flowers": { "@apply": [{"dataset": "mipnerf360", "scene": "flowers"}], "budget": 3618411, },
-        "mipnerf360/garden": { "@apply": [{"dataset": "mipnerf360", "scene": "garden"}], "budget": 5728191, },
-        "mipnerf360/stump": { "@apply": [{"dataset": "mipnerf360", "scene": "stump"}], "budget": 4867429, },
-        "mipnerf360/treehill": { "@apply": [{"dataset": "mipnerf360", "scene": "treehill"}], "budget": 3770257, },
-        "mipnerf360/room": { "@apply": [{"dataset": "mipnerf360", "scene": "room"}], "budget": 1548960, },
-        "mipnerf360/counter": { "@apply": [{"dataset": "mipnerf360", "scene": "counter"}], "budget": 1190919, },
-        "mipnerf360/kitchen": { "@apply": [{"dataset": "mipnerf360", "scene": "kitchen"}], "budget": 1803735, },
-        "mipnerf360/bonsai": { "@apply": [{"dataset": "mipnerf360", "scene": "bonsai"}], "budget": 1252367, },
-        "tanksandtemples/temple": { "@apply": [{"dataset": "tanksandtemples", "scene": "temple"}], "budget": 2326100, },
-        "tanksandtemples/playroom": { "@apply": [{"dataset": "tanksandtemples", "scene": "playroom"}], "budget": 3273600, },
-        "tanksandtemples/train": { "@apply": [{"dataset": "tanksandtemples", "scene": "train"}], "budget": 1085480, },
-        "tanksandtemples/truck": { "@apply": [{"dataset": "tanksandtemples", "scene": "truck"}], "budget": 2584171, },
-        "tanksandtemples/drjohnson": { "@apply": [{"dataset": "tanksandtemples", "scene": "drjohnson"}], "budget": 3273600, },
+        "big-mipnerf360/bicycle": { "budget": 5987095, },
+        "big-mipnerf360/flowers": { "budget": 3618411, },
+        "big-mipnerf360/garden": { "budget": 5728191, },
+        "big-mipnerf360/stump": { "budget": 4867429, },
+        "big-mipnerf360/treehill": { "budget": 3770257, },
+        "big-mipnerf360/room": { "budget": 1548960, },
+        "big-mipnerf360/counter": { "budget": 1190919, },
+        "big-mipnerf360/kitchen": { "budget": 1803735, },
+        "big-mipnerf360/bonsai": { "budget": 1252367, },
+        "big-tanksandtemples/temple": { "budget": 2326100, },
+        "big-tanksandtemples/playroom": { "budget": 3273600, },
+        "big-tanksandtemples/train": { "budget": 1085480, },
+        "big-tanksandtemples/truck": { "budget": 2584171, },
+        "big-tanksandtemples/drjohnson": { "budget": 3273600, },
+
+        "mipnerf360": {
+            "@apply": [{"dataset": "mipnerf360"}],
+            "mode": "multiplier",
+            "budget": 15,
+            "sh_lower": True,
+            "densification_interval": 500
+        },
+        "mipnerf360/indoor": { 
+            "@apply": [
+                {"dataset": "mipnerf360", "scene": "bonsai"},
+                {"dataset": "mipnerf360", "scene": "room"},
+                {"dataset": "mipnerf360", "scene": "kitchen"},
+                {"dataset": "mipnerf360", "scene": "counter"},
+            ],
+            "budget": 2, 
+        },
+        "tanksandtemples": {
+            "@apply": [{"dataset": "tanksandtemples"}],
+            "mode": "multiplier",
+            "budget": 5,
+            "sh_lower": True,
+            "densification_interval": 500
+        },
     },
-    "implementation_status": {}
+    "implementation_status": {
+        "blender": "working",
+        "mipnerf360": "reproducing",
+        "tanksandtemples": "working",
+    }
 })
