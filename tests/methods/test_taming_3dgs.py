@@ -56,15 +56,13 @@ class Rasterizer:
 @pytest.fixture
 def method_module(taming_source_code, mock_module):
     del taming_source_code
-    mock_module("simple_knn._C")
-    mock_module("diff_gaussian_rasterization")
-    mock_module("fused_ssim")
+    diff_gaussian_rasterization = mock_module("diff_gaussian_rasterization")
     def distCUDA2(x):
         return x.norm(dim=-1)
-    sys.modules['fused_ssim'].fused_ssim = lambda x, y: (x - y).sum()
-    sys.modules["simple_knn._C"].distCUDA2 = distCUDA2
-    sys.modules['diff_gaussian_rasterization'].GaussianRasterizer = Rasterizer
-    sys.modules['diff_gaussian_rasterization'].GaussianRasterizationSettings = argparse.Namespace
+    mock_module("fused_ssim").fused_ssim = lambda x, y: (x - y).sum()
+    mock_module("simple_knn._C").distCUDA2 = distCUDA2
+    diff_gaussian_rasterization.GaussianRasterizer = Rasterizer
+    diff_gaussian_rasterization.GaussianRasterizationSettings = argparse.Namespace
 
     yield importlib.import_module("nerfbaselines.methods.taming_3dgs")
 
@@ -110,8 +108,11 @@ def _test_taming_3dgs(method_module, colmap_dataset, tmp_path):
     assert isinstance(render["color"], np.ndarray)
 
     # Test export demo
-    model.export_demo(str(tmp_path/"demo"))
-    assert os.path.exists(tmp_path/"demo")
+    splats = model.export_gaussian_splats()
+    assert isinstance(splats, dict)
+    assert "means" in splats
+    assert "opacities" in splats
+    assert "scales" in splats
 
 
 @pytest.mark.extras

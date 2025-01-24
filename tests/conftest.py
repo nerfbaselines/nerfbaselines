@@ -751,7 +751,7 @@ def torch_cpu():
         def to(self, *args, **kwargs):
             if args and (args[0] == "cuda" or isinstance(args[0], torch.device)):
                 args = ("cpu",) + args[1:]
-            return oldto(self, *args, **kwargs)
+            return oldto(self, *args, **kwargs)  # type: ignore
         patchtensor("to", to)
         for name in ['zeros', 'ones', 'rand', 'tensor', 'zeros_like', 'ones_like', 'rand_like']:
             patch(name, patchdevice(getattr(torch, name)))

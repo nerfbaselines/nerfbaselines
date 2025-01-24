@@ -7,7 +7,7 @@ import copy
 import warnings
 import itertools
 import shlex
-from typing import Optional
+from typing import Optional, Any
 import os
 
 from nerfbaselines import (
@@ -27,7 +27,7 @@ with import_context:
     from train import train_iteration  # type: ignore
     from scene.dataset_readers import blender_create_pcd  # type: ignore
     from scene.gaussian_model import BasicPointCloud  # type: ignore
-    import train as _train
+    import train as _train  # type: ignore
 
 
 def _build_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, 
@@ -131,6 +131,9 @@ def _convert_dataset_to_scene_info(dataset: Optional[Dataset], white_background:
     if points3D_xyz is None and dataset["metadata"].get("id", None) == "blender":
         pcd = blender_create_pcd()
     else:
+        assert points3D_xyz is not None, "points3D_xyz is required"
+        if points3D_rgb is None:
+            points3D_rgb = np.random.rand(*points3D_xyz.shape).astype(np.float32)*255.
         pcd = BasicPointCloud(points3D_xyz, points3D_rgb/255., np.zeros_like(points3D_xyz))
 
     return SceneInfo(point_cloud=pcd, 
@@ -147,6 +150,12 @@ class Taming3DGS(Method):
                  config_overrides: Optional[dict] = None):
         self.checkpoint = checkpoint
         self.step = 0
+        self._gaussians: Any = None
+        self._dataset: Any = None
+        self._opt: Any = None
+        self._pipe: Any = None
+        self._background: Any = None
+        self._args: Any = None
 
         # Setup parameters
         self._args_list = ["--source_path", "<empty>", "--resolution", "1", "--eval"]
@@ -253,13 +262,11 @@ class Taming3DGS(Method):
         with open(str(path) + "/args.txt", "w", encoding="utf8") as f:
             f.write(" ".join(shlex.quote(x) for x in self._args_list))
 
-    def export_demo(self, path: str, *, options=None):
-        from ._gaussian_splatting_demo import export_demo
-
-        export_demo(path, 
-                    options=options,
-                    xyz=self._gaussians.get_xyz.detach().cpu().numpy(),
-                    scales=self._gaussians.get_scaling.detach().cpu().numpy(),
-                    opacities=self._gaussians.get_opacity.detach().cpu().numpy(),
-                    quaternions=self._gaussians.get_rotation.detach().cpu().numpy(),
-                    spherical_harmonics=self._gaussians.get_features.transpose(1, 2).detach().cpu().numpy())
+    def export_gaussian_splats(self, *, options=None):
+        del options
+        return dict(
+            means=self._gaussians.get_xyz.detach().cpu().numpy(),
+            scales=self._gaussians.get_scaling.detach().cpu().numpy(),
+            opacities=self._gaussians.get_opacity.detach().cpu().numpy(),
+            quaternions=self._gaussians.get_rotation.detach().cpu().numpy(),
+            spherical_harmonics=self._gaussians.get_features.transpose(1, 2).detach().cpu().numpy())

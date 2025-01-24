@@ -96,7 +96,10 @@ exclude = ["**/node_modules",
     "docs/**/*",
     "nerfbaselines/methods/nerfonthego.py",
     "nerfbaselines/methods/trips/**/*",
+    "nerfbaselines/methods/taming_3dgs_patch.py",
     "scripts/**/*",
+    "tests/.cache-*",
+    "tests/conftest.py",
 ]
 defineConstant = { DEBUG = true }
 reportMissingImports = "warning"

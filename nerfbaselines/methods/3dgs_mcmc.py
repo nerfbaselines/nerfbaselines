@@ -1,7 +1,6 @@
 # NOTE: This code modifies 3DGS-mcmc:
 # 1) Adds support for cx, cy not in the center of the image
 # 2) Adds support for sampling masks
-from . import _3dgs_mcmc_patch as _  #  Patch imports
 from argparse import ArgumentParser
 import logging
 import warnings
@@ -16,19 +15,21 @@ from nerfbaselines import (
 )
 import shlex
 
-from scene.dataset_readers import CameraInfo  # type: ignore
-from utils.camera_utils import loadCam  # type: ignore
-from scene import Scene  # type: ignore
+from ._3dgs_mcmc_patch import import_context
+with import_context:
+    from scene.dataset_readers import CameraInfo  # type: ignore
+    from utils.camera_utils import loadCam  # type: ignore
+    from scene import Scene  # type: ignore
 
-import torch
-from arguments import ModelParams, PipelineParams, OptimizationParams #  type: ignore
-from gaussian_renderer import render # type: ignore
-from scene import GaussianModel # type: ignore
-from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # type: ignore
-from utils.general_utils import safe_state  # type: ignore
-from train import train_iteration  # type: ignore
-from scene.dataset_readers import blender_create_pcd  # type: ignore
-from scene.gaussian_model import BasicPointCloud  # type: ignore
+    import torch
+    from arguments import ModelParams, PipelineParams, OptimizationParams #  type: ignore
+    from gaussian_renderer import render # type: ignore
+    from scene import GaussianModel # type: ignore
+    from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # type: ignore
+    from utils.general_utils import safe_state  # type: ignore
+    from train import train_iteration  # type: ignore
+    from scene.dataset_readers import blender_create_pcd  # type: ignore
+    from scene.gaussian_model import BasicPointCloud  # type: ignore
 
 
 def _build_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, 
