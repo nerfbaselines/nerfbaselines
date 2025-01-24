@@ -91,7 +91,6 @@ class _MetaFinder(importlib.abc.MetaPathFinder):
                 return None
             if spec.name in self._being_imported:
                 return self._being_imported[spec.name]
-            print(spec.name)
             logging.debug("Patching %s", spec.name)
             assert spec.origin is not None, "origin is required"
             with open(spec.origin) as f:

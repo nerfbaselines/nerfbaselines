@@ -168,6 +168,8 @@ class Taming3DGS(Method):
             self._loaded_step = sorted(
                 int(x[x.find("_") + 1:]) for x in os.listdir(os.path.join(str(checkpoint), "point_cloud")) if x.startswith("iteration_"))[-1]
 
+            self.step = self._loaded_step
+
         if config_overrides is not None:
             if checkpoint is not None:
                 logging.warning("Checkpoint hyperparameters are being overriden by the provided config_overrides")
@@ -219,8 +221,10 @@ class Taming3DGS(Method):
         )
 
     def get_info(self) -> ModelInfo:
-        hparams = dict(itertools.chain(vars(self._dataset).items(), vars(self._opt).items(), vars(self._pipe).items()))
-        for k in ("source_path", "resolution", "eval", "images", "model_path", "data_device"):
+        hparams = vars(self._args)
+        for k in ("source_path", "resolution", "eval", "images", "model_path", "data_device",
+                  "ip", "port", "debug_from", "detect_anomaly", "test_iterations", "save_iterations", "quiet", "checkpoint_iterations",
+                  "start_checkpoint", "websockets", "benchmark_dir", "debug", "compute_conv3D_python", "convert_SHs_python"):
             hparams.pop(k, None)
         return ModelInfo(
             num_iterations=self._opt.iterations,
