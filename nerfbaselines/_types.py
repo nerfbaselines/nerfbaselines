@@ -390,6 +390,7 @@ class MethodInfo(TypedDict, total=False):
     required_features: FrozenSet[DatasetFeature]
     supported_camera_models: FrozenSet[CameraModel]
     supported_outputs: Tuple[Union[str, RenderOutputType], ...]
+    can_resume_training: bool
     viewer_default_resolution: Union[int, Tuple[int, int]]
 
 
@@ -404,6 +405,7 @@ class ModelInfo(TypedDict, total=False):
     supported_camera_models: FrozenSet
     hparams: Dict[str, Any]
     supported_outputs: Tuple[Union[str, RenderOutputType], ...]
+    can_resume_training: bool
     viewer_default_resolution: Union[int, Tuple[int, int]]
 
 

@@ -100,6 +100,8 @@ test_method scaffold-gs $phototourism
 
 test_method seathru-nerf $seathru_nerf
 
+test_method taming-3dgs $mipnerf360
+
 test_method tensorf $blender
 test_method tensorf $llff
 

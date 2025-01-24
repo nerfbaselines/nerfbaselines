@@ -18,6 +18,7 @@ Please visit the <a href="https://nerfbaselines.github.io/">project page to see 
 </h3>
 
 ## News
+*[25/01/2025]* Added Taming-3DGS method.</br>
 *[30/12/2024]* Added a new viewer implementation.</br>
 *[22/09/2024]* Added mesh export for 2DGS, COLMAP, and GOF.</br>
 *[17/09/2024]* Moved project to nerfbaselines/nerfbaselines repository.</br>
@@ -100,8 +101,9 @@ Detailed results are available on the project page: [https://nerfbaselines.githu
 | [Gaussian Splatting](https://nerfbaselines.github.io/m-gaussian-splatting)           |     27.434 |     0.814 |       0.257 |     23m 25s |  11.1 GB |
 | [Gaussian Opacity Fields](https://nerfbaselines.github.io/m-gaussian-opacity-fields) |     27.421 |   *0.826* |     *0.234* |   1h 3m 54s |  28.4 GB |
 | [gsplat](https://nerfbaselines.github.io/m-gsplat)                                   |     27.412 |     0.815 |       0.256 |     29m 19s |   8.3 GB |
+| [Taming 3DGS](https://nerfbaselines.github.io/m-taming-3dgs)                         |     27.217 |     0.793 |       0.305 |    *5m 59s* |   8.7 GB |
 | [2D Gaussian Splatting](https://nerfbaselines.github.io/m-2d-gaussian-splatting)     |     26.815 |     0.796 |       0.297 |     31m 10s |  13.2 GB |
-| [NerfStudio](https://nerfbaselines.github.io/m-nerfacto)                             |     26.388 |     0.731 |       0.343 |   *19m 30s* | *5.9 GB* |
+| [NerfStudio](https://nerfbaselines.github.io/m-nerfacto)                             |     26.388 |     0.731 |       0.343 |     19m 30s | *5.9 GB* |
 | [Instant NGP](https://nerfbaselines.github.io/m-instant-ngp)                         |     25.507 |     0.684 |       0.398 |  **3m 54s** |   7.8 GB |
 | [COLMAP](https://nerfbaselines.github.io/m-colmap)                                   |     16.670 |     0.445 |       0.590 |  2h 52m 55s | **0 MB** |
 
@@ -166,6 +168,7 @@ Detailed results are available on the project page: [https://nerfbaselines.githu
 | NerfStudio                | 🥇 gold   | ❔        | 🥇 gold      | ❔         | ❔            | ❔           | 🥇 gold           |
 | Scaffold-GS               | 🥇 gold   | ❔        | 🥇 gold      | ❔         | ❔            | 🥇 gold      | 🥇 gold           |
 | SeaThru-NeRF              | ❔        | ❔        | ❔           | ❔         | ❔            | 🥇 gold      | ❔                |
+| Taming 3DGS               | 🥇 gold   | ❔        | 🥇 gold      | ❔         | ❔            | ❔           | 🥇 gold           |
 | TensoRF                   | 🥇 gold   | 🥇 gold   | ❌           | ❔         | ❔            | ❔           | ❔                |
 | Tetra-NeRF                | 🥈 silver | ❔        | 🥈 silver    | ❔         | ❔            | ❔           | ❔                |
 | WildGaussians             | ❔        | ❔        | ❔           | ❔         | 🥇 gold       | ❔           | ❔                |
@@ -208,6 +211,7 @@ For the currently implemented methods, the following licenses apply:
 - NerfStudio: [Apache 2.0](https://raw.githubusercontent.com/nerfstudio-project/nerfstudio/main/LICENSE)
 - Scaffold-GS: [custom, research only](https://raw.githubusercontent.com/city-super/Scaffold-GS/main/LICENSE.md)
 - SeaThru-NeRF: [Apache 2.0](https://raw.githubusercontent.com/deborahLevy130/seathru_NeRF/master/LICENSE)
+- Taming 3DGS: [MIT](https://raw.githubusercontent.com/humansensinglab/taming-3dgs/refs/heads/main/LICENSE.md), [custom, research only](https://raw.githubusercontent.com/humansensinglab/taming-3dgs/refs/heads/main/LICENSE_ORIGINAL.md)
 - TensoRF: [MIT](https://github.com/apchenstu/TensoRF/blob/main/LICENSE)
 - Tetra-NeRF: [MIT](https://raw.githubusercontent.com/jkulhanek/tetra-nerf/master/LICENSE)
 - WildGaussians: [MIT](https://raw.githubusercontent.com/jkulhanek/wild-gaussians/main/LICENSE), [custom, research only](https://raw.githubusercontent.com/graphdeco-inria/gaussian-splatting/main/LICENSE.md)

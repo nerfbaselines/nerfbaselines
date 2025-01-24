@@ -1,38 +1,33 @@
-# NOTE: This code modifies 2DGS:
+# NOTE: This code modifies taming-3DGS:
 # 1) Adds support for cx, cy not in the center of the image
 # 2) Adds support for sampling masks
-from . import _2d_gaussian_splatting_patch as _  #  Patch imports
-from argparse import ArgumentParser
-from collections import namedtuple
+import sys
 import logging
-import warnings
-import shutil
-import itertools
 import copy
-import tempfile
+import warnings
+import itertools
 import shlex
-from typing import Optional
+from typing import Optional, Any
 import os
-import numpy as np
-from PIL import Image
+
 from nerfbaselines import (
     Method, MethodInfo, ModelInfo, RenderOutput, Cameras, camera_model_to_int, Dataset
 )
-import shlex
-
-from scene.dataset_readers import CameraInfo  # type: ignore
-from utils.camera_utils import loadCam  # type: ignore
-from scene import Scene  # type: ignore
-
 import torch
-from arguments import ParamGroup, ModelParams, PipelineParams, OptimizationParams #  type: ignore
-from gaussian_renderer import render # type: ignore
-from scene import GaussianModel # type: ignore
-from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # type: ignore
-from utils.general_utils import safe_state  # type: ignore
-from train import train_iteration  # type: ignore
-from scene.dataset_readers import blender_create_pcd  # type: ignore
-from scene.gaussian_model import BasicPointCloud  # type: ignore
+import numpy as np
+from PIL import Image
+
+from .taming_3dgs_patch import import_context
+with import_context:
+    from scene.dataset_readers import CameraInfo  # type: ignore
+    from utils.camera_utils import loadCam  # type: ignore
+    from scene import Scene  # type: ignore
+    from gaussian_renderer import render # type: ignore
+    from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # type: ignore
+    from train import train_iteration  # type: ignore
+    from scene.dataset_readers import blender_create_pcd  # type: ignore
+    from scene.gaussian_model import BasicPointCloud  # type: ignore
+    import train as _train  # type: ignore
 
 
 def _build_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, 
@@ -67,11 +62,15 @@ def _config_overrides_to_args_list(args_list, config_overrides):
             v = False
         if isinstance(v, bool):
             if v:
+                if f'--no-{k}' in args_list:
+                    args_list.remove(f'--no-{k}')
                 if f'--{k}' not in args_list:
                     args_list.append(f'--{k}')
             else:
                 if f'--{k}' in args_list:
                     args_list.remove(f'--{k}')
+                else:
+                    args_list.append(f"--no-{k}")
         elif f'--{k}' in args_list:
             args_list[args_list.index(f'--{k}') + 1] = str(v)
         else:
@@ -97,8 +96,8 @@ def _convert_dataset_to_scene_info(dataset: Optional[Dataset], white_background:
         w, h = dataset["cameras"].image_sizes[idx]
         im_data = dataset["images"][idx][:h, :w]
         assert im_data.dtype == np.uint8, "Gaussian Splatting supports images as uint8"
-        if im_data.shape[-1] == 4:
-            bg = np.array([1, 1, 1]) if white_background else np.array([0, 0, 0])
+        if white_background and im_data.shape[-1] == 4:
+            bg = np.array([1, 1, 1])
             norm_data = im_data / 255.0
             arr = norm_data[:, :, :3] * norm_data[:, :, 3:4] + (1 - norm_data[:, :, 3:4]) * bg
             im_data = np.array(arr * 255.0, dtype=np.uint8)
@@ -132,9 +131,9 @@ def _convert_dataset_to_scene_info(dataset: Optional[Dataset], white_background:
     if points3D_xyz is None and dataset["metadata"].get("id", None) == "blender":
         pcd = blender_create_pcd()
     else:
-        method_id = "2d-gaussian-splatting"
-        assert points3D_xyz is not None, f"points3D_xyz is required for {method_id}"
-        assert points3D_rgb is not None, f"points3D_rgb is required for {method_id}"
+        assert points3D_xyz is not None, "points3D_xyz is required"
+        if points3D_rgb is None:
+            points3D_rgb = np.random.rand(*points3D_xyz.shape).astype(np.float32)*255.
         pcd = BasicPointCloud(points3D_xyz, points3D_rgb/255., np.zeros_like(points3D_xyz))
 
     return SceneInfo(point_cloud=pcd, 
@@ -144,30 +143,19 @@ def _convert_dataset_to_scene_info(dataset: Optional[Dataset], white_background:
                      nerf_normalization=nerf_normalization)
 
 
-class MeshParamGroup(ParamGroup):
-    def __init__(self, parser):
-        self.voxel_size: float = -1.0
-        """Mesh: voxel size for TSDF"""
-        self.depth_trunc: float = -1.0
-        """Mesh: Max depth range for TSDF"""
-        self.sdf_trunc: float = -1.0
-        """Mesh: truncation value for TSDF"""
-        self.num_cluster: int = 50
-        """Mesh: number of connected clusters to export"""
-        self.unbounded: bool = False
-        """Mesh: using unbounded mode for meshing"""
-        self.mesh_res: int = 1024
-        """Mesh: resolution for unbounded mesh extraction"""
-        super().__init__(parser, "Mesh extraction parameters")
-
-
-class GaussianSplatting2D(Method):
+class Taming3DGS(Method):
     def __init__(self, *,
                  checkpoint: Optional[str] = None,
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
         self.checkpoint = checkpoint
         self.step = 0
+        self._gaussians: Any = None
+        self._dataset: Any = None
+        self._opt: Any = None
+        self._pipe: Any = None
+        self._background: Any = None
+        self._args: Any = None
 
         # Setup parameters
         self._args_list = ["--source_path", "<empty>", "--resolution", "1", "--eval"]
@@ -177,7 +165,10 @@ class GaussianSplatting2D(Method):
                 raise RuntimeError(f"Model directory {checkpoint} does not exist")
             with open(os.path.join(checkpoint, "args.txt"), "r", encoding="utf8") as f:
                 self._args_list = shlex.split(f.read())
-            self._loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(str(checkpoint)) if x.startswith("chkpnt-"))[-1]
+            self._loaded_step = sorted(
+                int(x[x.find("_") + 1:]) for x in os.listdir(os.path.join(str(checkpoint), "point_cloud")) if x.startswith("iteration_"))[-1]
+
+            self.step = self._loaded_step
 
         if config_overrides is not None:
             if checkpoint is not None:
@@ -188,43 +179,36 @@ class GaussianSplatting2D(Method):
         self._setup(train_dataset)
 
     def _load_config(self):
-        parser = ArgumentParser(description="Training script parameters")
-
-        lp = ModelParams(parser)
-        op = OptimizationParams(parser)
-        pp = PipelineParams(parser)
-        mesh = MeshParamGroup(parser)
-        parser.add_argument("--scale_coords", type=float, default=None, help="Scale the coords")
+        parser = _train.get_argparser(self)
+        parser.add_argument("--scale_coords", type=float, default=None)
         args = parser.parse_args(self._args_list)
-        self._mesh_args = mesh.extract(args)
-        self._dataset = lp.extract(args)
-        self._dataset.scale_coords = args.scale_coords
-        self._opt = op.extract(args)
-        self._pipe = pp.extract(args)
+        self._args = args
+        return args
 
     def _setup(self, train_dataset):
-        # Initialize system state (RNG)
-        safe_state(False)
-
-        # Setup model
-        self._gaussians = GaussianModel(self._dataset.sh_degree)
-        scene_info =  _convert_dataset_to_scene_info(
-            train_dataset, white_background=self._dataset.white_background, scale_coords=self._dataset.scale_coords)
-        self._dataset.model_path = self.checkpoint
-        self._scene = Scene(scene_info, args=self._dataset, gaussians=self._gaussians, 
-                            load_iteration=str(self._loaded_step) if train_dataset is None else None)
-        if train_dataset is not None:
-            self._gaussians.training_setup(self._opt)
-        if train_dataset is None or self.checkpoint:
-            info = self.get_info()
-            loaded_step = info.get("loaded_step")
-            assert loaded_step is not None, "Could not infer loaded step"
-            (model_params, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{loaded_step}.pth")
-            self._gaussians.restore(model_params, self._opt)
-
-        bg_color = [1, 1, 1] if self._dataset.white_background else [0, 0, 0]
-        self._background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
-        self._viewpoint_stack = None
+        def build_scene(dataset, gaussians):
+            dataset = copy.deepcopy(dataset)
+            scene_info =  _convert_dataset_to_scene_info(
+                train_dataset, 
+                white_background=dataset.white_background, 
+                scale_coords=self._args.scale_coords)
+            dataset.model_path = self.checkpoint
+            # Patch GaussianModel using incorrect render mode
+            if self._loaded_step is not None and self._loaded_step >= self._args.ho_iteration:
+                gaussians.render_mode = "abs"
+                gaussians.setup_functions()
+            return Scene(scene_info=scene_info, 
+                         args=dataset, 
+                         gaussians=gaussians, 
+                         load_iteration=(
+                str(self._loaded_step) 
+                if self._loaded_step is not None 
+                else None))
+        oldstdout = sys.stdout
+        try:
+            _train.setup_train(self, self._args, build_scene)
+        finally:
+            sys.stdout = oldstdout
 
     @classmethod
     def get_method_info(cls):
@@ -232,13 +216,15 @@ class GaussianSplatting2D(Method):
             method_id="",
             required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset(("pinhole",)),
-            supported_outputs=("color", "depth", "accumulation", "normal"),
-            viewer_default_resolution=768,
+            supported_outputs=("color",),
+            can_resume_training=False,
         )
 
     def get_info(self) -> ModelInfo:
-        hparams = dict(itertools.chain(vars(self._dataset).items(), vars(self._opt).items(), vars(self._pipe).items()))
-        for k in ("source_path", "resolution", "eval", "images", "model_path", "data_device"):
+        hparams = vars(self._args)
+        for k in ("source_path", "resolution", "eval", "images", "model_path", "data_device",
+                  "ip", "port", "debug_from", "detect_anomaly", "test_iterations", "save_iterations", "quiet", "checkpoint_iterations",
+                  "start_checkpoint", "websockets", "benchmark_dir", "debug", "compute_conv3D_python", "convert_SHs_python"):
             hparams.pop(k, None)
         return ModelInfo(
             num_iterations=self._opt.iterations,
@@ -255,70 +241,36 @@ class GaussianSplatting2D(Method):
         assert camera.camera_models == camera_model_to_int("pinhole"), "Only pinhole cameras supported"
 
         viewpoint_cam = _build_caminfo(
-            0, camera.poses, camera.intrinsics, f"{0:06d}.png", camera.image_sizes, scale_coords=self._dataset.scale_coords)
-        render_pkg = render(loadCam(self._dataset, 0, viewpoint_cam, 1.0), 
-                            self._gaussians, self._pipe, self._background)
+            0, camera.poses, camera.intrinsics, f"{0:06d}.png", camera.image_sizes, scale_coords=self._args.scale_coords)
+        render_pkg = render(
+            loadCam(self._dataset, 0, viewpoint_cam, 1.0), 
+            self._gaussians, self._pipe, self._background)
         return {
             "color": render_pkg["render"].clamp(0, 1).detach().permute(1, 2, 0).cpu().numpy(),
-            "accumulation": render_pkg["rend_alpha"].squeeze(0).detach().cpu().numpy(),
-            "depth": render_pkg["surf_depth"].detach().squeeze(0).cpu().numpy(),
-            "normal": torch.nn.functional.normalize(render_pkg["rend_normal"], dim=0).permute(1, 2, 0).detach().cpu().numpy(),
         }
 
     def train_iteration(self, step):
+        if self._loaded_step is not None:
+            method_id = self.get_method_info()["method_id"]
+            raise RuntimeError(f"Method {method_id} was loaded from checkpoint and training cannot be resumed.")
         self.step = step
         metrics = train_iteration(self, step+1)
         self.step = step+1
         return metrics
 
     def save(self, path: str):
-        self._gaussians.save_ply(os.path.join(str(path), f"point_cloud/iteration_{self.step}", "point_cloud.ply"))
-        torch.save((self._gaussians.capture(), self.step), str(path) + f"/chkpnt-{self.step}.pth")
+        self._gaussians.save_ply(os.path.join(str(path), "point_cloud", f"iteration_{self.step}", "point_cloud.ply"))
+        # There is a bug in Taming 3DGS that prevents loading checkpoint anyway
+        # We just drop it to save space
+        # torch.save((self._gaussians.capture(), self.step), str(path) + f"/chkpnt-{self.step}.pth")
         with open(str(path) + "/args.txt", "w", encoding="utf8") as f:
             f.write(" ".join(shlex.quote(x) for x in self._args_list))
 
     def export_gaussian_splats(self, *, options=None):
         del options
         return dict(
-            is_2DGS=True,
             means=self._gaussians.get_xyz.detach().cpu().numpy(),
             scales=self._gaussians.get_scaling.detach().cpu().numpy(),
             opacities=self._gaussians.get_opacity.detach().cpu().numpy(),
             quaternions=self._gaussians.get_rotation.detach().cpu().numpy(),
             spherical_harmonics=self._gaussians.get_features.transpose(1, 2).detach().cpu().numpy())
-
-    @torch.no_grad()
-    def export_mesh(self, path: str, *, train_dataset=None, options=None):
-        from render import export_mesh, GaussianExtractor, render  # type: ignore
-        assert train_dataset is not None, "train_dataset is required for export_mesh. Please add --data option to the command."
-
-        # Export mesh args
-        args = copy.deepcopy(self._mesh_args)
-        options = options or {}
-        for k, vtype in vars(MeshParamGroup(ArgumentParser())).items():
-            if k not in options:
-                continue
-            tp = type(vtype)
-            if tp in (int, float):
-                setattr(args, k, tp(options[k]))
-            elif tp is bool:
-                assert str(options[k]).lower() in ("true", "false"), f"Expected boolean value for {k}"
-                setattr(args, k, options[k].lower() == "true")
-            else:
-                raise ValueError(f"Unsupported type {tp} for {k}")
-
-        # Patch required features for Scene to be built
-        train_cameras = [
-            loadCam(self._dataset, 0, 
-                _build_caminfo(
-                    0, camera.poses, camera.intrinsics, f"{0:06d}.png", camera.image_sizes, scale_coords=self._dataset.scale_coords), 1.0) 
-                for camera in train_dataset["cameras"]]
-        scene = namedtuple("Scene", ["getTrainCameras"])(lambda: train_cameras)
-        gaussExtractor = GaussianExtractor(self._gaussians, render, self._pipe, bg_color=self._background)
-        with tempfile.TemporaryDirectory() as tempdir:
-            # export_mesh(train_dir, args, gaussExtractor, scene)
-            export_mesh(tempdir, args, gaussExtractor, scene)
-            # Export *_post.ply to the target path
-            output_file = next(x for x in os.listdir(tempdir) if x.endswith("_post.ply"))
-            os.makedirs(path, exist_ok=True)
-            shutil.move(os.path.join(tempdir, output_file), os.path.join(path, "mesh.ply"))

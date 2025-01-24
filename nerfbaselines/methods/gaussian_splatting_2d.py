@@ -1,10 +1,14 @@
-# NOTE: This code modifies 3DGS-mcmc:
+# NOTE: This code modifies 2DGS:
 # 1) Adds support for cx, cy not in the center of the image
 # 2) Adds support for sampling masks
 from argparse import ArgumentParser
+from collections import namedtuple
 import logging
 import warnings
+import shutil
 import itertools
+import copy
+import tempfile
 import shlex
 from typing import Optional
 import os
@@ -14,15 +18,15 @@ from nerfbaselines import (
     Method, MethodInfo, ModelInfo, RenderOutput, Cameras, camera_model_to_int, Dataset
 )
 import shlex
+import torch
 
-from ._3dgs_mcmc_patch import import_context
+from .gaussian_splatting_2d_patch import import_context
 with import_context:
     from scene.dataset_readers import CameraInfo  # type: ignore
     from utils.camera_utils import loadCam  # type: ignore
     from scene import Scene  # type: ignore
 
-    import torch
-    from arguments import ModelParams, PipelineParams, OptimizationParams #  type: ignore
+    from arguments import ParamGroup, ModelParams, PipelineParams, OptimizationParams #  type: ignore
     from gaussian_renderer import render # type: ignore
     from scene import GaussianModel # type: ignore
     from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # type: ignore
@@ -76,7 +80,7 @@ def _config_overrides_to_args_list(args_list, config_overrides):
             args_list.append(str(v))
 
 
-def _convert_dataset_to_scene_info(dataset: Optional[Dataset], white_background: bool = False, scale_coords=None, init_type="sfm"):
+def _convert_dataset_to_scene_info(dataset: Optional[Dataset], white_background: bool = False, scale_coords=None):
     if dataset is None:
         return SceneInfo(None, [], [], nerf_normalization=dict(radius=None, translate=None), ply_path=None)
     assert np.all(dataset["cameras"].camera_models == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
@@ -94,8 +98,8 @@ def _convert_dataset_to_scene_info(dataset: Optional[Dataset], white_background:
         w, h = dataset["cameras"].image_sizes[idx]
         im_data = dataset["images"][idx][:h, :w]
         assert im_data.dtype == np.uint8, "Gaussian Splatting supports images as uint8"
-        if white_background and im_data.shape[-1] == 4:
-            bg = np.array([1, 1, 1])
+        if im_data.shape[-1] == 4:
+            bg = np.array([1, 1, 1]) if white_background else np.array([0, 0, 0])
             norm_data = im_data / 255.0
             arr = norm_data[:, :, :3] * norm_data[:, :, 3:4] + (1 - norm_data[:, :, 3:4]) * bg
             im_data = np.array(arr * 255.0, dtype=np.uint8)
@@ -129,21 +133,10 @@ def _convert_dataset_to_scene_info(dataset: Optional[Dataset], white_background:
     if points3D_xyz is None and dataset["metadata"].get("id", None) == "blender":
         pcd = blender_create_pcd()
     else:
-        if init_type == "sfm":
-            method_id = "3dgs-mcmc"
-            assert points3D_xyz is not None and points3D_rgb is not None, \
-                (f"points3D_xyz and points3D_rgb are required for {method_id} when init_type is sfm, "
-                 "set init_type=random to generate random point cloud.")
-            num_pts = points3D_xyz.shape[0]
-            pcd = BasicPointCloud(points3D_xyz, points3D_rgb/255., np.zeros_like(points3D_xyz))
-        elif init_type == "random":
-            num_pts=100000
-            print(f"Generating random point cloud ({num_pts})...")
-            xyz = np.random.random((num_pts, 3)) * nerf_normalization["radius"]* 3*2 -(nerf_normalization["radius"]*3)
-            shs = np.random.random((num_pts, 3)) / 255.0
-            pcd = BasicPointCloud(points=xyz, colors=shs, normals=np.zeros((num_pts, 3)))
-        else:
-            raise ValueError(f"Invalid init_type: {init_type}")
+        method_id = "2d-gaussian-splatting"
+        assert points3D_xyz is not None, f"points3D_xyz is required for {method_id}"
+        assert points3D_rgb is not None, f"points3D_rgb is required for {method_id}"
+        pcd = BasicPointCloud(points3D_xyz, points3D_rgb/255., np.zeros_like(points3D_xyz))
 
     return SceneInfo(point_cloud=pcd, 
                      train_cameras=cam_infos, 
@@ -152,7 +145,24 @@ def _convert_dataset_to_scene_info(dataset: Optional[Dataset], white_background:
                      nerf_normalization=nerf_normalization)
 
 
-class GaussianSplattingMCMC(Method):
+class MeshParamGroup(ParamGroup):
+    def __init__(self, parser):
+        self.voxel_size: float = -1.0
+        """Mesh: voxel size for TSDF"""
+        self.depth_trunc: float = -1.0
+        """Mesh: Max depth range for TSDF"""
+        self.sdf_trunc: float = -1.0
+        """Mesh: truncation value for TSDF"""
+        self.num_cluster: int = 50
+        """Mesh: number of connected clusters to export"""
+        self.unbounded: bool = False
+        """Mesh: using unbounded mode for meshing"""
+        self.mesh_res: int = 1024
+        """Mesh: resolution for unbounded mesh extraction"""
+        super().__init__(parser, "Mesh extraction parameters")
+
+
+class GaussianSplatting2D(Method):
     def __init__(self, *,
                  checkpoint: Optional[str] = None,
                  train_dataset: Optional[Dataset] = None,
@@ -184,16 +194,14 @@ class GaussianSplattingMCMC(Method):
         lp = ModelParams(parser)
         op = OptimizationParams(parser)
         pp = PipelineParams(parser)
+        mesh = MeshParamGroup(parser)
         parser.add_argument("--scale_coords", type=float, default=None, help="Scale the coords")
-        # Set default init_type to sfm to match paper's "ours"
-        parser.set_defaults(init_type="sfm")
         args = parser.parse_args(self._args_list)
+        self._mesh_args = mesh.extract(args)
         self._dataset = lp.extract(args)
         self._dataset.scale_coords = args.scale_coords
         self._opt = op.extract(args)
         self._pipe = pp.extract(args)
-        # This is needed because globals are accessed in the training step
-        self._args = args
 
     def _setup(self, train_dataset):
         # Initialize system state (RNG)
@@ -202,9 +210,7 @@ class GaussianSplattingMCMC(Method):
         # Setup model
         self._gaussians = GaussianModel(self._dataset.sh_degree)
         scene_info =  _convert_dataset_to_scene_info(
-            train_dataset, white_background=self._dataset.white_background, 
-            scale_coords=self._dataset.scale_coords,
-            init_type=self._dataset.init_type)
+            train_dataset, white_background=self._dataset.white_background, scale_coords=self._dataset.scale_coords)
         self._dataset.model_path = self.checkpoint
         self._scene = Scene(scene_info, args=self._dataset, gaussians=self._gaussians, 
                             load_iteration=str(self._loaded_step) if train_dataset is None else None)
@@ -255,6 +261,9 @@ class GaussianSplattingMCMC(Method):
                             self._gaussians, self._pipe, self._background)
         return {
             "color": render_pkg["render"].clamp(0, 1).detach().permute(1, 2, 0).cpu().numpy(),
+            "accumulation": render_pkg["rend_alpha"].squeeze(0).detach().cpu().numpy(),
+            "depth": render_pkg["surf_depth"].detach().squeeze(0).cpu().numpy(),
+            "normal": torch.nn.functional.normalize(render_pkg["rend_normal"], dim=0).permute(1, 2, 0).detach().cpu().numpy(),
         }
 
     def train_iteration(self, step):
@@ -272,8 +281,45 @@ class GaussianSplattingMCMC(Method):
     def export_gaussian_splats(self, *, options=None):
         del options
         return dict(
+            is_2DGS=True,
             means=self._gaussians.get_xyz.detach().cpu().numpy(),
             scales=self._gaussians.get_scaling.detach().cpu().numpy(),
             opacities=self._gaussians.get_opacity.detach().cpu().numpy(),
             quaternions=self._gaussians.get_rotation.detach().cpu().numpy(),
             spherical_harmonics=self._gaussians.get_features.transpose(1, 2).detach().cpu().numpy())
+
+    @torch.no_grad()
+    def export_mesh(self, path: str, *, train_dataset=None, options=None):
+        from render import export_mesh, GaussianExtractor, render  # type: ignore
+        assert train_dataset is not None, "train_dataset is required for export_mesh. Please add --data option to the command."
+
+        # Export mesh args
+        args = copy.deepcopy(self._mesh_args)
+        options = options or {}
+        for k, vtype in vars(MeshParamGroup(ArgumentParser())).items():
+            if k not in options:
+                continue
+            tp = type(vtype)
+            if tp in (int, float):
+                setattr(args, k, tp(options[k]))
+            elif tp is bool:
+                assert str(options[k]).lower() in ("true", "false"), f"Expected boolean value for {k}"
+                setattr(args, k, options[k].lower() == "true")
+            else:
+                raise ValueError(f"Unsupported type {tp} for {k}")
+
+        # Patch required features for Scene to be built
+        train_cameras = [
+            loadCam(self._dataset, 0, 
+                _build_caminfo(
+                    0, camera.poses, camera.intrinsics, f"{0:06d}.png", camera.image_sizes, scale_coords=self._dataset.scale_coords), 1.0) 
+                for camera in train_dataset["cameras"]]
+        scene = namedtuple("Scene", ["getTrainCameras"])(lambda: train_cameras)
+        gaussExtractor = GaussianExtractor(self._gaussians, render, self._pipe, bg_color=self._background)
+        with tempfile.TemporaryDirectory() as tempdir:
+            # export_mesh(train_dir, args, gaussExtractor, scene)
+            export_mesh(tempdir, args, gaussExtractor, scene)
+            # Export *_post.ply to the target path
+            output_file = next(x for x in os.listdir(tempdir) if x.endswith("_post.ply"))
+            os.makedirs(path, exist_ok=True)
+            shutil.move(os.path.join(tempdir, output_file), os.path.join(path, "mesh.ply"))

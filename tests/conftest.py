@@ -1,3 +1,8 @@
+import shutil
+import subprocess
+import importlib
+import gc
+import copy
 import tarfile
 import json
 import sys
@@ -18,6 +23,43 @@ class _nullcontext(contextlib.nullcontext):
         return fn
 
 
+@pytest.fixture
+def load_source_code():
+    paths_to_pop = []
+    def load(git_repo, commit_sha):
+        reponame = git_repo.split("/")[-1].replace(".git", "")
+        cached_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f".cache-{reponame}")
+        if not os.path.exists(cached_path):
+            if os.path.exists(cached_path+".tmp"):
+                shutil.rmtree(cached_path+".tmp", ignore_errors=True)
+            subprocess.run(["git", "clone", git_repo, cached_path+".tmp", "-q"], check=True)
+            subprocess.run(["git", "checkout", commit_sha], cwd=cached_path+".tmp", check=True)
+            os.rename(cached_path+".tmp", cached_path)
+        if cached_path not in sys.path:
+            sys.path.append(cached_path)
+            paths_to_pop.append(cached_path)
+    try:
+        yield load
+    finally:
+        for path in paths_to_pop:
+            sys.path.remove(path)
+
+
+@pytest.fixture
+def isolated_modules():
+    mods = dict(sys.modules.items())
+    try:
+        yield None
+    finally:
+        for key in list(sys.modules.keys()):
+            if key not in mods:
+                del sys.modules[key]
+        for key, value in mods.items():
+            sys.modules[key] = value
+        importlib.invalidate_caches()
+        gc.collect()
+
+
 @contextlib.contextmanager
 def patch_modules(update):
     _empty = object()
@@ -36,6 +78,23 @@ def patch_modules(update):
 @pytest.fixture(name="patch_modules")
 def patch_modules_fixture():
     return patch_modules
+
+
+@pytest.fixture
+def mock_module():
+    old_values = dict()
+    try:
+        def mock_module(module):
+            old_values[module] = sys.modules.get(module)
+            sys.modules[module] = mock.MagicMock()
+            return sys.modules[module]
+        yield mock_module
+    finally:
+        for module, old in old_values.items():
+            if old is None:
+                del sys.modules[module]
+            else:
+                sys.modules[module] = old
 
 
 def make_dataset(path: Path, num_images=10):
@@ -209,7 +268,12 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python", config
         render_old = np.array(Image.open(tmp_path / "tmp-renders" / fname))
         np.testing.assert_allclose(render, render_old, err_msg="render mismatch for "+str(fname))
 
-    # Test can restore checkpoint and continue training
+    # Test can restore checkpoint and continue training if supported
+    from nerfbaselines import get_method_spec
+    from nerfbaselines.results import get_method_info_from_spec
+    method_info = get_method_info_from_spec(get_method_spec(method_name))
+    if not method_info.get("can_resume_training", True):
+        return
     (tmp_path / "output" / "predictions-13.tar.gz").unlink()
     num_steps[0] = 14
     cwd = os.getcwd()
@@ -261,85 +325,200 @@ def run_test_train_fixture(tmp_path_factory, request: pytest.FixtureRequest):
     return run
 
 
+class Tensor(np.ndarray):
+    def __new__(cls, value):
+        if isinstance(value, np.ndarray):
+            return np.ndarray.view(value, Tensor)
+        return np.array(value).view(Tensor)
+
+    def min(self, other=None, dim=None):
+        self = np.ndarray.view(self, np.ndarray)
+        if isinstance(other, int):
+            dim = other
+            other = None
+        if other is not None:
+            other = np.ndarray.view(other, np.ndarray)
+            return Tensor(np.minimum(self, other))
+        return Tensor(np.min(self, axis=dim))
+
+    def max(self, other=None, dim=None):
+        self = np.ndarray.view(self, np.ndarray)
+        if isinstance(other, int):
+            dim = other
+            other = None
+        if other is not None:
+            other = np.ndarray.view(other, np.ndarray)
+            return Tensor(np.maximum(self, other))
+        return Tensor(np.max(self, axis=dim))
+
+    def size(self, dim=None):
+        if dim is None:
+            return self.shape
+        return self.shape[dim]
+
+    def mm(self, other):
+        return np.matmul(self, other)
+
+    def t(self):
+        return np.transpose(self)
+
+    @property
+    def grad(self):
+        return self*0
+
+    @property
+    def device(self):
+        return "cpu"
+
+    def cuda(self, *args):
+        del args
+        return self
+
+    def type_as(self, other):
+        return self.astype(other.dtype)
+
+    def backward(self):
+        pass
+
+    def detach(self):
+        return self
+
+    def cpu(self):
+        return self
+
+    def numpy(self):
+        if isinstance(self, Tensor):
+            return super().view(np.ndarray)
+        return self
+
+    def permute(self, *args):
+        return np.transpose(self, args)
+
+    def dim(self):
+        return len(self.shape)
+
+    def float(self):
+        return self.astype(np.float32)
+
+    def is_cuda(self):
+        return False
+
+    def get_device(self):
+        return self.device
+
+    def expand(self, *args):
+        if len(args) == 1 and isinstance(args[0], (list, tuple)):
+            args = args[0]
+        self = np.ndarray.view(self, np.ndarray)
+        return Tensor(np.broadcast_to(self, args))
+
+    def contiguous(self):
+        return self
+
+    def long(self):
+        return self.astype(np.int64)
+
+    def to(self, *args, dtype=None, **kwargs):
+        if dtype is not None:
+            return self.astype(dtype)
+        else:
+            return self
+
+    def view(self, *shape):  # type: ignore
+        return self.reshape(shape)
+
+    def mul_(self, value):
+        self *= value
+        return self
+
+    def sub_(self, value):
+        self -= value
+        return self
+
+    def unsqueeze(self, dim):
+        return np.expand_dims(self, dim)
+
+    def bmm(self, other):
+        return np.matmul(self, other)
+
+    def sum(self, dim=None, dtype=None, keepdim=False):  # type: ignore
+        self = np.ndarray.view(self, np.ndarray)
+        if isinstance(dim, list):
+            dim = tuple(dim)
+        return Tensor(np.sum(self, axis=dim, dtype=dtype, keepdims=keepdim))
+
+    def pow(self, value):
+        return np.power(self, value)
+
+    def prod(self, dim=None, dtype=None, keepdim=False):  # type: ignore
+        self = np.ndarray.view(self, np.ndarray)
+        if isinstance(dim, list):
+            dim = tuple(dim)
+        return Tensor(np.prod(self, axis=dim, dtype=dtype, keepdims=keepdim))
+
+    def mean(self, dim=None, dtype=None, keepdim=False):  # type: ignore
+        self = np.ndarray.view(self, np.ndarray)
+        if isinstance(dim, list):
+            dim = tuple(dim)
+        return Tensor(np.mean(self, axis=dim, dtype=dtype, keepdims=keepdim))
+
+    def clamp(self, min=None, max=None):
+        return np.clip(self, min, max)
+
+    def clamp_min(self, min=None):
+        return np.clip(self, min, None)
+
+    def flatten(self, start_dim=0, end_dim=-1):
+        self = np.ndarray.view(self, np.ndarray)
+        shape = self.shape
+        if end_dim < 0:
+            end_dim = len(shape) + end_dim
+        shape = shape[:start_dim] + (-1,) + shape[end_dim + 1:]
+        return Tensor(self.reshape(shape))
+
+    def inverse(self):
+        return np.linalg.inv(self)
+
+    def norm(self, dim=None, keepdim=False):
+        return np.linalg.norm(self, axis=dim, keepdims=keepdim)
+
+    def transpose(self, axis1, axis2):
+        self = np.ndarray.view(self, np.ndarray)
+        return Tensor(np.swapaxes(self, axis1, axis2))
+
+    def repeat(self, *args):
+        if len(args) == 1 and isinstance(args[0], (list, tuple)):
+            args = args[0]
+        self = np.ndarray.view(self, np.ndarray)
+        return Tensor(np.tile(self, args))
+
+    def requires_grad_(self, *args, **kwargs):
+        del args, kwargs
+        return self
+
+    def nonzero(self):
+        self = np.ndarray.view(self, np.ndarray)
+        return Tensor(np.nonzero(self)[0])
+
+
+class Optimizer:
+    def __init__(self, params, lr, eps):
+        self.param_groups = params
+        self.lr = lr
+        self.eps = eps
+
+    def zero_grad(self, set_to_none=False): pass
+    def step(self): pass
+    def state_dict(self):
+        return vars(self)
+    def load_state_dict(self, state_dict):
+        vars(self).update(state_dict)
+
+
+
 @pytest.fixture
 def mock_torch(patch_modules):
     torch = mock.MagicMock()
-
-    class Tensor(np.ndarray):
-        def __new__(cls, value):
-            if isinstance(value, np.ndarray):
-                return value.view(Tensor)
-            return np.array(value).view(Tensor)
-
-        def cuda(self):
-            return self
-
-        def backward(self):
-            pass
-
-        def detach(self):
-            return self
-
-        def cpu(self):
-            return self
-
-        def numpy(self):
-            if isinstance(self, Tensor):
-                return super().view(np.ndarray)
-            return self
-
-        def permute(self, *args):
-            return np.transpose(self, args)
-
-        def dim(self):
-            return len(self.shape)
-
-        def float(self):
-            return self.astype(np.float32)
-
-        def expand(self, args):
-            return torch.broadcast_to(self, args)
-
-        def contiguous(self):
-            return self
-
-        def long(self):
-            return self.astype(np.int64)
-
-        def to(self, *args, dtype=None, **kwargs):
-            if dtype is not None:
-                return self.astype(dtype)
-            else:
-                return self
-
-        def view(self, *shape):  # type: ignore
-            return self.reshape(shape)
-
-        def mul_(self, value):
-            self *= value
-            return self
-
-        def sub_(self, value):
-            self -= value
-            return self
-
-        def unsqueeze(self, dim):
-            return np.expand_dims(self, dim)
-
-        def bmm(self, other):
-            return np.matmul(self, other)
-
-        def sum(self, dim=None, dtype=None, keepdim=False):  # type: ignore
-            self = np.ndarray.view(self, np.ndarray)
-            if isinstance(dim, list):
-                dim = tuple(dim)
-            return Tensor(np.sum(self, axis=dim, dtype=dtype, keepdims=keepdim))
-
-        def mean(self, dim=None, dtype=None, keepdim=False):  # type: ignore
-            self = np.ndarray.view(self, np.ndarray)
-            if isinstance(dim, list):
-                dim = tuple(dim)
-            return Tensor(np.mean(self, axis=dim, dtype=dtype, keepdims=keepdim))
         
     def from_numpy(x):
         assert not isinstance(x, Tensor)
@@ -348,7 +527,7 @@ def mock_torch(patch_modules):
     for k, v in vars(np).items():
         if callable(v) and not inspect.isclass(v):
 
-            def v2(ok, *args, device=None, **kwargs):
+            def v2(ok, *args, device=None, requires_grad=None, **kwargs):
                 out = getattr(np, ok)(*args, **kwargs)
                 if isinstance(out, np.ndarray) and not isinstance(out, Tensor):
                     out = from_numpy(out)
@@ -359,15 +538,37 @@ def mock_torch(patch_modules):
             setattr(torch, k, v)
     torch.no_grad = lambda: _nullcontext()
     torch.tensor = torch.array
-    torch.clamp = torch.clip
+    torch.clamp = Tensor.clamp
     torch.from_numpy = from_numpy
     torch.bool = bool
     torch.long = np.int64
-    torch.cat = torch.concatenate
+    def concatenate(tensors, dim):
+        return np.concatenate(tensors, axis=dim).view(Tensor)
+    torch.cat = concatenate
     torch.sum = Tensor.sum
     torch.mean = Tensor.mean
+    torch.max = Tensor.max
+    torch.min = Tensor.min
+    def sigmoid(x):
+        x = np.ndarray.view(x, np.ndarray)
+        return Tensor(1 / (1 + np.exp(-x)))
+    torch.sigmoid = sigmoid
+    torch.norm = Tensor.norm
+    torch.clamp_min = Tensor.clamp_min
     # torch.sum = lambda x, dim=None, dtype=None, keepdim=False: np.sum(x, axis=dim, dtype=dtype, keepdims=keepdim).view(Tensor)
     # torch.mean = lambda x, dim=None, dtype=None, keepdim=False: np.mean(x, axis=dim, dtype=dtype, keepdims=keepdim).view(Tensor)
+    def zeros(*shape, dtype=None, device=None):
+        del device
+        if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
+            shape = shape[0]
+        return np.zeros(shape, dtype=dtype).view(Tensor)
+    def ones(*shape, dtype=None, device=None):
+        del device
+        if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
+            shape = shape[0]
+        return np.ones(shape, dtype=dtype).view(Tensor)
+    torch.zeros = zeros
+    torch.ones = ones
     torch.Tensor = Tensor
 
     def save(value, file):
@@ -401,11 +602,12 @@ def mock_torch(patch_modules):
 
     torch.save = save
     torch.load = load
+    torch.float = 'float32'
     torchvision = mock.MagicMock()
     alexnet = mock.MagicMock()
     alexnet.features = torch.zeros((512, 1, 1, 3))
     torchvision.models.alexnet = mock.MagicMock(return_value=alexnet)
-    torch.nn = mock.MagicMock()
+    torch.optim.Adam = Optimizer
 
     class Module:
         def __init__(self, *args, **kwargs):
@@ -449,7 +651,11 @@ def mock_torch(patch_modules):
         def __call__(self, *args, **kwargs):
             return self.forward(*args, **kwargs)
 
+    def Parameter(value):
+        return value
+
     torch.nn.Module = Module
+    torch.nn.Parameter = Parameter
     torch.nn.ModuleList = list
     torch.nn.Conv2d = Module
 
@@ -467,12 +673,98 @@ def mock_torch(patch_modules):
             return x
 
     torch.nn.Sequential = Sequential
+    def to_tensor(x):
+        if isinstance(x, Image.Image):
+            mode = x.mode
+            x = np.array(x)
+            if mode == "L": return Tensor(x.astype(np.float32))
+            return Tensor(x.astype(np.float32) / 255.0)
+        raise NotImplementedError(f"to_tensor not implemented for {x}")
+    def to_pil_image(x):
+        if len(x.shape) == 3:
+            x = x.permute(1, 2, 0)
+            return Image.fromarray((x * 255).astype(np.uint8))
+        else:
+            return Image.fromarray(x)
+    torchvision.transforms.ToTensor = lambda: to_tensor
+    torchvision.transforms.ToPILImage = lambda: to_pil_image
+
+    def conv2d(x, weight, bias=None, groups=None, stride=1, padding=0):
+        del bias, groups
+        assert x.shape[-3] == weight.shape[0]
+        outdims = weight.shape[1]
+        outshape = list(x.shape)
+        outshape[-3] = outdims
+        h, w = x.shape[-2:]
+        h = h - weight.shape[-2] + 1 + 2 * padding
+        w = w - weight.shape[-1] + 1 + 2 * padding
+        h //= stride
+        w //= stride
+        outshape[-2:] = h, w
+        return Tensor(np.full(outshape, float(x.mean()), dtype=x.dtype))
+
+    torch.nn.functional.normalize = lambda x, dim=-1, p=2: x / x.norm(dim=dim, keepdim=True)
+    torch.nn.functional.conv2d = conv2d
+
+    torch.autograd.Variable = Tensor
 
     with patch_modules({
         "torch": torch, 
+        "torch._C": torch._C,
+        "torch.autograd": torch.autograd,
+        "torch.cuda": torch.cuda,
         "torch.nn": torch.nn,
-        "torchvision": torchvision}):
+        "torch.optim": torch.optim,
+        "torch.mps": torch.mps,
+        "torch.autograd": torch.autograd,
+        "torch.nn.functional": torch.nn.functional,
+        "torchvision": torchvision,
+        "torchvision.transforms": torchvision.transforms,
+    }):
         yield torch
+
+
+@pytest.fixture
+def torch_cpu():
+    import torch
+    import torchvision
+    del torchvision
+    backup = {}
+    tensor_backup = {}
+    def patch(name, value):
+        if name not in backup:
+            backup[name] = getattr(torch, name)
+        setattr(torch, name, value)
+    def patchtensor(name, value):
+        if name not in backup:
+            tensor_backup[name] = getattr(torch.Tensor, name)
+        setattr(torch.Tensor, name, value)
+    def patchdevice(call):
+        def call2(*args, **kwargs):
+            if "device" in kwargs:
+                del kwargs["device"]
+            return call(*args, **kwargs)
+        return call2
+    try:
+        patch("Tensor", copy.copy(torch.Tensor))
+        cuda = mock.MagicMock()
+        cuda.is_current_stream_capturing = lambda: False
+        patch("cuda", cuda)
+        patchtensor("cuda", lambda self: self)
+        oldto = torch.Tensor.to
+        def to(self, *args, **kwargs):
+            if args and (args[0] == "cuda" or isinstance(args[0], torch.device)):
+                args = ("cpu",) + args[1:]
+            return oldto(self, *args, **kwargs)  # type: ignore
+        patchtensor("to", to)
+        for name in ['zeros', 'ones', 'rand', 'tensor', 'zeros_like', 'ones_like', 'rand_like']:
+            patch(name, patchdevice(getattr(torch, name)))
+        yield None
+    finally:
+        for name, value in backup.items():
+            setattr(torch, name, value)
+        for name, value in tensor_backup.items():
+            setattr(torch.Tensor, name, value)
 
 
 @pytest.fixture

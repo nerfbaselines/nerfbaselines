@@ -1,7 +1,9 @@
 import copy
 import ast
 from typing import cast
-from ._patching import patch_ast_import
+from ._patching import Context
+
+import_context = Context()
 
 # This file includes several patches to 3DGS codebase
 # 1. Patch Gaussian Splatting Cameras to include sampling masks
@@ -55,7 +57,7 @@ def getProjectionMatrixFromOpenCV(w, h, fx, fy, cx, cy, znear, zfar):
 
 
 # Patch loadCam to pass args to Cameras
-@patch_ast_import("utils.camera_utils")
+@import_context.patch_ast_import("utils.camera_utils")
 def _(ast_module: ast.Module):
     # Make sure PILtoTorch is imported
     assert any(isinstance(x, ast.ImportFrom) and x.module == "utils.general_utils" and x.names[0].name == "PILtoTorch" for x in ast_module.body), "PILtoTorch not imported in camera_utils"
@@ -71,7 +73,7 @@ def _(ast_module: ast.Module):
 
 
 # Patch Cameras to include sampling masks and cx, cy
-@patch_ast_import("scene.cameras")
+@import_context.patch_ast_import("scene.cameras")
 def _(ast_module: ast.Module):
     camera_ast = next((x for x in ast_module.body if isinstance(x, ast.ClassDef) and x.name == "Camera"), None)
     assert camera_ast is not None, "Camera not found in cameras"
@@ -115,7 +117,7 @@ def _(ast_module: ast.Module):
     self.zfar).transpose(0, 1).cuda()
 """).body[0].value  # type: ignore
 
-@patch_ast_import("scene.dataset_readers")
+@import_context.patch_ast_import("scene.dataset_readers")
 def _(ast_module: ast.Module):
     camera_info_ast = next((x for x in ast_module.body if isinstance(x, ast.ClassDef) and x.name == "CameraInfo"), None)
     assert camera_info_ast is not None, "CameraInfo not found in dataset_readers"
@@ -138,7 +140,7 @@ def _(ast_module: ast.Module):
 
 # Patch Scene to take scene_info as input
 # <patch scene>
-@patch_ast_import("scene")
+@import_context.patch_ast_import("scene")
 def _(ast_module: ast.Module):
     scene_ast = next((x for x in ast_module.body if isinstance(x, ast.ClassDef) and x.name == "Scene"), None)
     assert scene_ast is not None, "Scene not found in scene"
@@ -164,7 +166,7 @@ def _(ast_module: ast.Module):
 
 # Patch dataset_readers to export blender_create_pcd
 # <patch blender_create_pcd>
-@patch_ast_import("scene.dataset_readers")
+@import_context.patch_ast_import("scene.dataset_readers")
 def _(ast_module: ast.Module):
     readNerfSyntheticInfo_ast = next((x for x in ast_module.body if isinstance(x, ast.FunctionDef) and x.name == "readNerfSyntheticInfo"), None)
     assert readNerfSyntheticInfo_ast is not None, "readNerfSyntheticInfo not found in dataset_readers"
@@ -213,7 +215,7 @@ def ast_remove_names(tree, names):
 
 # Patch train to extract the training loop and init
 # <patch train>
-@patch_ast_import("train")
+@import_context.patch_ast_import("train")
 def _(ast_module: ast.Module):
     training_ast = copy.deepcopy(next(x for x in ast_module.body if isinstance(x, ast.FunctionDef) and x.name == "training"))
     # We remove the unused code
@@ -282,7 +284,7 @@ if viewpoint_cam.sampling_mask is not None:
 
 
 # Add export mesh function (extract code form render.py)
-@patch_ast_import("render")
+@import_context.patch_ast_import("render")
 def _(ast_module: ast.Module):
     # Extract if __name__ == "__main__" block
     main_block = next(x for x in ast_module.body if isinstance(x, ast.If) and ast.unparse(x.test) == "__name__ == '__main__'")

@@ -2,6 +2,7 @@
 exec 3>&1
 
 args=()
+filter=""
 function usage() {
     echo "Usage: $0 [input-path] [output-path]"
 }
@@ -11,6 +12,11 @@ while [[ $# -gt 0 ]]; do
         --help|-h)
             usage
             exit 0
+            ;;
+        --filter)
+            filter="$2"
+            shift
+            shift
             ;;
         *)
             args+=("$1")
@@ -42,6 +48,9 @@ while IFS= read -r -d '' file; do
         if [ -e "$inpath/$name.zip" ]; then
             continue
         fi
+    fi
+    if [ -n "$filter" ] && [[ "$name" != $filter ]]; then
+        continue
     fi
     method=${name%%/*}
 

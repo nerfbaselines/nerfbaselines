@@ -1,3 +1,4 @@
+from functools import partial
 import re
 from typing import List
 import pytest
@@ -38,20 +39,16 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "dataset: mark test as running only a specific dataset")
 
 
-def pytest_runtest_call(item):
-    if "extras" in item.keywords:
-        testfunction = item.obj
-        def try_import(*args, **kwargs):
-            try:
-                return testfunction(*args, **kwargs)
-            except ImportError as e:
-                pytest.skip(str(e))
-            except Exception as e:
-                if "program 'ffmpeg' is not found" in str(e).lower():
-                    pytest.skip("ffmpeg not found")
-                else:
-                    raise
-        item.obj = try_import
+def _skip_failed_import_extras(run):
+    try:
+        return run()
+    except ImportError as e:
+        pytest.skip(str(e))
+    except Exception as e:
+        if "program 'ffmpeg' is not found" in str(e).lower():
+            pytest.skip("ffmpeg not found")
+        else:
+            raise
 
 
 def pytest_collection_modifyitems(config, items: List[pytest.Item]):
@@ -88,6 +85,11 @@ def pytest_collection_modifyitems(config, items: List[pytest.Item]):
     if config.getoption("--run-extras"):
         for item in items:
             item.keywords = {k: v for k, v in item.keywords.items() if k != "extras"}
+    else:
+        for item in items:
+            if "extras" in item.keywords:
+                item.runtest = partial(_skip_failed_import_extras, item.runtest)
+                item.setup = partial(_skip_failed_import_extras, item.setup)
 
     methods = config.getoption("--method")
     method_regex = config.getoption("--method-regex")
