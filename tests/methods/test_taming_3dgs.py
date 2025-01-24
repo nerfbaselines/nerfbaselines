@@ -7,6 +7,9 @@ import os
 import pytest
 
 
+METHOD_NAME = "taming-3dgs"
+
+
 @pytest.fixture
 def taming_source_code(load_source_code):
     load_source_code("https://github.com/humansensinglab/taming-3dgs.git", "446f2c0d50d082e660e5b899d304da5931351dec")
@@ -117,17 +120,16 @@ def _test_taming_3dgs(method_module, colmap_dataset, tmp_path):
 
 
 @pytest.mark.extras
+@pytest.mark.method(METHOD_NAME)
 def test_taming_3dgs_torch(torch_cpu, isolated_modules, method_module, colmap_dataset, tmp_path):
     del torch_cpu, isolated_modules
     _test_taming_3dgs(method_module, colmap_dataset, tmp_path)
 
 
+@pytest.mark.method(METHOD_NAME)
 def test_taming_3dgs_mocked(isolated_modules, mock_torch, method_module, colmap_dataset, tmp_path):
     del mock_torch, isolated_modules
     _test_taming_3dgs(method_module, colmap_dataset, tmp_path)
-
-
-METHOD_NAME = "taming-3dgs"
 
 
 @pytest.mark.extras

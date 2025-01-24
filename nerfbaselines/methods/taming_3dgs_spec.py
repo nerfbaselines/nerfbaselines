@@ -44,6 +44,9 @@ pip install plyfile==0.8.1 \
         submodules/diff-gaussian-rasterization \
         submodules/simple-knn \
         --no-build-isolation
+pip install \
+    git+https://github.com/rahul-goel/fused-ssim@30fb258c8a38fe61e640c382f891f14b2e8b0b5a \
+    --no-build-isolation
 
 if [ "$NERFBASELINES_DOCKER_BUILD" = "1" ]; then
 # Reduce size of the environment by removing unused files
@@ -69,7 +72,39 @@ fi
         "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/hbb1/2d-gaussian-splatting/main/LICENSE.md"}],
     },
     "presets": {
-        "blender": { "@apply": [{"dataset": "blender"}], "white_background": True, },
+        "blender": { 
+            "@apply": [{"dataset": "blender"}], 
+            "white_background": True, 
+            "sh_lower": True, 
+            "mode": "final_count",
+            "budget": 1000000,
+            "densification_interval": 100},
+        "mipnerf360": { 
+            "@apply": [{"dataset": "mipnerf360"}],
+            "mode": "final_count",
+            "sh_lower": True,
+            "budget": 4000000,
+            "densification_interval": 100},
+        "tanksandtemples": { 
+            "@apply": [{"dataset": "tanksandtemples"}], 
+            "mode": "final_count", 
+            "sh_lower": True, 
+            "densification_interval": 100, 
+            "budget": 2000000},
+        "mipnerf360/bicycle": { "@apply": [{"dataset": "mipnerf360", "scene": "bicycle"}], "budget": 5987095, },
+        "mipnerf360/flowers": { "@apply": [{"dataset": "mipnerf360", "scene": "flowers"}], "budget": 3618411, },
+        "mipnerf360/garden": { "@apply": [{"dataset": "mipnerf360", "scene": "garden"}], "budget": 5728191, },
+        "mipnerf360/stump": { "@apply": [{"dataset": "mipnerf360", "scene": "stump"}], "budget": 4867429, },
+        "mipnerf360/treehill": { "@apply": [{"dataset": "mipnerf360", "scene": "treehill"}], "budget": 3770257, },
+        "mipnerf360/room": { "@apply": [{"dataset": "mipnerf360", "scene": "room"}], "budget": 1548960, },
+        "mipnerf360/counter": { "@apply": [{"dataset": "mipnerf360", "scene": "counter"}], "budget": 1190919, },
+        "mipnerf360/kitchen": { "@apply": [{"dataset": "mipnerf360", "scene": "kitchen"}], "budget": 1803735, },
+        "mipnerf360/bonsai": { "@apply": [{"dataset": "mipnerf360", "scene": "bonsai"}], "budget": 1252367, },
+        "tanksandtemples/temple": { "@apply": [{"dataset": "tanksandtemples", "scene": "temple"}], "budget": 2326100, },
+        "tanksandtemples/playroom": { "@apply": [{"dataset": "tanksandtemples", "scene": "playroom"}], "budget": 3273600, },
+        "tanksandtemples/train": { "@apply": [{"dataset": "tanksandtemples", "scene": "train"}], "budget": 1085480, },
+        "tanksandtemples/truck": { "@apply": [{"dataset": "tanksandtemples", "scene": "truck"}], "budget": 2584171, },
+        "tanksandtemples/drjohnson": { "@apply": [{"dataset": "tanksandtemples", "scene": "drjohnson"}], "budget": 3273600, },
     },
     "implementation_status": {}
 })
