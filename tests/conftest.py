@@ -727,6 +727,8 @@ def mock_torch(patch_modules):
 @pytest.fixture
 def torch_cpu():
     import torch
+    import torchvision
+    del torchvision
     backup = {}
     tensor_backup = {}
     def patch(name, value):
