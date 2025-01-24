@@ -747,7 +747,9 @@ def torch_cpu():
         return call2
     try:
         patch("Tensor", copy.copy(torch.Tensor))
-        patch("cuda", mock.MagicMock())
+        cuda = mock.MagicMock()
+        cuda.is_current_stream_capturing = lambda: False
+        patch("cuda", cuda)
         patchtensor("cuda", lambda self: self)
         oldto = torch.Tensor.to
         def to(self, *args, **kwargs):

@@ -1,7 +1,4 @@
 #!/bin/bash
-export inpath="$PREFIX/baselines/nerfbaselines"
-export outpath="$inpath"
-
 POSITIONAL_ARGS=()
 pre_commit=0
 while [[ $# -gt 0 ]]; do
@@ -10,9 +7,14 @@ while [[ $# -gt 0 ]]; do
             pre_commit=1
             shift
             ;;
+        --repo)
+            outpath="$2"
+            shift # past argument
+            shift # past value
+            ;;
         -*|--*)
             echo "Unknown option $1"
-            echo "Usage: $0 [path] [--pre-commit]"
+            echo "Usage: $0 <in-path> --repo <repo-path> [--pre-commit]"
             exit 1
             ;;
         *)
@@ -32,11 +34,16 @@ fi
 if [ $# -eq 1 ]; then
     export inpath="$(realpath $1)"
 elif [ $# -gt 1 ]; then
-    echo "Usage: $0 [path] [--pre-commit]"
+    echo "Usage: $0 <in-path> --repo <repo-path> [--pre-commit]"
+    exit 1
+fi
+if [ -z "$outpath" ]; then
+    echo "Usage: $0 <in-path> --repo <repo-path> [--pre-commit]"
     exit 1
 fi
 
-echo "Using repository path: $inpath"
+echo "Using repository path: $outpath"
+echo "Using input path: $inpath"
 
 
 generate-ksplat () {
@@ -71,6 +78,12 @@ find $inpath -iname '*.zip' -print0  | while IFS= read -r -d '' file; do
     if [ "$oldsha" == "$newsha" ]; then
         echo "No change in $name, skipping..."
         continue
+    fi
+
+    # Copy the file if it doesn't exist
+    if [ ! -e "$out" ] && [ "$inpath" != "$outpath" ]; then
+        echo "Copying $name"
+        cp -p "$file" "$out.zip"
     fi
 
     # Extract the results.json file from the zip
