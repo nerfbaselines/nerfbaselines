@@ -60,8 +60,6 @@ def isolated_modules():
         gc.collect()
 
 
-
-
 @contextlib.contextmanager
 def patch_modules(update):
     _empty = object()
@@ -109,7 +107,7 @@ def make_dataset(path: Path, num_images=10):
         3: colmap_utils.Camera(3, "OPENCV_FISHEYE", 180, 190, np.array([30, 24, 80, 70, 0.3, 0.4, 0.1, 0.4], dtype=np.float32)),
     }
     images = {
-        i + 1: colmap_utils.Image(i + 1, np.random.randn(4), np.random.rand(3) * 4, list(cameras.keys())[i % len(cameras)], f"{i+1}.jpg", np.random.rand(7, 2), np.random.randint(0, 11, (7,)))
+        i + 1: colmap_utils.Image(i + 1, np.random.randn(4), np.random.rand(3) * 4, list(cameras.keys())[i % len(cameras)], str(i+1)+".jpg", np.random.rand(7, 2), np.random.randint(0, 11, (7,)))
         for i in range(num_images)
     }
     colmap_utils.write_cameras_binary(cameras, str(path / "sparse" / "0" / "cameras.bin"))
@@ -120,7 +118,7 @@ def make_dataset(path: Path, num_images=10):
     colmap_utils.write_images_binary(images, str(path / "sparse" / "0" / "images.bin"))
     for i in range(num_images):
         camera = cameras[images[i + 1].camera_id]
-        Image.fromarray((np.random.rand(1, 1, 3) * 255 + np.random.rand(camera.height, camera.width, 3) * 15).astype(np.uint8)).convert("RGB").save(path / "images" / f"{i+1}.jpg")
+        Image.fromarray((np.random.rand(1, 1, 3) * 255 + np.random.rand(camera.height, camera.width, 3) * 15).astype(np.uint8)).convert("RGB").save(path / "images" / (str(i+1)+".jpg"))
 
 
 def make_blender_dataset(path: Path, num_images=10):
@@ -132,12 +130,12 @@ def make_blender_dataset(path: Path, num_images=10):
     def create_split(split, num_images=3):
         (path / split).mkdir(parents=True)
         for i in range(num_images):
-            Image.fromarray((np.random.rand(1, 1, 4) * 255 + np.random.rand(h, w, 4) * 15).astype(np.uint8)).convert("RGBA").save(path / split / f"{i}.png")
+            Image.fromarray((np.random.rand(1, 1, 4) * 255 + np.random.rand(h, w, 4) * 15).astype(np.uint8)).convert("RGBA").save(path / split / (str(i)+".png"))
         meta = {
             "camera_angle_x": 0.5,
-            "frames": [{"file_path": f"{split}/{i}", "transform_matrix": np.random.rand(4, 4).tolist()} for i in range(num_images)],
+            "frames": [{"file_path": split+"/"+str(i), "transform_matrix": np.random.rand(4, 4).tolist()} for i in range(num_images)],
         }
-        json.dump(meta, (path / f"transforms_{split}.json").open("w"))
+        json.dump(meta, (path / ("transforms_"+split+".json")).open("w"))
 
     create_split("train")
     create_split("test")
@@ -268,7 +266,7 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python", config
         fname = fname.relative_to(tmp_path / "output-render")
         render = np.array(Image.open(tmp_path / "output-render" / fname))
         render_old = np.array(Image.open(tmp_path / "tmp-renders" / fname))
-        np.testing.assert_allclose(render, render_old, err_msg=f"render mismatch for {fname}")
+        np.testing.assert_allclose(render, render_old, err_msg="render mismatch for "+str(fname))
 
     # Test can restore checkpoint and continue training if supported
     from nerfbaselines import get_method_spec
@@ -302,7 +300,7 @@ def run_test_train(tmp_path, dataset_path, method_name, backend="python", config
 @pytest.fixture(name="run_test_train", params=["blender", "colmap"])
 def run_test_train_fixture(tmp_path_factory, request: pytest.FixtureRequest):
     dataset_name = request.param
-    dataset_path = request.getfixturevalue(f"{dataset_name}_dataset_path")
+    dataset_path = request.getfixturevalue(dataset_name+"_dataset_path")
     test_name = request.node.name
     assert test_name.startswith("test_")
     assert "_train" in test_name

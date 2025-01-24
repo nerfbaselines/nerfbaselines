@@ -30,10 +30,15 @@ extensions = [
     'sphinxext.opengraph',
     'sphinx_copybutton',
     'sphinx_click',
-    'myst_parser',
+    #'myst_parser',
     'sphinx_nerfbaselines',
+    'myst_nb',
+    'sphinx_design',
     # 'sphinxcontrib.apidoc',
 ]
+
+nb_execution_mode = "off"
+nb_merge_streams = True
 
 # Hack to fix commands for sphinx_click
 import nerfbaselines.__main__, click
@@ -43,6 +48,16 @@ except ImportError:
     # Fill for older versions
     WEBPAGE_URL = "https://nerfbaselines.github.io"
     CODE_REPOSITORY = "github.com/nerfbaselines/nerfbaselines"
+
+# Hack for older versions of NerfBaselines requiring viser
+import importlib
+from unittest.mock import MagicMock
+for module in ["viser", "viser.transforms", "viser.theme", "splines", "splines.quaternion", "mediapy"]:
+    try:
+        importlib.import_module(module)
+    except ImportError:
+        # Add a fake module to avoid import errors
+        sys.modules[module] = MagicMock()
 nerfbaselines_cli = nerfbaselines.__main__.main
 ctx = click.Context(nerfbaselines_cli)
 command_names = nerfbaselines_cli.list_commands(ctx)
@@ -112,7 +127,6 @@ html_sidebars = {
         "sidebar/navigation.html",
         "sidebar/ethical-ads.html",
         "sidebar/scroll-end.html",
-        "versions.html",
     ]
 }
 

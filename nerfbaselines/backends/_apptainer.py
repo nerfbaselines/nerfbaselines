@@ -25,7 +25,6 @@ class ApptainerBackendSpec(TypedDict, total=False):
     image: Optional[str]
     home_path: str
     python_path: str
-    default_cuda_archs: str
     conda_spec: Optional[CondaBackendSpec]
 
 
@@ -47,7 +46,7 @@ def get_apptainer_spec(spec: 'MethodSpec') -> Optional[ApptainerBackendSpec]:
         # Try to build apptainer spec from docker spec
         apptainer_spec = cast(ApptainerBackendSpec, {
             k: v for k, v in docker_spec.items() if k in 
-            ["environment_name", "home_path", "python_path", "default_cuda_archs"]
+            ["environment_name", "home_path", "python_path"]
         })
         docker_image_name = get_docker_image_name(docker_spec)
         # If docker_image_name is the BASE_IMAGE, it be used, force conda build
@@ -126,7 +125,7 @@ def apptainer_run(spec: ApptainerBackendSpec, args, env,
     torch_home = os.path.expanduser(env.get("TORCH_HOME", "~/.cache/torch/hub"))
     os.makedirs(torch_home, exist_ok=True)
     image = spec.get("image") or f"docker://{BASE_IMAGE}"
-    export_envs = ["TCNN_CUDA_ARCHITECTURES", "TORCH_CUDA_ARCH_LIST", "CUDAARCHS", "GITHUB_ACTIONS", "CI"]
+    export_envs = ["CUDA_VISIBLE_DEVICES", "GITHUB_ACTIONS", "CI"]
     package_path = str(Path(__file__).absolute().parent.parent)
 
     return [

@@ -440,35 +440,35 @@ def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor
             colmap_path = data_dir / "sparse"
         elif not colmap_path.exists():
             colmap_path = data_dir
+        points3D = None
         if (colmap_path / "points3D.bin").exists():
             points3D = read_points3D_binary(str(colmap_path / "points3D.bin"))
         elif (colmap_path / "points3D.txt").exists():
             points3D = read_points3D_text(str(colmap_path / "points3D.txt"))
-        else:
-            raise RuntimeError(f"3D points are requested but not present in dataset {data_dir}")
-        points3D_xyz = np.array([p.xyz for p in points3D.values()], dtype=np.float32)
-        points3D_rgb = np.array([p.rgb for p in points3D.values()], dtype=np.uint8)
+        if points3D is not None:
+            points3D_xyz = np.array([p.xyz for p in points3D.values()], dtype=np.float32)
+            points3D_rgb = np.array([p.rgb for p in points3D.values()], dtype=np.uint8)
 
-        # Transform xyz to match nerfstudio loader
-        points3D_xyz = points3D_xyz[..., np.array([1, 0, 2])]
-        points3D_xyz[..., 2] *= -1
+            # Transform xyz to match nerfstudio loader
+            points3D_xyz = points3D_xyz[..., np.array([1, 0, 2])]
+            points3D_xyz[..., 2] *= -1
 
-        if "images_points3D_indices" in (features or {}):
-            # TODO: Verify this feature is working well
-            points3D_map = {k: i for i, k in enumerate(points3D.keys())}
-            if (colmap_path / "points3D.bin").exists():
-                images_colmap = read_images_binary(str(colmap_path / "images.bin"))
-            elif (colmap_path / "points3D.txt").exists():
-                images_colmap = read_images_text(str(colmap_path / "images.txt"))
-            else:
-                raise RuntimeError(f"3D points are requested but images.{{bin|txt}} not present in dataset {data_dir}")
-            images_colmap_map = {}
-            for image in images_colmap.values():
-                images_colmap_map[image.name] = np.ndarray([points3D_map[x] for x in image.points3D_ids], dtype=np.int32)
-            images_points3D_indices = []
-            for impath in image_filenames:
-                impath = os.path.relpath(impath, str(images_root))
-                images_points3D_indices.append(images_colmap_map[impath])
+            if "images_points3D_indices" in (features or {}):
+                # TODO: Verify this feature is working well
+                points3D_map = {k: i for i, k in enumerate(points3D.keys())}
+                if (colmap_path / "points3D.bin").exists():
+                    images_colmap = read_images_binary(str(colmap_path / "images.bin"))
+                elif (colmap_path / "points3D.txt").exists():
+                    images_colmap = read_images_text(str(colmap_path / "images.txt"))
+                else:
+                    raise RuntimeError(f"3D points are requested but images.{{bin|txt}} not present in dataset {data_dir}")
+                images_colmap_map = {}
+                for image in images_colmap.values():
+                    images_colmap_map[image.name] = np.ndarray([points3D_map[x] for x in image.points3D_ids], dtype=np.int32)
+                images_points3D_indices = []
+                for impath in image_filenames:
+                    impath = os.path.relpath(impath, str(images_root))
+                    images_points3D_indices.append(images_colmap_map[impath])
 
     idx_tensor = np.array(indices, dtype=np.int32)
 

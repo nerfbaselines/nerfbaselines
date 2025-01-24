@@ -164,15 +164,11 @@ def _config_overrides_to_args_list(args_list, config_overrides):
             v = False
         if isinstance(v, bool):
             if v:
-                if f'--no-{k}' in args_list:
-                    args_list.remove(f'--no-{k}')
                 if f'--{k}' not in args_list:
                     args_list.append(f'--{k}')
             else:
                 if f'--{k}' in args_list:
                     args_list.remove(f'--{k}')
-                else:
-                    args_list.append(f"--no-{k}")
         elif f'--{k}' in args_list:
             args_list[args_list.index(f'--{k}') + 1] = str(v)
         else:
@@ -198,8 +194,8 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
         w, h = dataset["cameras"].image_sizes[idx]
         im_data = dataset["images"][idx][:h, :w]
         assert im_data.dtype == np.uint8, "Gaussian Splatting supports images as uint8"
-        if white_background and im_data.shape[-1] == 4:
-            bg = np.array([1, 1, 1])
+        if im_data.shape[-1] == 4:
+            bg = np.array([1, 1, 1]) if white_background else np.array([0, 0, 0])
             norm_data = im_data / 255.0
             arr = norm_data[:, :, :3] * norm_data[:, :, 3:4] + (1 - norm_data[:, :, 3:4]) * bg
             im_data = np.array(arr * 255.0, dtype=np.uint8)
@@ -348,6 +344,7 @@ class ScaffoldGS(Method):
             required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset(("pinhole",)),
             supported_outputs=("color",),
+            viewer_default_resolution=768,
         )
 
     def get_info(self) -> ModelInfo:
@@ -571,10 +568,8 @@ class ScaffoldGS(Method):
         return None
 
 
-    def export_demo(self, path: str, *, options=None):
+    def export_gaussian_splats(self, *, options=None):
         from nerfbaselines.utils import apply_transform, invert_transform
-        from ._gaussian_splatting_demo import export_demo
-        os.makedirs(path, exist_ok=True)
         options = (options or {}).copy()
         dataset_metadata = options.get("dataset_metadata") or {}
         logging.warning("Scaffold-GS does not support view-dependent demo. We will bake the appearance of a single appearance embedding and single viewing direction.")
@@ -593,11 +588,10 @@ class ScaffoldGS(Method):
                 self.gaussians._temp_appearance = torch.from_numpy(embedding).to(device)
 
             xyz, color, opacity, scaling, rot = generate_neural_gaussians(viewpoint_cam, self.gaussians, visible_mask=None, is_training=False)
-            export_demo(path, 
-                        options=options,
-                        xyz=xyz.detach().cpu().numpy(),
-                        scales=scaling.detach().cpu().numpy(),
-                        opacities=opacity.detach().cpu().numpy(),
-                        quaternions=torch.nn.functional.normalize(rot).detach().cpu().numpy(),
-                        spherical_harmonics=RGB2SH(color[..., None]).detach().cpu().numpy())
+            return dict(
+                means=xyz.detach().cpu().numpy(),
+                scales=scaling.detach().cpu().numpy(),
+                opacities=opacity.detach().cpu().numpy(),
+                quaternions=torch.nn.functional.normalize(rot).detach().cpu().numpy(),
+                spherical_harmonics=RGB2SH(color[..., None]).detach().cpu().numpy())
 

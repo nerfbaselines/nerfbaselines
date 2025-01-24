@@ -67,6 +67,7 @@ The viewer will start in the background and will allow you to connect from your 
 In the viewer, you can inspect the 3D scene, construct a camera trajectory, and render a video of the trajectory. You can also
 save the camera trajectory to render it later using the `render-trajectory` command. In this walkthrough, we assume you created a camera trajectory
 and saved it to a file `trajectory.json`.
+For information on how to use the viewer, please refer to the {std:doc}`Viewer page <viewer>`.
 
 ```{tip}
 By specifying the `--data` argument, the viewer will use the camera poses to perform gravity alignment and rescaling for a better viewing experience. 

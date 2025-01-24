@@ -9,7 +9,7 @@ from nerfbaselines import (
 )
 from nerfbaselines import backends
 from nerfbaselines.io import open_any
-from ._common import handle_cli_error, click_backend_option, NerfBaselinesCliCommand
+from ._common import click_backend_option, NerfBaselinesCliCommand
 
 
 def get_register_calls(file):
@@ -41,12 +41,16 @@ register({pprint.pformat(spec)})
     return output
 
 
-@click.command("install-method", cls=NerfBaselinesCliCommand)
-@click.option("--method", type=click.Choice(list(get_supported_methods())), required=False, default=None)
-@click.option("--spec", type=str, required=False)
-@click.option("--force", is_flag=True, help="Overwrite existing specs")
+@click.command("install", cls=NerfBaselinesCliCommand, short_help="Install a method or a spec file", help=(
+    "Install either a pre-defined method or a custom method from a spec file. "
+    "If installing from spec (`--spec` argument) - a python file with a register() call - the registered objects will be added to local registry. "
+    "If installing a method (`--method` argument) the backend implementation for the method will be pre-installed. "
+    "This also applies when specifying both `--spec` and `--backend` arguments."
+))
+@click.option("--method", type=click.Choice(list(get_supported_methods())), required=False, default=None, help="Method to install.")
+@click.option("--spec", type=str, required=False, default=None, help="Path to a spec file (a Python file with `register()` calls) to install.")
+@click.option("--force", is_flag=True, help="Overwrite existing specs. Only applies when `--spec` is provided.")
 @click_backend_option()
-@handle_cli_error
 def install_method_command(method, spec, backend_name, force=False):
     if method is not None:
         method_spec = get_method_spec(method)

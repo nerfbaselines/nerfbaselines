@@ -183,9 +183,14 @@ class Context:
 
     def patch_ast_import(self, module: str):
         def wrap(callback: Callable[[ast.Module], None]):
+            def _callback(*args, **kwargs):
+                try:
+                    return callback(*args, **kwargs)
+                except Exception as e:
+                    raise ImportError(f"Error in patching {module}: {e}")
             if module not in self._module_overrides:
                 self._module_overrides[module] = []
-            self._module_overrides[module].append(callback)
+            self._module_overrides[module].append(_callback)
         return wrap
 
     def patch_code(self, module: str, callback):

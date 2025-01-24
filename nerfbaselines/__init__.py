@@ -25,11 +25,6 @@ from ._types import (
     DownloadDatasetFunction as DownloadDatasetFunction,
     TrajectoryFrameAppearance as TrajectoryFrameAppearance,
     TrajectoryFrame as TrajectoryFrame,
-    TrajectoryKeyframe as TrajectoryKeyframe,
-    TrajectoryInterpolationType as TrajectoryInterpolationType,
-    ImageSetInterpolationSource as ImageSetInterpolationSource,
-    KochanekBartelsInterpolationSource as KochanekBartelsInterpolationSource,
-    TrajectoryInterpolationSource as TrajectoryInterpolationSource,
     Trajectory as Trajectory,
     LoggerEvent as LoggerEvent,
     Logger as Logger,
@@ -61,7 +56,14 @@ from ._registry import (
 )
 from ._method_utils import (
     build_method_class as build_method_class,
+    load_checkpoint as load_checkpoint,
 )
 
 # We require the __version__ import - the package needs to be installed
-from ._version import __version__  # noqa
+try:
+    from ._version import __version__  # noqa
+except ImportError:
+    import sys
+    print("Failed to import version from _version.py. Make sure the package was installed correctly by following the official instructions.", flush=True, file=sys.stderr)
+    del sys
+    __version__ = "develop"

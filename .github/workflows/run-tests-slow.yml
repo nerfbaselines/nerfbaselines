@@ -41,13 +41,33 @@ jobs:
           pip install -e '.[web]'
           nerfbaselines web build --output web-build --base-path "${{ steps.setup-pages.outputs.base_path }}" --docs all
 
+  py37-tests:
+    runs-on: ubuntu-22.04
+    name: run-tests-py37
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.7"
+      - uses: federicocarboni/setup-ffmpeg@v2
+      - name: Install nerfbaselines
+        run: |
+          pip install --upgrade pip
+          pip install -e '.[dev]'
+      - name: Run pyright, pytests
+        run: |
+          export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+          pip install tensorboard==2.11.2
+          pip install 'protobuf<4' 
+          pytest -vrA
+
   common-tests:
     runs-on: ubuntu-latest
     name: run-tests-common
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.7","3.8","3.9","3.10","3.11","3.12"]
+        python: ["3.8","3.9","3.10","3.11","3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -65,7 +85,7 @@ jobs:
             pip install tensorboard==2.11.2
             pip install 'protobuf<4' 
           fi
-          pytest -vrA --require-ffmpeg
+          pytest -vrA
       - name: Install dev-extras
         id: dev-extras
         if: ${{ matrix.python == '3.11' }}
@@ -77,7 +97,7 @@ jobs:
       - name: Run dev-extras tests
         run: |
           pyright
-          pytest -v --run-extras --require-ffmpeg
+          pytest -v --run-extras
         if: ${{ steps.dev-extras.outcome == 'success' }}
 
   windows-tests:
@@ -102,7 +122,7 @@ jobs:
       - name: Run pyright, pytests
         run: |
           pyright
-          pytest -vrA --require-ffmpeg
+          pytest -vrA
 
   macos-tests:
     runs-on: macos-latest
@@ -210,8 +230,11 @@ jobs:
           method_regex="^$(python -c 'import re;print(re.escape("${{ matrix.method }}"))')(?:\\:.*|)\$"
           pytest -sv --run-docker --method-regex "$method_regex" -rA -x
 
+          # Run tests inside the container
+          nerfbaselines shell --method "${{ matrix.method }}" --backend docker pytest -sv -rA -x --run-extras --typeguard-packages "" --method-regex "$method_regex"
+
   apptainer-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     name: run-tests-apptainer
     needs: setup
     if: ${{ needs.setup.outputs.apptainer_methods != '' && toJson(fromJson(needs.setup.outputs.apptainer_methods)) != '[]' }}
@@ -264,6 +287,9 @@ jobs:
           method_regex="^$(python -c 'import re;print(re.escape("${{ matrix.method }}"))')(?:\\:.*|)\$"
           pytest -sv --run-apptainer --method-regex "$method_regex" -rA -x
 
+          # Run tests inside the container
+          nerfbaselines shell --method "${{ matrix.method }}" --backend apptainer pytest -sv -rA -x --run-extras --typeguard-packages "" --method-regex "$method_regex"
+
   conda-tests:
     runs-on: ubuntu-latest
     name: run-tests-conda
@@ -305,6 +331,9 @@ jobs:
           method_regex="^$(python -c 'import re;print(re.escape("${{ matrix.method }}"))')(?:\\:.*|)\$"
           pytest -sv --run-conda --method-regex "$method_regex" -rA -x
 
+          # Run tests inside the container
+          nerfbaselines shell --method "${{ matrix.method }}" --backend conda pytest -sv -rA -x --run-extras --typeguard-packages "" --method-regex "$method_regex"
+
   dataset-tests:
     runs-on: ubuntu-latest
     name: test-datasets
@@ -322,7 +351,7 @@ jobs:
       - name: Install nerfbaselines
         run: |
           pip install --upgrade pip
-          pip install -e '.[dev]'
+          pip install -e '.[dev]' gdown
       - name: Test datasets
         run: |
           pytest -vsrA --dataset "${{ matrix.dataset }}"

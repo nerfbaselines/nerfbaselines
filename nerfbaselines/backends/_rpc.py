@@ -19,7 +19,7 @@ import inspect
 import logging
 from queue import Queue
 from ..utils import CancellationToken, CancelledException
-from ._common import Backend
+from ._common import Backend, SimpleBackend
 
 
 def _remap_error(e: BaseException):
@@ -128,9 +128,10 @@ class _VirtualInstance:
         ns["__str__"] = staticmethod(lambda: f"<VirtualInstance {instance_id}>")
         ns["__del__"] = staticmethod(partial(backend.instance_del, instance_id))
         ns["__class__"] = object
+        ns["__nb_virtual_instance__"] = self
         if customize is not None:
             customize(ns)
-        return types.new_class("VirtualInstanceRPC", (), {}, exec_body=lambda _ns: _ns.update(ns))()
+        return types.new_class("_VirtualInstanceRPC", (), {}, exec_body=lambda _ns: _ns.update(ns))()
 
 
 def _replace_instances(registry, obj):
@@ -174,33 +175,28 @@ def _is_generator(out):
 
 class RPCWorker:
     def __init__(self):
-        self._instances = {}
         self._cancellation_tokens = {}
+        self._backend = SimpleBackend()
+        self._instances = self._backend._instances
 
     def _process_del(self, *, instance, **_):
         """
         ----del---->
         """
         logging.debug(f"Deleting instance {instance}")
-        self._instances.pop(instance, None)
+        self._backend.instance_del(instance)
         return { "message": "del_ack" }
 
     def _process_call(self, *, instance=None, name: str, kwargs, args, cancellation_token_id=None, **_):
         try:
             if instance is None:
-                logging.debug(f"Calling function {name}")
-                package, fnname = name.split(":", 1)
-                fn = importlib.import_module(package)
-                for x in fnname.split("."):
-                    fn = getattr(fn, x)
-                fn = getattr(fn, "__run_on_host_original__", fn)
-                fn = cast(Callable, fn)
+                fn = partial(self._backend.static_call, name)
             else:
-                logging.debug(f"Calling method {name} on instance {instance}")
-                fn = self._instances[instance]
-                for x in name.split("."):
-                    fn = getattr(fn, x)
-                fn = cast(Callable, fn)
+                fn = partial(self._backend.instance_call, instance, name)
+
+            # Resolve virtual instances
+            args = tuple(self._instances[x.id] if isinstance(x, _VirtualInstance) else x for x in args)
+            kwargs = {k:self._instances[x.id] if isinstance(x, _VirtualInstance) else x for k, x in kwargs.items()}
 
             if cancellation_token_id is not None:
                 cancel_context = CancellationToken()
@@ -390,6 +386,9 @@ class RPCBackend(Backend):
             # The instance might have already been removed
             pass
 
+    def _fix_backend_for_virtual_instance(self, obj):
+        return getattr(type(obj), "__nb_virtual_instance__", obj)
+
     def _call(self, function: str, instance, *args, **kwargs) -> Any:
         # 2) Add hook to the cancellation token
         cancellation_token_id = None
@@ -402,6 +401,10 @@ class RPCBackend(Backend):
                     "message": "cancel", 
                     "cancellation_token_id": cancellation_token_id})
                 cancellation_token._callbacks.append(cancel_callback)
+
+            args = tuple(self._fix_backend_for_virtual_instance(x) for x in args)
+            kwargs = {k:self._fix_backend_for_virtual_instance(x) for k, x in kwargs.items()}
+
             message = {
                 "message": "call", 
                 "instance": instance, 

@@ -1,4 +1,5 @@
 # TODO: remove points3D requirement
+import copy
 import dataclasses
 import tempfile
 import sys
@@ -167,7 +168,9 @@ def patch_nerfw_rempl():
     # Patch nerf_pl for newer PL
     @train.NeRFSystem.hparams.setter
     def hparams(self, hparams):
-        self.save_hyperparameters(hparams)
+        self._set_hparams(hparams)
+        # make a deep copy so there are no other runtime changes reflected
+        self._hparams_initial = copy.deepcopy(self._hparams)
 
     train.NeRFSystem.hparams = hparams
 
@@ -532,6 +535,7 @@ class NeRFWReimpl(Method):
             required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset(get_args(CameraModel)),
             supported_outputs=("color", "depth"),
+            viewer_default_resolution=(64, 256),
         )
 
     def get_info(self) -> ModelInfo:

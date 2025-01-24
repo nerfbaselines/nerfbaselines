@@ -1,3 +1,4 @@
+import io
 import time
 import logging
 import traceback
@@ -9,9 +10,9 @@ import io
 import hashlib
 import os
 import itertools
-
 from typing import Any, cast
-import itertools
+import urllib.request
+
 import numpy as np
 import pprint
 import json
@@ -19,6 +20,7 @@ from PIL import Image
 from nerfbaselines import BackendName
 from nerfbaselines.backends import run_on_host
 from nerfbaselines.utils import Indices
+from nerfbaselines.io import wget
 from nerfbaselines import NB_PREFIX
 try:
     from typing import get_args
@@ -426,7 +428,7 @@ class SetParamOptionType(click.ParamType):
         return k, v
 
 
-def handle_cli_error(fn):
+def _handle_cli_error(fn):
     @wraps(fn)
     def wrapped(*args, **kwargs):
         try:
@@ -444,13 +446,12 @@ def handle_cli_error(fn):
 
 def click_backend_option():
     all_backends = list(get_args(BackendName))
-    return click.option("--backend", "backend_name", type=click.Choice(all_backends), envvar="NERFBASELINES_BACKEND")
+    return click.option("--backend", "backend_name", type=click.Choice(all_backends), envvar="NERFBASELINES_BACKEND", help="The backend to use. If not specified, a supported installed  backend is selected automatically. Note, the backend can be specified via the NERFBASELINES_BACKEND environment variable.")
 
 
 def warn_if_newer_version_available():
     if os.environ.get("NERFBASELINES_NO_UPDATE_CHECK", "0") == "1":
         return
-    import requests
     from packaging import version
     from nerfbaselines import __version__
     if __version__ in ("dev", "develop"):
@@ -466,16 +467,20 @@ def warn_if_newer_version_available():
         pass
 
     if latest_version_str is None:
-        r = requests.get("https://pypi.org/pypi/nerfbaselines/json")
-        r.raise_for_status()
-        latest_version_str = r.json()["info"]["version"]
         try:
-            os.makedirs(NB_PREFIX, exist_ok=True)
-            with open(os.path.join(NB_PREFIX, ".latest-version-cache"), "w") as f:
-                f.write(f"{latest_version_str}\n{time.time()}")
-            logging.debug("Updated latest version cache")
-        except Exception as e:
-            logging.exception(e)
+            with wget("https://pypi.org/pypi/nerfbaselines/json") as f:
+                data = json.load(f)
+                latest_version_str = data["info"]["version"]
+                try:
+                    os.makedirs(NB_PREFIX, exist_ok=True)
+                    with open(os.path.join(NB_PREFIX, ".latest-version-cache"), "w") as f:
+                        f.write(f"{latest_version_str}\n{time.time()}")
+                    logging.debug("Updated latest version cache")
+                except Exception as e:
+                    logging.exception(e)
+        except Exception:
+            # No network connection
+            return
     logging.debug(f"Latest version: {latest_version_str}, current version: {__version__}")
 
     latest_version = version.parse(latest_version_str)
@@ -490,10 +495,10 @@ class NerfBaselinesCliCommand(click.Command):
 
     def get_params(self, ctx):
         rv = list(super().get_params(ctx))
-        rv.insert(len(rv)-1, click.Option(("--verbose", "-v"), is_flag=True, help="Enable verbose logging"))
+        rv.insert(len(rv)-1, click.Option(("--verbose", "-v"), is_flag=True, help="Enable verbose logging."))
         return rv
 
     def invoke(self, ctx):
         setup_logging(ctx.params.pop("verbose", False))
         warn_if_newer_version_available()
-        return super().invoke(ctx)
+        return _handle_cli_error(super().invoke)(ctx)

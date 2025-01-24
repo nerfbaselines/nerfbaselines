@@ -1,18 +1,16 @@
 import json
 import os
-import warnings
 from typing import List, Tuple, Union
 import logging
 from itertools import groupby
 import shutil
-import requests
 from pathlib import Path
 import numpy as np
 import zipfile
-from tqdm import tqdm
 import tempfile
 from nerfbaselines import DatasetNotFoundError
-from ._common import single, dataset_index_select
+from nerfbaselines.io import wget
+from ._common import dataset_index_select
 from .colmap import load_colmap_dataset
 
 
@@ -77,21 +75,9 @@ def download_mipnerf360_dataset(path: str, output: Union[Path, str]):
         captures_to_download.append((url, scene, output))
     captures_to_download.sort(key=lambda x: x[0])
     for url, _captures in groupby(captures_to_download, key=lambda x: x[0]):
-        response = requests.get(url, stream=True)
-        response.raise_for_status()
-        total_size_in_bytes = int(response.headers.get("content-length", 0))
-        block_size = 1024  # 1 Kibibyte
-        progress_bar = tqdm(total=total_size_in_bytes, unit="iB", unit_scale=True, desc=f"Downloading {url.split('/')[-1]}", dynamic_ncols=True)
         with tempfile.TemporaryFile("rb+") as file:
-            for data in response.iter_content(block_size):
-                progress_bar.update(len(data))
-                file.write(data)
-            file.flush()
+            wget(url, file, desc=f"Downloading {url.split('/')[-1]}")
             file.seek(0)
-            progress_bar.close()
-            if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
-                logging.error(f"Failed to download dataset. {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes.")
-
             has_any = False
             with zipfile.ZipFile(file) as z:
                 for _, scene, output in _captures:

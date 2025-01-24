@@ -23,6 +23,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
+import sys
 from typing import cast, Sequence
 import io
 from collections import namedtuple
@@ -30,6 +31,15 @@ import torch
 from torchvision import models as tv
 from torch import nn
 import torch.nn
+from nerfbaselines.io import wget
+import nerfbaselines._lpips_weights
+import logging
+# For Python>=3.9, use importlib.resources
+if sys.version_info >= (3, 9):
+    import importlib.resources as importlib_resources
+else:
+    import importlib_resources
+
 
 def normalize_tensor(in_feat,eps=1e-10):
     norm_factor = torch.sqrt(torch.sum(in_feat**2,dim=1,keepdim=True))
@@ -49,7 +59,7 @@ WEIGHTS_URL = "https://github.com/richzhang/PerceptualSimilarity/raw/c33f89e9f46
 # Learned perceptual metric
 class LPIPS(nn.Module):
     def __init__(self, pretrained=True, net='alex', version='0.1', lpips=True, spatial=False, 
-        pnet_rand=False, pnet_tune=False, use_dropout=True, model_path=None, eval_mode=True, verbose=True):
+        pnet_rand=False, pnet_tune=False, use_dropout=True, model_path=None, eval_mode=True):
         """ Initializes a perceptual loss torch.nn.Module
 
         Parameters (default listed first)
@@ -86,9 +96,8 @@ class LPIPS(nn.Module):
         """
 
         super(LPIPS, self).__init__()
-        if(verbose):
-            print('Setting up [%s] perceptual loss: trunk [%s], v[%s], spatial [%s]'%
-                ('LPIPS' if lpips else 'baseline', net, version, 'on' if spatial else 'off'))
+        logging.debug('Setting up [%s] perceptual loss: trunk [%s], v[%s], spatial [%s]'%
+            ('LPIPS' if lpips else 'baseline', net, version, 'on' if spatial else 'off'))
 
         self.pnet_type = net
         self.pnet_tune = pnet_tune
@@ -128,18 +137,18 @@ class LPIPS(nn.Module):
 
             if(pretrained):
                 if(model_path is None):
-                    import requests
-                    model_url = WEIGHTS_URL.format(version=version, net=net)
-                    response = requests.get(model_url)
-                    response.raise_for_status()
-                    with io.BytesIO(response.content) as f:
-                        weights = torch.load(f, map_location='cpu')
-                    if(verbose):
-                        print('Loading model from: %s'%model_url)
+                    if importlib_resources.is_resource(nerfbaselines._lpips_weights, f'{net}-{version}.pth'):
+                        with importlib_resources.open_binary(nerfbaselines._lpips_weights, f'{net}-{version}.pth') as f:
+                            weights = torch.load(f, map_location='cpu')
+                        logging.info('Loading LPIPS model from package resources')
+                    else:
+                        model_url = WEIGHTS_URL.format(version=version, net=net)
+                        with wget(model_url) as f:
+                            weights = torch.load(f, map_location='cpu')
+                        logging.info('Loading LPIPS model from: %s'%model_url)
                 else:
                     weights = torch.load(model_path, map_location='cpu')
-                    if(verbose):
-                        print('Loading model from: %s'%model_path)
+                    logging.info('Loading LPIPS model from: %s'%model_path)
 
                 self.load_state_dict(weights, strict=False)          
 

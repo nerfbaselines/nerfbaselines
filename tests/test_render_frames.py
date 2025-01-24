@@ -9,7 +9,10 @@ from nerfbaselines import evaluation
 from PIL import Image
 import tarfile
 import zipfile
-from typeguard import suppress_type_checks
+try:
+    from typeguard import suppress_type_checks  # type: ignore
+except ImportError:
+    from contextlib import nullcontext as suppress_type_checks
 
 
 T = TypeVar("T")
@@ -407,7 +410,7 @@ def _verify_mp4_single(tmp_path, num_cams):
         raise e
 
 
-@pytest.mark.ffmpeg
+@pytest.mark.extras
 def test_render_frames_mp4_single(tmp_path):
     method = FakeMethod()
     cameras = _mock_cameras(num_cams)
@@ -420,7 +423,7 @@ def test_render_frames_mp4_single(tmp_path):
     _verify_mp4_single(tmp_path, num_cams)
 
 
-@pytest.mark.ffmpeg
+@pytest.mark.extras
 def test_render_frames_mp4_single_command(tmp_path):
     _test_render_trajectory_command(tmp_path, "out.mp4")
     _verify_mp4_single(tmp_path, num_cams)
@@ -442,7 +445,7 @@ def _verify_mp4_multi(tmp_path, num_cams, all_output_names):
         raise e
 
 
-@pytest.mark.ffmpeg
+@pytest.mark.extras
 def test_render_frames_mp4_multi(tmp_path):
     method = FakeMethod()
     cameras = _mock_cameras(num_cams)
@@ -456,7 +459,7 @@ def test_render_frames_mp4_multi(tmp_path):
     _verify_mp4_multi(tmp_path, num_cams, all_output_names)
 
 
-@pytest.mark.ffmpeg
+@pytest.mark.extras
 def test_render_frames_mp4_multi_command(tmp_path):
     all_output_names = tuple(x if isinstance(x, str) else x["name"] for x in FakeMethod().get_info()["supported_outputs"])
     _test_render_trajectory_command(tmp_path, "out-multi.mp4", "--output-names", ",".join(all_output_names))
@@ -479,7 +482,7 @@ def _verify_mp4_multi_format(path, all_output_names, num_cams):
             pytest.skip("Skip because of incompatibility between mediapy and ffmpeg")
         raise e
 
-@pytest.mark.ffmpeg
+@pytest.mark.extras
 def test_render_frames_mp4_multi_format(tmp_path):
     method = FakeMethod()
     cameras = _mock_cameras(num_cams)
@@ -496,7 +499,7 @@ def test_render_frames_mp4_multi_format(tmp_path):
     _verify_mp4_multi_format(path, all_output_names, num_cams)
 
 
-@pytest.mark.ffmpeg
+@pytest.mark.extras
 def test_render_frames_mp4_multi_format_command(tmp_path):
     all_output_names = tuple(x if isinstance(x, str) else x["name"] for x in FakeMethod().get_info()["supported_outputs"])
     _test_render_trajectory_command(tmp_path, "{output}.mp4", "--output-names", ",".join(all_output_names))

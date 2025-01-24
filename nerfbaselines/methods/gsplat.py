@@ -516,6 +516,7 @@ class GSplat(Method):
             required_features=frozenset(("points3D_xyz", "points3D_rgb", "color", "images_points3D_indices")),
             supported_camera_models=frozenset(("pinhole",)),
             supported_outputs=("color", "depth", "accumulation"),
+            viewer_default_resolution=768,
         )
 
     def get_info(self):
@@ -600,9 +601,9 @@ class GSplat(Method):
                 image_ids=object() if embedding is not None else None,
                 render_mode="RGB+ED" if "depth" in outputs else "RGB",
             )  # [1, H, W, 3]
-            colors = self._add_background_color(colors, accumulation)
+        color = self._add_background_color(colors[..., :3], accumulation)
         out = {
-            "color": torch.clamp(colors.squeeze(0)[..., :3], 0.0, 1.0).detach().cpu().numpy(),
+            "color": torch.clamp(color.squeeze(0), 0.0, 1.0).detach().cpu().numpy(),
             "accumulation": accumulation.squeeze(0).squeeze(-1).detach().cpu().numpy(),
         }
         if colors.shape[-1] > 3:
@@ -628,7 +629,7 @@ class GSplat(Method):
         Ks = torch.from_numpy(np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])).float().to(device)
         width, height = camera.image_sizes
         dataset = gs_Dataset.preprocess_images(dataset)
-        pixels = torch.from_numpy(dataset["images"][0]).float().to(device)[None].div(255.)
+        pixels = torch.from_numpy(dataset["images"][0]).float().to(device).div(255.)
         # Extend gsplat, handle sampling masks
         sampling_masks = None
         _dataset_sampling_masks = dataset.get("sampling_masks")
@@ -663,9 +664,9 @@ class GSplat(Method):
                 if sampling_masks is not None:
                     colors = colors * sampling_masks + colors.detach() * (1.0 - sampling_masks)
 
-                l1loss = F.l1_loss(colors, pixels)
+                l1loss = F.l1_loss(colors, pixels[None])
                 ssimloss = 1.0 - self.runner.ssim(
-                    pixels.permute(0, 3, 1, 2), colors.permute(0, 3, 1, 2)
+                    pixels[None].permute(0, 3, 1, 2), colors.permute(0, 3, 1, 2)
                 )
                 loss = l1loss * (1.0 - cfg.ssim_lambda) + ssimloss * cfg.ssim_lambda
                 l1losses.append(l1loss.item())
@@ -683,8 +684,7 @@ class GSplat(Method):
             "embedding": embedding_th.detach().cpu().numpy(),
         }
 
-    def export_demo(self, path: str, *, options=None):
-        from ._gaussian_splatting_demo import export_demo
+    def export_gaussian_splats(self, *, options=None):
         from nerfbaselines.utils import invert_transform
 
         options = options or {}
@@ -718,22 +718,19 @@ class GSplat(Method):
         else:
             spherical_harmonics = torch.cat((splats["sh0"], splats["shN"]), dim=1).transpose(1, 2)
 
-        # Apply transform to viewer transform
+        out = dict(
+            means=splats["means"].detach().cpu().numpy(),
+            scales=splats["scales"].exp().detach().cpu().numpy(),
+            opacities=torch.nn.functional.sigmoid(splats["opacities"]).detach().cpu().numpy(),
+            quaternions=torch.nn.functional.normalize(splats["quats"]).detach().cpu().numpy(),
+            spherical_harmonics=spherical_harmonics.detach().cpu().numpy())
+        if self.cfg.antialiased:
+            out["antialias_2D_kernel_size"] = 0.3
+
+        # Add transform params
         options = options or {}
         if self.runner.parser.transform is not None:
             transform = self.runner.parser.transform.copy()
             inv_transform = invert_transform(transform, has_scale=True)
-            options["dataset_metadata"] = options.get("dataset_metadata", {})
-            viewer_transform = options["dataset_metadata"].get("viewer_transform", np.eye(4))
-            _transform = viewer_transform @ inv_transform
-            options["dataset_metadata"]["viewer_transform"] = _transform
-
-        options = (options or {}).copy()
-        options["antialiased"] = self.cfg.antialiased
-        export_demo(path, 
-                    options=options,
-                    xyz=splats["means"].detach().cpu().numpy(),
-                    scales=splats["scales"].exp().detach().cpu().numpy(),
-                    opacities=torch.nn.functional.sigmoid(splats["opacities"]).detach().cpu().numpy(),
-                    quaternions=torch.nn.functional.normalize(splats["quats"]).detach().cpu().numpy(),
-                    spherical_harmonics=spherical_harmonics.detach().cpu().numpy())
+            out["transform"] = inv_transform[:3, :4]
+        return out

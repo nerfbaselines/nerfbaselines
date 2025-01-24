@@ -164,8 +164,8 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
         w, h = dataset["cameras"].image_sizes[idx]
         im_data = dataset["images"][idx][:h, :w]
         assert im_data.dtype == np.uint8, "Gaussian Splatting supports images as uint8"
-        if white_background and im_data.shape[-1] == 4:
-            bg = np.array([1, 1, 1])
+        if im_data.shape[-1] == 4:
+            bg = np.array([1, 1, 1]) if white_background else np.array([0, 0, 0])
             norm_data = im_data / 255.0
             arr = norm_data[:, :, :3] * norm_data[:, :, 3:4] + (1 - norm_data[:, :, 3:4]) * bg
             im_data = np.array(arr * 255.0, dtype=np.uint8)
@@ -220,15 +220,11 @@ def _config_overrides_to_args_list(args_list, config_overrides):
             v = False
         if isinstance(v, bool):
             if v:
-                if f'--no-{k}' in args_list:
-                    args_list.remove(f'--no-{k}')
                 if f'--{k}' not in args_list:
                     args_list.append(f'--{k}')
             else:
                 if f'--{k}' in args_list:
                     args_list.remove(f'--{k}')
-                else:
-                    args_list.append(f"--no-{k}")
         elif f'--{k}' in args_list:
             args_list[args_list.index(f'--{k}') + 1] = str(v)
         else:
@@ -486,16 +482,13 @@ class MipSplatting(Method):
         with open(str(path) + "/args.txt", "w", encoding="utf8") as f:
             f.write(" ".join(shlex.quote(x) for x in self._args_list))
 
-    def export_demo(self, path: str, *, options=None):
-        from ._gaussian_splatting_demo import export_demo
-
+    def export_gaussian_splats(self, options=None):
         options = (options or {}).copy()
-        options["antialiased"] = True
-        options["kernel_2D_size"] = self.dataset.kernel_size
-        export_demo(path, 
-                    options=options,
-                    xyz=self.gaussians.get_xyz.detach().cpu().numpy(),
-                    scales=self.gaussians.get_scaling_with_3D_filter.detach().cpu().numpy(),
-                    opacities=self.gaussians.get_opacity_with_3D_filter.detach().cpu().numpy(),
-                    quaternions=self.gaussians.get_rotation.detach().cpu().numpy(),
-                    spherical_harmonics=self.gaussians.get_features.transpose(1, 2).detach().cpu().numpy())
+        return {
+            "antialias_2D_kernel_size": self.dataset.kernel_size,
+            "means": self.gaussians.get_xyz.detach().cpu().numpy(),
+            "scales": self.gaussians.get_scaling_with_3D_filter.detach().cpu().numpy(),
+            "opacities": self.gaussians.get_opacity_with_3D_filter.detach().cpu().numpy(),
+            "quaternions": self.gaussians.get_rotation.detach().cpu().numpy(),
+            "spherical_harmonics": self.gaussians.get_features.transpose(1, 2).detach().cpu().numpy(),
+        }

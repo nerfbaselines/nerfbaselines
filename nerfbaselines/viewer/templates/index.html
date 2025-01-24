@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>NerfBaselines Viewer</title>
+  <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+  <link href="./styles.css" rel="stylesheet" />
+  <link href="./third-party/tabler-icons.min.css" rel="stylesheet">
+</head>
+<body>
+
+<main data-bind-class="theme-light:viewer_theme==light;hide-help:!viewer_show_help">
+    <div class="viewport"></div>
+
+    <div class="notifications"></div>
+
+    <div class="show-menu-icon" data-action="show_menu" style="display:none" data-visible-if="!menu_visible">
+      <i class="ti ti-menu-2"></i>
+    </div>
+    <div class="controls" data-visible-if="menu_visible" data-visible-if="menu_visible">
+      <div class="dialog" id="confirm_cloudflare_create_public_url">
+        <div class="dialog-header">
+          <div>Setup public URL</div>
+          <i class="ti ti-x" onclick="this.closest('.dialog').classList.remove('dialog-open')"></i>
+        </div>
+        <div class="panel">
+          <p style="text-align:justify">
+          NerfBaselines uses CloudFlare to create a tunnel for the local connection.
+          This will expose the viewer to the public internet.
+          The service is licensed under the following terms:
+          <a href="https://www.cloudflare.com/website-terms/" style="word-break:break-all" target="_blank">https://www.cloudflare.com/website-terms/</a>
+          </p>
+          <p style="text-align:justify">Do you accept the terms and wish to proceed? Note, this will download the cloudflared binary and create the public tunnel.</p>
+          <div class="row">
+            <button 
+              onclick="this.closest('.dialog').classList.remove('dialog-open')"
+              data-action="create_public_url_accept">Agree</button>
+            <button onclick="this.closest('.dialog').classList.remove('dialog-open')">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="dialog" id="dialog_camera_path_delete_all">
+        <div class="dialog-header">
+          <div>Confirm deletion</div>
+          <i class="ti ti-x" onclick="this.closest('.dialog').classList.remove('dialog-open')"></i>
+        </div>
+        <div class="panel">
+          <p>Are you sure you want to delete all keyframes?</p>
+          <div class="row">
+            <button 
+              onclick="this.closest('.dialog').classList.remove('dialog-open')"
+              data-action="delete_all_keyframes">Yes</button>
+            <button onclick="this.closest('.dialog').classList.remove('dialog-open')">No</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="dialog" data-bind-class="dialog-open:camera_path_has_selected_keyframe">
+        <div class="dialog-header">
+          <div>Editing keyframe <span data-bind="camera_path_selected_keyframe_natural_index"></span></div>
+          <i class="ti ti-x" data-action="clear_selected_keyframe"></i>
+        </div>
+        <div class="panel">
+          <div class="row" data-visible-if="camera_path_interpolation!=none && camera_path_time_interpolation==velocity">
+            <label for="camera_path_selected_keyframe_velocity_multiplier">Velocity multiplier</label>
+            <input type="number" id="camera_path_selected_keyframe_velocity_multiplier" name="camera_path_selected_keyframe_velocity_multiplier" min="0" step="any" value="1" required>
+          </div>
+          <div class="row" data-visible-if="camera_path_selected_keyframe_show_in_duration">
+            <label for="camera_path_selected_keyframe_in_duration">In transition</label>
+            <input type="number" id="camera_path_selected_keyframe_in_duration" name="camera_path_selected_keyframe_in_duration" step="any" value="2" min="0" data-enable-if="camera_path_selected_keyframe_override_in_duration" disabled required>
+            <input type="checkbox" name="camera_path_selected_keyframe_override_in_duration" />
+          </div>
+          <div class="row" data-visible-if="camera_path_selected_keyframe_show_duration">
+            <label for="camera_path_selected_keyframe_duration">
+              <span data-visible-if="camera_path_interpolation==none">Duration</span>
+              <span data-visible-if="camera_path_interpolation!=none">Out transition</span>
+            </label>
+            <input type="number" id="camera_path_selected_keyframe_duration" name="camera_path_selected_keyframe_duration" step="any" value="2" min="0" data-enable-if="camera_path_selected_keyframe_override_duration" disabled required>
+            <input type="checkbox" name="camera_path_selected_keyframe_override_duration" />
+          </div>
+          <div class="row">
+            <label for="camera_path_selected_keyframe_fov">FOV</label>
+            <input type="number" id="camera_path_selected_keyframe_fov" name="camera_path_selected_keyframe_fov" min="1" max="175" step="1" value="60" data-enable-if="camera_path_selected_keyframe_override_fov" disabled required>
+            <input type="checkbox" name="camera_path_selected_keyframe_override_fov" />
+          </div>
+          <div class="row" style="justify-content: end">
+            <label for="camera_path_selected_keyframe_appearance_train_index">Appearance</label>
+            <select 
+               id="camera_path_selected_keyframe_appearance_train_index" 
+               name="camera_path_selected_keyframe_appearance_train_index"
+               data-enable-if="dataset_train_appearance_options"
+               data-options="dataset_train_appearance_options">
+            </select>
+            <img class="appearance-preview" data-visible-if="camera_path_selected_keyframe_appearance_url" data-bind-attr="src:camera_path_selected_keyframe_appearance_url" style="display: none" />
+          </div>
+          <div class="row">
+            <button data-action="set_camera_to_selected_keyframe">Navigate</button>
+            <button data-action="delete_keyframe">Delete</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="dialog" data-bind-class="dialog-open:dataset_has_selected_camera">
+        <div class="dialog-header">
+          <div>Dataset image <span data-bind="dataset_selected_image_id"></span></div>
+          <i class="ti ti-x" data-action="clear_selected_dataset_image"></i>
+        </div>
+        <div class="panel">
+          <div class="row info-fields">
+            <strong>Camera ID:</strong><span data-bind="dataset_selected_image_index"></span>
+            <strong>Split:</strong><span data-bind="dataset_selected_image_split"></span>
+            <strong>Image name:</strong><span data-bind="dataset_selected_image_name"></span>
+            <strong>Pose:</strong>
+            <pre data-bind="dataset_selected_image_pose" 
+                 style="font-size: 0.65rem; font-family: monospace; margin: 0; padding: 0 0 0 1rem; overflow: scroll; grid-column: 1 / 3;"></pre>
+            <strong>Resolution:</strong>
+            <span>
+              <span data-bind="dataset_selected_width"></span> x
+              <span data-bind="dataset_selected_height"></span>
+            </span>
+            <strong>Intrinsics:</strong>
+            <span style="grid-column: 1 / 3; padding: 0 0 0 1rem;">
+              fx=<span data-bind="dataset_selected_fx"></span><br/>
+              fy=<span data-bind="dataset_selected_fy"></span><br/>
+              cx=<span data-bind="dataset_selected_cx"></span><br/>
+              cy=<span data-bind="dataset_selected_cy"></span>
+            </span>
+            <strong>Image:</strong><img data-bind-attr="src:dataset_selected_image_url" />
+          </div>
+          <div class="row">
+            <button data-action="set_camera_to_selected_dataset_image">Navigate</button>
+            <button data-action="clear_selected_dataset_image">Close</button>
+          </div>
+        </div>
+      </div>
+
+
+      <div class="dialog" id="settings_dialog">
+        <div class="dialog-header">
+          <div>Settings</div>
+          <i class="ti ti-x" onclick="this.closest('.dialog').classList.remove('dialog-open')"></i>
+        </div>
+        <div class="panel">
+          <div class="row">
+            <label>Theme</label>
+            <div class="switch">
+              <label>
+                <input type="radio" name="viewer_theme" value="light">
+                <span>light</span>
+              </label>
+              <label>
+                <input type="radio" name="viewer_theme" value="dark" checked>
+                <span>dark</span>
+              </label>
+            </div>
+          </div>
+          <div class="row" data-visible-if="!disable_public_url">
+            <label for="viewer_public_url">Public URL</label>
+            <input type="text" id="viewer_public_url" name="viewer_public_url" value="" disabled>
+          </div>
+          <div class="row" data-visible-if="!disable_public_url">
+            <button data-action="create_public_url" data-enable-if="!viewer_requesting_public_url">
+              <span data-visible-if="!viewer_public_url">Setup public URL</span>
+              <span data-visible-if="viewer_public_url">Renew public URL</span>
+            </button>
+            <button data-action="copy_public_url" data-enable-if="viewer_public_url">Copy public URL</button>
+          </div>
+          <fieldset>
+            <legend>UI</legend>
+            <div class="row">
+              <label>Show help</label>
+              <div class="switch">
+                <label>
+                  <input type="radio" name="viewer_show_help" value="true" data-type="bool">
+                  <span>show</span>
+                </label>
+                <label>
+                  <input type="radio" name="viewer_show_help" value="false" data-type="bool">
+                  <span>hide</span>
+                </label>
+              </div>
+            </div>
+            <div class="row">
+              <label for="viewer_font_size">Font size</label>
+              <input type="range" id="viewer_font_size" name="viewer_font_size" min="0.5" max="1.5" value="1" step="0.1">
+            </div>
+            <div class="row">
+              <label for="theme_color">Theme</label>
+              <input type="color" id="theme_color" name="theme_color" value="#ffd369">
+            </div>
+            <div class="row">
+              <label for="trajectory_curve_color">Trajectory curve</label>
+              <input type="color" id="trajectory_curve_color" name="trajectory_curve_color" value="#ffd369">
+            </div>
+            <div class="row">
+              <label for="player_frustum_color">Player frustum</label>
+              <input type="color" id="player_frustum_color" name="player_frustum_color" value="#20df80">
+            </div>
+            <div class="row">
+              <label for="keyframe_frustum_color">Keyframe frustum</label>
+              <input type="color" id="keyframe_frustum_color" name="keyframe_frustum_color" value="#ff0000">
+            </div>
+            <div class="row">
+              <label for="dataset_frustum_color">Dataset frustum</label>
+              <input type="color" id="dataset_frustum_color" name="dataset_frustum_color" value="#d3d3d3">
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Camera control</legend>
+            <div class="row">
+              <label for="camera_control_inertia">Inertia</label>
+              <input type="range" id="camera_control_inertia" name="camera_control_inertia" min="0" max="0.99" step="0.01" value="0.6">
+            </div>
+            <div class="row">
+              <label for="camera_control_rotation_sensitivity">Rotation sensitivity</label>
+              <input type="range" id="camera_control_rotation_sensitivity" name="camera_control_rotation_sensitivity" min="0" max="2" step="0.01" value="1.0">
+            </div>
+            <div class="row">
+              <label for="camera_control_rotation_inverted">Rotation inverted</label>
+              <input type="checkbox" id="camera_control_rotation_inverted" name="camera_control_rotation_inverted">
+            </div>
+            <div class="row">
+              <label for="camera_control_pan_sensitivity">Panning sensitivity</label>
+              <input type="range" id="camera_control_pan_sensitivity" name="camera_control_pan_sensitivity" min="0" max="2" step="0.01" value="1.0">
+            </div>
+            <div class="row">
+              <label for="camera_control_pan_inverted">Panning inverted</label>
+              <input type="checkbox" id="camera_control_pan_inverted" name="camera_control_pan_inverted">
+            </div>
+            <div class="row">
+              <label for="camera_control_zoom_sensitivity">Zoom sensitivity</label>
+              <input type="range" id="camera_control_zoom_sensitivity" name="camera_control_zoom_sensitivity" min="0" max="2" step="0.01" value="1.0">
+            </div>
+            <div class="row">
+              <label for="camera_control_zoom_inverted">Zoom inverted</label>
+              <input type="checkbox" id="camera_control_zoom_inverted" name="camera_control_zoom_inverted">
+            </div>
+            <div class="row">
+              <label for="camera_control_key_speed">Keyboard speed</label>
+              <input type="range" id="camera_control_key_speed" name="camera_control_key_speed" min="0" max="2" step="0.01" value="1.0">
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Render configuration</legend>
+            <div class="row">
+              <label for="camera_path_render_mp4_codec">MP4 codec</label>
+              <input type="text" id="camera_path_render_mp4_codec" name="camera_path_render_mp4_codec">
+            </div>
+            <div class="row">
+              <label for="camera_path_render_webm_codec">WebM codec</label>
+              <input type="text" id="camera_path_render_webm_codec" name="camera_path_render_webm_codec">
+            </div>
+            <div class="row">
+              <label for="camera_path_render_keyframe_interval">Keyframe interval</label>
+              <input type="text" id="camera_path_render_keyframe_interval" name="camera_path_render_keyframe_interval">
+            </div>
+          </fieldset>
+          <div class="row">
+            <button data-action="reset_settings">Reset settings</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <input type="radio" id="tab-1" value="control" name="main_tabs" checked>
+        <input type="radio" id="tab-2" value="trajectory" name="main_tabs">
+        <input type="radio" id="tab-3" value="info" name="main_tabs">
+
+        <span class="tabs-header">
+          <label for="tab-1">Control</label>
+          <label for="tab-2">Trajectory</label>
+          <label for="tab-3">Info</label>
+          <div class="tabs-icons">
+            <a style="display:none" data-visible-if="viewer_show_in_new_window_visible" target="_blank" href="./" title="Open in new tab"><i class="ti ti-external-link" ></i></a>
+            <a onclick="document.getElementById('settings_dialog').classList.add('dialog-open')">
+              <i class="ti ti-settings" ></i>
+            </a>
+            <a data-action="hide_menu">
+              <i class="ti ti-layout-sidebar-right-collapse" ></i>
+            </a>
+          </div>
+        </span>
+        <div class="tab panel">
+          <div class="row">
+            <label for="camera_control_mode">Control type</label>
+            <select id="camera_control_mode" name="camera_control_mode">
+              <option value="fps" selected>fps</option>
+              <option value="orbit">orbit</option>
+            </select>
+          </div>
+          <fieldset>
+            <legend>Render options</legend>
+            <div class="row slider">
+              <label for="render_resolution">Max resolution</label>
+              <input type="range" id="render_resolution" name="render_resolution" min="32" max="2048" value="512" data-enable-if="has_renderer" disabled>
+              <input type="number" id="render_resolution_number" name="render_resolution" min="32" max="2048" step="1" value="1024" disabled data-enable-if="has_renderer" required>
+            </div>
+
+            <div class="row">
+              <label for="prerender_enabled">Pre-render</label>
+              <input type="checkbox" id="prerender_enabled" name="prerender_enabled" disabled data-enable-if="has_renderer">
+              <div class="input-hint">Renders faster at lower res. when moving.</div>
+            </div>
+
+            <div class="row" data-visible-if="prerender_enabled">
+              <label for="prerender_resolution">Pre-render res.</label>
+              <input type="range" id="prerender_resolution" name="prerender_resolution" min="1" max="512" step="1" value="100" disabled data-enable-if="prerender_enabled">
+              <input type="number" id="prerender_resolution_number" name="prerender_resolution" min="1" max="512" step="1" value="100" disabled data-enable-if="prerender_enabled" required>
+            </div>
+
+            <div class="row">
+              <label for="render_fov">FOV</label>
+              <input type="range" id="render_fov" name="render_fov" min="1" max="175" step="1" value="60">
+              <input type="number" id="render_fov_number" name="render_fov" min="1" max="175" step="1" value="60" required>
+            </div>
+
+            <div class="row" style="justify-content: end">
+              <label for="render_appearance_train_index_1">Appearance</label>
+              <select id="render_appearance_train_index_1" 
+                name="render_appearance_train_index"
+                data-enable-if="render_appearance_train_index_enabled"
+                data-options="render_appearance_train_index_options"
+                disabled>
+              </select>
+              <img class="appearance-preview" data-visible-if="render_appearance_image_url" data-bind-attr="src:render_appearance_image_url"  style="display: none" />
+              <div class="input-hint">Appearance of one of the train image. This is only supported by some methods/datasets.</div>
+            </div>
+
+            <div class="row">
+              <label for="output_type">Output type</label>
+              <select id="output_type" name="output_type" data-enable-if="has_renderer" data-options="output_types" disabled>
+              </select>
+            </div>
+
+            <div class="row">
+              <label for="camera_pose">Camera pose</label>
+              <textarea 
+                  rows=3 
+                  id="camera_pose" 
+                  name="camera_pose" 
+                  style="flex-basis:100%; font-size: 0.65rem"
+                  data-set-viewer-ref
+                  onfocus="this.hasFocus=true"
+                  oninput="this.hasFocus=true"
+                  onchange="this.viewer.set_camera({ matrix: this.value });"
+                  onblur="this.hasFocus=false"></textarea>
+            </div>
+          </fieldset>
+          <fieldset id="folder-split-screen">
+            <legend>Split screen</legend>
+            <div class="row checkbox">
+              <label for="split_enabled">Enable</label>
+              <input type="checkbox" id="split_enabled" name="split_enabled" data-enable-if="has_output_split" disabled>
+            </div>
+
+            <div class="row slider">
+              <label for="split_percentage">Split point</label>
+              <input type="range" id="split_percentage" name="split_percentage" min="0.05" max="0.95" step="0.01" value="0.5" data-enable-if="has_output_split" disabled>
+            </div>
+
+            <div class="row slider">
+              <label for="split_tilt">Split tilt</label>
+              <input type="range" id="split_tilt" name="split_tilt" min="-90" max="90" step="1" value="0" data-enable-if="has_output_split" disabled>
+            </div>
+
+            <div class="row dropdown">
+              <label for="split_output_type">Output render split</label>
+              <select id="split_output_type" name="split_output_type" data-enable-if="has_output_split" data-options="output_types" disabled>
+              </select>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Dataset</legend>
+            <div class="row">
+              <label for="dataset_show_train_cameras">Show train cams</label>
+              <input type="checkbox" id="dataset_show_train_cameras" name="dataset_show_train_cameras" data-enable-if="dataset_has_train_cameras" disabled>
+            </div>
+            <div class="row">
+              <label for="dataset_show_test_cameras">Show test cams</label>
+              <input type="checkbox" id="dataset_show_test_cameras" name="dataset_show_test_cameras" data-enable-if="dataset_has_test_cameras" disabled checked>
+            </div>
+            <div class="row">
+              <label for="dataset_show_pointcloud">Show input PC</label>
+              <input type="checkbox" id="dataset_show_pointcloud" name="dataset_show_pointcloud" data-enable-if="dataset_has_pointcloud" disabled checked>
+            </div>
+            <div class="row">
+              <label for="pointcloud_scale">Point cloud scale</label>
+              <input type="range" id="pointcloud_scale" name="pointcloud_scale" min="0.0001" max="10.0" value="1.0" step="0.00001" data-enable-if="dataset_has_pointcloud" disabled>
+            </div>
+          </fieldset>
+          <div class="row">
+            <button data-action="reset_camera">Reset camera</button>
+            <button data-action="set_up_direction">Set up direction</button>
+          </div>
+        </div>
+        <div class="tab panel">
+          <div class="row">
+            <label for="render_resolution">Export resolution</label>
+            <input type="number" id="camera_path_resolution_1" name="camera_path_resolution_1" min="1" max="10000" step="1" value="1280" required>
+            <input type="number" id="camera_path_resolution_2" name="camera_path_resolution_2" min="1" max="10000" step="1" value="720" required>
+          </div>
+
+          <div class="row">
+            <label for="camera_path_default_fov">FOV</label>
+            <input type="range" id="camera_path_default_fov" name="camera_path_default_fov" min="1" max="175" step="1" value="60">
+            <input type="number" id="camera_path_default_fov_number" name="camera_path_default_fov" min="1" max="175" step="1" value="60" required>
+          </div>
+
+          <div class="row">
+            <button 
+               data-action="add_keyframe"
+               title="Add a new keyframe at the current pose.">Add keyframe</button>
+            <button 
+               onclick="document.getElementById('dialog_camera_path_delete_all').classList.add('dialog-open')"
+               title="Remove all keyframes from the render path." data-enable-if="camera_path_keyframes" disabled>Clear keyframes</button>
+          </div>
+          <fieldset data-visible-if="camera_path_keyframes">
+            <legend>Keyframes</legend>
+            <div class="row" style="flex-direction: column;align-items: stretch; padding-bottom: 0rem;">
+              <div class="keyframe-panel-header">
+                <span></span>
+                <span>index</span>
+                <span>start</span>
+                <span>duration</span>
+              </div>
+              <div class="keyframe-panel" style="padding-bottom: 0.6rem"></div>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Playback</legend>
+              <div class="row slider">
+                <label for="preview_frame">Preview frame</label>
+                <input type="range" id="preview_frame" name="preview_frame" min="0" step="1" value="0">
+              </div>
+              <div class="row row-group">
+                <input type="checkbox" id="preview_is_playing" name="preview_is_playing" style="display: none" />
+                <input type="checkbox" id="preview_is_preview_mode" name="preview_is_preview_mode" style="display: none" />
+                <button id="button_play" onclick="var el=document.getElementById('preview_is_playing'); el.checked = true; el.dispatchEvent(new Event('change'))" data-enable-if="camera_path_trajectory" disabled>Play</button>
+                <button id="button_pause" onclick="var el=document.getElementById('preview_is_playing'); el.checked = false; el.dispatchEvent(new Event('change'))">Pause</button>
+                <button id="button_preview_render" onclick="var el=document.getElementById('preview_is_preview_mode'); el.checked = true; el.dispatchEvent(new Event('change'))">Preview render</button>
+                <button id="button_preview_render_stop" onclick="var el=document.getElementById('preview_is_preview_mode'); el.checked = false; el.dispatchEvent(new Event('change'))">Exit render preview</button>
+              </div>
+
+              <div class="row" data-visible-if="!camera_path_show_computed_duration">
+                <label for="camera_path_duration">Duration (sec)</label>
+                <input type="number" id="camera_path_duration" name="camera_path_duration" min="0.0" step="any" value="0" required>
+                <div class="input-hint">Total duration of the camera path in seconds.</div>
+              </div>
+              <div class="row" data-visible-if="camera_path_show_computed_duration">
+                <label for="camera_path_computed_duration">Duration (sec)</label>
+                <input type="number" id="camera_path_computed_duration" name="camera_path_computed_duration" min="0.0" step="any" value="0" disabled required>
+                <div class="input-hint">Total duration of the camera path in seconds.</div>
+              </div>
+
+              <div class="row">
+                <label for="camera_path_framerate">FPS</label>
+                <input type="number" id="camera_path_framerate" style="flex: 2" name="camera_path_framerate" min="1" max="240" step="1" value="30" required>
+                <div class="toggle-group" style="flex: 4; display: flex;">
+                  <button onclick="var el=document.getElementById('camera_path_framerate');el.value = 24;el.dispatchEvent(new Event('change'))">24</button>
+                  <button onclick="var el=document.getElementById('camera_path_framerate');el.value = 30;el.dispatchEvent(new Event('change'))">30</button>
+                  <button onclick="var el=document.getElementById('camera_path_framerate');el.value = 60;el.dispatchEvent(new Event('change'))">60</button>
+                </div>
+                <div class="input-hint" data-visible-if="camera_path_interpolation==none">FPS is only used for video export.</div>
+              </div>
+          </fieldset>
+
+          <div class="row">
+            <label for="camera_path_interpolation">Interpolation</label>
+            <select id="camera_path_interpolation" name="camera_path_interpolation">
+              <option value="none">none</option>
+              <option value="kochanek-bartels" selected>kochanek-bartels</option>
+              <option value="linear">linear</option>
+              <option value="circle">circle</option>
+            </select>
+            <div class="input-hint">Camera path interpolation.</div>
+          </div>
+
+          <div class="row">
+            <label>Speed interpolation</label>
+            <div class="switch">
+              <label>
+                <input type="radio" name="camera_path_time_interpolation" value="velocity" checked>
+                <span>velocity</span>
+              </label>
+              <label>
+                <input type="radio" name="camera_path_time_interpolation" value="time">
+                <span>time</span>
+              </label>
+            </div>
+            <div class="input-hint">For velocity, the velocity is kept the same during the interpolation (possibly overriden at keyframes); For time, the transition durations are respected.</div>
+          </div>
+
+          <div class="row">
+            <label for="camera_path_default_transition_duration">Transition duration</label>
+            <input type="number" id="camera_path_default_transition_duration" name="camera_path_default_transition_duration" value="2" min="0" step="any" required>
+            <div class="input-hint" data-visible-if="camera_path_interpolation==none">Default duration for each keyframe.</div>
+            <div class="input-hint" data-visible-if="camera_path_interpolation!=none">How much should the total duration be increased adding keyframes.</div>
+          </div>
+
+          <div class="row" data-visible-if="camera_path_interpolation!=none">
+            <label for="camera_path_loop">Loop</label>
+            <input type="checkbox" id="camera_path_loop" name="camera_path_loop">
+            <div class="input-hint">Add a segment between the first and last keyframes.</div>
+          </div>
+
+          <div class="row" data-visible-if="camera_path_interpolation!=none">
+            <label for="camera_path_distance_alpha">Distance alpha</label>
+            <input type="range" id="camera_path_distance_alpha" name="camera_path_distance_alpha" min="0" max="1" step="0.01" value="1">
+            <div class="input-hint">
+              Alpha is the distance exponent for computing segment times and velocities. 
+              For alpha=0, all segments have the same length.
+            </div>
+          </div>
+          <div class="row" data-visible-if="camera_path_interpolation==kochanek-bartels">
+            <label for="camera_path_tension">Spline tension</label>
+            <input type="range" id="camera_path_tension" name="camera_path_tension" min="-1" max="1" step="0.01" value="0">
+            <div class="input-hint">Adjusting spline smoothness.</div>
+          </div>
+          <div class="row" data-visible-if="camera_path_interpolation==kochanek-bartels">
+            <label for="camera_path_continuity">Spline continuity</label>
+            <input type="range" id="camera_path_continuity" name="camera_path_continuity" min="-1" max="1" step="0.01" value="0">
+            <div class="input-hint">Adjusting spline continuity.</div>
+          </div>
+          <div class="row" data-visible-if="camera_path_interpolation==kochanek-bartels">
+            <label for="camera_path_bias">Spline bias</label>
+            <input type="range" id="camera_path_bias" name="camera_path_bias" min="-1" max="1" step="0.01" value="0">
+            <div class="input-hint">Adjusting spline overshooting.</div>
+          </div>
+
+          <div class="row">
+            <label>Output format</label>
+            <div class="switch">
+              <label>
+                <input type="radio" name="camera_path_render_format" value="mp4" checked>
+                <span>mp4</span>
+              </label>
+              <label>
+                <input type="radio" name="camera_path_render_format" value="webm">
+                <span>webm</span>
+              </label>
+              <label>
+                <input type="radio" name="camera_path_render_format" value="zip">
+                <span>zip</span>
+              </label>
+            </div>
+            <div class="input-hint">Detailed codec configuration in the settings tab.</div>
+          </div>
+
+          <div class="row">
+            <label class="button">
+              Load trajectory
+              <input type="file" style="display: none" id="input_trajectory" accept=".json">
+            </label>
+            <button id="button_export_trajectory" data-action="save_trajectory" data-enable-if="camera_path_trajectory" disabled>Export trajectory</button>
+          </div>
+          <div class="row">
+            <button data-action="render_video" data-enable-if="camera_path_trajectory && has_renderer" disabled>Render video</a>
+          </div>
+        </div>
+
+        <!-- Training tab -->
+        <div class="tab panel">
+          <fieldset data-visible-if="method_info" style="display: none">
+            <legend>Method info</legend>
+            <div class="row info-fields" id="method_info"></div>
+          </fieldset>
+          <fieldset data-visible-if="dataset_info" style="display: none">
+            <legend>Dataset info</legend>
+            <div class="row info-fields" id="dataset_info"></div>
+          </fieldset>
+          <fieldset data-visible-if="method_info" style="display: none">
+            <legend>Model hyperparameters</legend>
+            <div class="row info-fields" id="method_hparams"></div>
+          </fieldset>
+          <!--<fieldset>
+            <legend>Metrics</legend>
+            <div class="row"><svg id="svg-chart" style="aspect-ratio: 2"></svg></div>
+          </fieldset>-->
+        </div>
+      </div>
+    </div>
+  </main>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./third-party/three.module.js",
+        "three/addons/": "./third-party/",
+        "webm-muxer": "./third-party/webm-muxer.js",
+        "mp4-muxer": "./third-party/mp4-muxer.js",
+        "client-zip": "./third-party/client-zip.js"
+      }
+    }
+  </script>
+  <script src="./viewer.js" type="module"></script>
+  <script id="viewer-setup" type="application/json">{{ data|safe }}</script>
+  <script>
+// Range input styling
+const rangeInputs = document.querySelectorAll('input[type="range"]')
+function handleInputChange(e) {
+  const { min, max, value } = e.target;
+  let percentage = (1*max > 1*min) ? ((1*value - 1*min) * 100 / (1*max - 1*min)) : 0;
+  e.target.style.backgroundSize = percentage + '% 100%'
+}
+rangeInputs.forEach(input => {
+  input.addEventListener('input', handleInputChange);
+  handleInputChange({target: input});
+});
+  </script>
+  <script type="module">
+  import { Viewer } from './viewer.js';
+  async function main () {
+    const data = JSON.parse(document.getElementById('viewer-setup').textContent);
+    //Parse window.location.search
+    const searchParams = new URLSearchParams(window.location.search);
+    const errors = [];
+    function mergeParams(p1, p2) {
+      Object.assign(p1, p2, {
+        state: Object.assign(p1.state || {}, p2.state || {}, {
+          dataset_info: Object.assign(p1.state?.dataset_info || {}, p2.state?.dataset_info || {}),
+          method_info: Object.assign(p1.state?.method_info || {}, p2.state?.method_info || {}),
+        }),
+      })
+    }
+    for (const [key, value] of searchParams) {
+      if (key === 'p') {
+        try {
+          const response = await fetch(value);
+          if (!response.ok) {
+            throw new Error(`Failed to load state from ${value}`);
+          }
+          mergeParams(data, await response.json());
+        } catch (e) {
+          console.error(e);
+          errors.push({
+            type: 'error',
+            header: 'Failed to load params',
+            detail: `Failed to load state from ${value}`
+          });
+          continue;
+        }
+      }
+    }
+
+    const state = data.state;
+    const defaultOutputType = state?.output_types?.length > 0 ? state.output_types[0] : undefined;
+    if (!state.output_type) state.output_type = defaultOutputType;
+    if (!state.split_output_type) state.split_output_type = state.output_type;
+    if (!state.camera_path_render_output_type) state.camera_path_render_output_type = state.output_type;
+    if (state.dataset_info?.type === 'object-centric')
+      state.camera_control_mode = 'orbit';
+    const viewer = new Viewer({
+      viewer_transform: data.viewer_transform,
+      viewer_initial_pose: data.viewer_initial_pose,
+      state,
+    });
+    viewer.attach_gui();
+
+    // Add error messages from loading
+    for (const error of errors) {
+      viewer.update_notification(error);
+    }
+
+    if (data.renderer)
+      viewer.set_renderer(data.renderer);
+    if (data.dataset)
+      viewer.set_dataset(data.dataset);
+    window.viewer = viewer;
+  }
+  main();
+  </script>
+</body>
+</html>

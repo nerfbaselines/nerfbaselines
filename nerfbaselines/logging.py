@@ -5,6 +5,7 @@ import os
 from PIL import Image
 import numpy as np
 import io
+import time
 import contextlib
 
 from pathlib import Path
@@ -194,14 +195,14 @@ class WandbLoggerEvent(BaseLoggerEvent):
                 table,
                 x=xlabel,
                 y=ylabel,
-                title=title
+                title=title or tag,
             )
         else:
             self._commit[tag] = wandb.plot.line_series(  # type: ignore
                 [x[:, 0] for x in data],
                 [x[:, 1] for x in data],
                 keys=labels,
-                title=title,
+                title=title or tag,
                 xname=xlabel,
             )
     
@@ -710,7 +711,9 @@ class TensorboardLogger(BaseLogger):
         summaries = []
         yield TensorboardLoggerEvent(self._writer.get_logdir(), summaries, step=step)
         summary = Summary(value=summaries)  # type: ignore
-        self._writer.add_event(Event(summary=summary, step=step))  # type: ignore
+                
+        event = Event(summary=summary, step=step, wall_time=time.time()) # type: ignore
+        self._writer.add_event(event)
 
     def add_hparams(self, hparams: Dict[str, Any]):
         from tensorboard.compat.proto.event_pb2 import Event
@@ -719,9 +722,9 @@ class TensorboardLogger(BaseLogger):
         hparam_domain_discrete = {}
         hparams = _flatten_simplify_hparams(hparams)
         exp, ssi, sei = _tensorboard_hparams(hparams, self._hparam_plugin_metrics or [], hparam_domain_discrete)
-        self._writer.add_event(Event(summary=exp, step=0))  # type: ignore
-        self._writer.add_event(Event(summary=ssi, step=0))  # type: ignore
-        self._writer.add_event(Event(summary=sei, step=0))  # type: ignore
+        self._writer.add_event(Event(summary=exp, step=0, wall_time=time.time()))  # type: ignore
+        self._writer.add_event(Event(summary=ssi, step=0, wall_time=time.time()))  # type: ignore
+        self._writer.add_event(Event(summary=sei, step=0, wall_time=time.time()))  # type: ignore
 
     def __str__(self):
         return "tensorboard"
@@ -738,3 +741,49 @@ def log_metrics(logger: Logger, metrics, *, prefix: str = "", step: int):
             else:
                 raise ValueError(f"Unknown metric type for {tag}: {val}")
 
+
+def read_tensorboard_metrics(path, *, metrics=None):
+    from tensorboard.backend.event_processing.event_accumulator import (
+        AUDIO, COMPRESSED_HISTOGRAMS, HISTOGRAMS, IMAGES, SCALARS,
+        TENSORS, EventAccumulator)
+    data = {}
+    if os.path.isdir(path):
+        for filename in sorted(os.listdir(path)):
+            sub_data = read_tensorboard_metrics(
+                os.path.join(path, filename), metrics=metrics)
+            for k, (xs2, ys2) in sub_data.items():
+                xs, ys = data.setdefault(k, ([], []))
+                xs.extend(xs2)
+                ys.extend(ys2)
+        return data
+
+    # Read metrics
+    size_guidance = {
+        COMPRESSED_HISTOGRAMS: 1,
+        IMAGES: 1,
+        AUDIO: 1,
+        SCALARS: 0,
+        HISTOGRAMS: 1,
+        TENSORS: 1,
+    }
+    event_acc = EventAccumulator(path, size_guidance)
+    event_acc.Reload()
+    tags = event_acc.Tags()[SCALARS]
+    for t in tags:
+        xs, ys = data.setdefault(t, ([], []))
+        for event in event_acc.Scalars(t):
+            xs.append(event.step)
+            ys.append(event.value)
+    return data
+
+
+def subsample_metrics(metrics, num_samples=100):
+    if isinstance(metrics, dict):
+        return {k: subsample_metrics(v, num_samples) for k, v in metrics.items()}
+    x, y = metrics
+    if len(x) <= num_samples:
+        return metrics
+    indices = [int(round(i/(num_samples-1)*(len(x)-1))) for i in range(num_samples)]
+    xn = [x[i] for i in indices]
+    yn = [y[i] for i in indices]
+    return xn, yn

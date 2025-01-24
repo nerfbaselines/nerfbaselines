@@ -297,6 +297,7 @@ class NerfBaselinesDirective(SphinxDirective):
             names = supported_objects.keys()
 
         sections = []
+        names.sort(key=lambda x: x.split("/", 1)[-1].lower())
         for name in names:
             spec = supported_objects[name]
             if name.startswith("methods/"):

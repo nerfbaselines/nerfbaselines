@@ -25,7 +25,7 @@ MipSplattingSpec: MethodSpec = {
     "method_class": ".mip_splatting:MipSplatting",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
-        "python_version": "3.8",
+        "python_version": "3.9",
         "install_script": """# Install mip-splatting
 git clone https://github.com/autonomousvision/mip-splatting.git
 cd mip-splatting
@@ -33,22 +33,39 @@ git checkout 746a17c9a906be256ed85b8fe18632f5d53e832d
 # Remove unsupported (and unnecessary) open3d dependency
 sed -i '/import open3d as o3d/d' train.py
 
-conda install -y conda-build
-conda develop .
-
+conda install -y conda-build && conda develop .
 conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 'numpy<2.0.0' -c pytorch -c nvidia
+# Install ffmpeg if not available
+command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
 conda install -y cudatoolkit-dev=11.7 gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
 conda install -c conda-forge -y nodejs==20.9.0
 
-pip install -r requirements.txt
-pip install -U pip 'setuptools<70.0.0'
-pip install lpips==0.1.4
+pip install -U pip 'setuptools<70.0.0' 'wheel==0.43.0'
+pip install \
+        plyfile==0.8.1 \
+        mediapy==1.1.2 \
+        open3d==0.18.0 \
+        ninja==1.11.1.3 \
+        GPUtil==1.4.0 \
+        einops==0.8.0 \
+        lpips==0.1.4 \
+        scikit-image==0.21.0 \
+        tqdm==4.66.2 \
+        trimesh==4.3.2 \
+        opencv-python-headless==4.10.0.84 \
+        importlib_metadata==8.5.0 \
+        typing_extensions==4.12.2 \
+        wandb==0.19.1 \
+        click==8.1.8 \
+        Pillow==11.1.0 \
+        matplotlib==3.9.4 \
+        tensorboard==2.18.0 \
+        'pytest<=8.3.4' \
+        scipy==1.13.1
 
-pip install submodules/diff-gaussian-rasterization
-pip install submodules/simple-knn/
-if ! python -c 'import cv2'; then pip install opencv-python-headless; fi
+pip install submodules/diff-gaussian-rasterization --no-build-isolation
+pip install submodules/simple-knn --no-build-isolation
 
-function nb-post-install () {
 if [ "$NERFBASELINES_DOCKER_BUILD" = "1" ]; then
 # Reduce size of the environment by removing unused files
 find "$CONDA_PREFIX" -name '*.a' -delete
@@ -61,7 +78,6 @@ for lib in "$CONDA_PREFIX"/lib/*.so*; do
     if [ -f "$tgt" ]; then echo "Deleting $lib"; rm "$lib"*; for tgtlib in "$tgt"*; do ln -s "$tgtlib" "$(dirname "$lib")"; done; fi;
 done
 fi
-}
 """,
     },
     "metadata": {

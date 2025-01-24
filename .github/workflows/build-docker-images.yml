@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.7","3.8","3.9","3.10","3.11","3.12"]
+        python: ["3.8","3.9","3.10","3.11","3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -27,7 +27,7 @@ jobs:
             pip install tensorboard==2.11.2
             pip install 'protobuf<4'
           fi
-          pytest -vrA --require-ffmpeg
+          pytest -vrA
       - name: Install dev-extras
         id: dev-extras
         if: ${{ matrix.python == '3.9' }}
@@ -39,7 +39,7 @@ jobs:
       - name: Run dev-extras tests
         run: |
           pyright
-          pytest -v --run-extras --require-ffmpeg
+          pytest -v --run-extras
         if: ${{ steps.dev-extras.outcome == 'success' }}
 
   setup:

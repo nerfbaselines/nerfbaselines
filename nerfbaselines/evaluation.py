@@ -54,7 +54,7 @@ try:
 except ImportError:
     from typing_extensions import Literal
 try:
-    from typeguard import suppress_type_checks
+    from typeguard import suppress_type_checks  # type: ignore
 except ImportError:
     from contextlib import nullcontext as suppress_type_checks
 
@@ -286,7 +286,7 @@ def render_all_images(
     method: Method,
     dataset: Dataset,
     output: str,
-    description: str = "rendering all images",
+    description: Optional[str] = "rendering all images",
     nb_info: Optional[dict] = None,
     evaluation_protocol: Optional[EvaluationProtocol] = None,
 ) -> Iterable[RenderOutput]:
@@ -316,7 +316,10 @@ def render_all_images(
         for i in range(len(dataset["cameras"])):
             yield evaluation_protocol.render(method, dataset_index_select(dataset, [i]))
 
-    with tqdm(desc=description, total=len(dataset["cameras"]), dynamic_ncols=True) as progress:
+    with tqdm(desc=description or "", 
+              disable=description is None, 
+              total=len(dataset["cameras"]), 
+              dynamic_ncols=True) as progress:
         for val in _save_predictions_iterate(output,
                                              _render_all(),
                                              dataset=dataset,
@@ -429,7 +432,10 @@ def render_frames(
     def _video_writer(output):
         nonlocal vidwriter
         # Handle video
-        import mediapy
+        try:
+            import mediapy
+        except ImportError:
+            raise ImportError("mediapy is required to write videos. Install it with `pip install mediapy`")
 
         codec = 'gif' if output.endswith(".gif") else "h264"
         writer = None

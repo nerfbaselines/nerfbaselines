@@ -1,15 +1,8 @@
+import copy
 import itertools
 import importlib
-import logging
-from pathlib import Path
 import click
-import nerfbaselines
-from nerfbaselines import backends, NB_PREFIX
-from nerfbaselines.datasets import download_dataset
-from nerfbaselines.evaluation import evaluate, run_inside_eval_container
 from ._web import web_click_group
-from ._common import click_backend_option as _click_backend_option
-from ._common import NerfBaselinesCliCommand
 
 
 class LazyGroup(click.Group):
@@ -26,7 +19,10 @@ class LazyGroup(click.Group):
                 if ":" in package:
                     package, fname = package.split(":")
                 package = getattr(importlib.import_module(package, __name__), fname)
-            return package
+            command = copy.deepcopy(package)
+            command.name = cmd_name
+            command.hidden = cmd_def.get("hidden", False)
+            return command
         return super().get_command(ctx, cmd_name)
 
     def list_commands(self, ctx):
@@ -70,80 +66,8 @@ def main():
     pass
 
 
-@main.command("shell", context_settings=dict(
-    ignore_unknown_options=True,
-    allow_interspersed_args=False,
-), cls=NerfBaselinesCliCommand)
-@click.option("--method", type=click.Choice(list(nerfbaselines.get_supported_methods())), required=True)
-@click.option("--verbose", "-v", is_flag=True)
-@_click_backend_option()
-@click.argument('command', nargs=-1, type=click.UNPROCESSED)
-def shell_command(method, backend_name, command):
-    method_spec = nerfbaselines.get_method_spec(method)
-    backend_impl = backends.get_backend(method_spec, backend_name)
-    logging.info(f"Using method: {method}, backend: {backend_impl.name}")
-    backend_impl.install()
-    backend_impl.shell(command if command else None)
-
-
-@main.command("download-dataset", cls=NerfBaselinesCliCommand)
-@click.argument("dataset", type=str, required=True)
-@click.option("--output", "-o", type=click.Path(file_okay=False, dir_okay=True, path_type=str), required=False, default=None)
-def download_dataset_command(dataset: str, output: str):
-    logging.basicConfig(level=logging.INFO)
-    if output is None:
-        _out_dataset = dataset
-        if _out_dataset.startswith("external://"):
-            _out_dataset = _out_dataset[len("external://") :]
-        output = str(Path(NB_PREFIX) / "datasets" / _out_dataset)
-    download_dataset(dataset, output)
-    logging.info(f"Dataset {dataset} downloaded to {output}")
-
-
-@main.command("evaluate", cls=NerfBaselinesCliCommand)
-@click.argument("predictions", type=click.Path(file_okay=True, dir_okay=True, path_type=str), required=True)
-@click.option("--output", "-o", type=click.Path(file_okay=True, dir_okay=False, path_type=str), required=True)
-def evaluate_command(predictions: str, output: str):
-    with run_inside_eval_container():
-        evaluate(predictions, output)
-
-
-@main.command("build-docker-image", hidden=True, cls=NerfBaselinesCliCommand)
-@click.option("--method", type=click.Choice(list(nerfbaselines.get_supported_methods("docker"))), required=False)
-@click.option("--environment", type=str, required=False)
-@click.option("--skip-if-exists-remotely", is_flag=True)
-@click.option("--tag-latest", is_flag=True)
-@click.option("--push", is_flag=True)
-def build_docker_image_command(method=None, environment=None, push=False, skip_if_exists_remotely=False, tag_latest=False):
-    from nerfbaselines.backends._docker import build_docker_image, get_docker_spec
-
-    spec = None
-    if method is not None:
-        spec = nerfbaselines.get_method_spec(method)
-        if spec is None:
-            raise RuntimeError(f"Method {method} not found")
-        spec = get_docker_spec(spec)
-        if spec is None:
-            raise RuntimeError(f"Method {method} does not support building docker images")
-        env_name = spec["environment_name"]
-        logging.info(f"Building docker image for environment {env_name} (from method {method})")
-    elif environment is not None:
-        for method in nerfbaselines.get_supported_methods("docker"):
-            spec = nerfbaselines.get_method_spec(method)
-            spec = get_docker_spec(spec)
-            if spec is None:
-                continue
-            if spec.get("environment_name") == environment:
-                break
-        if spec is None:
-            raise RuntimeError(f"Environment {environment} not found")
-        logging.info(f"Building docker image for environment {environment}")
-    else:
-        logging.info("Building base docker image")
-    build_docker_image(spec, skip_if_exists_remotely=skip_if_exists_remotely, push=push, tag_latest=tag_latest)
-
-
 main.add_command(web_click_group)
+main.add_lazy_command("nerfbaselines.cli._shell:shell_command", "shell")
 main.add_lazy_command("nerfbaselines.cli._export_demo", "export-demo")
 main.add_lazy_command("nerfbaselines.cli._export_mesh:export_mesh_command", "export-mesh")
 main.add_lazy_command("nerfbaselines.cli._test_method", "test-method")
@@ -151,7 +75,13 @@ main.add_lazy_command("nerfbaselines.cli._render:render_command", "render")
 main.add_lazy_command("nerfbaselines.cli._render:render_trajectory_command", "render-trajectory")
 main.add_lazy_command("nerfbaselines.cli._generate_dataset_results:main", "generate-dataset-results")
 main.add_lazy_command("nerfbaselines.cli._fix_checkpoint:main", "fix-checkpoint")
-main.add_lazy_command("nerfbaselines.cli._install_method:install_method_command", "install-method")
+# nerfbaselines install-method is deprecated, but we keep it for compatibility
+main.add_lazy_command("nerfbaselines.cli._install_method:install_method_command", "install-method", hidden=True)
+main.add_lazy_command("nerfbaselines.cli._install_method:install_method_command", "install")
 main.add_lazy_command("nerfbaselines.cli._fix_output_artifact:main", "fix-output-artifact")
 main.add_lazy_command("nerfbaselines.cli._train:train_command", "train")
 main.add_lazy_command("nerfbaselines.cli._viewer:viewer_command", "viewer")
+main.add_lazy_command("nerfbaselines.cli._build_docker_image:build_docker_image_command", "build-docker-image", hidden=True)
+main.add_lazy_command("nerfbaselines.cli._download_dataset:download_dataset_command", "download-dataset")
+main.add_lazy_command("nerfbaselines.cli._evaluate:evaluate_command", "evaluate")
+main.add_lazy_command("nerfbaselines.cli._measure_fps:measure_fps_command", "measure-fps")

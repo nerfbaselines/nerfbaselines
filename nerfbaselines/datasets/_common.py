@@ -16,12 +16,12 @@ import numpy as np
 import PIL.Image
 import PIL.ExifTags
 from tqdm import tqdm
-import requests
 from typing import (
     Optional, TypeVar, Tuple, Union, List, Dict, Any, 
     FrozenSet, Iterable,
     overload, cast,
 )
+from nerfbaselines.io import wget
 from nerfbaselines import (
     Dataset, UnloadedDataset, DatasetFeature,
     Cameras, CameraModel,
@@ -41,6 +41,7 @@ except ImportError:
 
 
 TDataset = TypeVar("TDataset", bound=Union[Dataset, UnloadedDataset])
+logger = logging.getLogger("nerfbaselines.datasets")
 
 
 def _import_type(name: str) -> Any:
@@ -163,7 +164,7 @@ def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np
 
         poses[:, :3, 3] -= lookat
         transform[:3, 3] -= lookat
-        return transform, poses[0][..., :3, :4]
+        return transform[..., :3, :4], poses[0][..., :3, :4]
 
     elif dataset_type == "forward-facing":
         # First, we compute the average pose
@@ -190,7 +191,7 @@ def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np
         transform = np.diag([dataparser_scale, dataparser_scale, dataparser_scale, 1]) @ transform
 
         initial_pose = apply_transform(transform, poses[1])
-        return transform, initial_pose[..., :3, :4]
+        return transform[..., :3, :4], initial_pose[..., :3, :4]
     elif dataset_type is None:
         # Unknown dataset type
         # We move all center the scene on the mean of the camera origins
@@ -211,7 +212,7 @@ def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np
         transform = np.diag([dataparser_scale, dataparser_scale, dataparser_scale, 1]) @ transform
 
         camera = apply_transform(transform, poses[0])
-        return transform, camera[..., :3, :4]
+        return transform[..., :3, :4], camera[..., :3, :4]
     else:
         raise ValueError(f"Dataset type {dataset_type} is not supported")
 
@@ -306,7 +307,7 @@ def get_image_metadata(image: PIL.Image.Image):
 def _dataset_rescale_intrinsics(dataset: Dataset, image_sizes: np.ndarray):
     cameras = dataset["cameras"]
     if np.any(cameras.image_sizes != image_sizes):
-        logging.info("Image sizes do not match camera sizes. Resizing cameras to match image sizes.")
+        logger.info("Image sizes do not match camera sizes. Resizing cameras to match image sizes.")
 
         if np.any(cameras.image_sizes % image_sizes != 0):
             warnings.warn("Downscaled image sizes are not a multiple of camera sizes.")
@@ -337,7 +338,7 @@ def _dataset_rescale_intrinsics(dataset: Dataset, image_sizes: np.ndarray):
 
 
 def dataset_load_features(
-    dataset: UnloadedDataset, features=None, supported_camera_models=None
+    dataset: UnloadedDataset, features=None, supported_camera_models=None, show_progress=True
 ) -> Dataset:
     if features is None:
         features = frozenset(("color",))
@@ -350,10 +351,10 @@ def dataset_load_features(
 
     image_paths_root = dataset.get("image_paths_root")
     if image_paths_root is not None:
-        logging.info(f"Loading images from {image_paths_root}")
+        logger.info(f"Loading images from {image_paths_root}")
 
     i = 0
-    for p in tqdm(dataset["image_paths"], desc="loading images", dynamic_ncols=True):
+    for p in tqdm(dataset["image_paths"], desc="loading images", dynamic_ncols=True, disable=not show_progress):
         if str(p).endswith(".bin"):
             assert dataset["metadata"]["color_space"] == "linear"
             with open(p, "rb") as f:
@@ -385,7 +386,7 @@ def dataset_load_features(
         all_metadata.append(metadata)
         i += 1
 
-    logging.debug(f"Loaded {len(images)} images")
+    logger.debug(f"Loaded {len(images)} images")
 
     if dataset["sampling_mask_paths"] is not None:
         sampling_masks = []
@@ -399,7 +400,7 @@ def dataset_load_features(
 
             sampling_masks.append(np.array(sampling_mask, dtype=np.uint8).astype(bool))
         dataset["sampling_masks"] = sampling_masks  # padded_stack(sampling_masks)
-        logging.debug(f"Loaded {len(sampling_masks)} sampling masks")
+        logger.debug(f"Loaded {len(sampling_masks)} sampling masks")
 
     if resize is not None:
         # Replace all paths with the resized paths
@@ -422,7 +423,7 @@ def dataset_load_features(
 
     if supported_camera_models is not None:
         if _dataset_undistort_unsupported(cast(Dataset, dataset), supported_camera_models):
-            logging.warning(
+            logger.warning(
                 "Some cameras models are not supported by the method. Images have been undistorted. Make sure to use the undistorted images for training."
             )
     return cast(Dataset, dataset)
@@ -453,7 +454,7 @@ class MultiDatasetError(DatasetNotFoundError):
             rows = [error[i : i + mlen] for i in range(0, len(error), mlen)]
             mdetail = f'\n{" "*prefixlen}'.join(rows)
             message += f"\n{prefix}{mdetail}"
-        logging.error(message)
+        logger.error(message)
 
 
 def dataset_index_select(dataset: TDataset, i: Union[slice, list, np.ndarray]) -> TDataset:
@@ -498,11 +499,11 @@ def download_dataset(path: str, output: Union[str, Path]):
         download_fn = _import_type(dataset_spec["download_dataset_function"])
         try:
             download_fn(path, str(output))
-            logging.info(f"Downloaded {name} dataset with path {path}")
+            logger.info(f"Downloaded {name} dataset with path {path}")
             return
         except DatasetNotFoundError as e:
-            logging.debug(e)
-            logging.debug(f"Path {path} is not supported by {name} dataset")
+            logger.debug(e)
+            logger.debug(f"Path {path} is not supported by {name} dataset")
             errors[name] = str(e)
     raise MultiDatasetError(errors, f"No supported dataset found for path {path}")
 
@@ -538,7 +539,7 @@ def _resolve_loader(loader):
 
 
 def _load_unknown_dataset(path, **kwargs):
-    logging.info(f"Detecting dataset format from path: {path}")
+    logger.info(f"Detecting dataset format from path: {path}")
     if path.startswith(os.path.join(NB_PREFIX, "datasets")):
         raise RuntimeError("Dataset is an external dataset, but it does not have nb-info.json metadata. "
                            "This might have been caused by an older version of NerfBaselines. "
@@ -551,12 +552,12 @@ def _load_unknown_dataset(path, **kwargs):
 
     # Validate for common mistakes (e.g., not specifying loader for known datasets)
     def _give_warning(dataset_id, dataset_name):
-        logging.warning(f"Detected {dataset_name} dataset, but no loader was specified. "
-                        f"If the dataset really is {dataset_name}, please use the official NerfBaselines downloader "
-                        f"e.g., by specifying `--data external://{dataset_id}/{scene}`. "
-                        "Otherwise, the dataset will be loaded as a generic dataset. "
-                        f"If the dataset is not a {dataset_name} dataset, you can ignore the message. "
-                        "In order to suppress this message, please specify the loader by adding a nb-info.json file.")
+        logger.warning(f"Detected {dataset_name} dataset, but no loader was specified. "
+                       f"If the dataset really is {dataset_name}, please use the official NerfBaselines downloader "
+                       f"e.g., by specifying `--data external://{dataset_id}/{scene}`. "
+                       "Otherwise, the dataset will be loaded as a generic dataset. "
+                       f"If the dataset is not a {dataset_name} dataset, you can ignore the message. "
+                       "In order to suppress this message, please specify the loader by adding a nb-info.json file.")
     def _simplify(x):
         return re.sub("[^a-z0-9]", "", x.lower())
     scene = _simplify(os.path.split(path)[-1].lower())
@@ -641,28 +642,10 @@ def download_archive_dataset(url: str,
                              nb_info: Dict[str, Any],
                              callback=None,
                              file_type = None):
-    response = requests.get(url, stream=True)
-    response.raise_for_status()
-    total_size_in_bytes = int(response.headers.get("content-length", 0))
-    block_size = 1024  # 1 Kibibyte
-    progress_bar = tqdm(
-        total=total_size_in_bytes,
-        unit="iB",
-        unit_scale=True,
-        desc=f"Downloading {url.split('/')[-1]}", 
-        dynamic_ncols=True,
-    )
+
     with tempfile.TemporaryFile("rb+") as file:
-        for data in response.iter_content(block_size):
-            progress_bar.update(len(data))
-            file.write(data)
-        file.flush()
+        wget(url, file, desc=f"Downloading {url.split('/')[-1]}")
         file.seek(0)
-        progress_bar.close()
-        if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:  # noqa: PLR1714
-            logging.error(
-                f"Failed to download dataset. {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes."
-            )
 
         has_any = False
         if file_type is None:
@@ -729,6 +712,13 @@ def download_archive_dataset(url: str,
         shutil.move(str(output_tmp), str(output))
 
 
+def _parse_metadata(meta):
+    meta = meta.copy()
+    if "background_color" in meta and isinstance(meta["background_color"], (list, tuple)):
+        meta["background_color"] = np.array(meta["background_color"], dtype=np.uint8)
+    return meta
+
+
 def load_dataset(
         path: Union[Path, str], 
         split: str, 
@@ -760,19 +750,19 @@ def load_dataset(
     info_fname = "nb-info.json"
     if (os.path.exists(os.path.join(path, "info.json")) and 
         not os.path.exists(os.path.join(path, info_fname))):
-        logging.warning("Using 'info.json' instead of 'nb-info.json'. Please update the dataset.")
+        logger.warning("Using 'info.json' instead of 'nb-info.json'. Please update the dataset.")
         info_fname = "info.json"
     if os.path.exists(os.path.join(path, info_fname)):
-        logging.info(f"Loading dataset metadata from {os.path.join(path, info_fname)}")
+        logger.info(f"Loading dataset metadata from {os.path.join(path, info_fname)}")
         with open(os.path.join(path, info_fname), "r") as f:
             meta = json.load(f)
             if meta.get("name") is not None and meta.get("id") is None:
-                logging.warning("Using 'name' field as 'id' field in metadata (nerfbaselines version <1.1.0)")
+                logger.warning("Using 'name' field as 'id' field in metadata (nerfbaselines version <1.1.0)")
                 meta["id"] = meta["name"]
         loader = meta.pop("loader", None)
         loader_kwargs = meta.pop("loader_kwargs", None)
         if loader is None and loader_kwargs is not None:
-            logging.warning("Ignoring nb-info.json loader_kwargs because loader is not specified")
+            logger.warning("Ignoring nb-info.json loader_kwargs because loader is not specified")
             loader_kwargs = None
         for k, v in (loader_kwargs or {}).items():
             if k not in kwargs:
@@ -790,11 +780,12 @@ def load_dataset(
         dataset_instance = load_fn(path, **kwargs)
 
     name = dataset_instance["metadata"].get("id", None)
-    logging.info(f"Loaded {name or 'unknown'} dataset from path {path} using loader {loader}")
+    logger.info(f"Loaded {name or 'unknown'} dataset from path {path} using loader {loader}")
 
     # Dataset loaded successfully
     # Now we apply the postprocessing
     # We update the metadata from nb-info.json
+    meta = _parse_metadata(meta)
     dataset_instance["metadata"].update(meta)
     if split == "train":
         # For train split, we compute additional metadata

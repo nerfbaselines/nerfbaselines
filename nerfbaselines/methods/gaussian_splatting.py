@@ -155,15 +155,11 @@ def _config_overrides_to_args_list(args_list, config_overrides):
             v = False
         if isinstance(v, bool):
             if v:
-                if f'--no-{k}' in args_list:
-                    args_list.remove(f'--no-{k}')
                 if f'--{k}' not in args_list:
                     args_list.append(f'--{k}')
             else:
                 if f'--{k}' in args_list:
                     args_list.remove(f'--{k}')
-                else:
-                    args_list.append(f"--no-{k}")
         elif f'--{k}' in args_list:
             args_list[args_list.index(f'--{k}') + 1] = str(v)
         else:
@@ -189,8 +185,8 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
         w, h = dataset["cameras"].image_sizes[idx]
         im_data = dataset["images"][idx][:h, :w]
         assert im_data.dtype == np.uint8, "Gaussian Splatting supports images as uint8"
-        if white_background and im_data.shape[-1] == 4:
-            bg = np.array([1, 1, 1])
+        if im_data.shape[-1] == 4:
+            bg = np.array([1, 1, 1]) if white_background else np.array([0, 0, 0])
             norm_data = im_data / 255.0
             arr = norm_data[:, :, :3] * norm_data[:, :, 3:4] + (1 - norm_data[:, :, 3:4]) * bg
             im_data = np.array(arr * 255.0, dtype=np.uint8)
@@ -268,8 +264,8 @@ class GaussianSplatting(Method):
         if self.checkpoint is None:
             # Verify parameters are set correctly
             assert train_dataset is not None, "train_dataset must be set if checkpoint is not provided"
-            if train_dataset["metadata"].get("id") == "blender":
-                assert self.dataset.white_background, "white_background should be True for blender dataset"
+            if train_dataset["metadata"].get("id") == "blender" and not self.dataset.white_background:
+                warnings.warn("white_background should be True for blender dataset")
 
         self._setup(train_dataset)
 
@@ -315,6 +311,7 @@ class GaussianSplatting(Method):
             required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset(("pinhole",)),
             supported_outputs=("color",),
+            viewer_default_resolution=768,
         )
 
     def get_info(self) -> ModelInfo:
@@ -438,13 +435,11 @@ class GaussianSplatting(Method):
         with open(str(path) + "/args.txt", "w", encoding="utf8") as f:
             f.write(" ".join(shlex.quote(x) for x in self._args_list))
 
-    def export_demo(self, path: str, *, options=None):
-        from ._gaussian_splatting_demo import export_demo
-
-        export_demo(path, 
-                    options=options,
-                    xyz=self.gaussians.get_xyz.detach().cpu().numpy(),
-                    scales=self.gaussians.get_scaling.detach().cpu().numpy(),
-                    opacities=self.gaussians.get_opacity.detach().cpu().numpy(),
-                    quaternions=self.gaussians.get_rotation.detach().cpu().numpy(),
-                    spherical_harmonics=self.gaussians.get_features.transpose(1, 2).detach().cpu().numpy())
+    def export_gaussian_splats(self, *, options=None):
+        del options
+        return dict(
+            means=self.gaussians.get_xyz.detach().cpu().numpy(),
+            scales=self.gaussians.get_scaling.detach().cpu().numpy(),
+            opacities=self.gaussians.get_opacity.detach().cpu().numpy(),
+            quaternions=self.gaussians.get_rotation.detach().cpu().numpy(),
+            spherical_harmonics=self.gaussians.get_features.transpose(1, 2).detach().cpu().numpy())

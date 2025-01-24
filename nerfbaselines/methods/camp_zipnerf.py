@@ -415,6 +415,7 @@ class CamP_ZipNeRF(Method):
             required_features=frozenset(("color",)),
             supported_camera_models=frozenset(("pinhole", "opencv", "opencv_fisheye")),
             supported_outputs=("color", "depth", "accumulation"),
+            viewer_default_resolution=(84, 512),
         )
 
     def get_info(self):

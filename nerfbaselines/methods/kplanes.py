@@ -9,7 +9,6 @@ import shutil
 import glob
 import tqdm
 import dataclasses
-import requests
 import pprint
 import warnings
 import importlib.util
@@ -18,6 +17,7 @@ import os
 import pprint
 from contextlib import contextmanager
 from typing import Optional
+import urllib.request
 import numpy as np
 import torch
 import torch.utils.data
@@ -346,10 +346,14 @@ class CameraBoundsIndex:
         if dataset_name == "phototourism" and scene in _phototourism_bounds:
             logging.info(f"Using official K-planes pre-computed camera bounds for scene {scene}")
             assert scene is not None, "Scene is required"  # pyright not clever enough
-            with requests.get(_phototourism_bounds[scene]) as r:
-                r.raise_for_status()
+            request = urllib.request.Request(_phototourism_bounds[scene], headers={
+                "User-Agent": "Mozilla/5.0",
+            })
+            with urllib.request.urlopen(request) as r:
+                if r.getcode() != 200:
+                    raise RuntimeError(f"Failed to download camera bounds for scene {scene} (HTTP {r.getcode()})")
                 names, bounds_data = [], []
-                for line in r.content.decode("utf-8").splitlines()[1:]:
+                for line in r.read().decode("utf-8").splitlines()[1:]:
                     name, l1, h1 = line.split()
                     names.append(name)
                     bounds_data.append(np.array([float(l1), float(h1)], dtype=np.float32))
@@ -579,6 +583,7 @@ class KPlanes(Method):
             required_features=frozenset(("color", "points3D_xyz", "images_points3D_indices")),
             supported_camera_models=frozenset(("pinhole",)),
             supported_outputs=("color", "depth"),
+            viewer_default_resolution=(128, 512),
         )
 
     def get_info(self) -> ModelInfo:

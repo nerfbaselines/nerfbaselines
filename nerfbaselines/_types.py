@@ -265,7 +265,9 @@ def new_cameras(
     metadata: Optional[np.ndarray] = None,
 ) -> Cameras:
     if distortion_parameters is None:
-        distortion_parameters = np.zeros((len(intrinsics), 0), dtype=intrinsics.dtype)
+        shape = list(intrinsics.shape)
+        shape[-1] = 0
+        distortion_parameters = np.zeros(tuple(shape), dtype=intrinsics.dtype)
     return GenericCamerasImpl[np.ndarray](
         poses=poses,
         intrinsics=intrinsics,
@@ -389,6 +391,7 @@ class MethodInfo(TypedDict, total=False):
     supported_camera_models: FrozenSet[CameraModel]
     supported_outputs: Tuple[Union[str, RenderOutputType], ...]
     can_resume_training: bool
+    viewer_default_resolution: Union[int, Tuple[int, int]]
 
 
 class ModelInfo(TypedDict, total=False):
@@ -403,6 +406,7 @@ class ModelInfo(TypedDict, total=False):
     hparams: Dict[str, Any]
     supported_outputs: Tuple[Union[str, RenderOutputType], ...]
     can_resume_training: bool
+    viewer_default_resolution: Union[int, Tuple[int, int]]
 
 
 class RenderOptions(TypedDict, total=False):
@@ -561,46 +565,13 @@ class TrajectoryFrame(TypedDict, total=True):
     appearance_weights: NotRequired[np.ndarray]
 
 
-class TrajectoryKeyframe(TypedDict, total=True):
-    pose: np.ndarray
-    fov: Optional[float]
-    transition_duration: NotRequired[Optional[float]]
-    appearance: NotRequired[TrajectoryFrameAppearance]
-
-
-TrajectoryInterpolationType = Literal["kochanek-bartels", "none"]
-
-
-class ImageSetInterpolationSource(TypedDict, total=True):
-    type: Literal["interpolation"]
-    interpolation: Literal["none"]
-    keyframes: List[TrajectoryKeyframe]
-    default_fov: float
-    default_transition_duration: float
-    default_appearance: NotRequired[Optional[TrajectoryFrameAppearance]]
-
-
-class KochanekBartelsInterpolationSource(TypedDict, total=True):
-    type: Literal["interpolation"]
-    interpolation: Literal["kochanek-bartels"]
-    is_cycle: bool
-    tension: float
-    keyframes: List[TrajectoryKeyframe]
-    default_fov: float
-    default_transition_duration: float
-    default_appearance: NotRequired[Optional[TrajectoryFrameAppearance]]
-
-
-TrajectoryInterpolationSource = Union[ImageSetInterpolationSource, KochanekBartelsInterpolationSource]
-
-
 class Trajectory(TypedDict, total=True):
     camera_model: CameraModel
     image_size: Tuple[int, int]
     frames: List[TrajectoryFrame]
     appearances: NotRequired[List[TrajectoryFrameAppearance]]
     fps: float
-    source: NotRequired[Optional[TrajectoryInterpolationSource]]
+    source: Any
 
 
 @runtime_checkable

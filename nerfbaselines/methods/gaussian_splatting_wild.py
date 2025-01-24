@@ -268,7 +268,7 @@ class GaussianSplattingWild(Method):
         # Needed for get_train_embedding
         self._train_dataset_cache = None
         self._train_dataset_link = None
-        if self.checkpoint is not None:
+        if self.checkpoint is not None and os.path.exists(os.path.join(self.checkpoint, "train_dataset_link.json")):
             with open(os.path.join(self.checkpoint, "train_dataset_link.json"), "r", encoding="utf8") as file:
                 link = json.load(file)
                 self._train_dataset_link = link["link"], link["image_names_sha"]
@@ -362,6 +362,7 @@ class GaussianSplattingWild(Method):
             required_features=frozenset(("color", "points3D_xyz")),
             supported_camera_models=frozenset(("pinhole",)),
             supported_outputs=("color",),
+            viewer_default_resolution=512,
         )
 
     def get_info(self) -> ModelInfo:
@@ -574,8 +575,7 @@ class GaussianSplattingWild(Method):
         return self.gaussians.color_net.cache_outd.detach().cpu().numpy().reshape(-1)
 
     @torch.no_grad()
-    def export_demo(self, path: str, *, options=None):
-        from ._gaussian_splatting_demo import export_demo
+    def export_gaussian_splats(self, *, options=None):
         from nerfbaselines.utils import apply_transform, invert_transform
 
         options = options or {}
@@ -602,10 +602,9 @@ class GaussianSplattingWild(Method):
         # Convert to spherical harmonics of deg 0
         C0 = 0.28209479177387814
         spherical_harmonics = (colors[..., None] - 0.5) / C0
-        export_demo(path, 
-                    options=options,
-                    xyz=gaussians.get_xyz.detach().cpu().numpy(),
-                    scales=self.gaussians.get_scaling.detach().cpu().numpy(),
-                    opacities=self.gaussians.get_opacity_dealed.detach().cpu().numpy(),
-                    quaternions=self.gaussians.get_rotation.detach().cpu().numpy(),
-                    spherical_harmonics=spherical_harmonics.detach().cpu().numpy())
+        return dict(
+            means=gaussians.get_xyz.detach().cpu().numpy(),
+            scales=self.gaussians.get_scaling.detach().cpu().numpy(),
+            opacities=self.gaussians.get_opacity_dealed.detach().cpu().numpy(),
+            quaternions=self.gaussians.get_rotation.detach().cpu().numpy(),
+            spherical_harmonics=spherical_harmonics.detach().cpu().numpy())

@@ -1,29 +1,34 @@
 import logging
 from tqdm import tqdm
 import tempfile
-import requests
+import urllib.request
 import numpy as np
 from .nerfstudio import NerfStudio
 
 
 def download_pointcloud(url):
-    response = requests.get(url, stream=True)
-    response.raise_for_status()
-    total_size_in_bytes = int(response.headers.get("content-length", 0))
-    block_size = 1024  # 1 Kibibyte
-    progress_bar = tqdm(total=total_size_in_bytes, unit="iB", unit_scale=True, desc=f"Downloading {url.split('/')[-1]}", dynamic_ncols=True)
-    with tempfile.TemporaryFile("rb+", suffix=".npz") as file:
-        for data in response.iter_content(block_size):
-            progress_bar.update(len(data))
-            file.write(data)
-        file.flush()
-        file.seek(0)
-        progress_bar.close()
-        if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
-            logging.error(f"Failed to download dataset. {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes.")
+    request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(request) as response:
+        if response.getcode() != 200:
+            raise RuntimeError(f"Failed to download {url} (HTTP {response.getcode()})")
+        total_size_in_bytes = int(response.getheader("Content-Length", 0))
+        block_size = 1024
+        with tqdm(total=total_size_in_bytes, unit="iB", unit_scale=True, desc=f"Downloading point cloud", dynamic_ncols=True) as progress_bar:
+            with tempfile.TemporaryFile("rb+", suffix=".npz") as file:
+                while True:
+                    data = response.read(block_size)
+                    if not data:
+                        break
+                    file.write(data)
+                    progress_bar.update(len(data))
+                file.flush()
+                file.seek(0)
+                progress_bar.close()
+                if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
+                    logging.error(f"Failed to download dataset. {progress_bar.n} bytes downloaded out of {total_size_in_bytes} bytes.")
 
-        data = np.load(file)
-        return data["xyz"], data["rgb"]
+                data = np.load(file)
+                return data["xyz"], data["rgb"]
 
 
 class TetraNeRF(NerfStudio):
