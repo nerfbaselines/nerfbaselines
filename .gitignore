@@ -12,3 +12,4 @@ nerfbaselines/_version.py
 .vscode/launch.json
 .vim/
 build/
+.DS_Store

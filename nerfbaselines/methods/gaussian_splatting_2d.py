@@ -1,7 +1,6 @@
 # NOTE: This code modifies 2DGS:
 # 1) Adds support for cx, cy not in the center of the image
 # 2) Adds support for sampling masks
-from . import _2d_gaussian_splatting_patch as _  #  Patch imports
 from argparse import ArgumentParser
 from collections import namedtuple
 import logging
@@ -19,20 +18,22 @@ from nerfbaselines import (
     Method, MethodInfo, ModelInfo, RenderOutput, Cameras, camera_model_to_int, Dataset
 )
 import shlex
-
-from scene.dataset_readers import CameraInfo  # type: ignore
-from utils.camera_utils import loadCam  # type: ignore
-from scene import Scene  # type: ignore
-
 import torch
-from arguments import ParamGroup, ModelParams, PipelineParams, OptimizationParams #  type: ignore
-from gaussian_renderer import render # type: ignore
-from scene import GaussianModel # type: ignore
-from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # type: ignore
-from utils.general_utils import safe_state  # type: ignore
-from train import train_iteration  # type: ignore
-from scene.dataset_readers import blender_create_pcd  # type: ignore
-from scene.gaussian_model import BasicPointCloud  # type: ignore
+
+from .gaussian_splatting_2d_patch import import_context
+with import_context:
+    from scene.dataset_readers import CameraInfo  # type: ignore
+    from utils.camera_utils import loadCam  # type: ignore
+    from scene import Scene  # type: ignore
+
+    from arguments import ParamGroup, ModelParams, PipelineParams, OptimizationParams #  type: ignore
+    from gaussian_renderer import render # type: ignore
+    from scene import GaussianModel # type: ignore
+    from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # type: ignore
+    from utils.general_utils import safe_state  # type: ignore
+    from train import train_iteration  # type: ignore
+    from scene.dataset_readers import blender_create_pcd  # type: ignore
+    from scene.gaussian_model import BasicPointCloud  # type: ignore
 
 
 def _build_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, 

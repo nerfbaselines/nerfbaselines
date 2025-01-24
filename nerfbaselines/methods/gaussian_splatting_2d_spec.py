@@ -31,7 +31,7 @@ _paper_results = {
 
 register({
     "id": "2d-gaussian-splatting",
-    "method_class": ".2d_gaussian_splatting:GaussianSplatting2D",
+    "method_class": ".gaussian_splatting_2d:GaussianSplatting2D",
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9",
