@@ -97,7 +97,18 @@ fi
         "mipnerf360/kitchen": { "@apply": [{"dataset": "mipnerf360", "scene": "kitchen"}], "cap_max": 1800000 },
         "mipnerf360/room": { "@apply": [{"dataset": "mipnerf360", "scene": "room"}],       "cap_max": 1500000 },
         "mipnerf360/stump": { "@apply": [{"dataset": "mipnerf360", "scene": "stump"}],     "cap_max": 4750000 },
+        "mipnerf360/flowers": { "@apply": [{"dataset": "mipnerf360", "scene": "flowers"}], "cap_max": 3700000 },
+        "mipnerf360/treehill": { "@apply": [{"dataset": "mipnerf360", "scene": "treehill"}], "cap_max": 3800000 },
+
         "blender": { "@apply": [{"dataset": "blender"}], "white_background": True, },
+        "blender/lego": { "@apply": [{"dataset": "blender", "scene": "lego"}], "cap_max": 325000 },
+        "blender/ship": { "@apply": [{"dataset": "blender", "scene": "ship"}], "cap_max": 330000 },
+        "blender/chair": { "@apply": [{"dataset": "blender", "scene": "chair"}], "cap_max": 270000 },
+        "blender/materials": { "@apply": [{"dataset": "blender", "scene": "materials"}], "cap_max": 290000 },
+        "blender/hotdog": { "@apply": [{"dataset": "blender", "scene": "hotdog"}], "cap_max": 150000 },
+        "blender/drums": { "@apply": [{"dataset": "blender", "scene": "drums"}], "cap_max": 350000 },
+        "blender/ficus": { "@apply": [{"dataset": "blender", "scene": "ficus"}], "cap_max": 300000 },
+        "blender/mic": { "@apply": [{"dataset": "blender", "scene": "mic"}], "cap_max": 320000 },
     },
     "implementation_status": {
         "blender": "working-not-reproducing",

@@ -427,6 +427,10 @@ class Tensor(np.ndarray):
     def view(self, *shape):  # type: ignore
         return self.reshape(shape)
 
+    def add_(self, value):
+        self += value
+        return self
+
     def mul_(self, value):
         self *= value
         return self
@@ -500,6 +504,14 @@ class Tensor(np.ndarray):
         self = np.ndarray.view(self, np.ndarray)
         return Tensor(np.nonzero(self)[0])
 
+    def __repr__(self):
+        self = np.ndarray.view(self, np.ndarray)
+        return f"Tensor({self.__repr__()})"
+
+    def __str__(self):
+        self = np.ndarray.view(self, np.ndarray)
+        return f"Tensor({self.__str__()})"
+
 
 class Optimizer:
     def __init__(self, params, lr, eps):
@@ -544,6 +556,7 @@ def mock_torch(patch_modules):
     torch.long = np.int64
     def concatenate(tensors, dim):
         return np.concatenate(tensors, axis=dim).view(Tensor)
+    torch.bmm = Tensor.bmm
     torch.cat = concatenate
     torch.sum = Tensor.sum
     torch.mean = Tensor.mean
@@ -567,9 +580,12 @@ def mock_torch(patch_modules):
         if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
             shape = shape[0]
         return np.ones(shape, dtype=dtype).view(Tensor)
+    def randn_like(x):
+        return np.random.randn(*x.shape).view(Tensor)
     torch.zeros = zeros
     torch.ones = ones
     torch.Tensor = Tensor
+    torch.randn_like = randn_like
 
     def save(value, file):
         if not hasattr(file, "write"):

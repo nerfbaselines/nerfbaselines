@@ -14,8 +14,9 @@ from nerfbaselines import (
     Method, MethodInfo, ModelInfo, RenderOutput, Cameras, camera_model_to_int, Dataset
 )
 import shlex
+from importlib import import_module
 
-from ._3dgs_mcmc_patch import import_context
+import_context = import_module(".3dgs_mcmc_patch", __package__).import_context
 with import_context:
     from scene.dataset_readers import CameraInfo  # type: ignore
     from utils.camera_utils import loadCam  # type: ignore
