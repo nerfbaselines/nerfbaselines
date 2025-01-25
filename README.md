@@ -93,13 +93,13 @@ Detailed results are available on the project page: [https://nerfbaselines.githu
 
 | Method                                                                               |       PSNR |      SSIM | LPIPS (VGG) |        Time | GPU mem. |
 |:-------------------------------------------------------------------------------------|-----------:|----------:|------------:|------------:|---------:|
-| [Zip-NeRF](https://nerfbaselines.github.io/m-zipnerf)                                | **28.553** | **0.829** |   **0.218** |  5h 30m 20s |  26.8 GB |
-| [Scaffold-GS](https://nerfbaselines.github.io/m-scaffold-gs)                         |   *27.714* |     0.813 |       0.262 |     23m 28s |   8.7 GB |
+| [Zip-NeRF](https://nerfbaselines.github.io/m-zipnerf)                                | **28.553** |   *0.829* |   **0.218** |  5h 30m 20s |  26.8 GB |
+| [3DGS-MCMC](https://nerfbaselines.github.io/m-3dgs-mcmc)                             |   *27.983* | **0.835** |     *0.224* |     41m 11s |  28.9 GB |
+| [Scaffold-GS](https://nerfbaselines.github.io/m-scaffold-gs)                         |     27.714 |     0.813 |       0.262 |     23m 28s |   8.7 GB |
 | [Mip-NeRF 360](https://nerfbaselines.github.io/m-mipnerf360)                         |     27.681 |     0.792 |       0.272 | 30h 14m 36s |  33.6 GB |
-| [3DGS-MCMC](https://nerfbaselines.github.io/m-3dgs-mcmc)                             |     27.571 |     0.798 |       0.281 |      35m 8s |  21.6 GB |
 | [Mip-Splatting](https://nerfbaselines.github.io/m-mip-splatting)                     |     27.492 |     0.815 |       0.258 |     25m 37s |  11.0 GB |
 | [Gaussian Splatting](https://nerfbaselines.github.io/m-gaussian-splatting)           |     27.434 |     0.814 |       0.257 |     23m 25s |  11.1 GB |
-| [Gaussian Opacity Fields](https://nerfbaselines.github.io/m-gaussian-opacity-fields) |     27.421 |   *0.826* |     *0.234* |   1h 3m 54s |  28.4 GB |
+| [Gaussian Opacity Fields](https://nerfbaselines.github.io/m-gaussian-opacity-fields) |     27.421 |     0.826 |       0.234 |   1h 3m 54s |  28.4 GB |
 | [gsplat](https://nerfbaselines.github.io/m-gsplat)                                   |     27.412 |     0.815 |       0.256 |     29m 19s |   8.3 GB |
 | [Taming 3DGS](https://nerfbaselines.github.io/m-taming-3dgs)                         |     27.217 |     0.793 |       0.305 |    *5m 59s* |   8.7 GB |
 | [2D Gaussian Splatting](https://nerfbaselines.github.io/m-2d-gaussian-splatting)     |     26.815 |     0.796 |       0.297 |     31m 10s |  13.2 GB |
@@ -115,12 +115,12 @@ Detailed results are available on the project page: [https://nerfbaselines.githu
 | Method                                                                               |       PSNR |      SSIM | LPIPS (VGG) |        Time | GPU mem. |
 |:-------------------------------------------------------------------------------------|-----------:|----------:|------------:|------------:|---------:|
 | [Zip-NeRF](https://nerfbaselines.github.io/m-zipnerf)                                | **33.670** | **0.973** |   **0.036** |  5h 21m 57s |  26.2 GB |
-| [Gaussian Opacity Fields](https://nerfbaselines.github.io/m-gaussian-opacity-fields) |   *33.451* |   *0.969* |       0.038 |     18m 26s |   3.1 GB |
-| [Mip-Splatting](https://nerfbaselines.github.io/m-mip-splatting)                     |     33.330 |   *0.969* |       0.039 |      6m 49s |   2.7 GB |
-| [Gaussian Splatting](https://nerfbaselines.github.io/m-gaussian-splatting)           |     33.308 |   *0.969* |     *0.037* |     *6m 6s* |   3.1 GB |
+| [3DGS-MCMC](https://nerfbaselines.github.io/m-3dgs-mcmc)                             |   *33.637* |   *0.971* |   **0.036** |       9m 8s |   4.5 GB |
+| [Gaussian Opacity Fields](https://nerfbaselines.github.io/m-gaussian-opacity-fields) |     33.451 |     0.969 |       0.038 |     18m 26s |   3.1 GB |
+| [Mip-Splatting](https://nerfbaselines.github.io/m-mip-splatting)                     |     33.330 |     0.969 |       0.039 |      6m 49s |   2.7 GB |
+| [Gaussian Splatting](https://nerfbaselines.github.io/m-gaussian-splatting)           |     33.308 |     0.969 |       0.037 |     *6m 6s* |   3.1 GB |
 | [TensoRF](https://nerfbaselines.github.io/m-tensorf)                                 |     33.172 |     0.963 |       0.051 |     10m 47s |  16.4 GB |
 | [Scaffold-GS](https://nerfbaselines.github.io/m-scaffold-gs)                         |     33.080 |     0.966 |       0.048 |       7m 4s |   3.7 GB |
-| [3DGS-MCMC](https://nerfbaselines.github.io/m-3dgs-mcmc)                             |     33.068 |   *0.969* |       0.040 |      6m 13s |   3.9 GB |
 | [K-Planes](https://nerfbaselines.github.io/m-kplanes)                                |     32.265 |     0.961 |       0.062 |     23m 58s |   4.6 GB |
 | [Instant NGP](https://nerfbaselines.github.io/m-instant-ngp)                         |     32.198 |     0.959 |       0.055 |  **2m 23s** | *2.6 GB* |
 | [Tetra-NeRF](https://nerfbaselines.github.io/m-tetra-nerf)                           |     31.951 |     0.957 |       0.056 |  6h 53m 20s |  29.6 GB |
