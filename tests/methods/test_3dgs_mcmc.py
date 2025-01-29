@@ -1,3 +1,4 @@
+import sys
 import importlib
 import numpy as np
 import copy
@@ -112,6 +113,7 @@ def test_3dgs_mcmc_torch(torch_cpu, isolated_modules, method_module, colmap_data
     _test_method(method_module, colmap_dataset, tmp_path)
 
 
+@pytest.mark.skipif(sys.version_info < (3, 9), reason="Python 3.9 required")
 @pytest.mark.method(METHOD_NAME)
 def test_3dgs_mcmc_mocked(isolated_modules, mock_torch, method_module, colmap_dataset, tmp_path):
     del mock_torch, isolated_modules
@@ -125,6 +127,8 @@ def test_train_3dgs_mcmc_cpu(torch_cpu, isolated_modules, method_module, run_tes
     run_test_train()
 
 
+# Skip test if Python<3.9
+@pytest.mark.skipif(sys.version_info < (3, 9), reason="Python 3.9 required")
 @pytest.mark.method(METHOD_NAME)
 def test_train_3dgs_mcmc_mocked(isolated_modules, mock_torch, method_module, run_test_train):
     del mock_torch, isolated_modules, method_module
