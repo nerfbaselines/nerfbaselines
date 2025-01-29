@@ -249,6 +249,10 @@ def ast_remove_names(tree, names):
 @import_context.patch_ast_import("train")
 def _(ast_module: ast.Module):
     training_ast = copy.deepcopy(next(x for x in ast_module.body if isinstance(x, ast.FunctionDef) and x.name == "training"))
+    # Patch torch.load => torch.load(..., weights_only=False)
+    for node in ast.walk(training_ast):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "load":
+            node.keywords.append(ast.keyword(arg="weights_only", value=ast.Constant(value=False, kind=None, lineno=0, col_offset=0), lineno=0, col_offset=0))
     # We remove the unused code
     ast_remove_names(training_ast, train_step_disabled_names)
     # Now, we extract the train iteration code
