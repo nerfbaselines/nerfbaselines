@@ -295,7 +295,7 @@ class ViewerControls extends Controls {
 		this.target.copy( this.target0 );
 		this.object.position.copy( this.position0 );
 		this.object.zoom = this.zoom0;
-
+    this.object.updateWorldMatrix(false, false);
 		this.object.updateProjectionMatrix();
 		this.dispatchEvent( _changeEvent );
 
@@ -360,6 +360,7 @@ class ViewerControls extends Controls {
         this._sphericalDelta.set(0, 0, 0);
         this._panOffset.set(0, 0, 0);
       }
+      this.object.updateWorldMatrix(false, false);
       return
     }
 
@@ -429,8 +430,10 @@ class ViewerControls extends Controls {
 			this._lastPosition.copy(this.object.position);
 			this._lastQuaternion.copy(this.object.quaternion);
 			this._lastTargetPosition.copy(this.target);
+      this.object.updateWorldMatrix(false, false);
 			return true;
 		}
+    this.object.updateWorldMatrix(false, false);
 		return false;
 	}
 
