@@ -602,7 +602,8 @@ def mock_torch(patch_modules):
 
             pickle.dump(to_numpy_rec(value), file)
 
-    def load(file, map_location=None):
+    def load(file, map_location=None, weights_only=None):
+        del map_location, weights_only
         if not hasattr(file, "write"):
             with open(file, "rb") as f:
                 return load(f)

@@ -286,7 +286,7 @@ class MipSplatting(Method):
         filter_3D = None
         if train_dataset is None or self.checkpoint:
             info = self.get_info()
-            _modeldata = torch.load(str(self.checkpoint) + f"/chkpnt-{info.get('loaded_step')}.pth")
+            _modeldata = torch.load(str(self.checkpoint) + f"/chkpnt-{info.get('loaded_step')}.pth", weights_only=False)
             if len(_modeldata) == 3:
                 (model_params, filter_3D, self.step) = _modeldata
             else:

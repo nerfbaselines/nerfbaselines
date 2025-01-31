@@ -294,7 +294,8 @@ class GaussianSplatting(Method):
             info = self.get_info()
             loaded_step = info.get("loaded_step")
             assert loaded_step is not None, "Could not infer loaded step"
-            (model_params, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{loaded_step}.pth")
+            (model_params, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{loaded_step}.pth", 
+                                                   weights_only=False)
             self.gaussians.restore(model_params, self.opt)
 
         bg_color = [1, 1, 1] if self.dataset.white_background else [0, 0, 0]

@@ -215,7 +215,7 @@ class GaussianSplattingMCMC(Method):
             info = self.get_info()
             loaded_step = info.get("loaded_step")
             assert loaded_step is not None, "Could not infer loaded step"
-            (model_params, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{loaded_step}.pth")
+            (model_params, self.step) = torch.load(str(self.checkpoint) + f"/chkpnt-{loaded_step}.pth", weights_only=False)
             self._gaussians.restore(model_params, self._opt)
 
         bg_color = [1, 1, 1] if self._dataset.white_background else [0, 0, 0]
