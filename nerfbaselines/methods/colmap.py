@@ -57,7 +57,7 @@ def _get_colmap_sfm_reconstruction(dataset: Dataset, image_ids=None):
         elif cam_model == "opencv":
             model = "OPENCV"
             k1, k2, p1, p2, k3, k4, *_ = cam.distortion_parameters
-            params = [fx, fy, cx, cy, k1, k2, p1, p2, k3, k4]
+            params = [fx, fy, cx, cy, k1, k2, p1, p2]
         elif cam_model == "opencv_fisheye":
             model = "OPENCV_FISHEYE"
             k1, k2, _, _, k3, k4, *_ = cam.distortion_parameters
