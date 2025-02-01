@@ -107,12 +107,12 @@ def make_dataset(path: Path, num_images=10):
         3: colmap_utils.Camera(3, "OPENCV_FISHEYE", 180, 190, np.array([30, 24, 80, 70, 0.3, 0.4, 0.1, 0.4], dtype=np.float32)),
     }
     images = {
-        i + 1: colmap_utils.Image(i + 1, np.random.randn(4), np.random.rand(3) * 4, list(cameras.keys())[i % len(cameras)], str(i+1)+".jpg", np.random.rand(7, 2), np.random.randint(0, 11, (7,)))
+        i + 1: colmap_utils.Image(i + 1, np.random.randn(4), np.random.rand(3) * 4, list(cameras.keys())[i % len(cameras)], str(i+1)+".jpg", np.random.rand(7, 2), np.random.randint(-1, 11, (7,)))
         for i in range(num_images)
     }
     colmap_utils.write_cameras_binary(cameras, str(path / "sparse" / "0" / "cameras.bin"))
     colmap_utils.write_points3D_binary(
-        {i + 1: colmap_utils.Point3D(i + 1, np.random.rand(3), np.random.randint(0, 255, (3,)), 0.01, np.random.randint(0, num_images, (2,)), np.random.randint(0, 7, (2,))) for i in range(11)},
+        {i: colmap_utils.Point3D(i, np.random.rand(3), np.random.randint(0, 255, (3,)), 0.01, np.random.randint(1, num_images, (2,)), np.random.randint(0, 7, (2,))) for i in range(12)},
         str(path / "sparse" / "0" / "points3D.bin"),
     )
     colmap_utils.write_images_binary(images, str(path / "sparse" / "0" / "images.bin"))
@@ -345,7 +345,7 @@ class Tensor(np.ndarray):
             return values, ind
         return Tensor(np.min(self, axis=dim))
 
-    def max(self, other=None, dim=None):
+    def max(self, other=None, dim=None, axis=None):
         self = np.ndarray.view(self, np.ndarray)
         if isinstance(other, int):
             dim = other
@@ -353,7 +353,12 @@ class Tensor(np.ndarray):
         if other is not None:
             other = np.ndarray.view(other, np.ndarray)
             return Tensor(np.maximum(self, other))
-        return Tensor(np.max(self, axis=dim))
+        if dim is not None or axis is not None:
+            maxv = Tensor(np.max(self, axis=dim or axis))
+            maxind = Tensor(np.argmax(self, axis=dim or axis))
+            return maxv, maxind
+        return Tensor(np.max(self))
+
 
     def size(self, dim=None):
         if dim is None:
@@ -373,6 +378,33 @@ class Tensor(np.ndarray):
     @property
     def device(self):
         return "cpu"
+
+    def clone(self):
+        return self.copy()
+
+    def __eq__(self, other):
+        if other is None:
+            return False
+        if isinstance(self, Tensor):
+            self = np.ndarray.view(self, np.ndarray)
+        if isinstance(other, Tensor):
+            other = np.ndarray.view(other, np.ndarray)
+        return Tensor(self == other)
+
+    def __ne__(self, other):
+        if other is None:
+            return False
+        if isinstance(self, Tensor):
+            self = np.ndarray.view(self, np.ndarray)
+        if isinstance(other, Tensor):
+            other = np.ndarray.view(other, np.ndarray)
+        return Tensor(self != other)
+
+    def float(self):
+        return self.astype(np.float32)
+
+    def int(self):
+        return self.astype(np.int32)
 
     def cuda(self, *args):
         del args
@@ -547,12 +579,14 @@ Tensor.__module__ = "torch"
 
 class Optimizer:
     def __init__(self, params, lr=None, eps=None, betas=None):
-        self.param_groups = params
+        self.param_groups = [
+            p if isinstance(p, dict) else {} for p in params
+        ]
         self.lr = lr
         self.eps = eps
 
     def zero_grad(self, set_to_none=False): pass
-    def step(self): pass
+    def step(self, closure=None): pass
     def state_dict(self):
         return vars(self)
     def load_state_dict(self, state_dict):
@@ -771,18 +805,49 @@ def mock_torch(patch_modules):
         outshape[-2:] = h, w
         return Tensor(np.full(outshape, float(x.mean()), dtype=x.dtype))
 
+    def interpolate(x, size, mode="bilinear", align_corners=False):
+        del mode, align_corners
+        return x[:size[0], :size[1]]
+
     torch.nn.functional.normalize = lambda x, dim=-1, p=2: x / x.norm(dim=dim, keepdim=True)
+    torch.nn.functional.interpolate = interpolate
     torch.nn.functional.conv2d = conv2d
 
     torch.autograd.Variable = Tensor
 
+    class DataLoader:
+        def __init__(self, dataset, collate_fn, **kwargs):
+            del kwargs
+            self.dataset = dataset
+            self.collate_fn = collate_fn
+            self._index = None
+
+        def __iter__(self):
+            self._index = 0
+            return self
+
+        def __next__(self):
+            if self._index >= len(self.dataset):
+                raise StopIteration
+            self._index += 1
+            return self.collate_fn([self.dataset[self._index - 1]])
+
+    class Dataset:
+        def __init__(self, *args, **kwargs):
+            del args, kwargs
+
+    torch.utils.data.Dataset = Dataset
+    torch.utils.data.DataLoader = DataLoader
     with patch_modules({
         "torch": torch, 
         "torch._C": torch._C,
         "torch.autograd": torch.autograd,
+        "torch.utils": torch.utils,
+        "torch.utils.data": torch.utils.data,
         "torch.cuda": torch.cuda,
         "torch.nn": torch.nn,
         "torch.optim": torch.optim,
+        "torch.optim.optimizer": torch.optim.optimizer,
         "torch.mps": torch.mps,
         "torch.autograd": torch.autograd,
         "torch.nn.functional": torch.nn.functional,
@@ -794,7 +859,7 @@ def mock_torch(patch_modules):
 
 @pytest.fixture
 def torch_cpu():
-    import torch
+    import torch.utils
     import torchvision
     del torchvision
     backup = {}
@@ -826,7 +891,7 @@ def torch_cpu():
                 args = ("cpu",) + args[1:]
             return oldto(self, *args, **kwargs)  # type: ignore
         patchtensor("to", to)
-        for name in ['zeros', 'ones', 'rand', 'tensor', 'zeros_like', 'ones_like', 'rand_like']:
+        for name in ['zeros', 'ones', 'rand', 'tensor', 'zeros_like', 'ones_like', 'rand_like', 'eye']:
             patch(name, patchdevice(getattr(torch, name)))
         yield None
     finally:

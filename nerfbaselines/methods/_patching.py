@@ -190,6 +190,7 @@ class Context:
             if module not in self._module_overrides:
                 self._module_overrides[module] = []
             self._module_overrides[module].append(_callback)
+            return callback
         return wrap
 
     def patch_code(self, module: str, callback):

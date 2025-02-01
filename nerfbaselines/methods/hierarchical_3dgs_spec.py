@@ -1,0 +1,116 @@
+import os
+from nerfbaselines import register
+
+
+long_description = """
+The Hierarchical 3DGS implementation performs splitting the scene into regions, each
+of which is optimized separately. This set is then merged into a single model. This
+is only applied for larger scenes. In NerfBaselines integration, by default we do
+not use the splitting - this matches the original implementation when applied to smaller scenes.
+The splitting implementation is not yet available in NerfBaselines, but it is planned for the future.
+
+Also, we added `depth_mode` option which allows to use different monodular depth predictors. Currently,
+add `--preset depth-dpt` to use DPT depth predictor, or use the default `depth-anything` model.
+
+In order to enable appearance optimization, add `--preset exposure` to the command line. This 
+will optimize a affine mapping for each image during the training to map the rendered colors.
+This option is recommended for the scenes with strong lighting changes when rendering a video,
+but it can decrease metrics - especially PSNR. By default exposure optimization is turned off.
+"""
+
+
+register({
+    "id": "hierarchical-3dgs",
+    "method_class": ".hierarchical_3dgs:Hierarchical3DGS",
+    "conda": {
+        "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
+        "python_version": "3.9",
+        "install_script": """git clone https://github.com/graphdeco-inria/hierarchical-3d-gaussians.git
+cd hierarchical-3d-gaussians
+git checkout 85777b143010dedb7bc370a4591de3498fe878bb
+git submodule update --recursive --init
+
+conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 'numpy<2.0.0' -c pytorch -c nvidia
+# Install ffmpeg if not available
+command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
+conda install -y gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
+conda install -y cuda-toolkit -c "nvidia/label/cuda-11.7.1"
+conda install -c conda-forge -y nodejs==20.9.0
+conda develop .
+
+pip install -U pip 'setuptools<70.0.0' 'wheel==0.43.0'
+pip install plyfile==0.8.1 \
+        mediapy==1.1.2 \
+        open3d==0.18.0 \
+        lpips==0.1.4 \
+        scikit-image==0.21.0 \
+        tqdm==4.66.2 \
+        trimesh==4.3.2 \
+        opencv-python-headless==4.10.0.84 \
+        importlib_metadata==8.5.0 \
+        typing_extensions==4.12.2 \
+        wandb==0.19.1 \
+        click==8.1.8 \
+        Pillow==11.1.0 \
+        matplotlib==3.9.4 \
+        tensorboard==2.18.0 \
+        pytest==8.3.4 \
+        websockets==14.2 \
+        timm==0.4.5 \
+        scipy==1.13.1 \
+        submodules/hierarchy-rasterizer \
+        submodules/simple-knn \
+        submodules/gaussianhierarchy \
+        --no-build-isolation
+
+(
+cd submodules/gaussianhierarchy
+cmake . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+cmake --build build -j --config Release
+ln -s "$PWD/build/GaussianHierarchyCreator" "$CONDA_PREFIX/bin"
+ln -s "$PWD/build/GaussianHierarchyMerger" "$CONDA_PREFIX/bin"
+)
+
+# Download checkpoints
+mkdir -p submodules/Depth-Anything-V2/checkpoints/
+curl -L https://huggingface.co/depth-anything/Depth-Anything-V2-Large/resolve/main/depth_anything_v2_vitl.pth?download=true \
+        -o submodules/Depth-Anything-V2/checkpoints/depth_anything_v2_vitl.pth
+mkdir -p submodules/DPT/weights/
+curl -L https://github.com/intel-isl/DPT/releases/download/1_0/dpt_large-midas-2f21e586.pt \
+        -o submodules/DPT/weights/dpt_large-midas-2f21e586.pt
+conda develop $PWD/submodules/Depth-Anything-V2
+conda develop $PWD/submodules/DPT
+
+if [ "$NERFBASELINES_DOCKER_BUILD" = "1" ]; then
+# Reduce size of the environment by removing unused files
+find "$CONDA_PREFIX" -name '*.a' -delete
+find "$CONDA_PREFIX" -type d -name 'nsight*' -exec rm -r {} +
+# Replace all libs under $CONDA_PREFIX/lib with symlinks to pkgs/cuda-toolkit/targets/x86_64-linux/lib
+for lib in "$CONDA_PREFIX"/lib/*.so*; do 
+    if [ ! -f "$lib" ] || [ -L "$lib" ]; then continue; fi;
+    lib="${lib%.so*}.so";libname=$(basename "$lib");
+    tgt="$CONDA_PREFIX/pkgs/cuda-toolkit/targets/x86_64-linux/lib/$libname"
+    if [ -f "$tgt" ]; then echo "Deleting $lib"; rm "$lib"*; for tgtlib in "$tgt"*; do ln -s "$tgtlib" "$(dirname "$lib")"; done; fi;
+done
+fi
+""",
+    },
+    "metadata": {
+        "name": "H3DGS",
+        "description": "",
+        "paper_title": "Taming 3DGS: High-Quality Radiance Fields with Limited Resources",
+        "paper_authors": [],
+        "paper_link": "",
+        "link": "",
+        "licenses": [],
+        "long_description": long_description,
+        "presets": {
+            "exposure": {
+                "exposure_lr_init": 0.001,
+            },
+            "depth-dpt": { 
+                "depth_mode": "dpt", 
+            },
+        },
+    },
+})
