@@ -290,6 +290,7 @@ def load_colmap_dataset(path: Union[Path, str],
     i = 0
     c2w: np.ndarray
     images_points3D_ids = []
+    images_points2D_xy = []
     for image in images.values():
         camera: colmap_utils.Camera = colmap_cameras[image.camera_id]
         intrinsics, camera_model, distortion_params, (w, h) = _parse_colmap_camera_params(camera)
@@ -317,8 +318,12 @@ def load_colmap_dataset(path: Union[Path, str],
 
         i += 1
 
+        if "images_points2D_xy" in features:
+            images_points2D_xy.append(image.xys[image.point3D_ids >= 0].astype(np.float32))
+
         if "images_points3D_indices" in features:
-            images_points3D_ids.append(image.point3D_ids)
+            images_points3D_ids.append(image.point3D_ids[image.point3D_ids >= 0])
+
 
 
     # Estimate nears fars
@@ -394,6 +399,7 @@ def load_colmap_dataset(path: Union[Path, str],
         sampling_mask_paths_root=str(sampling_masks_path) if sampling_mask_paths is not None else None,
         points3D_xyz=points3D_xyz,
         points3D_rgb=points3D_rgb,
+        images_points2D_xy=images_points2D_xy if "images_points2D_xy" in features else None,
         images_points3D_indices=images_points3D_indices if "images_points3D_indices" in features else None,
         metadata={
             "id": None,
