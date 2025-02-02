@@ -53,6 +53,7 @@ def _parse_patch(patch):
             oldlines = []
             newlines = []
             while i < len(pl):
+                print("aaa", pl[i])
                 if pl[i].startswith("-"):
                     oldlines.append(pl[i][1:])
                 elif pl[i].startswith("+"):
@@ -60,8 +61,13 @@ def _parse_patch(patch):
                 elif pl[i].startswith(" "):
                     oldlines.append(pl[i][1:])
                     newlines.append(pl[i][1:])
+                elif len(pl[i]) == 0:
+                    oldlines.append("")
+                    newlines.append("")
+                elif pl[i].startswith("\\"):
+                    pass
                 i += 1
-                if i >= len(pl) or (pl[i] and pl[i][0] not in (" ", "-", "+")):
+                if i >= len(pl) or (pl[i] and pl[i][0] not in (" ", "-", "+", "\\")):
                     break
             updates = fullpatch.setdefault(file, [])
             assert len(oldlines) == old[1]
