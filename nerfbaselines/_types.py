@@ -61,7 +61,9 @@ NB_PREFIX = os.path.expanduser(os.environ.get("NERFBASELINES_PREFIX", "~/.cache/
 ColorSpace = Literal["srgb", "linear"]
 CameraModel = Literal["pinhole", "opencv", "opencv_fisheye", "full_opencv"]
 BackendName = Literal["conda", "docker", "apptainer", "python"]
-DatasetFeature = Literal["color", "points3D_xyz", "points3D_rgb", "images_points3D_indices", "images_points2D_xy"]
+DatasetFeature = Literal["color", "points3D_xyz", "points3D_rgb", 
+                         "images_points3D_indices", "images_points2D_xy",
+                         "points3D_error"]
 TTensor = TypeVar("TTensor", np.ndarray, "torch.Tensor", "jnp.ndarray")
 TTensor_co = TypeVar("TTensor_co", np.ndarray, "torch.Tensor", "jnp.ndarray", covariant=True)
 
@@ -289,6 +291,7 @@ class _IncompleteDataset(TypedDict, total=True):
     sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]]  # [N][H, W]
     points3D_xyz: Optional[np.ndarray]  # [M, 3]
     points3D_rgb: Optional[np.ndarray]  # [M, 3]
+    points3D_error: Optional[np.ndarray]  # [M]
     images_points3D_indices: Optional[List[np.ndarray]]  # [N][<M]
     images_points2D_xy: Optional[List[np.ndarray]]  # [N][<M, 2]
 
@@ -312,6 +315,7 @@ def new_dataset(*,
                 sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = ...,  # [N][H, W]
                 points3D_xyz: Optional[np.ndarray] = ...,  # [M, 3]
                 points3D_rgb: Optional[np.ndarray] = ...,  # [M, 3]
+                points3D_error: Optional[np.ndarray] = ...,  # [M]
                 images_points3D_indices: Optional[Sequence[np.ndarray]] = ...,  # [N][<M]
                 images_points2D_xy: Optional[Sequence[np.ndarray]] = ...,  # [N][<M, 2]
                 metadata: Optional[Dict] = ...) -> Dataset:
@@ -329,6 +333,7 @@ def new_dataset(*,
                 sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = ...,  # [N][H, W]
                 points3D_xyz: Optional[np.ndarray] = ...,  # [M, 3]
                 points3D_rgb: Optional[np.ndarray] = ...,  # [M, 3]
+                points3D_error: Optional[np.ndarray] = ...,  # [M]
                 images_points3D_indices: Optional[Sequence[np.ndarray]] = ...,  # [N][<M]
                 images_points2D_xy: Optional[Sequence[np.ndarray]] = ...,  # [N][<M, 2]
                 metadata: Optional[Dict] = ...) -> UnloadedDataset:
@@ -345,6 +350,7 @@ def new_dataset(*,
                 sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W]
                 points3D_xyz: Optional[np.ndarray] = None,  # [M, 3]
                 points3D_rgb: Optional[np.ndarray] = None,  # [M, 3]
+                points3D_error: Optional[np.ndarray] = None,  # [M]
                 images_points3D_indices: Optional[Sequence[np.ndarray]] = None,  # [N][<M]
                 images_points2D_xy: Optional[Sequence[np.ndarray]] = None,  # [N][<M, 2]
                 metadata: Optional[Dict] = None) -> Union[UnloadedDataset, Dataset]:
@@ -366,6 +372,7 @@ def new_dataset(*,
         sampling_masks=sampling_masks,
         points3D_xyz=points3D_xyz,
         points3D_rgb=points3D_rgb,
+        points3D_error=points3D_error,
         images_points3D_indices=list(images_points3D_indices) if images_points3D_indices is not None else None,
         images_points2D_xy=list(images_points2D_xy) if images_points2D_xy is not None else None,
         metadata=metadata

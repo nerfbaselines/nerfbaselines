@@ -266,3 +266,153 @@ def _(ast_module: ast.Module):
     # Remove line invmonodepthmap = ... from the function body
     get_scales_ast.body = _ast_prune_node(get_scales_ast.body, lambda node: isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) and node.targets[0].id == "invmonodepthmap")
     ast_module.body.insert(0, ast.parse("from nerfbaselines.datasets._colmap_utils import *").body[0])
+
+
+import_context.apply_patch(r"""
+diff --git a/preprocess/make_chunk.py b/preprocess/make_chunk.py
+index 1eb0529..f575c95 100644
+--- a/preprocess/make_chunk.py
++++ b/preprocess/make_chunk.py
+@@ -12,11 +12,11 @@
+ import numpy as np
+ import argparse
+ import cv2
+-from joblib import delayed, Parallel
+ import os
+ import random
+-from read_write_model import *
+-import json
++from argparse import Namespace
++from nerfbaselines.datasets._colmap_utils import qvec2rotmat
++
+ 
+ def get_nb_pts(image_metas):
+     n_pts = 0
+@@ -27,31 +27,21 @@ def get_nb_pts(image_metas):
+ 
+     return n_pts + 1
+ 
+-if __name__ == '__main__':
+-    random.seed(0)
++
++def get_argparser():
+     parser = argparse.ArgumentParser()
+-    parser.add_argument('--base_dir', required=True)
+-    parser.add_argument('--images_dir', required=True)
+     parser.add_argument('--chunk_size', default=100, type=float)
+     parser.add_argument('--min_padd', default=0.2, type=float)
+     parser.add_argument('--lapla_thresh', default=1, type=float, help="Discard images if their laplacians are < mean - lapla_thresh * std") # 1
+     parser.add_argument('--min_n_cams', default=100, type=int) # 100
+     parser.add_argument('--max_n_cams', default=1500, type=int) # 1500
+-    parser.add_argument('--output_path', required=True)
+     parser.add_argument('--add_far_cams', default=True)
+-    parser.add_argument('--model_type', default="bin")
++    return parser
+ 
+-    args = parser.parse_args()
+ 
++def generate_chunks(cam_intrinsics, images_metas, points3d, images, args):
+     # eval
+-    test_file = f"{args.base_dir}/test.txt"
+-    if os.path.exists(test_file):
+-        with open(test_file, 'r') as file:
+-            test_cam_names_list = file.readlines()
+-            blending_dict = {name[:-1] if name[-1] == '\n' else name: {} for name in test_cam_names_list}
+-
+-    cam_intrinsics, images_metas, points3d = read_model(args.base_dir, ext=f".{args.model_type}")
+-
++    random.seed(0)
+     cam_centers = np.array([
+         -qvec2rotmat(images_metas[key].qvec).astype(np.float32).T @ images_metas[key].tvec.astype(np.float32)
+         for key in images_metas
+@@ -108,18 +98,12 @@ if __name__ == '__main__':
+     global_bbox[0, 2] = -1e12
+     global_bbox[1, 2] = 1e12
+ 
+-    def get_var_of_laplacian(key):
+-        image = cv2.imread(os.path.join(args.images_dir, images_metas[key].name))
+-        if image is not None:
+-            gray = cv2.cvtColor(image[..., :3], cv2.COLOR_BGR2GRAY)
+-            return cv2.Laplacian(gray, cv2.CV_32F).var()
+-        else:
+-            return 0   
++    def get_var_of_laplacian(i):
++        gray = cv2.cvtColor(images[i][..., :3], cv2.COLOR_RGB2GRAY)
++        return cv2.Laplacian(gray, cv2.CV_32F).var()
+         
+     if args.lapla_thresh > 0: 
+-        laplacians = Parallel(n_jobs=-1, backend="threading")(
+-            delayed(get_var_of_laplacian)(key) for key in images_metas
+-        )
++        laplacians = [get_var_of_laplacian(i) for i in range(len(images_metas))]
+         laplacians_dict = {key: laplacian for key, laplacian in zip(images_metas, laplacians)}
+ 
+     excluded_chunks = []
+@@ -200,17 +184,13 @@ if __name__ == '__main__':
+             print(f"{valid_cam.sum()} after random removal")
+ 
+         valid_keys = [key for idx, key in enumerate(images_metas) if valid_cam[idx]]
+-        
+-        if valid_cam.sum() > args.min_n_cams:# or init_valid_cam.sum() > 0:
+-            out_path = os.path.join(args.output_path, f"{i}_{j}")
+-            out_colmap = os.path.join(out_path, "sparse", "0")
+-            os.makedirs(out_colmap, exist_ok=True)
+ 
++        if valid_cam.sum() > args.min_n_cams:# or init_valid_cam.sum() > 0:
+             # must remove sfm points to use colmap triangulator in following steps
+             images_out = {}
+             for key in valid_keys:
+                 image_meta = images_metas[key]
+-                images_out[key] = Image(
++                images_out[key] = Namespace(
+                     id = key,
+                     qvec = image_meta.qvec,
+                     tvec = image_meta.tvec,
+@@ -220,13 +200,8 @@ if __name__ == '__main__':
+                     point3D_ids = []
+                 )
+ 
+-                if os.path.exists(test_file) and image_meta.name in blending_dict:
+-                    n_pts = np.isin(image_meta.point3D_ids, new_indices).sum()
+-                    blending_dict[image_meta.name][f"{i}_{j}"] = str(n_pts)
+-
+-
+             points_out = {
+-                new_indices[idx] : Point3D(
++                new_indices[idx] : Namespace(
+                         id=new_indices[idx],
+                         xyz= new_xyzs[idx],
+                         rgb=new_colors[idx],
+@@ -237,12 +212,14 @@ if __name__ == '__main__':
+                 for idx in range(len(new_xyzs))
+             }
+ 
+-            write_model(cam_intrinsics, images_out, points_out, out_colmap, f".{args.model_type}")
+-
+-            with open(os.path.join(out_path, "center.txt"), 'w') as f:
+-                f.write(' '.join(map(str, (corner_min + corner_max) / 2)))
+-            with open(os.path.join(out_path, "extent.txt"), 'w') as f:
+-                f.write(' '.join(map(str, corner_max - corner_min)))
++            return {
++                "cameras": cam_intrinsics,
++                "images": images_out,
++                "points3D": points_out,
++                "center": (corner_min + corner_max) / 2,
++                "extent": corner_max - corner_min,
++                "coords": (i, j)
++            }
+         else:
+             excluded_chunks.append([i, j])
+             print("Chunk excluded")
+@@ -253,8 +230,4 @@ if __name__ == '__main__':
+ 
+     for i in range(n_width):
+         for j in range(n_height):
+-            make_chunk(i, j, n_width, n_height)
+-
+-    if os.path.exists(test_file):
+-        with open(f"{args.base_dir}/blending_dict.json", "w") as f:
+-            json.dump(blending_dict, f, indent=2)
+\ No newline at end of file
++            yield make_chunk(i, j, n_width, n_height)
+""".strip())

@@ -14,6 +14,7 @@ from nerfbaselines import (
     Method, MethodInfo, ModelInfo, RenderOutput, Cameras, camera_model_to_int, Dataset
 )
 from nerfbaselines.datasets import _colmap_utils as colmap_utils
+from nerfbaselines.datasets import dataset_index_select
 import torch
 import numpy as np
 from PIL import Image
@@ -28,6 +29,7 @@ with import_context:
     from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # type: ignore
     from scene.gaussian_model import BasicPointCloud  # type: ignore
     from preprocess import make_depth_scale  # type: ignore
+    from preprocess import make_chunk  # type: ignore
     import train_single as _train_single  # type: ignore
     import train_post as _train_post  # type: ignore
 
@@ -280,6 +282,68 @@ def compute_depth_params(dataset):
     return dataset
 
 
+def split_dataset_into_chunks(dataset, config_overrides):
+    argparser = make_chunk.get_argparser()
+    arg_list = []
+    _config_overrides_to_args_list(arg_list, config_overrides)
+    args = argparser.parse_args(arg_list)
+
+    cams = {}
+    imgs = {}
+    points3D = {}
+    for i in range(len(dataset["cameras"])):
+        cams[i+1] = Namespace(
+            id=i+1,
+            model="PINHOLE",
+        )
+        qvec = colmap_utils.rotmat2qvec(dataset["cameras"][i].poses[:3, :3].T)
+        tvec = -np.matmul(dataset["cameras"][i].poses[:3, :3].T, dataset["cameras"][i].poses[:3, 3]).reshape(3)
+        imgs[i+1] = Namespace(
+            id=i+1,
+            camera_id=i+1,
+            qvec=qvec,
+            tvec=tvec,
+            name=os.path.relpath(dataset["image_paths"][i], dataset["image_paths_root"]),
+            point3D_ids=dataset["images_points3D_indices"][i]+1,
+        )
+    rgbs = dataset.get("points3D_rgb")
+
+    # We need to invert images_points3D_indices
+    points3D_image_indices = [[] for _ in range(len(dataset["points3D_xyz"]))]
+    for i, image_ids in enumerate(dataset["images_points3D_indices"]):
+        for j in image_ids:
+            points3D_image_indices[j].append(i)
+    for i in range(len(dataset["points3D_xyz"])):
+        points3D[i+1] = Namespace(
+            id=i+1,
+            xyz=dataset["points3D_xyz"][i],
+            rgb=rgbs[i] if rgbs is not None else np.zeros(3, dtype=np.uint8),
+            error=dataset["points3D_error"][i],
+            image_ids=np.array(points3D_image_indices[i], dtype=np.int32)+1,
+        )
+    chunk_datasets = []
+    for chunk in tqdm.tqdm(
+            make_chunk.generate_chunks(cams, imgs, points3D, dataset["images"], args), desc="Generating chunks"):
+        # Ignored chunk
+        if not chunk: continue
+        # We need to
+        # 1) Update images_points3D_indices
+        # 2) Remove other images
+        # 3) Remove other points3D
+        image_indices = np.array([x-1 for x in chunk["images"].keys()], dtype=np.int32)
+        point_indices = np.array([x-1 for x in chunk["points3D"].keys()], dtype=np.int32)
+        inverse_point_indices = {k: i for i, k in enumerate(point_indices)}
+        chunk_dataset = dataset_index_select(dataset, image_indices)
+        for i, indices_map in enumerate(chunk_dataset["images_points3D_indices"]):
+            chunk_dataset["images_points3D_indices"][i] = \
+                np.array([inverse_point_indices[k] for k in indices_map], dtype=np.int32)
+        for k in chunk_dataset.keys():
+            if k.startswith("points3D_"):
+                chunk_dataset[k] = chunk_dataset[k][point_indices]
+        chunk_datasets.append(chunk_dataset)
+    return chunk_datasets
+
+
 class SingleHierarchical3DGS:
     module = _train_single
 
@@ -477,6 +541,16 @@ class PostHierarchical3DGS(SingleHierarchical3DGS):
             train_dataset=train_dataset, 
             config_overrides=config_overrides)
 
+    @classmethod
+    def _get_args(cls, config_overrides, store=None):
+        args_list = ["--source_path", "<empty>", "--resolution", "1", "--eval"]
+        _config_overrides_to_args_list(args_list, config_overrides)
+        parser = cls.module.get_argparser(store or Namespace())
+        parser.set_defaults(iterations=15000, feature_lr=0.0005, opacity_lr=0.01, scaling_lr=0.001)
+        args = parser.parse_args(args_list)
+        return args
+
+
     def generate_hierarchy(self, checkpoint, train_dataset):
         assert train_dataset is not None, "train_dataset must be provided to generate hierarchy"
         loaded_step = max(int(x[x.find("_") + 1:]) for x in os.listdir(os.path.join(str(checkpoint), "point_cloud")) if x.startswith("iteration_"))
@@ -495,6 +569,7 @@ class Hierarchical3DGS(Method):
                  checkpoint: Optional[str] = None,
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
+        train_dataset = split_dataset_into_chunks(train_dataset, config_overrides)[0]
         stages = [
             ('single', SingleHierarchical3DGS),
             ('post', PostHierarchical3DGS),
@@ -532,7 +607,10 @@ class Hierarchical3DGS(Method):
     def get_method_info(cls):
         return MethodInfo(
             method_id="",
-            required_features=frozenset(("color", "points3D_xyz", "images_points3D_indices", "images_points2D_xy")),
+            required_features=frozenset((
+                "color", "points3D_xyz", "images_points3D_indices", "images_points2D_xy",
+                "points3D_error", "points3D_rgb",
+            )),
             supported_camera_models=frozenset(("pinhole",)),
             supported_outputs=("color",),
             can_resume_training=False,
