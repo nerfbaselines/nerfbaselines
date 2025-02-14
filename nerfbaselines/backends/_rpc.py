@@ -13,13 +13,12 @@ import dataclasses
 from functools import partial
 import types
 from dataclasses import dataclass
-import importlib
-from typing import Optional, List, Any, Callable, cast
+from typing import Optional, List, Any
 import inspect
 import logging
 from queue import Queue
 from ..utils import CancellationToken, CancelledException
-from ._common import Backend, SimpleBackend
+from ._common import Backend, SimpleBackend, current_backend_options
 
 
 def _remap_error(e: BaseException):
@@ -286,7 +285,7 @@ def run_worker(*, protocol):
     def worker_interrupt(protocol, handle_interrupt, interrupt_result_queue):
         try:
             while True:
-                msg = protocol.receive(interrupt=True)
+                msg = protocol.receive(channel=1)
                 handle_interrupt(msg)
         except BaseException as e:
             interrupt_result_queue.put(e)
@@ -301,7 +300,7 @@ def run_worker(*, protocol):
         logging.info(f"Connection accepted, protocol: {protocol.protocol_name}")
         interrupt_thread.start()
         while interrupt_thread.is_alive():
-            msg = protocol.receive()
+            msg = protocol.receive(channel=0)
             if msg.get("message") == "_safe_close":
                 safe_terminate = True
                 protocol.close()
@@ -364,12 +363,16 @@ class RPCBackend(Backend):
     def __init__(self, protocol, customize_wrapper=None):
         self._protocol = protocol
         self._customize_wrapper = customize_wrapper
-        self._send_interrupt = partial(protocol.send, interrupt=True)
         self._remote_instances_counter = {}
+        self._interrupt_lock = threading.Lock()
 
-    def _send(self, message):
+    def _send_interrupt(self, message):
+        with self._interrupt_lock:
+            self._protocol.send(message, channel=1)
+
+    def _send(self, message, zero_copy=False):
         self._protocol.send(message)
-        return self._protocol.receive()
+        return self._protocol.receive(channel=0, zero_copy=zero_copy)
 
     def instance_del(self, instance: int):
         try:
@@ -413,7 +416,8 @@ class RPCBackend(Backend):
                 "kwargs": kwargs,
                 "cancellation_token_id": id(cancellation_token) if cancellation_token is not None else None,
             }
-            msg = self._send(message)
+            zero_copy = current_backend_options().zero_copy
+            msg = self._send(message, zero_copy=zero_copy)
         finally:
             if cancellation_token is not None and cancel_callback is not None:
                 cancellation_token._callbacks.remove(cancel_callback)
@@ -442,163 +446,6 @@ class RPCBackend(Backend):
 
     def instance_call(self, instance: int, method: str, *args, **kwargs) -> Any:
         return self._call(method, instance, *args, **kwargs)
-
-
-_backends_module = _remap_error.__module__.rsplit(".", 1)[0]
-_transport_protocols_registry = {
-    "tcp-pickle": f"{_backends_module}.protocol_tcp_pickle:TCPPickleProtocol",
-    "shm-pickle": f"{_backends_module}.protocol_shm_pickle:SharedMemoryProtocol",
-}
-_default_transport_protocol = ["tcp-pickle", "shm-pickle"]
-
-
-class AutoTransportProtocol:
-    def __init__(self,
-                 protocol_classes=None,
-                 default_protocol_configuration=None):
-        if protocol_classes is None:
-            if "NERFBASELINES_PROTOCOL" in os.environ:
-                protocol_classes = os.environ["NERFBASELINES_PROTOCOL"].split(",")
-            else:
-                protocol_classes = _default_transport_protocol
-        self._protocol_classes = protocol_classes
-        self._current_protocol = self._resolve_protocol_class(self._protocol_classes[0])(
-            **(default_protocol_configuration or {}))
-        self._upgraded = False
-
-    @staticmethod
-    def _resolve_protocol_class(protocol_class):
-        protocol_class = _transport_protocols_registry.get(protocol_class, protocol_class)
-        module, cls = protocol_class.split(":")
-        mod = importlib.import_module(module)
-        return getattr(mod, cls)
-
-    def get_worker_configuration(self):
-        assert self._current_protocol is not None, "Protocol is None"
-        return {
-            "protocol_classes": self._protocol_classes,
-            "default_protocol_configuration": self._current_protocol.get_worker_configuration(),
-        }
-
-    def wait_for_worker(self, timeout=None):
-        assert self._current_protocol is not None, "Protocol is None"
-        self._current_protocol.wait_for_worker(timeout=timeout)
-
-        if self._upgraded:
-            # Accept the new protocol
-            self.send({"message": "__upgrade_protocol_end__"})
-            return
-
-        # After connecting, we try to upgrade the protocol
-        # starting from the least safe (last one)
-        working_new_protocol = None
-        for protocol_class in reversed(self._protocol_classes[1:]):
-            protocol_configuration = None
-            new_protocol = None
-            try:
-                new_protocol = self._resolve_protocol_class(protocol_class)()
-                new_protocol.start_host()
-                protocol_configuration = new_protocol.get_worker_configuration()
-            except Exception as e:
-                logging.warning(f"Error upgrading protocol: {e}")
-                if new_protocol is not None:
-                    new_protocol.close()
-                continue
-            self.send({
-                "message": "__upgrade_protocol__",
-                "protocol_class": protocol_class,
-                "protocol_configuration": protocol_configuration,
-            })
-            response = self.receive()
-            if response.get("message") == "__upgrade_protocol_error__":
-                logging.warning(f"Error upgrading protocol (worker): {response.get('error')}")
-                if new_protocol is not None:
-                    new_protocol.close()
-                continue
-            if response.get("message") != "__upgrade_protocol_ack__":
-                raise RuntimeError(f"Unexpected message {response.get('message')}")
-            try:
-                new_protocol.wait_for_worker(timeout=timeout)
-                logging.debug(f"Allowed protocol to upgrade: {new_protocol.protocol_name}")
-                working_new_protocol = new_protocol
-                break
-            except Exception as e:
-                logging.warning(f"Error upgrading protocol: {e}")
-                if new_protocol is not None:
-                    new_protocol.close()
-
-        # Accept the new protocol
-        self.send({"message": "__upgrade_protocol_end__"})
-
-        # Replace the protocols
-        if working_new_protocol is not None:
-            old_protocol = self._current_protocol
-            self._current_protocol = working_new_protocol
-            old_protocol.close()
-
-    def connect_worker(self):
-        assert self._current_protocol is not None, "Protocol is None"
-        self._current_protocol.connect_worker()
-
-        # After connecting, we try to upgrade the protocol
-        # starting from the least safe (last one)
-        message = self.receive()
-        working_new_protocol = None
-        while message.get("message") != "__upgrade_protocol_end__":
-            new_protocol = None
-            try:
-                new_protocol = self._resolve_protocol_class(message["protocol_class"])(
-                    **message.get("protocol_configuration", {}))
-                self.send({"message": "__upgrade_protocol_ack__"})
-            except Exception as e:
-                if new_protocol is not None:
-                    new_protocol.close()
-                self.send({
-                    "message": "__upgrade_protocol_error__",
-                    "error": str(e),
-                })
-                message = self.receive()
-                continue
-            try:
-                new_protocol.connect_worker()
-                working_new_protocol = new_protocol
-            except Exception:
-                if new_protocol is not None:
-                    new_protocol.close()
-                message = self.receive()
-                continue
-
-            message = self.receive()
-
-        # Accept the new protocol
-        if working_new_protocol is not None:
-            old_protocol = self._current_protocol
-            self._current_protocol = working_new_protocol
-            # We need to process the old_protocol messages until it is closed
-            old_protocol.close()
-            logging.debug("Finished protocol upgrade {old_protocol.protocol_name} -> {self._current_protocol.protocol_name}")
-
-    def start_host(self):
-        assert self._current_protocol is not None, "Protocol is None"
-        self._current_protocol.start_host()
-
-    @property
-    def protocol_name(self):
-        assert self._current_protocol is not None, "Protocol is None"
-        return self._current_protocol.protocol_name
-
-    def send(self, *args, **kwargs):
-        assert self._current_protocol is not None, "Protocol is None"
-        return self._current_protocol.send(*args, **kwargs)
-
-    def receive(self, *args, **kwargs):
-        assert self._current_protocol is not None, "Protocol is None"
-        return self._current_protocol.receive(*args, **kwargs)
-
-    def close(self):
-        if self._current_protocol is not None:
-            self._current_protocol.close()
-            self._current_protocol = None
 
 
 class RemoteProcessRPCBackend(Backend):
@@ -639,9 +486,6 @@ class RemoteProcessRPCBackend(Backend):
         if self._worker_monitor_thread is not None:
             self._worker_monitor_thread.join()
             self._worker_monitor_thread = None
-        if self._protocol is not None:
-            self._protocol.close()
-            self._protocol = None
         self._rpc_backend = None
         if self._worker_process is not None:
             if self._worker_process.poll() is None:
@@ -659,6 +503,9 @@ class RemoteProcessRPCBackend(Backend):
                 logging.error("Server did not shut down, killing")
                 self._worker_process.kill()
                 self._worker_process.wait()
+        if self._protocol is not None:
+            self._protocol.close()
+            self._protocol = None
 
     def _launch_worker(self, args, env):
         return subprocess.Popen(args, env=env, stdin=subprocess.DEVNULL)
@@ -686,7 +533,8 @@ class RemoteProcessRPCBackend(Backend):
 
         is_verbose = logging.getLogger().isEnabledFor(logging.DEBUG)
         if self._protocol is None:
-            self._protocol = AutoTransportProtocol()
+            from ._transport_protocol import TransportProtocol
+            self._protocol = TransportProtocol()
 
         self._protocol.start_host()
         protocol_kwargs = self._protocol.get_worker_configuration()

@@ -1,8 +1,9 @@
+import dataclasses
+import contextlib
 import os
 import logging
 import functools
 import sys
-import re
 from collections import deque
 import threading
 import importlib
@@ -20,8 +21,52 @@ except ImportError:
 
 
 _mounted_paths = {}
-_forwarded_ports = {}
 _active_backend = {}
+_backend_options = {}
+
+
+@dataclasses.dataclass(frozen=True)
+class BackendOptions:
+    """
+    Backend options for the current thread.
+    """
+    zero_copy: bool = False
+    """If True, zero-copy is enabled for the current thread."""
+
+
+def current_backend_options() -> BackendOptions:
+    '''
+    Returns the current backend options for the current thread.
+    '''
+    tid = threading.get_ident()
+    return _backend_options.get(tid, BackendOptions())
+
+
+@contextlib.contextmanager
+def zero_copy(zero_copy: bool = True):
+    '''
+    A context manager that enables zero-copy for the current thread.
+    Zero-copy is used for all subsequent calls for all backends.
+    A zero-copy mode instructs the backend to reuse the shared memory
+    used for data transfer. This is useful when the data is large and
+    speed is important. However, it is important to only use results
+    of backend calls inside the context manager. The data will be
+    overwritten by subsequent calls.
+
+    Args:
+        zero_copy: If True, zero-copy is enabled for the current thread.
+            If False, zero-copy is disabled.
+    '''
+    tid = threading.get_ident()
+    if tid not in _backend_options:
+        _backend_options[tid] = BackendOptions()
+    change = dict(zero_copy=zero_copy)
+    backup = {k: getattr(_backend_options[tid], k) for k in change}
+    _backend_options[tid] = dataclasses.replace(_backend_options[tid], **change)
+    try:
+        yield
+    finally:
+        _backend_options[tid] = dataclasses.replace(_backend_options[tid], **backup)
 
 
 def mount(ps: Union[str, Path], pd: Union[str, Path]):
@@ -48,33 +93,6 @@ def get_mounts():
     tid = threading.get_ident()
     out = []
     for dest, src in _mounted_paths.get(tid, {}).items():
-        out.append((src, dest))
-    return out
-
-
-def forward_port(ps: int, pd: int):
-    tid = threading.get_ident()
-    if _active_backend.get(tid):
-        raise RuntimeError("Cannot forward ports while backend is active")
-    if tid not in _forwarded_ports:
-        _forwarded_ports[tid] = {}
-    _forwarded_ports[tid][pd] = ps
-    class _Forward:
-        def __enter__(self):
-            return self
-        def __exit__(self, *args):
-            del args
-            if tid in _forwarded_ports and pd in _forwarded_ports[tid]:
-                _forwarded_ports[tid].pop(pd)
-            if tid in _forwarded_ports and not _forwarded_ports[tid]:
-                del _forwarded_ports[tid]
-    return _Forward()
-
-
-def get_forwarded_ports():
-    tid = threading.get_ident()
-    out = []
-    for dest, src in _forwarded_ports.get(tid, {}).items():
         out.append((src, dest))
     return out
 

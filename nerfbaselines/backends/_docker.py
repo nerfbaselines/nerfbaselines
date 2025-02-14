@@ -401,8 +401,6 @@ class DockerBackend(RemoteProcessRPCBackend):
         # Run docker image
         self._applied_mounts = get_mounts()
         # Using network=host
-        # forwarded_ports = get_forwarded_ports()
-        # forwarded_ports.append((self._port, self._port))
         if args[0] == "python":
             args[0] = self._spec.get("python_path") or "python"
 
@@ -417,7 +415,6 @@ class DockerBackend(RemoteProcessRPCBackend):
         env = get_safe_environment()
         mounts = get_mounts()
         # Using network=host
-        # forwarded_ports = get_forwarded_ports()
         args = ["/bin/bash"] if args is None else list(args)
         support_interactive = sys.stdin.isatty()
         args, env = docker_run_image(
