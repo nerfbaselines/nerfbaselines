@@ -1,4 +1,3 @@
-import math
 import numpy as np
 from operator import mul
 from functools import reduce
@@ -208,7 +207,7 @@ def padded_stack(tensors: Union[np.ndarray, Tuple[np.ndarray, ...], List[np.ndar
     return np.stack(out_tensors, 0)
 
 
-def convert_image_dtype(image: np.ndarray, dtype) -> np.ndarray:
+def convert_image_dtype(image: TTensor, dtype) -> TTensor:
     """
     Convert an image to a given dtype.
 
@@ -219,16 +218,31 @@ def convert_image_dtype(image: np.ndarray, dtype) -> np.ndarray:
     Returns:
         The converted image.
     """
+    xnp = _get_xnp(image)
+    is_torch = xnp.__name__ == "torch"
     if isinstance(dtype, str):
-        dtype = np.dtype(dtype)
+        dtype = getattr(xnp, dtype)
+    uint8 = xnp.uint8
     if image.dtype == dtype:
         return image
-    if image.dtype != np.uint8 and dtype != np.uint8:
-        return image.astype(dtype)
-    if image.dtype == np.uint8 and dtype != np.uint8:
-        return image.astype(dtype) / 255.0
-    if image.dtype != np.uint8 and dtype == np.uint8:
-        return np.clip(image * 255.0, 0, 255).astype(np.uint8)
+    if image.dtype != uint8 and dtype != uint8:
+        return _xnp_astype(image, dtype)
+    if image.dtype == uint8 and dtype != uint8:
+        if is_torch:
+            # Faster torch cast
+            return image.to(dtype=dtype).div_(255.0)
+        else:
+            return _xnp_astype(image, dtype) / 255.0
+    if image.dtype != uint8 and dtype == uint8:
+        if is_torch:
+            # Faster torch cast
+            image = image.mul(255.)
+            if image.dtype == xnp.half:
+                # NOTE: Clamp kernel is not available for half
+                image = image.to(xnp.float32)
+            return image.clamp_(0, 255).to(dtype=dtype)
+        else:
+            return _xnp_astype((image * 255.0).clip(0, 255), dtype)
     raise ValueError(f"cannot convert image from {image.dtype} to {dtype}")
 
 
