@@ -14,7 +14,6 @@ import pickle
 import socket
 import secrets
 import numpy as np
-from multiprocessing import resource_tracker
 try:
     from multiprocessing import shared_memory
 except ImportError:
@@ -180,7 +179,10 @@ def _tcp_pickle_recv(conn: socket.socket, allocator=None, zero_copy=False):
                 buffer = bytearray(buffer)
             buffers.append(buffer)
     with io.BytesIO(pickle_bytes) as buf:
-        return pickle.load(buf, buffers=buffers)
+        if buffers:
+            return pickle.load(buf, buffers=buffers)
+        else:
+            return pickle.load(buf)
 
 
 # def _align_page(offset):
@@ -390,6 +392,7 @@ class TransportProtocol:
         # Try setup shared memory
         if self._shm_name is not None and shared_memory is not None:
             # Remove tracked shared memory as it is already tracked in the main thread
+            from multiprocessing import resource_tracker
             old_register = resource_tracker.register
             try:
                 resource_tracker.register = _noop
