@@ -93,6 +93,9 @@ def with_echo_protocol():
             protocol_host.wait_for_worker()
             yield protocol_host
         finally:
+            time.sleep(0.05)
+            import gc
+            gc.collect()
             protocol_host.close()
             worker_thread.join()
 

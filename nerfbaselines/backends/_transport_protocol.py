@@ -517,7 +517,7 @@ class TransportProtocol:
             self._shm.unlink()
             try:
                 self._shm.close()
-            except OSError:
+            except (OSError, BufferError):
                 pass
             self._shm = None
 
