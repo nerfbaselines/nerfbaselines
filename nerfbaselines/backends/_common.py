@@ -1,8 +1,10 @@
+import numpy as np
+import dataclasses
+import contextlib
 import os
 import logging
 import functools
 import sys
-import re
 from collections import deque
 import threading
 import importlib
@@ -20,8 +22,97 @@ except ImportError:
 
 
 _mounted_paths = {}
-_forwarded_ports = {}
 _active_backend = {}
+_backend_options = {}
+_allocators = {}
+
+
+def backend_allocate(size: int) -> Optional[Tuple[int, memoryview]]:
+    """
+    Allocates a memory block in the shared memory block
+    valid for the next call to the backend. The function
+    is only valid on the worker side handling request.
+    Everywhere else it will return None.
+
+    Args:
+        size: The size of the memory block to allocate.
+
+    Returns:
+        Optional[Tuple[int, memoryview]]: If the memory block
+            was allocated, the function returns a tuple of
+            id and memory view. Otherwise, it returns None.
+    """
+    tid = threading.get_ident()
+    allocator = _allocators.get(tid)
+    if allocator is None:
+        return None
+    return allocator.allocate(size)
+
+
+def backend_allocate_ndarray(shape, dtype):
+    tid = threading.get_ident()
+    allocator = _allocators.get(tid)
+    if allocator is None:
+        return np.empty(shape, dtype)
+    return allocator.allocate_ndarray(shape, dtype)
+
+
+@contextlib.contextmanager
+def set_allocator(allocator):
+    tid = threading.get_ident()
+    old_allocator = _allocators.get(tid)
+    try:
+        _allocators[tid] = allocator
+        yield
+    finally:
+        if old_allocator is None:
+            del _allocators[tid]
+        else:
+            _allocators[tid] = old_allocator
+
+
+@dataclasses.dataclass(frozen=True)
+class BackendOptions:
+    """
+    Backend options for the current thread.
+    """
+    zero_copy: bool = False
+    """If True, zero-copy is enabled for the current thread."""
+
+
+def current_backend_options() -> BackendOptions:
+    '''
+    Returns the current backend options for the current thread.
+    '''
+    tid = threading.get_ident()
+    return _backend_options.get(tid, BackendOptions())
+
+
+@contextlib.contextmanager
+def zero_copy(zero_copy: bool = True):
+    '''
+    A context manager that enables zero-copy for the current thread.
+    Zero-copy is used for all subsequent calls for all backends.
+    A zero-copy mode instructs the backend to reuse the shared memory
+    used for data transfer. This is useful when the data is large and
+    speed is important. However, it is important to only use results
+    of backend calls inside the context manager. The data will be
+    overwritten by subsequent calls.
+
+    Args:
+        zero_copy: If True, zero-copy is enabled for the current thread.
+            If False, zero-copy is disabled.
+    '''
+    tid = threading.get_ident()
+    if tid not in _backend_options:
+        _backend_options[tid] = BackendOptions()
+    change = dict(zero_copy=zero_copy)
+    backup = {k: getattr(_backend_options[tid], k) for k in change}
+    _backend_options[tid] = dataclasses.replace(_backend_options[tid], **change)
+    try:
+        yield
+    finally:
+        _backend_options[tid] = dataclasses.replace(_backend_options[tid], **backup)
 
 
 def mount(ps: Union[str, Path], pd: Union[str, Path]):
@@ -48,33 +139,6 @@ def get_mounts():
     tid = threading.get_ident()
     out = []
     for dest, src in _mounted_paths.get(tid, {}).items():
-        out.append((src, dest))
-    return out
-
-
-def forward_port(ps: int, pd: int):
-    tid = threading.get_ident()
-    if _active_backend.get(tid):
-        raise RuntimeError("Cannot forward ports while backend is active")
-    if tid not in _forwarded_ports:
-        _forwarded_ports[tid] = {}
-    _forwarded_ports[tid][pd] = ps
-    class _Forward:
-        def __enter__(self):
-            return self
-        def __exit__(self, *args):
-            del args
-            if tid in _forwarded_ports and pd in _forwarded_ports[tid]:
-                _forwarded_ports[tid].pop(pd)
-            if tid in _forwarded_ports and not _forwarded_ports[tid]:
-                del _forwarded_ports[tid]
-    return _Forward()
-
-
-def get_forwarded_ports():
-    tid = threading.get_ident()
-    out = []
-    for dest, src in _forwarded_ports.get(tid, {}).items():
         out.append((src, dest))
     return out
 

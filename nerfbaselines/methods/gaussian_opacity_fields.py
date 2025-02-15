@@ -359,6 +359,12 @@ class GaussianOpacityFields(Method):
             finally:
                 sceneLoadTypeCallbacks["Colmap"] = backup
 
+    def _format_output(self, output, options):
+        del options
+        return {
+            k: v.cpu().numpy() for k, v in output.items()
+        }
+
     def render(self, camera: Cameras, *, options=None) -> RenderOutput:
         camera = camera.item()
         assert np.all(camera.camera_models == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
@@ -386,7 +392,6 @@ class GaussianOpacityFields(Method):
             c2w = (viewpoint.world_view_transform.T).inverse()
             normal2 = c2w[:3, :3] @ normal.reshape(3, -1)
             normal = normal2.reshape(3, *normal.shape[1:])
-            normal = (normal + 1.) / 2.
             normal = normal.permute(1, 2, 0)
 
             depth = rendering[6, :, :]
@@ -397,13 +402,13 @@ class GaussianOpacityFields(Method):
             accumlated_alpha = rendering[7, :, :]
             distortion_map = rendering[8, :, :]
 
-            return {
-                "color": image.clamp(0, 1).detach().permute(1, 2, 0).cpu().numpy(),
-                "normal": normal.cpu().numpy(),
-                "depth": depth.cpu().numpy(),
-                "accumulation": accumlated_alpha.cpu().numpy(),
-                "distortion_map": distortion_map.cpu().numpy(),
-            }
+            return self._format_output({
+                "color": image.clamp(0, 1).detach().permute(1, 2, 0),
+                "normal": normal,
+                "depth": depth,
+                "accumulation": accumlated_alpha,
+                "distortion_map": distortion_map,
+            }, options)
 
     def train_iteration(self, step):
         assert self.trainCameras is not None, "Method not initialized with training dataset"

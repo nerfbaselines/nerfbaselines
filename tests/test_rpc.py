@@ -1,6 +1,5 @@
 import pytest
 import os
-import sys
 from functools import partial
 import threading
 import pytest
@@ -16,6 +15,7 @@ except ImportError:
 
 from nerfbaselines.utils import CancelledException, CancellationToken
 from nerfbaselines.backends._common import SimpleBackend
+from nerfbaselines import backends
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -148,18 +148,25 @@ class MockProtocol:
         self.worker = worker
         self._next_receive = None
 
-    def send(self, message, interrupt=False):
-        if interrupt:
+    def send(self, message, channel=0):
+        if channel == 1:
             self.worker.handle_interrupt(message)
         else:
             self._next_receive = self.worker.handle(message),
 
-    def receive(self):
+    def receive(self, channel=None, zero_copy=False):
+        assert channel == 0
+        assert zero_copy == backends._common.current_backend_options().zero_copy
         if self._next_receive is None:
             raise RuntimeError("No message to receive")
         out = self._next_receive[0]
         self._next_receive = None
         return out
+
+    def get_allocator(self, channel=0):
+        del channel
+        from nerfbaselines.backends._transport_protocol import _allocator
+        return _allocator(None)
 
 
 def test_rpc_backend_yield():
@@ -293,18 +300,13 @@ def _test_function_base_exception():
     raise BaseException("Test error b2")
 
 
-@pytest.mark.parametrize("protocol_classes", 
-                         [["tcp-pickle"], ["shm-pickle"], ["tcp-pickle", "shm-pickle"], None],
-                         ids=lambda x: ",".join(x) if x else "default")
 @typeguard_ignore
-def test_remote_process_rpc_backend(protocol_classes):
-    if (protocol_classes is not None and protocol_classes[0] == "shm-pickle") and sys.version_info < (3, 8):
-        pytest.skip("Shared memory is only supported on Python 3.8+")
-
-    from nerfbaselines.backends._rpc import AutoTransportProtocol, RemoteProcessRPCBackend
+def test_remote_process_rpc_backend():
+    from nerfbaselines.backends._rpc import RemoteProcessRPCBackend
+    from nerfbaselines.backends._transport_protocol import TransportProtocol as MessageProtocol
 
     # Test normal
-    protocol = AutoTransportProtocol(protocol_classes=protocol_classes)
+    protocol = MessageProtocol()
     with RemoteProcessRPCBackend(protocol=protocol) as backend:
         # Test simple call
         assert backend.static_call(f"{_test_function.__module__}:{_test_function.__name__}", 1, 2) == 3
@@ -333,16 +335,11 @@ def _test_function_cancel():
         sleep(0.01)
 
 
-@pytest.mark.parametrize("protocol_classes", 
-                         [["tcp-pickle"], ["shm-pickle"], ["tcp-pickle", "shm-pickle"], None],
-                         ids=lambda x: ",".join(x) if x else "default")
 @typeguard_ignore
-def test_remote_process_rpc_backend_cancel(protocol_classes):
-    if (protocol_classes is not None and protocol_classes[0] == "shm-pickle") and sys.version_info < (3, 8):
-        pytest.skip("Shared memory is only supported on Python 3.8+")
-
-    from nerfbaselines.backends._rpc import AutoTransportProtocol, RemoteProcessRPCBackend
-    protocol = AutoTransportProtocol(protocol_classes=protocol_classes)
+def test_remote_process_rpc_backend_cancel():
+    from nerfbaselines.backends._rpc import RemoteProcessRPCBackend
+    from nerfbaselines.backends._transport_protocol import TransportProtocol as MessageProtocol
+    protocol = MessageProtocol()
     with RemoteProcessRPCBackend(protocol=protocol) as endpoint:
         cancellation_token = CancellationToken()
         ended = [False]
@@ -373,16 +370,11 @@ def test_remote_process_rpc_backend_cancel(protocol_classes):
     assert duration < 5.0
 
 
-@pytest.mark.parametrize("protocol_classes", 
-                         [["tcp-pickle"], ["shm-pickle"], ["tcp-pickle", "shm-pickle"], None],
-                         ids=lambda x: ",".join(x) if x else "default")
 @typeguard_ignore
-def test_remote_process_rpc_backend_dead_process(protocol_classes):
-    if (protocol_classes is not None and protocol_classes[0] == "shm-pickle") and sys.version_info < (3, 8):
-        pytest.skip("Shared memory is only supported on Python 3.8+")
-
-    from nerfbaselines.backends._rpc import AutoTransportProtocol, RemoteProcessRPCBackend
-    protocol = AutoTransportProtocol(protocol_classes=protocol_classes)
+def test_remote_process_rpc_backend_dead_process():
+    from nerfbaselines.backends._rpc import RemoteProcessRPCBackend
+    from nerfbaselines.backends._transport_protocol import TransportProtocol as MessageProtocol
+    protocol = MessageProtocol()
     with RemoteProcessRPCBackend(protocol=protocol) as endpoint:
         start = time.time()
         endpoint.static_call(_test_function.__module__+":"+_test_function.__name__, 1, 2)
@@ -398,3 +390,4 @@ def test_remote_process_rpc_backend_dead_process(protocol_classes):
                 endpoint.static_call(_test_function_cancel.__module__+":"+_test_function_cancel.__name__)
                 time.sleep(100)
     assert time.time() - start < 10.0
+    protocol.close()

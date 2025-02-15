@@ -1,3 +1,4 @@
+import numpy as np
 from unittest import mock
 import pytest
 from time import sleep, perf_counter
@@ -108,3 +109,89 @@ def test_tuple_click_type():
             assert val == ("1","2")
         cmd()
     assert excinfo.value.code == 0
+
+
+def test_convert_image_dtype_numpy():
+    from nerfbaselines.utils import convert_image_dtype
+
+    # Test keep same dtype
+    for dtype in ['uint8', 'float32', 'float64', 'float16']:
+        arr = np.full((10, 10), 128, dtype=getattr(np, dtype))
+        out = convert_image_dtype(arr, getattr(np, dtype))
+        assert out is arr
+        out = convert_image_dtype(arr, dtype)
+        assert out is arr
+
+    # Test uint8 -> float32
+    arr = np.full((10, 10), 128, dtype=np.uint8)
+    for dtype in ['float32', 'float64', 'float16']:
+        out = convert_image_dtype(arr, getattr(np, dtype))
+        assert out.dtype == getattr(np, dtype)
+        assert out.shape == arr.shape
+        assert abs(out[0, 0] - 128/255) < 1e-5
+        out = convert_image_dtype(arr, dtype)
+        assert out.dtype == getattr(np, dtype)
+        assert out.shape == arr.shape
+        assert abs(out[0, 0] - 128/255) < 1e-5
+
+    # Test float -> uint8
+    for dtype in ['float32', 'float64', 'float16']:
+        arr = np.array([-1, 0, 0.2, 1, 2], dtype=getattr(np, dtype))
+        out = convert_image_dtype(arr, np.uint8)
+        assert out.dtype == np.uint8
+        assert out.shape == arr.shape
+        assert tuple(out.tolist()) == (0, 0, 51, 255, 255)
+        out = convert_image_dtype(arr, 'uint8')
+        assert out.dtype == np.uint8
+        assert out.shape == arr.shape
+        assert tuple(out.tolist()) == (0, 0, 51, 255, 255)
+
+
+def _test_convert_image_dtype_torch(torch):
+    from nerfbaselines.utils import convert_image_dtype
+
+    # Test keep same dtype
+    xnp = torch
+    for dtype in ['uint8', 'float32', 'float64', 'float16']:
+        arr = xnp.full((10, 10), 128, dtype=getattr(xnp, dtype))
+        out = convert_image_dtype(arr, getattr(xnp, dtype))
+        assert out is arr
+        out = convert_image_dtype(arr, dtype)
+        assert out is arr
+
+    # Test uint8 -> float32
+    arr = xnp.full((10, 10), 128, dtype=xnp.uint8)
+    for dtype in ['float32', 'float64', 'float16']:
+        out = convert_image_dtype(arr, getattr(xnp, dtype))
+        assert out.dtype == getattr(xnp, dtype)
+        assert out.shape == arr.shape
+        assert abs(out[0, 0] - 128/255) < 1e-5
+        out = convert_image_dtype(arr, dtype)
+        assert out.dtype == getattr(xnp, dtype)
+        assert out.shape == arr.shape
+        assert abs(out[0, 0] - 128/255) < 1e-5
+
+    # Test float -> uint8
+    for dtype in ['float32', 'float64', 'float16']:
+        arr = xnp.tensor([-1, 0, 0.2, 1, 2], dtype=getattr(xnp, dtype))
+        out = convert_image_dtype(arr, xnp.uint8)
+        assert out.dtype == xnp.uint8
+        assert out.shape == arr.shape
+        assert tuple(out.tolist()) == (0, 0, 51, 255, 255)
+        out = convert_image_dtype(arr, 'uint8')
+        assert out.dtype == xnp.uint8
+        assert out.shape == arr.shape
+        assert tuple(out.tolist()) == (0, 0, 51, 255, 255)
+
+
+@pytest.mark.extras
+def test_convert_image_dtype_torch_cpu(torch_cpu):
+    del torch_cpu
+    import torch
+    _test_convert_image_dtype_torch(torch)
+
+
+def test_convert_image_dtype_torch_mock(mock_torch):
+    del mock_torch
+    import torch
+    _test_convert_image_dtype_torch(torch)

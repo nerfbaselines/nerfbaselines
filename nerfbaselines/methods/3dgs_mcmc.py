@@ -244,9 +244,14 @@ class GaussianSplattingMCMC(Method):
             **self.get_method_info(),
         )
 
+    def _format_output(self, output, options):
+        del options
+        return {
+            k: v.cpu().numpy() for k, v in output.items()
+        }
+
     @torch.no_grad()
     def render(self, camera: Cameras, *, options=None) -> RenderOutput:
-        del options
         camera = camera.item()
         assert camera.camera_models == camera_model_to_int("pinhole"), "Only pinhole cameras supported"
 
@@ -254,9 +259,9 @@ class GaussianSplattingMCMC(Method):
             0, camera.poses, camera.intrinsics, f"{0:06d}.png", camera.image_sizes, scale_coords=self._dataset.scale_coords)
         render_pkg = render(loadCam(self._dataset, 0, viewpoint_cam, 1.0), 
                             self._gaussians, self._pipe, self._background)
-        return {
-            "color": render_pkg["render"].clamp(0, 1).detach().permute(1, 2, 0).cpu().numpy(),
-        }
+        return self._format_output({
+            "color": render_pkg["render"].clamp(0, 1).detach().permute(1, 2, 0),
+        }, options)
 
     def train_iteration(self, step):
         self.step = step

@@ -302,12 +302,13 @@ def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, st
     idx = rand_number % len(dataset["image_paths"])
     dataset_slice = dataset_index_select(dataset, [idx])
     images = dataset_slice["images"]
+    image_sizes = dataset_slice["cameras"].image_sizes
+    total_rays = image_sizes.prod(-1).sum()
 
     expected_scene_scale: Optional[float] = dataset_slice["metadata"].get("expected_scene_scale")
 
     start = time.perf_counter()
     # Pseudo-randomly select an image based on the step
-    total_rays = 0
     logging.info(f"Rendering single {split} image at step={step}")
     predictions = evaluation_protocol.render(method, dataset_slice)
     elapsed = time.perf_counter() - start
@@ -374,7 +375,6 @@ def eval_few(method: Method, logger: Logger, dataset: Dataset, *, split: str, st
 
 
 def eval_all(method: Method, logger: Optional[Logger], dataset: Dataset, *, output: str, step: int, evaluation_protocol: EvaluationProtocol, split: str, nb_info):
-    total_rays = 0
     metrics: Optional[Dict[str, float]] = {} if logger else None
     expected_scene_scale = dataset["metadata"].get("expected_scene_scale")
 
@@ -406,6 +406,7 @@ def eval_all(method: Method, logger: Optional[Logger], dataset: Dataset, *, outp
     vis_images: List[Tuple[np.ndarray, np.ndarray]] = []
     vis_depth: List[np.ndarray] = []
     image_sizes = dataset["cameras"].image_sizes
+    total_rays = image_sizes.prod(-1).sum()
     assert image_sizes is not None
     for (i, gt), pred, (w, h) in zip(
         enumerate(dataset["images"]),
@@ -795,7 +796,8 @@ class Trainer:
 
         # We can print the results because the evaluation was run for the last step
         if final_metrics is not None:
-            logging.info("Final evaluation results:\n" + "\n".join(f"   {k}: {v:.4f}" for k, v in final_metrics.items()))
+            logging.info("Final evaluation results:\n" + 
+                         "\n".join(f"   {k.replace('_','-')}: {v:.4f}" for k, v in final_metrics.items()))
 
         # Save if not saved by default
         if self.step not in self.save_iters:

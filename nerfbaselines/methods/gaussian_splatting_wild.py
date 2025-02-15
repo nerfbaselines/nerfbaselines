@@ -509,6 +509,12 @@ class GaussianSplattingWild(Method):
                     image_names_sha=self._train_dataset_link[1],
                 ), file)
 
+    def _format_output(self, output, options):
+        del options
+        return {
+            k: v.cpu().numpy() for k, v in output.items()
+        }
+
     def render(self, camera: Cameras, *, options=None, _gt_image=None, _store_cache=False) -> RenderOutput:
         camera = camera.item()
         assert np.all(camera.camera_models == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
@@ -536,9 +542,7 @@ class GaussianSplattingWild(Method):
                 self.gaussians._opacity_dealed = self.gaussians._opacity
             rendering = render(viewpoint, self.gaussians, self.pipe, self.background, use_cache=use_cache, store_cache=_store_cache)
             color = torch.clamp(rendering["render"], 0.0, 1.0).detach().permute(1, 2, 0).cpu().numpy()
-            return {
-                "color": color,
-            }
+            return self._format_output({ "color": color }, options)
 
     def optimize_embedding(self, dataset: Dataset, *, embedding: Optional[np.ndarray] = None) -> OptimizeEmbeddingOutput:
         """
