@@ -171,20 +171,18 @@ class ViewerBackend:
         pose = np.array(req.get("pose"), dtype=np.float32).reshape(3, 4)
         intrinsics = np.array(req.get("intrinsics"), dtype=np.float32)
         lossless = req.get("lossless", False)
-        frame = self._render_fn(threading.get_ident(), 
-                                pose=pose, 
-                                image_size=image_size, 
-                                intrinsics=intrinsics,
-                                output_type=req.get("output_type"),
-                                appearance_weights=req.get("appearance_weights"),
-                                appearance_train_indices=req.get("appearance_train_indices"),
-                                split_percentage=float(req.get("split_percentage", 0.5)),
-                                split_tilt=float(req.get("split_tilt", 0)),
-                                split_output_type=req.get("split_output_type"))
-        with io.BytesIO() as output, Image.fromarray(frame) as img:
-            img.save(output, format="PNG" if lossless else "JPEG")
-            output.seek(0)
-            frame_bytes = output.getvalue()
+        frame_bytes = self._render_fn(
+            threading.get_ident(), 
+            pose=pose, 
+            image_size=image_size, 
+            intrinsics=intrinsics,
+            output_type=req.get("output_type"),
+            appearance_weights=req.get("appearance_weights"),
+            appearance_train_indices=req.get("appearance_train_indices"),
+            split_percentage=float(req.get("split_percentage", 0.5)),
+            split_tilt=float(req.get("split_tilt", 0)),
+            format="PNG" if lossless else "JPEG",
+            split_output_type=req.get("split_output_type"))
         mimetype = "image/png" if lossless else "image/jpeg"
         return frame_bytes, mimetype
 

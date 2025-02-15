@@ -392,7 +392,6 @@ class GaussianOpacityFields(Method):
             c2w = (viewpoint.world_view_transform.T).inverse()
             normal2 = c2w[:3, :3] @ normal.reshape(3, -1)
             normal = normal2.reshape(3, *normal.shape[1:])
-            normal = (normal + 1.) / 2.
             normal = normal.permute(1, 2, 0)
 
             depth = rendering[6, :, :]
