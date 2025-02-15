@@ -109,6 +109,7 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
     if build_script:
         script += build_script
 
+
     if conda_spec is not None:
         environment_name = conda_spec.get("environment_name")
         assert environment_name is not None, "CondaBackend requires environment_name to be specified"
@@ -120,7 +121,12 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
 
         # Add install conda script
         install_conda = conda_get_install_script(conda_spec, package_path="/var/nb-package/nerfbaselines", environment_path=environment_path)
-        run_script = f'export NERFBASELINES_DOCKER_BUILD=1;{install_conda}'
+        env_vars = (
+            'export NERFBASELINES_DOCKER_BUILD=1;'
+            'export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-"7.0 7.5 8.0 8.6+PTX"}";'
+            'export TCNN_CUDA_ARCHITECTURES="${TCNN_CUDA_ARCHITECTURES:-75;80;86}";'
+        )
+        run_script = f'{env_vars}{install_conda}'
         script += f"RUN {_bash_encode(run_script)} && \\\n"
         script += shlex_join(shell_args) + " bash -c 'conda clean -afy && rm -Rf /root/.cache/pip'\n"
         # Fix permissions when changing the user inside the container

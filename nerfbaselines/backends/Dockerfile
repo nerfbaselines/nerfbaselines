@@ -23,9 +23,6 @@ RUN echo "[global]\nno-cache-dir = True\n[install]\ncompile = no\n" > /etc/pip.c
     ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh
 
 ENV PATH /opt/conda/bin:$PATH
-
-ENV TORCH_CUDA_ARCH_LIST="7.0 7.5 8.0 8.6+PTX"
-ENV TCNN_CUDA_ARCHITECTURES="70;75;80;86"
 ENV NERFBASELINES_DOCKER_BUILD=1
 
 # Fix permissions for singularity - not needed for docker
