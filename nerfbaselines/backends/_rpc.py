@@ -483,6 +483,9 @@ class RemoteProcessRPCBackend(Backend):
                 pass
 
         self._worker_running = False
+        if self._protocol is not None:
+            self._protocol.close()
+            self._protocol = None
         if self._worker_monitor_thread is not None:
             self._worker_monitor_thread.join()
             self._worker_monitor_thread = None
@@ -503,9 +506,6 @@ class RemoteProcessRPCBackend(Backend):
                 logging.error("Server did not shut down, killing")
                 self._worker_process.kill()
                 self._worker_process.wait()
-        if self._protocol is not None:
-            self._protocol.close()
-            self._protocol = None
 
     def _launch_worker(self, args, env):
         return subprocess.Popen(args, env=env, stdin=subprocess.DEVNULL)
