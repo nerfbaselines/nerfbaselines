@@ -169,6 +169,7 @@ def test_shared_memory_transport(benchmark, serialize, deserialize, image_dtype)
 
 
 @pytest.mark.skipif(sys.version_info < (3, 8), reason="requires python3.8 or higher")
+@pytest.mark.skipif(sys.platform == "win32", reason="does not run on windows")
 @pytest.mark.benchmark(group="rpc-transport")
 @pytest.mark.parametrize("image_dtype", [np.uint8, np.float32])
 def test_shared_memory_allocate_new(benchmark, image_dtype):
@@ -362,6 +363,7 @@ def test_shm_merge_messages(benchmark, serialize, deserialize, image_dtype):
 
 
 @pytest.mark.skipif(sys.version_info < (3, 8), reason="requires python3.8 or higher")
+@pytest.mark.skipif(sys.platform == "win32", reason="does not run on windows")
 @pytest.mark.benchmark(group="rpc-transport")
 @pytest.mark.parametrize("image_dtype", [np.uint8, np.float32])
 def test_shared_memory_allocate_copy(benchmark, image_dtype):
