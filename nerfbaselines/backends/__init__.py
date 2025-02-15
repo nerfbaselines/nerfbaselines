@@ -15,3 +15,5 @@ from ._common import mount as mount
 from ._common import get_implemented_backends as get_implemented_backends
 from ._common import run_on_host as run_on_host
 from ._common import zero_copy as zero_copy
+from ._common import backend_allocate_ndarray as backend_allocate_ndarray
+from ._common import backend_allocate as backend_allocate
