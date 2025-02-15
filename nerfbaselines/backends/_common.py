@@ -1,3 +1,4 @@
+import numpy as np
 import dataclasses
 import contextlib
 import os
@@ -23,6 +24,51 @@ except ImportError:
 _mounted_paths = {}
 _active_backend = {}
 _backend_options = {}
+_allocators = {}
+
+
+def backend_allocate(size: int) -> Optional[Tuple[int, memoryview]]:
+    """
+    Allocates a memory block in the shared memory block
+    valid for the next call to the backend. The function
+    is only valid on the worker side handling request.
+    Everywhere else it will return None.
+
+    Args:
+        size: The size of the memory block to allocate.
+
+    Returns:
+        Optional[Tuple[int, memoryview]]: If the memory block
+            was allocated, the function returns a tuple of
+            id and memory view. Otherwise, it returns None.
+    """
+    tid = threading.get_ident()
+    allocator = _allocators.get(tid)
+    if allocator is None:
+        return None
+    return allocator.allocate(size)
+
+
+def backend_allocate_ndarray(shape, dtype):
+    tid = threading.get_ident()
+    allocator = _allocators.get(tid)
+    if allocator is None:
+        return np.empty(shape, dtype)
+    return allocator.allocate_ndarray(shape, dtype)
+
+
+@contextlib.contextmanager
+def set_allocator(allocator):
+    tid = threading.get_ident()
+    old_allocator = _allocators.get(tid)
+    try:
+        _allocators[tid] = allocator
+        yield
+    finally:
+        if old_allocator is None:
+            del _allocators[tid]
+        else:
+            _allocators[tid] = old_allocator
 
 
 @dataclasses.dataclass(frozen=True)

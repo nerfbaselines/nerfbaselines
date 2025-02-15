@@ -548,7 +548,8 @@ def test_shared_memory_reuse_copy(benchmark, image_dtype):
 
 @pytest.mark.benchmark(group="rpc-protocol")
 @pytest.mark.parametrize("image_dtype", [np.uint8, np.float32])
-def test_transport_protocol(benchmark, image_dtype):
+@pytest.mark.parametrize("zero_copy", [True, False])
+def test_transport_protocol(benchmark, image_dtype, zero_copy):
     from nerfbaselines.backends._transport_protocol import TransportProtocol
     message = {
         "color": np.random.normal(size=(1920, 1080, 3)).astype(image_dtype),
@@ -581,7 +582,63 @@ def test_transport_protocol(benchmark, image_dtype):
     p2.connect_worker()
     def _measure():
         p2.send(True)
-        out = p2.receive()
+        out = p2.receive(zero_copy=zero_copy)
+        assert isinstance(out, dict)
+    benchmark(_measure)
+    p2.send(False)
+    thread.join()
+
+    p1.close()
+    p2.close()
+
+    if exc:
+        raise exc[0]
+
+
+@pytest.mark.benchmark(group="rpc-protocol")
+@pytest.mark.parametrize("image_dtype", [np.uint8, np.float32])
+@pytest.mark.parametrize("zero_copy", [True, False])
+def test_transport_protocol_allocator(benchmark, image_dtype, zero_copy):
+    from nerfbaselines.backends._transport_protocol import TransportProtocol
+    message = {
+        "color": np.random.normal(size=(1920, 1080, 3)).astype(image_dtype),
+        "depth": np.random.normal(size=(1920, 1080, 1)).astype(np.float32),
+        "mini_arrays": [np.random.normal(size=(4, 12)).astype(np.float32) for _ in range(100)]
+    }
+    import threading
+
+    # Benchmark serialize and deserialize when sent through a Listener, Client connection
+    p1 = TransportProtocol()
+    p1.start_host()
+    p2 = TransportProtocol(**p1.get_worker_configuration())
+    exc = []
+
+    def handle_client():
+        try:
+            p1.wait_for_worker()
+            while True:
+                msg = p1.receive()
+                if msg is False: break
+                msg_out = {}
+                for k, v in message.items():
+                    allocator = p1.get_allocator()
+                    if isinstance(v, np.ndarray):
+                        new_v = allocator.allocate_ndarray(v.shape, v.dtype)
+                        np.copyto(v, new_v)
+                        v = new_v
+                    msg_out[k] = v
+                p1.send(msg_out)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            exc.append(e)
+    thread = threading.Thread(target=handle_client)
+    thread.start()
+
+    p2.connect_worker()
+    def _measure():
+        p2.send(True)
+        out = p2.receive(zero_copy=zero_copy)
         assert isinstance(out, dict)
     benchmark(_measure)
     p2.send(False)

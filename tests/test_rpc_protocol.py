@@ -127,7 +127,60 @@ def test_protocol_send_receive(with_echo_protocol):
         del out
 
 
-@pytest.mark.skipif(sys.version_info < (3, 8), reason="requires python3.8 or higher")
+@timeout(4)
+def test_protocol_large_message(with_echo_protocol):
+    from nerfbaselines.backends._transport_protocol import TransportProtocol
+    from nerfbaselines.backends._common import backend_allocate_ndarray, set_allocator
+    import numpy as np
+
+    with with_echo_protocol(TransportProtocol()) as echo_protocol:
+        # Simple message
+        dummy_data = np.random.rand(100, 100)
+        dummy_data2 = np.random.rand(100, 100)
+        echo_protocol.send({"data": dummy_data, "data2": dummy_data2})
+        out = echo_protocol.receive()
+        assert np.array_equal(dummy_data, out["data"])
+        del out
+
+        # Test communication using allocator
+        with set_allocator(echo_protocol.get_allocator()):
+            dummy_data = np.random.rand(100, 100)
+            dummy_data2 = np.random.rand(100, 100)
+            _dummy_data2 = backend_allocate_ndarray(dummy_data2.shape, dummy_data2.dtype)
+            np.copyto(_dummy_data2, dummy_data2)
+            dummy_data3 = np.random.rand(100, 100)
+            _dummy_data3 = backend_allocate_ndarray(dummy_data3.shape, dummy_data3.dtype)
+            np.copyto(_dummy_data3, dummy_data3)
+            dummy_data4 = np.random.rand(100, 100)
+            echo_protocol.send([dummy_data, _dummy_data2, _dummy_data3, dummy_data4])
+            out = echo_protocol.receive()
+            assert len(out) == 4
+            assert np.array_equal(dummy_data, out[0])
+            assert np.array_equal(dummy_data2, out[1])
+            assert np.array_equal(dummy_data3, out[2])
+            assert np.array_equal(dummy_data4, out[3])
+            del out
+
+        # Test communication using allocator and zero_copy
+        with set_allocator(echo_protocol.get_allocator()):
+            dummy_data = np.random.rand(100, 100)
+            dummy_data2 = np.random.rand(100, 100)
+            _dummy_data2 = backend_allocate_ndarray(dummy_data2.shape, dummy_data2.dtype)
+            np.copyto(_dummy_data2, dummy_data2)
+            dummy_data3 = np.random.rand(100, 100)
+            _dummy_data3 = backend_allocate_ndarray(dummy_data3.shape, dummy_data3.dtype)
+            np.copyto(_dummy_data3, dummy_data3)
+            dummy_data4 = np.random.rand(100, 100)
+            echo_protocol.send([dummy_data, _dummy_data2, _dummy_data3, dummy_data4])
+            out = echo_protocol.receive(zero_copy=True)
+            assert len(out) == 4
+            assert np.array_equal(dummy_data, out[0])
+            assert np.array_equal(dummy_data2, out[1])
+            assert np.array_equal(dummy_data3, out[2])
+            assert np.array_equal(dummy_data4, out[3])
+            del out
+
+
 @timeout(4)
 def test_protocol_large_message(with_echo_protocol):
     from nerfbaselines.backends._transport_protocol import TransportProtocol

@@ -1,3 +1,6 @@
+import ctypes
+import functools
+import weakref
 import stat
 import sys
 import tempfile
@@ -10,6 +13,7 @@ import time
 import pickle
 import socket
 import secrets
+import numpy as np
 from multiprocessing import resource_tracker
 try:
     from multiprocessing import shared_memory
@@ -25,6 +29,56 @@ def _noop(*args, **kwargs): del args, kwargs
 
 def _tcp_generate_authkey():
     return secrets.token_hex(64).encode("ascii")
+
+
+class _allocator:
+    def __init__(self, buffer):
+        self._offset = 0
+        if buffer is not None:
+            self._buffer = weakref.ref(buffer)
+        else:
+            self._buffer = _noop
+    
+    def allocate(self, size):
+        buffer = self._buffer()
+        if buffer is None:
+            return None
+        offset = self._offset
+        if offset + size > buffer.nbytes:
+            return None
+        out = buffer[offset:offset+size]
+        self._offset += size
+        return offset, out
+
+    def allocate_ndarray(self, shape, dtype):
+        nelem = functools.reduce(lambda x, y: x * y, shape, 1)
+        nbytes = nelem * np.dtype(dtype).itemsize
+        buffer = self._buffer()
+        allocation = self.allocate(nbytes)
+        if allocation is None and buffer is not None:
+            return np.ndarray(shape, dtype=dtype)
+        offset, _ = allocation
+        return np.ndarray(shape, dtype=dtype, buffer=buffer, offset=offset)
+
+    def get_allocation_offset(self, buffer):
+        self_buffer = self._buffer()
+        if self_buffer is None or buffer is None:
+            return None
+        if self_buffer.readonly or buffer.readonly:
+            return None
+        self_ptr = ctypes.addressof(ctypes.c_char.from_buffer(self_buffer))
+        buffer_ptr = ctypes.addressof(ctypes.c_char.from_buffer(buffer))
+        if self_ptr <= buffer_ptr < self_ptr + self_buffer.nbytes:
+            return buffer_ptr - self_ptr
+        return None
+
+    def get(self, offset, size):
+        buffer = self._buffer()
+        assert buffer is not None, "Failed to access shared memory"
+        return buffer[offset:offset+size]
+
+    def reset(self):
+        self._offset = 0
 
 
 def _protocol_defaults():
@@ -93,7 +147,7 @@ def _socket_exists(path):
     return False
 
 
-def _tcp_pickle_recv(conn: socket.socket, shm_buffer=None, zero_copy=False):
+def _tcp_pickle_recv(conn: socket.socket, allocator=None, zero_copy=False):
     def _read_buffer(size):
         buffer = bytearray(size)
         i = 0
@@ -117,12 +171,12 @@ def _tcp_pickle_recv(conn: socket.socket, shm_buffer=None, zero_copy=False):
             buffers.append(_read_buffer(buffer_size))
         else:
             # Shared memory buffer
-            buffer = memoryview(shm_buffer)[shm_offset:shm_offset+buffer_size]
+            buffer = allocator.get(shm_offset, buffer_size)
             # Perform copy here? (for zero_copy=False)
             # NOTE: In the zero_copy mode, the buffer is not copied
             # The data are only valid until the next send/recv call
             if not zero_copy:
-                buffer = buffer.tobytes()
+                buffer = bytearray(buffer)
             buffers.append(buffer)
     with io.BytesIO(pickle_bytes) as buf:
         return pickle.load(buf, buffers=buffers)
@@ -136,7 +190,7 @@ def _tcp_pickle_recv(conn: socket.socket, shm_buffer=None, zero_copy=False):
 def _tcp_pickle_send(conn: socket.socket, message, 
                      *,
                      pickle_protocol: int = pickle.HIGHEST_PROTOCOL,
-                     shm_buffer=None):
+                     allocator=None):
     buffers = []
     def buffer_callback(buffer):
         size = buffer.raw().nbytes
@@ -152,19 +206,28 @@ def _tcp_pickle_send(conn: socket.socket, message,
         size = buf.tell()
         header = [len(buffers)+1, size]
         buf.seek(0)
-        shm_offset = 0
         for buffer in buffers:
-            if shm_offset + buffer.nbytes > shm_buffer.nbytes:
-                # We will make it network buffer
-                header.append(2**64-1)
-                header.append(buffer.nbytes)
-                network_buffers.append(buffer)
-            else:
-                # We will copy data to shared memory
+            # Check if buffer already is in allocator's memory
+            shm_offset = allocator.get_allocation_offset(buffer)
+            if shm_offset is not None:
                 header.append(shm_offset)
                 header.append(buffer.nbytes)
-                shm_buffer[shm_offset:shm_offset+buffer.nbytes] = buffer
-                shm_offset += buffer.nbytes
+                continue
+
+            # Try allocating buffer in the shared memory
+            allocation = allocator.allocate(buffer.nbytes)
+            if allocation is not None:
+                # We will copy data to shared memory
+                shm_offset, out_buffer = allocation
+                out_buffer[:] = buffer
+                header.append(shm_offset)
+                header.append(buffer.nbytes)
+                continue
+
+            # We will make it network buffer
+            header.append(2**64-1)
+            network_buffers.append(buffer)
+            header.append(buffer.nbytes)
         conn.sendall(struct.pack(f"!i{len(header)-1}Q", *header))
         conn.sendall(buf.getbuffer())
         for buffer in network_buffers:
@@ -202,6 +265,7 @@ class TransportProtocol:
         self._shm_size = shm_size
         self._pickle_protocol = min(pickle_protocol, pickle.HIGHEST_PROTOCOL)
         self._tmpdir = None
+        self._allocator = _allocator(None)
 
     def start_host(self):
         assert self._pipe_listener is None and self._tcp_listener is None, "Already started"
@@ -260,7 +324,6 @@ class TransportProtocol:
             self._tcp_listener.listen(self._num_channels)
             listeners.append(self._tcp_listener)
         assert listeners, "No listeners available"
-        print(listeners)
 
         # Accept main connection
         listeners, _, _ = select.select(listeners, [], [], timeout)
@@ -294,6 +357,10 @@ class TransportProtocol:
         # Accept additional connections
         for _ in range(self._num_channels - 1):
             self._conns.append(listener.accept()[0])
+
+        # Setup the allocator
+        if self._shm is not None:
+            self._allocator = _allocator(self._shm.buf)
 
         # Release the listeners
         if self._tcp_listener is not None:
@@ -365,6 +432,10 @@ class TransportProtocol:
             conn.connect(sockname)
             self._conns.append(conn)
 
+        # Setup the allocator
+        if self._shm is not None:
+            self._allocator = _allocator(self._shm.buf)
+
     @property
     def protocol_name(self):
         if not self._conns:
@@ -382,10 +453,9 @@ class TransportProtocol:
         assert self._conns is not None, "Not connected"
         try:
             conn = self._conns[channel]
-            shm_buffer = None
-            if channel == 0 and self._shm is not None:
-                shm_buffer = self._shm.buf
-            _tcp_pickle_send(conn, message, pickle_protocol=self._pickle_protocol, shm_buffer=shm_buffer)
+            allocator = self.get_allocator(channel)
+            _tcp_pickle_send(conn, message, pickle_protocol=self._pickle_protocol, allocator=allocator)
+            allocator.reset()
         except (EOFError, BrokenPipeError, ConnectionError) as e:
             raise ConnectionError("Connection error") from e
 
@@ -401,10 +471,8 @@ class TransportProtocol:
                 else:
                     conn = self._conns[channel]
                 channel = self._conns.index(conn)
-                shm_buffer = None
-                if channel == 0 and self._shm is not None:
-                    shm_buffer = self._shm.buf
-                message = _tcp_pickle_recv(conn, shm_buffer=shm_buffer, zero_copy=zero_copy)
+                allocator = self.get_allocator(channel)
+                message = _tcp_pickle_recv(conn, allocator=allocator, zero_copy=zero_copy)
                 if isinstance(message, Exception):
                     raise message
                 return message
@@ -416,6 +484,9 @@ class TransportProtocol:
             if "Bad file descriptor" in str(e):
                 raise ConnectionError(str(e)) from e
             raise
+
+    def get_allocator(self, channel=0):
+        return self._allocator if channel == 0 else _allocator(None)
 
     def close(self):
         # Release the listeners

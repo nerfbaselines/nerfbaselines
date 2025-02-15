@@ -18,7 +18,7 @@ import inspect
 import logging
 from queue import Queue
 from ..utils import CancellationToken, CancelledException
-from ._common import Backend, SimpleBackend, current_backend_options
+from . import _common
 
 
 def _remap_error(e: BaseException):
@@ -117,7 +117,7 @@ class _VirtualInstance:
                                methods=methods, 
                                attrs=attrs)
 
-    def build_wrapper(self, backend: Backend, customize=None):
+    def build_wrapper(self, backend: _common.Backend, customize=None):
         instance_id = self.id
         ns = {}
         for k in self.methods:
@@ -175,7 +175,7 @@ def _is_generator(out):
 class RPCWorker:
     def __init__(self):
         self._cancellation_tokens = {}
-        self._backend = SimpleBackend()
+        self._backend = _common.SimpleBackend()
         self._instances = self._backend._instances
 
     def _process_del(self, *, instance, **_):
@@ -359,20 +359,22 @@ class _IterableResultProxy:
         self.close()
 
 
-class RPCBackend(Backend):
+class RPCBackend(_common.Backend):
     def __init__(self, protocol, customize_wrapper=None):
         self._protocol = protocol
         self._customize_wrapper = customize_wrapper
         self._remote_instances_counter = {}
         self._interrupt_lock = threading.Lock()
+        self._main_lock = threading.Lock()
 
     def _send_interrupt(self, message):
         with self._interrupt_lock:
             self._protocol.send(message, channel=1)
 
     def _send(self, message, zero_copy=False):
-        self._protocol.send(message)
-        return self._protocol.receive(channel=0, zero_copy=zero_copy)
+        with self._main_lock:
+            self._protocol.send(message)
+            return self._protocol.receive(channel=0, zero_copy=zero_copy)
 
     def instance_del(self, instance: int):
         try:
@@ -393,53 +395,54 @@ class RPCBackend(Backend):
         return getattr(type(obj), "__nb_virtual_instance__", obj)
 
     def _call(self, function: str, instance, *args, **kwargs) -> Any:
-        # 2) Add hook to the cancellation token
-        cancellation_token_id = None
-        cancellation_token = CancellationToken.current
-        cancel_callback = None
-        try:
-            if cancellation_token is not None:
-                cancellation_token_id = id(cancellation_token)
-                cancel_callback = lambda: self._send_interrupt({
-                    "message": "cancel", 
-                    "cancellation_token_id": cancellation_token_id})
-                cancellation_token._callbacks.append(cancel_callback)
+        with _common.set_allocator(self._protocol.get_allocator(0)):
+            # 2) Add hook to the cancellation token
+            cancellation_token_id = None
+            cancellation_token = CancellationToken.current
+            cancel_callback = None
+            try:
+                if cancellation_token is not None:
+                    cancellation_token_id = id(cancellation_token)
+                    cancel_callback = lambda: self._send_interrupt({
+                        "message": "cancel", 
+                        "cancellation_token_id": cancellation_token_id})
+                    cancellation_token._callbacks.append(cancel_callback)
 
-            args = tuple(self._fix_backend_for_virtual_instance(x) for x in args)
-            kwargs = {k:self._fix_backend_for_virtual_instance(x) for k, x in kwargs.items()}
+                args = tuple(self._fix_backend_for_virtual_instance(x) for x in args)
+                kwargs = {k:self._fix_backend_for_virtual_instance(x) for k, x in kwargs.items()}
 
-            message = {
-                "message": "call", 
-                "instance": instance, 
-                "name": function, 
-                "args": args,
-                "kwargs": kwargs,
-                "cancellation_token_id": id(cancellation_token) if cancellation_token is not None else None,
-            }
-            zero_copy = current_backend_options().zero_copy
-            msg = self._send(message, zero_copy=zero_copy)
-        finally:
-            if cancellation_token is not None and cancel_callback is not None:
-                cancellation_token._callbacks.remove(cancel_callback)
-        if msg["message"] == "iterable_result":
-            if msg.get("iterator_id") is not None:
-                self._remote_instances_counter[msg["iterator_id"]] = 1
-            return _IterableResultProxy(
-                self,
-                msg.get("iterator"),
-                msg.get("next_result"),
-                msg.get("errors", {}))
-        elif msg["message"] == "result":
-            result = msg["result"]
-            if isinstance(result, _VirtualInstance):
-                self._remote_instances_counter[result.id] = self._remote_instances_counter.get(result.id, 0) + 1
-                return result.build_wrapper(self, customize=self._customize_wrapper)
-            return result
-        elif msg["message"] == "error":
-            raise msg["error"]
-        else:
-            print(function, instance, msg['message'])
-            raise RuntimeError(f"Unexpected message {msg['message']}")
+                message = {
+                    "message": "call", 
+                    "instance": instance, 
+                    "name": function, 
+                    "args": args,
+                    "kwargs": kwargs,
+                    "cancellation_token_id": id(cancellation_token) if cancellation_token is not None else None,
+                }
+                zero_copy = _common.current_backend_options().zero_copy
+                msg = self._send(message, zero_copy=zero_copy)
+            finally:
+                if cancellation_token is not None and cancel_callback is not None:
+                    cancellation_token._callbacks.remove(cancel_callback)
+            if msg["message"] == "iterable_result":
+                if msg.get("iterator_id") is not None:
+                    self._remote_instances_counter[msg["iterator_id"]] = 1
+                return _IterableResultProxy(
+                    self,
+                    msg.get("iterator"),
+                    msg.get("next_result"),
+                    msg.get("errors", {}))
+            elif msg["message"] == "result":
+                result = msg["result"]
+                if isinstance(result, _VirtualInstance):
+                    self._remote_instances_counter[result.id] = self._remote_instances_counter.get(result.id, 0) + 1
+                    return result.build_wrapper(self, customize=self._customize_wrapper)
+                return result
+            elif msg["message"] == "error":
+                raise msg["error"]
+            else:
+                print(function, instance, msg['message'])
+                raise RuntimeError(f"Unexpected message {msg['message']}")
 
     def static_call(self, function: str, *args, **kwargs) -> Any:
         return self._call(function, None, *args, **kwargs)
@@ -448,7 +451,7 @@ class RPCBackend(Backend):
         return self._call(method, instance, *args, **kwargs)
 
 
-class RemoteProcessRPCBackend(Backend):
+class RemoteProcessRPCBackend(_common.Backend):
     def __init__(self, *, python_path: Optional[str] = None, protocol=None):
         self._python_path = python_path or sys.executable
 

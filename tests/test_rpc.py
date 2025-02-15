@@ -163,6 +163,11 @@ class MockProtocol:
         self._next_receive = None
         return out
 
+    def get_allocator(self, channel=0):
+        del channel
+        from nerfbaselines.backends._transport_protocol import _allocator
+        return _allocator(None)
+
 
 def test_rpc_backend_yield():
     from nerfbaselines.backends._rpc import RPCWorker, RPCBackend
