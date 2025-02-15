@@ -168,60 +168,6 @@ def test_shared_memory_transport(benchmark, serialize, deserialize, image_dtype)
         shm.unlink()
 
 
-# Skip on python < 3.8
-@pytest.mark.skipif(sys.version_info < (3, 8), reason="requires python3.8 or higher")
-@pytest.mark.benchmark(group="rpc-transport")
-@pytest.mark.parametrize("serialize, deserialize", [
-    (serialize3, deserialize3)], ids=["pickle5+buffers"])
-@pytest.mark.parametrize("image_dtype", [np.uint8, np.float32])
-def test_shm_merge_messages(benchmark, serialize, deserialize, image_dtype):
-    import multiprocessing.shared_memory
-    from multiprocessing.connection import Listener, Client
-
-    message = {
-        "color": np.random.normal(size=(1920, 1080, 3)).astype(image_dtype),
-        "depth": np.random.normal(size=(1920, 1080, 1)).astype(np.float32),
-    }
-
-    shm = multiprocessing.shared_memory.SharedMemory(create=True, size=MESSAGE_SIZE)
-    import threading
-
-    try:
-
-        # Benchmark serialize and deserialize when sent through a Listener, Client connection
-        with Listener(address=("localhost", PORT), authkey=b'secret password') as listener:
-            def handle_client(listener):
-                shm_local = multiprocessing.shared_memory.SharedMemory(name=shm.name)
-                try:
-                    with listener.accept() as conn:
-                        while conn.recv():
-                            for i, m in enumerate(serialize(message)):
-                                shm_local.buf[:len(m)] = m
-                                conn.send_bytes(struct.pack("!ii", i, len(m)))
-                                conn.recv_bytes()
-                finally:
-                    shm_local.close()
-            threading.Thread(target=handle_client, args=(listener,)).start()
-
-            with Client(address=("localhost", PORT), authkey=b'secret password') as client:
-                def _measure():
-                    client.send(True)
-                    def _iter_response():
-                        while True:
-                            i, l = struct.unpack("!II", client.recv_bytes())
-                            del i
-                            m = shm.buf[:l].tobytes()
-                            client.send_bytes(b"")
-                            yield m
-                    return deserialize(_iter_response())
-                benchmark(_measure)
-                client.send(False)
-    finally:
-        shm.close()
-        shm.unlink()
-
-
-
 @pytest.mark.skipif(sys.version_info < (3, 8), reason="requires python3.8 or higher")
 @pytest.mark.benchmark(group="rpc-transport")
 @pytest.mark.parametrize("image_dtype", [np.uint8, np.float32])

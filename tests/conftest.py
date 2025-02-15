@@ -374,6 +374,10 @@ class Tensor(np.ndarray):
         del args
         return self
 
+    def copy_(self, other):
+        self[:] = other
+        return self
+
     def type_as(self, other):
         return self.astype(other.dtype)
 
@@ -511,6 +515,8 @@ class Tensor(np.ndarray):
     def __str__(self):
         self = np.ndarray.view(self, np.ndarray)
         return f"Tensor({self.__str__()})"
+
+Tensor.__module__ = "torch"
 
 
 class Optimizer:

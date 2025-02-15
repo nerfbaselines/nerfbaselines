@@ -32,8 +32,8 @@ def timeout(timeout):
 @timeout(4)
 def test_protocol_wait_for_worker_timeout():
     from nerfbaselines.backends._transport_protocol import TransportProtocol as MessageProtocol
+    protocol_host = MessageProtocol()
     try:
-        protocol_host = MessageProtocol()
         protocol_host.start_host()
         with pytest.raises(TimeoutError):
             protocol_host.wait_for_worker(timeout=0.1)
@@ -102,18 +102,6 @@ def with_echo_protocol():
 
 @timeout(4)
 def test_protocol_send_receive(with_echo_protocol):
-    from nerfbaselines.backends._transport_protocol import TransportProtocol
-    import numpy as np
-
-    with with_echo_protocol(TransportProtocol) as echo_protocol:
-        dummy_data = np.random.rand(100, 100)
-        echo_protocol.send({"data": dummy_data})
-        out = echo_protocol.receive()
-        assert np.array_equal(dummy_data, out["data"])
-
-
-@timeout(4)
-def test_protocol_send_receive(with_echo_protocol):
     from nerfbaselines.backends._transport_protocol import TransportProtocol as MessageProtocol
     import numpy as np
 
@@ -142,6 +130,7 @@ def test_protocol_large_message(with_echo_protocol):
         assert np.array_equal(dummy_data, out["data"])
         del out
 
+    with with_echo_protocol(TransportProtocol()) as echo_protocol:
         # Test communication using allocator
         with set_allocator(echo_protocol.get_allocator()):
             dummy_data = np.random.rand(100, 100)
@@ -152,8 +141,8 @@ def test_protocol_large_message(with_echo_protocol):
             _dummy_data3 = backend_allocate_ndarray(dummy_data3.shape, dummy_data3.dtype)
             np.copyto(_dummy_data3, dummy_data3)
             dummy_data4 = np.random.rand(100, 100)
-            echo_protocol.send([dummy_data, _dummy_data2, _dummy_data3, dummy_data4])
-            out = echo_protocol.receive()
+            echo_protocol.send({"data":[dummy_data, _dummy_data2, _dummy_data3, dummy_data4]})
+            out = echo_protocol.receive()["data"]
             assert len(out) == 4
             assert np.array_equal(dummy_data, out[0])
             assert np.array_equal(dummy_data2, out[1])
@@ -161,6 +150,7 @@ def test_protocol_large_message(with_echo_protocol):
             assert np.array_equal(dummy_data4, out[3])
             del out
 
+    with with_echo_protocol(TransportProtocol()) as echo_protocol:
         # Test communication using allocator and zero_copy
         with set_allocator(echo_protocol.get_allocator()):
             dummy_data = np.random.rand(100, 100)
@@ -171,27 +161,14 @@ def test_protocol_large_message(with_echo_protocol):
             _dummy_data3 = backend_allocate_ndarray(dummy_data3.shape, dummy_data3.dtype)
             np.copyto(_dummy_data3, dummy_data3)
             dummy_data4 = np.random.rand(100, 100)
-            echo_protocol.send([dummy_data, _dummy_data2, _dummy_data3, dummy_data4])
-            out = echo_protocol.receive(zero_copy=True)
+            echo_protocol.send({"data":[dummy_data, _dummy_data2, _dummy_data3, dummy_data4]})
+            out = echo_protocol.receive(zero_copy=True)["data"]
             assert len(out) == 4
             assert np.array_equal(dummy_data, out[0])
             assert np.array_equal(dummy_data2, out[1])
             assert np.array_equal(dummy_data3, out[2])
             assert np.array_equal(dummy_data4, out[3])
             del out
-
-
-@timeout(4)
-def test_protocol_large_message(with_echo_protocol):
-    from nerfbaselines.backends._transport_protocol import TransportProtocol
-    import numpy as np
-
-    with with_echo_protocol(TransportProtocol()) as echo_protocol:
-        dummy_data = np.random.rand(100, 100)
-        echo_protocol.send({"data": dummy_data})
-        out = echo_protocol.receive()
-        assert np.array_equal(dummy_data, out["data"])
-        del out
 
 
 @timeout(4)

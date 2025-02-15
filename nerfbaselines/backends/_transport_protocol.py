@@ -55,7 +55,7 @@ class _allocator:
         nbytes = nelem * np.dtype(dtype).itemsize
         buffer = self._buffer()
         allocation = self.allocate(nbytes)
-        if allocation is None and buffer is not None:
+        if allocation is None or buffer is None:
             return np.ndarray(shape, dtype=dtype)
         offset, _ = allocation
         return np.ndarray(shape, dtype=dtype, buffer=buffer, offset=offset)
@@ -90,7 +90,7 @@ def _protocol_defaults():
 
     env_protocol = os.environ.get("NERFBASELINES_PROTOCOL")
     if env_protocol is not None:
-        parts = os.environ.get("NERFBASELINES_PROTOCOL").split("-")
+        parts = env_protocol.split("-")
         protocol_type = parts[0]
         if protocol_type not in ("tcp", "pipe", "auto"):
             raise ValueError(f"Unsupported protocol type {protocol_type} "
@@ -171,6 +171,7 @@ def _tcp_pickle_recv(conn: socket.socket, allocator=None, zero_copy=False):
             buffers.append(_read_buffer(buffer_size))
         else:
             # Shared memory buffer
+            assert allocator is not None, "Shared memory buffer without allocator"
             buffer = allocator.get(shm_offset, buffer_size)
             # Perform copy here? (for zero_copy=False)
             # NOTE: In the zero_copy mode, the buffer is not copied
@@ -208,21 +209,22 @@ def _tcp_pickle_send(conn: socket.socket, message,
         buf.seek(0)
         for buffer in buffers:
             # Check if buffer already is in allocator's memory
-            shm_offset = allocator.get_allocation_offset(buffer)
-            if shm_offset is not None:
-                header.append(shm_offset)
-                header.append(buffer.nbytes)
-                continue
+            if allocator is not None:
+                shm_offset = allocator.get_allocation_offset(buffer)
+                if shm_offset is not None:
+                    header.append(shm_offset)
+                    header.append(buffer.nbytes)
+                    continue
 
-            # Try allocating buffer in the shared memory
-            allocation = allocator.allocate(buffer.nbytes)
-            if allocation is not None:
-                # We will copy data to shared memory
-                shm_offset, out_buffer = allocation
-                out_buffer[:] = buffer
-                header.append(shm_offset)
-                header.append(buffer.nbytes)
-                continue
+                # Try allocating buffer in the shared memory
+                allocation = allocator.allocate(buffer.nbytes)
+                if allocation is not None:
+                    # We will copy data to shared memory
+                    shm_offset, out_buffer = allocation
+                    out_buffer[:] = buffer
+                    header.append(shm_offset)
+                    header.append(buffer.nbytes)
+                    continue
 
             # We will make it network buffer
             header.append(2**64-1)
@@ -443,7 +445,7 @@ class TransportProtocol:
         is_tcp = self._conns[0].family == socket.AF_INET
         base = "tcp" if is_tcp else "pipe"
         protocol_name = f"{base}-pickle{self._pickle_protocol}"
-        if self._shm_size > 0:
+        if (self._shm_size or 0) > 0:
             shm_size_str = _format_size(self._shm_size)
             protocol_name += f"-shm{shm_size_str}"
         return protocol_name
@@ -466,8 +468,9 @@ class TransportProtocol:
             while True:
                 if channel is None:
                     active_conns, _, _ = select.select(self._conns, [], [], None)
-                    if active_conns:
-                        conn = active_conns[-1]
+                    if not active_conns:
+                        continue
+                    conn = active_conns[-1]
                 else:
                     conn = self._conns[channel]
                 channel = self._conns.index(conn)
@@ -516,7 +519,7 @@ class TransportProtocol:
             self._shm = None
 
 
-def _connect_with_timeout(conn, *args, timeout=None, partial_timeout=5):
+def _connect_with_timeout(conn, *args, timeout=None, partial_timeout: float = 5):
     start = time.time()
     while timeout is None or time.time() - start <= timeout:
         try:

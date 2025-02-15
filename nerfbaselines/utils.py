@@ -230,17 +230,21 @@ def convert_image_dtype(image: TTensor, dtype) -> TTensor:
     if image.dtype == uint8 and dtype != uint8:
         if is_torch:
             # Faster torch cast
+            if TYPE_CHECKING:
+                assert isinstance(image, torch.Tensor)
             return image.to(dtype=dtype).div_(255.0)
         else:
             return _xnp_astype(image, dtype) / 255.0
     if image.dtype != uint8 and dtype == uint8:
         if is_torch:
             # Faster torch cast
-            image = image.mul(255.)
-            if image.dtype == xnp.half:
+            image_ = cast(Any, image)
+            del image
+            image_ = image_.mul(255.)
+            if image_.dtype == xnp.float16:
                 # NOTE: Clamp kernel is not available for half
-                image = image.to(xnp.float32)
-            return image.clamp_(0, 255).to(dtype=dtype)
+                image_ = image_.to(dtype=xnp.float32)
+            return cast(TTensor, image_.clamp_(0, 255).to(dtype=dtype))
         else:
             return _xnp_astype((image * 255.0).clip(0, 255), dtype)
     raise ValueError(f"cannot convert image from {image.dtype} to {dtype}")

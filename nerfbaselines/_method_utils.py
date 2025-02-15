@@ -96,8 +96,9 @@ def _wrap_method_class(method_class: Type[Method], spec: MethodSpec):
     ns = {}
     ns["get_info"] = wrap_get_info(method_class.get_info, spec)
     ns["get_method_info"] = staticmethod(wrap_get_info(method_class.get_method_info, spec))
-    if hasattr(method_class, "_format_output"):
-        ns["_format_output"] = wrap_format_output(method_class._format_output, spec)
+    old_format_output = getattr(method_class, "_format_output", None)
+    if old_format_output is not None:
+        ns["_format_output"] = wrap_format_output(old_format_output, spec)
     else:
         ns["render"] = wrap_render(method_class.render, spec)
     newcls = types.new_class(method_class.__name__, bases=(method_class,), exec_body=lambda _ns: _ns.update(ns))
