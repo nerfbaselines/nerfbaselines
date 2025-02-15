@@ -242,7 +242,7 @@ class RPCWorker:
 
             return out
         except BaseException as e:
-            if not isinstance(e, (CancelledException, StopIteration)):
+            if not isinstance(e, (CancelledException, StopIteration, KeyboardInterrupt)):
                 traceback.print_exc()
             return {"message": "error", "error": _remap_error(e)}
         finally:
@@ -313,6 +313,11 @@ def run_worker(*, protocol):
         interrupt_thread.join()
         if not safe_terminate:
             raise interrupt_result_queue.get()
+    except ConnectionError as e:
+        logging.debug("Connection closed with error", exc_info=e)
+        logging.warning("Backend worker disconnected")
+    except KeyboardInterrupt:
+        pass
     finally:
         protocol.close()
     logging.info("Backend worker finished")
@@ -517,16 +522,19 @@ class RemoteProcessRPCBackend(_common.Backend):
         return ns
 
     def _worker_monitor(self):
-        while self._worker_running and self._worker_process is not None:
-            status = self._worker_process.poll()
-            if status is not None and self._worker_running and self._worker_process is not None:
-                logging.error(f"Worker died with status code {self._worker_process.poll()}")
+        try:
+            while self._worker_running and self._worker_process is not None:
+                status = self._worker_process.poll()
+                if status is not None and self._worker_running and self._worker_process is not None:
+                    logging.error(f"Worker died with status code {self._worker_process.poll()}")
 
-                # Now, we attenpt to kill the worker by closing the protocol
-                if self._protocol is not None:
-                    self._protocol.close()
-            if status is not None:
-                break
+                    # Now, we attenpt to kill the worker by closing the protocol
+                    if self._protocol is not None:
+                        self._protocol.close()
+                if status is not None:
+                    break
+        except BaseException:
+            pass
 
     def _ensure_started(self):
         if self._worker_running:

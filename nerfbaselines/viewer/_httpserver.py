@@ -530,12 +530,17 @@ def run_simple_http_server(*args, host=None, port=None, verbose=False, **kwargs)
             backend.notify_started(port)
             return out
 
-    if ":" in host:
-        ThreadingHTTPServer.address_family = socket.AF_INET6
-    with ViewerBackend(*args, **kwargs) as backend, \
-            ThreadingHTTPServerWithBind((host, port), partial(ViewerRequestHandler, backend=backend)) as server:
-        port = server.server_address[1]
-        server.serve_forever()
+    try:
+        if ":" in host:
+            ThreadingHTTPServer.address_family = socket.AF_INET6
+        with ViewerBackend(*args, **kwargs) as backend, \
+                ThreadingHTTPServerWithBind((host, port), partial(ViewerRequestHandler, backend=backend)) as server:
+            port = server.server_address[1]
+            server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        logging.exception(e)
 
 
 def run_flask_server(*args, port, host=None, verbose=False, **kwargs):
@@ -695,5 +700,7 @@ def run_flask_server(*args, port, host=None, verbose=False, **kwargs):
                 app.run(host=host, port=port or 0)
             finally:
                 socketserver.TCPServer.server_bind = original_socket_bind
+    except KeyboardInterrupt:
+        pass
     except Exception as e:
         logging.exception(e)
