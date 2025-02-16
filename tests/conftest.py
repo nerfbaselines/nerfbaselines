@@ -318,8 +318,8 @@ def run_test_train_fixture(tmp_path_factory, request: pytest.FixtureRequest):
         default_method_name = method_marker.args[0]
 
     def run(method_name=default_method_name, backend=backend, **kwargs):
-        with tmp_path_factory.mktemp("output") as tmp_path:
-            run_test_train(tmp_path, dataset_path, method_name, backend=backend, **kwargs)
+        tmp_path = tmp_path_factory.mktemp("output")
+        run_test_train(tmp_path, dataset_path, method_name, backend=backend, **kwargs)
 
     run.dataset_name = dataset_name  # type: ignore
     return run

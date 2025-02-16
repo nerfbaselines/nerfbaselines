@@ -400,7 +400,10 @@ def render_frames(
                     zinfo.external_attr = 0o600 << 16     # ?rw-------
 
                     with zip.open(zinfo, 'w') as dest:
-                        dest.name = lpath  # type: ignore
+                        if not hasattr(dest, "name"):
+                            # For older versions of Python
+                            dest.name = lpath  # type: ignore
+                        assert dest.name == lpath
                         save_image(cast(BinaryIO, dest), image)
                 i += 1
             yield _write_frame
