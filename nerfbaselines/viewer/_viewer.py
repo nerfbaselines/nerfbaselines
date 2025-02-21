@@ -1,3 +1,4 @@
+import io
 import time
 import queue
 import math
@@ -5,9 +6,11 @@ import multiprocessing
 import logging
 import numpy as np
 import nerfbaselines
+from PIL import Image
 from nerfbaselines import __version__
-from nerfbaselines.utils import image_to_srgb, visualize_depth, apply_colormap
+from nerfbaselines.utils import image_to_srgb, visualize_depth, apply_colormap, convert_image_dtype
 from nerfbaselines.results import get_dataset_info, get_method_info_from_spec
+from nerfbaselines import backends
 try:
     from typing import Optional
 except ImportError:
@@ -302,11 +305,16 @@ class Viewer:
         rtype = rtype_spec.get("type", name)
         if rtype == "color":
             output = image_to_srgb(output, np.uint8, color_space="srgb", allow_alpha=False, background_color=background_color)
+        elif rtype == "normal":
+            output = convert_image_dtype(output*0.5+0.5, np.uint8)
         elif rtype == "depth":
             # Blend depth with correct color pallete
             output = visualize_depth(output, expected_scale=expected_depth_scale)
         elif rtype == "accumulation":
             output = apply_colormap(output, pallete="coolwarm")
+        elif len(output.shape) == 2:
+            mmin, mmax = output.min(), output.max()
+            output = apply_colormap((output-mmin)/(mmax-mmin), pallete="coolwarm")
         return output
 
     def _render(self,
@@ -319,6 +327,7 @@ class Viewer:
                 split_tilt,
                 appearance_weights=None,
                 appearance_train_indices=None,
+                format=None,
                 **kwargs):
         del kwargs
         camera = nerfbaselines.new_cameras(
@@ -350,18 +359,24 @@ class Viewer:
         options = { "output_type_dtypes": { "color": "uint8" },
                     "outputs": output_types,
                     "embedding": embedding }
-        outputs = self._model.render(camera, options=options)
-        # Format first output
-        frame = self._format_output(outputs[output_type], output_type)
-        if split_output_type is not None:
-            # Format second output
-            split_frame = self._format_output(outputs[split_output_type], split_output_type)
+        with backends.zero_copy():
+            outputs = self._model.render(camera, options=options)
+            # Format first output
+            frame = self._format_output(outputs[output_type], output_type)
+            if split_output_type is not None:
+                # Format second output
+                split_frame = self._format_output(outputs[split_output_type], split_output_type)
 
-            # Combine the two outputs
-            frame = combine_outputs(frame, split_frame, 
-                                    split_percentage=split_percentage,
-                                    split_tilt=split_tilt)
-        return frame
+                # Combine the two outputs
+                frame = combine_outputs(frame, split_frame, 
+                                        split_percentage=split_percentage,
+                                        split_tilt=split_tilt)
+            # Copy if still in shared memory before moving it to the output queue
+            with io.BytesIO() as output, Image.fromarray(frame) as img:
+                img.save(output, format=format)
+                output.seek(0)
+                return output.getvalue()
+
 
     def _run_backend(self):
         orig_port = self._port

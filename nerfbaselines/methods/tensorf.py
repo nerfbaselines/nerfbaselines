@@ -484,9 +484,14 @@ class TensoRF(Method):
         self.step = step + 1
         return output
 
+    def _format_output(self, output, options):
+        del options
+        return {
+            k: v.cpu().numpy() for k, v in output.items()
+        }
+
     @torch.no_grad()
     def render(self, camera: Cameras, *, options=None) -> RenderOutput:
-        del options
         camera = camera.item()  # Ensure there is a single camera
         assert self.metadata.get("dataset_metadata") is not None, "Missing dataset_metadata"
         assert self.metadata.get("dataset_transform") is not None, "Missing dataset_transform"
@@ -509,7 +514,7 @@ class TensoRF(Method):
         rgb_map = rgb_map.clamp(0.0, 1.0)
         rgb_map, depth_map = rgb_map.reshape(H, W, 3).cpu(), depth_map.reshape(H, W).cpu()
 
-        return {
-            "color": rgb_map.detach().numpy(),
-            "depth": depth_map.detach().numpy(),
-        }
+        return self._format_output({
+            "color": rgb_map,
+            "depth": depth_map,
+        }, options)

@@ -171,20 +171,18 @@ class ViewerBackend:
         pose = np.array(req.get("pose"), dtype=np.float32).reshape(3, 4)
         intrinsics = np.array(req.get("intrinsics"), dtype=np.float32)
         lossless = req.get("lossless", False)
-        frame = self._render_fn(threading.get_ident(), 
-                                pose=pose, 
-                                image_size=image_size, 
-                                intrinsics=intrinsics,
-                                output_type=req.get("output_type"),
-                                appearance_weights=req.get("appearance_weights"),
-                                appearance_train_indices=req.get("appearance_train_indices"),
-                                split_percentage=float(req.get("split_percentage", 0.5)),
-                                split_tilt=float(req.get("split_tilt", 0)),
-                                split_output_type=req.get("split_output_type"))
-        with io.BytesIO() as output, Image.fromarray(frame) as img:
-            img.save(output, format="PNG" if lossless else "JPEG")
-            output.seek(0)
-            frame_bytes = output.getvalue()
+        frame_bytes = self._render_fn(
+            threading.get_ident(), 
+            pose=pose, 
+            image_size=image_size, 
+            intrinsics=intrinsics,
+            output_type=req.get("output_type"),
+            appearance_weights=req.get("appearance_weights"),
+            appearance_train_indices=req.get("appearance_train_indices"),
+            split_percentage=float(req.get("split_percentage", 0.5)),
+            split_tilt=float(req.get("split_tilt", 0)),
+            format="PNG" if lossless else "JPEG",
+            split_output_type=req.get("split_output_type"))
         mimetype = "image/png" if lossless else "image/jpeg"
         return frame_bytes, mimetype
 
@@ -532,12 +530,17 @@ def run_simple_http_server(*args, host=None, port=None, verbose=False, **kwargs)
             backend.notify_started(port)
             return out
 
-    if ":" in host:
-        ThreadingHTTPServer.address_family = socket.AF_INET6
-    with ViewerBackend(*args, **kwargs) as backend, \
-            ThreadingHTTPServerWithBind((host, port), partial(ViewerRequestHandler, backend=backend)) as server:
-        port = server.server_address[1]
-        server.serve_forever()
+    try:
+        if ":" in host:
+            ThreadingHTTPServer.address_family = socket.AF_INET6
+        with ViewerBackend(*args, **kwargs) as backend, \
+                ThreadingHTTPServerWithBind((host, port), partial(ViewerRequestHandler, backend=backend)) as server:
+            port = server.server_address[1]
+            server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        logging.exception(e)
 
 
 def run_flask_server(*args, port, host=None, verbose=False, **kwargs):
@@ -697,5 +700,7 @@ def run_flask_server(*args, port, host=None, verbose=False, **kwargs):
                 app.run(host=host, port=port or 0)
             finally:
                 socketserver.TCPServer.server_bind = original_socket_bind
+    except KeyboardInterrupt:
+        pass
     except Exception as e:
         logging.exception(e)

@@ -30,10 +30,6 @@ def viewer_command(checkpoint: str, data, backend_name, port=None, host="localho
         nb_info = None
         method = None
         if checkpoint is not None:
-            # Forward port
-            if port is not None and port > 0:
-                stack.enter_context(backends.forward_port(port, port))
-
             # Load checkpoint directory
             logging.info(f"Loading checkpoint {checkpoint}")
             _checkpoint_path = stack.enter_context(open_any_directory(checkpoint))

@@ -378,6 +378,12 @@ class ScaffoldGS(Method):
             finally:
                 sceneLoadTypeCallbacks["Colmap"] = backup
 
+    def _format_output(self, output, options):
+        del options
+        return {
+            k: v.cpu().numpy() for k, v in output.items()
+        }
+
     def render(self, camera: Cameras, *, options=None) -> RenderOutput:
         camera = camera.item()
         assert camera.camera_models == camera_model_to_int("pinhole"), "Only pinhole cameras supported"
@@ -397,10 +403,8 @@ class ScaffoldGS(Method):
             voxel_visible_mask = prefilter_voxel(viewpoint, self.gaussians, self.pipe, background)
             render_pkg = render(viewpoint, self.gaussians, self.pipe, background, visible_mask=voxel_visible_mask)
             image = torch.clamp(render_pkg["render"], 0.0, 1.0)
-            color = image.detach().permute(1, 2, 0).cpu().numpy()
-            return {
-                "color": color,
-            }
+            color = image.detach().permute(1, 2, 0)
+            return self._format_output({"color": color}, options)
 
     def train_iteration(self, step):
         self.step = step

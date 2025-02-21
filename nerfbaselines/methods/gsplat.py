@@ -573,6 +573,12 @@ class GSplat(Method):
         background_color = torch.tensor(self.cfg.background_color, device=img.device, dtype=torch.float32).view(1, 1, 1, 3)
         return img + (1.0 - accumulation) * background_color
 
+    def _format_output(self, output, options):
+        del options
+        return {
+            k: v.cpu().numpy() for k, v in output.items()
+        }
+
     @torch.no_grad()
     def render(self, camera, *, options=None):
         camera = camera.item()
@@ -603,12 +609,12 @@ class GSplat(Method):
             )  # [1, H, W, 3]
         color = self._add_background_color(colors[..., :3], accumulation)
         out = {
-            "color": torch.clamp(color.squeeze(0), 0.0, 1.0).detach().cpu().numpy(),
-            "accumulation": accumulation.squeeze(0).squeeze(-1).detach().cpu().numpy(),
+            "color": torch.clamp(color.squeeze(0), 0.0, 1.0).detach(),
+            "accumulation": accumulation.squeeze(0).squeeze(-1).detach(),
         }
         if colors.shape[-1] > 3:
-            out["depth"] = colors.squeeze(0)[..., 3].detach().cpu().numpy()
-        return out
+            out["depth"] = colors.squeeze(0)[..., 3].detach()
+        return self._format_output(out, options)
 
     def get_train_embedding(self, index):
         if not self.cfg.app_opt:

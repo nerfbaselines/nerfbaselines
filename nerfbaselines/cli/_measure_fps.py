@@ -18,10 +18,11 @@ def _measure_fps_local(method, cameras, output_names, *, num_repeats):
 
     for cam in cameras:
         for _ in range(num_repeats):
-            method.render(cam, options={
-                "outputs": output_names.split(","),
-            } if output_names is not None else {})
-            frame_count += 1
+            with backends.zero_copy():
+                method.render(cam, options={
+                    "outputs": output_names.split(","),
+                } if output_names is not None else {})
+                frame_count += 1
     
     # Return FPS
     return frame_count / (time.perf_counter() - time_start)

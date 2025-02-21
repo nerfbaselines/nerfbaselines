@@ -23,7 +23,7 @@ from .utils import (
     visualize_depth,
     convert_image_dtype, 
 )
-from .backends import run_on_host
+from .backends import run_on_host, zero_copy
 from . import (
     Dataset,
     RenderOutput, 
@@ -400,7 +400,10 @@ def render_frames(
                     zinfo.external_attr = 0o600 << 16     # ?rw-------
 
                     with zip.open(zinfo, 'w') as dest:
-                        dest.name = lpath  # type: ignore
+                        if not hasattr(dest, "name"):
+                            # For older versions of Python
+                            dest.name = lpath  # type: ignore
+                        assert dest.name == lpath
                         save_image(cast(BinaryIO, dest), image)
                 i += 1
             yield _write_frame
@@ -492,12 +495,13 @@ def render_frames(
                 writer_obj, writer, _outs = writers[loutput]
                 writers[loutput] = (writer_obj, writer, _outs + (output_name,))
 
-        for frame in _predict_all():
-            for _, writer, _outs in writers.values():
-                if len(_outs) == 1:
-                    writer(frame[_outs[0]])
-                else:
-                    writer({name: frame[name] for name in _outs})
+        with zero_copy():
+            for frame in _predict_all():
+                for _, writer, _outs in writers.values():
+                    if len(_outs) == 1:
+                        writer(frame[_outs[0]])
+                    else:
+                        writer({name: frame[name] for name in _outs})
     finally:
         # Release all writers
         for writer_obj, _, _ in reversed(list(writers.values())):

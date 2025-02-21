@@ -366,8 +366,13 @@ class MipSplatting(Method):
             finally:
                 sceneLoadTypeCallbacks["Colmap"] = backup
 
-    def render(self, camera: Cameras, *, options=None) -> RenderOutput:
+    def _format_output(self, output, options):
         del options
+        return {
+            k: v.cpu().numpy() for k, v in output.items()
+        }
+
+    def render(self, camera: Cameras, *, options=None) -> RenderOutput:
         camera = camera.item()
         assert np.all(camera.camera_models == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
 
@@ -379,10 +384,8 @@ class MipSplatting(Method):
                                           scale_coords=self.dataset.scale_coords)
             viewpoint = loadCam(self.dataset, 0, viewpoint_cam, 1.0)
             image = torch.clamp(render(viewpoint, self.gaussians, self.pipe, self.background, kernel_size=self.dataset.kernel_size)["render"], 0.0, 1.0)
-            color = image.detach().permute(1, 2, 0).cpu().numpy()
-            return {
-                "color": color,
-            }
+            color = image.detach().permute(1, 2, 0)
+            return self._format_output({"color": color}, options)
 
     def train_iteration(self, step):
         assert self.trainCameras is not None, "Model was not initialized with a training dataset"

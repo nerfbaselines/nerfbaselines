@@ -483,9 +483,14 @@ class NerfStudio(Method):
             **self.get_method_info()
         )
 
+    def _format_output(self, output, options):
+        del options
+        return {
+            k: v.cpu().numpy() for k, v in output.items()
+        }
+
     @torch.no_grad()
     def render(self, camera: Cameras, *, options=None) -> RenderOutput:
-        del options
         camera = camera.item()
         cameras = camera[None]
         poses = cameras.poses.copy()
@@ -525,15 +530,14 @@ class NerfStudio(Method):
         get_outputs = self._trainer.pipeline.model.get_outputs_for_camera_ray_bundle
         outputs = get_outputs(ray_bundle)
         global_i += int(sizes[i].prod(-1))
-        color = self._trainer.pipeline.model.get_rgba_image(outputs)
-        color = color.detach().cpu().numpy()
+        color = self._trainer.pipeline.model.get_rgba_image(outputs).detach()
         out = {
             "color": color,
-            "accumulation": outputs["accumulation"].detach().cpu().numpy(),
+            "accumulation": outputs["accumulation"].detach(),
         }
         if "depth" in outputs:
-            out["depth"] = outputs["depth"].view(*outputs["depth"].shape[:2]).detach().cpu().numpy()
-        return out
+            out["depth"] = outputs["depth"].view(*outputs["depth"].shape[:2]).detach()
+        return self._format_output(out, options)
 
     def _patch_dataparser(self, dataparser_cls, *, train_dataset, dataparser_transforms, dataparser_scale, config):
         del dataparser_cls
