@@ -53,7 +53,6 @@ def _parse_patch(patch):
             oldlines = []
             newlines = []
             while i < len(pl):
-                print("aaa", pl[i])
                 if pl[i].startswith("-"):
                     oldlines.append(pl[i][1:])
                 elif pl[i].startswith("+"):
