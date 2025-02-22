@@ -1,3 +1,4 @@
+import contextlib
 import tqdm
 import tempfile
 import gc
@@ -32,6 +33,7 @@ with import_context:
     from preprocess import make_chunk  # type: ignore
     import train_single as _train_single  # type: ignore
     import train_post as _train_post  # type: ignore
+    import train_coarse as _train_coarse  # type: ignore
 
 
 _method_id = "hierarchical-3dgs"
@@ -285,7 +287,10 @@ def compute_depth_params(dataset):
 def split_dataset_into_chunks(dataset, config_overrides):
     argparser = make_chunk.get_argparser()
     arg_list = []
-    _config_overrides_to_args_list(arg_list, config_overrides)
+    supported_args = ["chunk_size", "min_padd", "lapla_thresh", "min_n_cams", "max_n_cams", "add_far_cams"]
+    _config_overrides_to_args_list(arg_list, {
+        k: v for k, v in config_overrides.items() if k in supported_args
+    })
     args = argparser.parse_args(arg_list)
 
     cams = {}
@@ -385,7 +390,6 @@ class SingleHierarchical3DGS:
         self._args = args
         return args
 
-
     def _setup(self, train_dataset):
         def build_scene(dataset, gaussians, *args, **kwargs):
             dataset = copy.deepcopy(dataset)
@@ -474,7 +478,7 @@ class SingleHierarchical3DGS:
     def train_iteration(self, step):
         if step == 0:
             # Generate invdepths
-            if self.train_dataset.get("invdepths") is None and self._args.depth_mode != "none":
+            if self.train_dataset.get("invdepths") is None and getattr(self._args, "depth_mode", "none") != "none":
                 generate_invdepths(self.train_dataset, mode=self._args.depth_mode)
             if self.train_dataset.get("invdepths") is not None:
                 compute_depth_params(self.train_dataset)
@@ -526,6 +530,21 @@ def write_colmap_dataset(path, dataset):
     colmap_utils.write_images_binary(colmap_images, os.path.join(path, "sparse", "0", "images.bin"))
 
 
+class CoarseHierarchical3DGS(SingleHierarchical3DGS):
+    module = _train_coarse
+
+    @classmethod
+    def _get_args(cls, config_overrides, store=None):
+        args_list = ["--source_path", "<empty>", "--resolution", "1", "--eval"]
+        _config_overrides_to_args_list(args_list, config_overrides)
+        parser = cls.module.get_argparser(store or Namespace())
+
+        parser.set_defaults(skybox_num=100000, position_lr_init=0.00016, position_lr_final=0.0000016)
+        args = parser.parse_args(args_list)
+        return args
+
+
+
 class PostHierarchical3DGS(SingleHierarchical3DGS):
     module = _train_post
 
@@ -534,7 +553,8 @@ class PostHierarchical3DGS(SingleHierarchical3DGS):
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
         # If there is no hierarchy, we need to convert the checkpoint to a hierarchy
-        if not os.path.exists(os.path.join(checkpoint, "hierarchy.hier")):
+        if (not os.path.exists(os.path.join(checkpoint, "hierarchy.hier_opt")) and
+            not os.path.exists(os.path.join(checkpoint, "hierarchy.hier"))):
             self.generate_hierarchy(checkpoint, train_dataset)
         super().__init__(
             checkpoint=checkpoint, 
@@ -549,7 +569,6 @@ class PostHierarchical3DGS(SingleHierarchical3DGS):
         parser.set_defaults(iterations=15000, feature_lr=0.0005, opacity_lr=0.01, scaling_lr=0.001)
         args = parser.parse_args(args_list)
         return args
-
 
     def generate_hierarchy(self, checkpoint, train_dataset):
         assert train_dataset is not None, "train_dataset must be provided to generate hierarchy"
@@ -569,22 +588,36 @@ class Hierarchical3DGS(Method):
                  checkpoint: Optional[str] = None,
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
-        train_dataset = split_dataset_into_chunks(train_dataset, config_overrides)[0]
-        stages = [
-            ('single', SingleHierarchical3DGS),
-            ('post', PostHierarchical3DGS),
-        ]
-        config_overrides_per_stage = [{
-            k.split(".")[-1]: v for k, v in (config_overrides or {}).items()
-            if k.startswith(f"{name}.") or "." not in k}
-            for name, _ in stages
-        ]
-        self.stages = [
-            (name, cls, co)
-            for (name, cls), co in zip(stages, config_overrides_per_stage)
-        ]
+        config_overrides = (config_overrides or {}).copy()
+        mode = config_overrides.pop("mode", "hierarchical")
+        assert mode in ("hierarchical", "single"), f"Unknown mode {mode}"
+        configs_per_stage = {
+            name: {
+                k.split(".")[-1]: v for k, v in (config_overrides or {}).items()
+                if k.startswith(f"{name}.") or "." not in k}
+                for name in ("single", "post", "coarse", "generate_chunks")
+        }
+            
+        if mode == "single":
+            stages = [
+                ('single', SingleHierarchical3DGS, configs_per_stage['single'], train_dataset),
+                ('post', PostHierarchical3DGS, configs_per_stage['post'], train_dataset),
+            ]
+        elif mode == "hierarchical":
+            self.tempdir = tempfile.TemporaryDirectory()
+            train_datasets = split_dataset_into_chunks(train_dataset, configs_per_stage["generate_chunks"])
+            stages = []
+            stages.append(('coarse', CoarseHierarchical3DGS, configs_per_stage['coarse'], train_dataset))
+            # Now, we process all chunks
+            for i, dataset in enumerate(train_datasets):
+                stages.append((f'single-{i}', SingleHierarchical3DGS, configs_per_stage['single'], dataset))
+                stages.append((f'post-{i}', PostHierarchical3DGS, configs_per_stage['post'], dataset))
+        else:
+            raise ValueError(f"Unknown mode {mode}")
+
+        self.stages = stages
         self._stages_cumsum = np.cumsum(
-            [0] + [cls.get_hparams(co)["iterations"] for _, cls, co in self.stages])
+            [0] + [x[1].get_hparams(x[2])["iterations"] for x in self.stages])
         self._loaded_step = None
         self.train_dataset = train_dataset
         self.checkpoint = checkpoint
@@ -592,10 +625,10 @@ class Hierarchical3DGS(Method):
             with open(os.path.join(checkpoint, "iteration.txt"), "r") as f:
                 self._loaded_step = int(f.read())
         current_stage_idx = self._get_current_stage_idx(self._loaded_step or 0)
-        _, cls, co = self.stages[current_stage_idx]
+        _, cls, co, dataset = self.stages[current_stage_idx]
         self.current_stage = cls(
             checkpoint=checkpoint, 
-            train_dataset=train_dataset, 
+            train_dataset=dataset, 
             config_overrides=co)
 
     def _get_current_stage_idx(self, step):
@@ -618,7 +651,7 @@ class Hierarchical3DGS(Method):
 
     def get_info(self) -> ModelInfo:
         hparams = {}
-        for name, cls, co in self.stages:
+        for name, cls, co, *_ in self.stages:
             hparams.update({f"{name}.{k}": v for k, v in cls.get_hparams(co).items()})
         return ModelInfo(
             num_iterations=int(self._stages_cumsum[-1]),
@@ -639,17 +672,26 @@ class Hierarchical3DGS(Method):
         stage_change = step > 0 and self._get_current_stage_idx(step-1) != current_stage
         step_offset = self._stages_cumsum[current_stage]
         if stage_change:
+            fromstage = self.stages[current_stage-1][0]
+            tostage = self.stages[current_stage][0]
             logging.info("Switching stage {} -> {}".format(
-                self.stages[current_stage-1][0], self.stages[current_stage][0]))
-            with tempfile.TemporaryDirectory() as tempdir:
-                self.current_stage.save(tempdir)
+                fromstage, tostage))
+            with contextlib.ExitStack() as stack:
+                if self.tempdir is not None:
+                    tempdir = self.tempdir.name
+                else:
+                    tempdir = stack.enter_context(tempfile.TemporaryDirectory())
+                self.current_stage.save(os.path.join(tempdir, fromstage))
                 del self.current_stage
                 gc.collect()
                 torch.cuda.empty_cache()
-                _, cls, co = self.stages[current_stage]
+                _, cls, co, dataset = self.stages[current_stage]
+                checkpoint = None
+                if fromstage.startswith("single") and tostage.startswith("post"):
+                    checkpoint = os.path.join(tempdir, fromstage)
                 self.current_stage = cls(
-                    checkpoint=tempdir, 
-                    train_dataset=self.train_dataset, 
+                    checkpoint=checkpoint,
+                    train_dataset=dataset, 
                     config_overrides=co)
         return self.current_stage.train_iteration(step - step_offset)
 

@@ -28,6 +28,7 @@ train_step_disabled_names = [
     "ema_loss_for_log",
     "ema_dist_for_log",
     "ema_normal_for_log",
+    "ema_Ll1depth_for_log",
 ]
 
 def _ast_prune_node(tree, callback):
@@ -87,19 +88,13 @@ def _(ast_module: ast.Module):
 
 # Patch train to extract the training loop and init
 # <patch train>
+@import_context.patch_ast_import("train_coarse")
 @import_context.patch_ast_import("train_post")
 @import_context.patch_ast_import("train_single")
 def _(ast_module: ast.Module):
     training_ast = copy.deepcopy(next(x for x in ast_module.body if isinstance(x, ast.FunctionDef) and x.name == "training"))
     # We remove the unused code
-    def prune_node(node):
-        if isinstance(node, ast.Name) and node.id in train_step_disabled_names:
-            return True
-        # Remove args.benchmark_dir
-        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "args" and node.attr == "benchmark_dir":
-            return True
-        return False
-    _ast_prune_node(training_ast, prune_node)
+    training_ast = ast_remove_names(training_ast, train_step_disabled_names)
 
     # Now, we extract the train iteration code, inside of the following code:
     # while iteration < opt.iterations + 1:
@@ -129,12 +124,6 @@ def _(ast_module: ast.Module):
         lambda node: isinstance(node, ast.If) and isinstance(node.test, ast.Compare) and isinstance(node.test.ops[0], ast.Eq) and
         isinstance(node.test.comparators[0], ast.Constant) and node.test.comparators[0].value == 0 and
         isinstance(node.test.left, ast.BinOp) and isinstance(node.test.left.op, ast.Mod) and isinstance(node.test.left.right, ast.Constant) and node.test.left.right.value == 10)
-    # Remove 'if iteration in saving_iterations'
-    train_step = _ast_prune_node(train_step,
-        lambda node: isinstance(node, ast.If) and isinstance(node.test, ast.Compare) and isinstance(node.test.ops[0], ast.In) and isinstance(node.test.comparators[0], ast.Name) and node.test.comparators[0].id == "saving_iterations")
-    # Remove 'if iteration in checkpoint_iterations'
-    train_step = _ast_prune_node(train_step,
-        lambda node: isinstance(node, ast.If) and isinstance(node.test, ast.Compare) and isinstance(node.test.ops[0], ast.In) and isinstance(node.test.comparators[0], ast.Name) and node.test.comparators[0].id == "checkpoint_iterations")
     # Remove 'if iteration == self._opt.iterations:'
     train_step = _ast_prune_node(train_step,
         lambda node: isinstance(node, ast.If) and isinstance(node.test, ast.Compare) and isinstance(node.test.ops[0], ast.Eq) and isinstance(node.test.comparators[0], ast.Attribute) and node.test.comparators[0].attr == "iterations" and node.test.comparators[0].value.id == "opt")
@@ -233,17 +222,17 @@ def _(ast_module: ast.Module):
     ast_module.body.append(setup_train_function)
 
     # Use this code to debug when integrating new codebase
-    print("===== Setup train =====") 
-    print(ast.unparse(setup_train))
-    print()
-    print("===== Train step =====")
-    print(ast.unparse(train_step))
-    print()
-    print("===== Train step sets =====")
-    print(train_step_transformer._stored_names)
-    print()
-    print("===== Get argparser =====")
-    print(ast.unparse(get_argparser))
+    # print("===== Setup train =====") 
+    # print(ast.unparse(setup_train))
+    # print()
+    # print("===== Train step =====")
+    # print(ast.unparse(train_step))
+    # print()
+    # print("===== Train step sets =====")
+    # print(train_step_transformer._stored_names)
+    # print()
+    # print("===== Get argparser =====")
+    # print(ast.unparse(get_argparser))
 
 
 @import_context.patch_ast_import("preprocess.make_depth_scale")
