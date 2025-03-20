@@ -77,13 +77,13 @@ function init() {
           dataRanges.push({
             start: j,
             length: 1,
-            value: row.children[columnId].attributes["data-sort-value"].value
+            value: parseInt(row.children[columnId].attributes["data-sort-value"].value)
           });
         }
       }
       dataRanges.sort(function(a, b) {
-        if (dir === "asc") { return a.value.localeCompare(b.value); } 
-        else { return b.value.localeCompare(a.value); }
+        const value = Math.sign(a.value - b.value);
+        return dir === "asc" ? value : -value;
       });
       // Reorder the rows
       const newRows = [];
