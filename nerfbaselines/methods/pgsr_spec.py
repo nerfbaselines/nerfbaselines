@@ -79,6 +79,11 @@ fi
             "voxel_size": 0.002,
             "max_depth": 5.0,
         },
+        "phototourism": {
+            "@apply": [{"dataset": "phototourism"}],
+            "exposure_compensation": True,
+            "num_images": 2000,
+        },
         "tanksandtemples": {
             "@apply": [{"dataset": "tanksandtemples"}],
             "ncc_scale": 0.5,
@@ -93,7 +98,6 @@ fi
             "white_background": True,
             "num_cluster": 1,
             "use_depth_filter": True,
-        
         },
     },
     "implementation_status": {

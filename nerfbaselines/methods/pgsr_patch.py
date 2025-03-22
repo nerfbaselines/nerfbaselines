@@ -289,6 +289,11 @@ if viewpoint_cam.sampling_mask is not None:
                 return ast.copy_location(
                     ast.Attribute(value=ast.Name(id="self", ctx=ast.Load(), lineno=0, col_offset=0), attr="_"+node.id, ctx=node.ctx), node)
             return self.generic_visit(node)
+        def visit_Call(self, node):
+            # Replace AppModel() with AppModel(scene_info)
+            if isinstance(node.func, ast.Name) and node.func.id == "AppModel":
+                node.args = [ast.parse("max(1600, self._args.num_images)").body[0].value]
+            return self.generic_visit(node)
 
     train_step_transformer = Transformer()
     for instruction in train_step:
@@ -359,7 +364,7 @@ if viewpoint_cam.sampling_mask is not None:
     setup_train_function.body = setup_train
     ast_module.body.append(setup_train_function)
 
-    ## # Use this code to debug when integrating new codebase
+    # Use this code to debug when integrating new codebase
     ## print("===== Setup train =====") 
     ## print(ast.unparse(setup_train))
     ## print()

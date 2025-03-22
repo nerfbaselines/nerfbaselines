@@ -1,6 +1,7 @@
-import logging
-import shutil
 import tempfile
+import shutil
+import math
+import logging
 import sys
 import copy
 from typing import Optional, Any
@@ -8,7 +9,9 @@ from argparse import Namespace
 import os
 
 from nerfbaselines import (
-    Method, MethodInfo, ModelInfo, RenderOutput, Cameras, camera_model_to_int, Dataset
+    Method, MethodInfo, ModelInfo, 
+    RenderOutput, Cameras, camera_model_to_int, Dataset,
+    OptimizeEmbeddingOutput
 )
 import torch
 import numpy as np
@@ -30,6 +33,26 @@ _disabled_config_keys = (
     "quiet", "checkpoint_iterations", "start_checkpoint", "websockets", "benchmark_dir", 
     "debug", "compute_conv3D_python", "convert_SHs_python"
 )
+
+
+def _compute_weighted_affine_mapping(image, gt_image, sampling_mask=None):
+    # Normalize sampling weights
+    if sampling_mask is None:
+        sampling_mask = torch.ones_like(image)
+    sampling_mask = sampling_mask / torch.sum(sampling_mask)
+    
+    # Compute weighted means
+    x_mean = torch.sum(sampling_mask * image)
+    y_mean = torch.sum(sampling_mask * gt_image)
+    
+    # Compute weighted covariance and variance
+    cov_xy = torch.sum(sampling_mask * (image - x_mean) * (gt_image - y_mean))
+    var_x = torch.sum(sampling_mask * (image - x_mean) ** 2)
+    
+    # Compute coefficients
+    a = cov_xy / var_x
+    b = y_mean - a * x_mean
+    return a.detach().cpu().item(), b.detach().cpu().item()
 
 
 def _config_overrides_to_args_list(args_list, config_overrides):
@@ -169,6 +192,8 @@ class PGSR(Method):
         self._pipe: Any = None
         self._background: Any = None
         self._args: Any = None
+        self._scene: Any = None
+        self._app_model: Any = None
 
         # Setup parameters
         self._loaded_step = None
@@ -216,6 +241,8 @@ class PGSR(Method):
         try:
             with import_context:
                 self.module.setup_train(self, self._args, build_scene)
+                if self.checkpoint is not None:
+                    self._app_model.load_weights(self.checkpoint)
         finally:
             sys.stdout = oldstdout
 
@@ -226,6 +253,7 @@ class PGSR(Method):
         parser = cls.module.get_argparser(store or Namespace())
         parser.add_argument("--max_depth", default=5.0, type=float)
         parser.add_argument("--voxel_size", default=0.002, type=float)
+        parser.add_argument("--num_images", default=1600, type=int)
         parser.add_argument("--num_cluster", default=1, type=int)
         parser.add_argument("--use_depth_filter", action="store_true")
         args = parser.parse_args(args_list)
@@ -247,20 +275,78 @@ class PGSR(Method):
             k: v.cpu().numpy() for k, v in output.items()
         }
 
-    @torch.no_grad()
-    def render(self, camera: Cameras, *, options=None) -> RenderOutput:
+    def get_train_embedding(self, index: int) -> Optional[np.ndarray]:
+        """
+        Get the embedding for a training image.
+
+        Args:
+            index: Index of the image.
+        """
+        if self._app_model is None:
+            return None
+        return self._app_model[index].detach().cpu().numpy()
+
+    def optimize_embedding(self, 
+                           dataset: Dataset, *, 
+                           embedding: Optional[np.ndarray] = None) -> OptimizeEmbeddingOutput:
+        """
+        Optimize embeddings on a single image (passed as a dataset).
+
+        Args:
+            dataset: Dataset (single image).
+            embedding: Optional initial embedding.
+        """
+        del embedding
+        camera = dataset["cameras"].item()
+        device = torch.device("cuda")
+        color = self._render(camera)["color"]
+        color = color.to(device)
+        # Load gt_color
+        gt_color = torch.from_numpy(dataset["images"][0])
+        if gt_color.dtype == torch.uint8:
+            gt_color = gt_color.float().div(255).to(device)
+        # Apply alpha for blender dataset
+        if gt_color.shape[-1] == 4:
+            alpha = gt_color[..., 3]
+            gt_color = gt_color[..., :3]
+            if self._args.white_background:
+                gt_color = gt_color * alpha[..., None] + (1 - alpha[..., None])
+        # Load sampling_masks
+        sampling_masks = dataset.get("sampling_masks", None)
+        sampling_mask = None
+        if sampling_masks is not None:
+            sampling_mask = torch.from_numpy(sampling_masks[0])
+            if sampling_mask.dtype == torch.uint8:
+                sampling_mask = sampling_mask.float().div(255).to(device)
+        # Find optimal embedding
+        assert color.shape == gt_color.shape, "Color and gt_color must have the same shape"
+        scale, offset = _compute_weighted_affine_mapping(color, gt_color, sampling_mask)
+        return {
+            "embedding": np.array([math.log(scale), offset], dtype=np.float32)
+        }
+
+    def _render(self, camera: Cameras, *, options=None):
         camera = camera.item()
         assert camera.camera_models == camera_model_to_int("pinhole"), "Only pinhole cameras supported"
         viewpoint_cam = camera_to_minicam(camera)
         render_pkg = render(viewpoint_cam, self._gaussians, self._pipe, 
                             torch.zeros((3,), dtype=torch.float32, device='cuda'),
-                            app_model=None)
-        return self._format_output({
-            "color": render_pkg["render"].clamp(0, 1).detach().permute(1, 2, 0),
+                            app_model=self._app_model)
+        color = render_pkg["render"].clamp(0, 1).detach().permute(1, 2, 0)
+        emb = (options or {}).get("embedding", None)
+        if self._app_model is not None and emb is not None:
+            log_scale, offset = float(emb[0]), float(emb[1])
+            color = (math.exp(log_scale) * color + offset).clip(0, 1)
+        return {
+            "color": color,
             "depth": render_pkg["rendered_distance"].squeeze(0).detach(),
             "normal": render_pkg["rendered_normal"].detach().permute(1, 2, 0),
             "accumulation": render_pkg["accumulation"].squeeze(0).detach(),
-        }, options)
+        }
+
+    @torch.no_grad()
+    def render(self, camera: Cameras, *, options=None) -> RenderOutput:
+        return self._format_output(self._render(camera, options=options), options)
 
     def train_iteration(self, step):
         self.step = step
@@ -302,7 +388,6 @@ class PGSR(Method):
             hparams=hparams,
             **self.get_method_info(),
         )
-
 
     def export_gaussian_splats(self, *, options=None):
         # TODO: Add appearance
