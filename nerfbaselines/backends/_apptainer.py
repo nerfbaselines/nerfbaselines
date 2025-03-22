@@ -19,7 +19,6 @@ except ImportError:
     from typing_extensions import Required, TypedDict
 
 
-
 class ApptainerBackendSpec(TypedDict, total=False):
     environment_name: Required[str]
     image: Optional[str]
