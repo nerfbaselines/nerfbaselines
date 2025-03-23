@@ -19,6 +19,9 @@ except ImportError:
     from typing_extensions import Required, TypedDict
 
 
+export_envs = ["CUDA_VISIBLE_DEVICES", "GITHUB_ACTIONS", 
+               "CI", "TORCH_CUDA_ARCH_LIST", "TCNN_CUDA_ARCHITECTURES",
+               "CUDAARCHS"]
 
 class ApptainerBackendSpec(TypedDict, total=False):
     environment_name: Required[str]
@@ -125,7 +128,6 @@ def apptainer_run(spec: ApptainerBackendSpec, args, env,
     torch_home = os.path.expanduser(env.get("TORCH_HOME", "~/.cache/torch/hub"))
     os.makedirs(torch_home, exist_ok=True)
     image = spec.get("image") or f"docker://{BASE_IMAGE}"
-    export_envs = ["CUDA_VISIBLE_DEVICES", "GITHUB_ACTIONS", "CI"]
     package_path = str(Path(__file__).absolute().parent.parent)
 
     return [

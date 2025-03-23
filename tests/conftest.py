@@ -339,6 +339,10 @@ class Tensor(np.ndarray):
         if other is not None:
             other = np.ndarray.view(other, np.ndarray)
             return Tensor(np.minimum(self, other))
+        if dim is not None:
+            ind = np.argmin(self, axis=dim).view(Tensor)
+            values = np.min(self, axis=dim).view(Tensor)
+            return values, ind
         return Tensor(np.min(self, axis=dim))
 
     def max(self, other=None, dim=None):
@@ -443,6 +447,12 @@ class Tensor(np.ndarray):
         self -= value
         return self
 
+    def abs(self):
+        return np.abs(self)
+
+    def squeeze(self, dim=None):
+        return np.squeeze(np.ndarray.view(self, np.ndarray), dim).view(Tensor)
+
     def unsqueeze(self, dim):
         return np.expand_dims(self, dim)
 
@@ -484,11 +494,14 @@ class Tensor(np.ndarray):
         shape = shape[:start_dim] + (-1,) + shape[end_dim + 1:]
         return Tensor(self.reshape(shape))
 
+    def clone(self):
+        return self.copy()
+
     def inverse(self):
         return np.linalg.inv(self)
 
     def norm(self, dim=None, keepdim=False):
-        return np.linalg.norm(self, axis=dim, keepdims=keepdim)
+        return np.linalg.norm(self, axis=dim, keepdims=keepdim).view(Tensor)
 
     def transpose(self, axis1, axis2):
         self = np.ndarray.view(self, np.ndarray)
@@ -516,11 +529,24 @@ class Tensor(np.ndarray):
         self = np.ndarray.view(self, np.ndarray)
         return f"Tensor({self.__str__()})"
 
+    def __getitem__(self, i):
+        out = np.ndarray.view(self, np.ndarray).__getitem__(i).view(Tensor)
+        if not isinstance(out, Tensor):
+            out = Tensor(out)
+        return out
+
+    def expand(self, *shape):
+        shape = [s if s >= 0 else s2 for s, s2 in zip(shape, self.shape)]
+        return np.broadcast_to(self, shape).view(Tensor)
+
+    def gather(self, dim, index):
+        return np.ndarray.view(np.take_along_axis(self, index, axis=dim), Tensor)
+
 Tensor.__module__ = "torch"
 
 
 class Optimizer:
-    def __init__(self, params, lr, eps):
+    def __init__(self, params, lr=None, eps=None, betas=None):
         self.param_groups = params
         self.lr = lr
         self.eps = eps
@@ -554,8 +580,17 @@ def mock_torch(patch_modules):
             v = partial(v2, k)
         if not k.startswith("__"):
             setattr(torch, k, v)
+    def stack(x, dim=0):
+        return np.stack(x, axis=dim).view(Tensor)
+
+    def sort(x, dim=0):
+        indices = np.ndarray.view(np.argsort(x, axis=dim), Tensor)
+        return x[indices], indices
+
+    torch.sort = sort
     torch.no_grad = lambda: _nullcontext()
     torch.tensor = torch.array
+    torch.stack = stack
     torch.clamp = Tensor.clamp
     torch.from_numpy = from_numpy
     torch.bool = bool
@@ -588,6 +623,12 @@ def mock_torch(patch_modules):
         return np.ones(shape, dtype=dtype).view(Tensor)
     def randn_like(x):
         return np.random.randn(*x.shape).view(Tensor)
+    def inverse(x):
+        return np.ndarray.view(np.linalg.inv(x), Tensor)
+    def cross(x, y, dim=-1):
+        return np.cross(x, y, axis=dim).view(Tensor)
+    torch.cross = cross
+    torch.inverse = inverse
     torch.zeros = zeros
     torch.ones = ones
     torch.Tensor = Tensor
@@ -662,8 +703,12 @@ def mock_torch(patch_modules):
         def cpu(self):
             return self
 
-        def cuda(self):
+        def cuda(self, device=None):
+            del device
             return self
+
+        def state_dict(self):
+            return {}
         
         def load_state_dict(self, state_dict, strict=True):
             pass
@@ -773,7 +818,8 @@ def torch_cpu():
         cuda = mock.MagicMock()
         cuda.is_current_stream_capturing = lambda: False
         patch("cuda", cuda)
-        patchtensor("cuda", lambda self: self)
+        def _cuda(self, device=None): return self
+        patchtensor("cuda", _cuda)
         oldto = torch.Tensor.to
         def to(self, *args, **kwargs):
             if args and (args[0] == "cuda" or isinstance(args[0], torch.device)):
