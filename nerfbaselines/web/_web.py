@@ -213,7 +213,7 @@ class WebBuilder:
                     assert p.endswith(".json")
                     return p[:-len(".json")] + ".zip"
                 dataset_info["resolved_paths"] = {
-                    replace_ext(path): f"https://{RESULTS_REPOSITORY}/resolve/main/{path}"
+                    replace_ext(path): replace_ext(f"https://{RESULTS_REPOSITORY}/resolve/main/{path}")
                     for path in rel_paths
                 }
                 raw_data.append(dataset_info)
