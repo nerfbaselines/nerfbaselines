@@ -133,6 +133,7 @@ def _mock_build_method(spec: MethodSpec) -> Iterator[Type[Method]]:
     old_import = __import__
     whitelist = ["nerfbaselines", "numpy", 
                  "io", "sys", "os", "glob", "json", "math",
+                 "enum",
                  "types", "contextlib", "warnings", "struct",
                  "importlib", "functools", "unittest", "mock", 
                  "typing", "typing_extensions", "logging", "argparse",

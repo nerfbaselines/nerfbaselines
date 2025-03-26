@@ -332,6 +332,17 @@
               </select>
             </div>
 
+            <div class="row" data-visible-if="output_palette_enabled">
+              <label for="output_palette">Palette</label>
+              <select id="output_palette" name="output_palette" data-options="output_palettes"></select>
+            </div>
+
+            <div class="row" data-visible-if="output_palette_enabled">
+              <label for="output_range">Output range</label>
+              <input type="number" id="output_range_min" name="output_range_min" value="">
+              <input type="number" id="output_range_max" name="output_range_max" value="">
+            </div>
+
             <div class="row">
               <label for="camera_pose">Camera pose</label>
               <textarea 
@@ -364,9 +375,20 @@
             </div>
 
             <div class="row dropdown">
-              <label for="split_output_type">Output render split</label>
+              <label for="split_output_type">Output type</label>
               <select id="split_output_type" name="split_output_type" data-enable-if="has_output_split" data-options="output_types" disabled>
               </select>
+            </div>
+
+            <div class="row" data-visible-if="split_palette_enabled">
+              <label for="split_palette">Palette</label>
+              <select id="split_palette" name="split_palette" data-options="output_palettes"></select>
+            </div>
+
+            <div class="row" data-visible-if="split_palette_enabled">
+              <label for="split_range">Output range</label>
+              <input type="number" id="split_range_min" name="split_range_min" value="">
+              <input type="number" id="split_range_max" name="split_range_max" value="">
             </div>
           </fieldset>
           <fieldset>

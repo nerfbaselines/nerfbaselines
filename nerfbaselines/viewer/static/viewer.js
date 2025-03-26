@@ -9,6 +9,7 @@ import { ViewerControls } from './controls.js';
 import * as Mp4Muxer from 'mp4-muxer';
 import * as WebMMuxer from 'webm-muxer';
 import { downloadZip } from 'client-zip';
+import palettes from './palettes.js';
 
 
 const notification_autoclose = 5000;
@@ -586,6 +587,9 @@ class SettingsManager {
 
       viewer_theme: 'dark',
       viewer_font_size: 1,
+
+      output_palette: 'viridis',
+      split_palette: 'viridis',
     }
   }
 
@@ -1165,6 +1169,104 @@ function _attach_viewport_split_slider(viewer) {
   });
   viewer.addEventListener("resize", () => update(viewer.state));
   update(viewer.state);
+}
+
+
+function _attach_output_configuration(viewer) {
+  const self_trigger = "selected_output_configuration";
+  viewer.addEventListener("change", ({ property, state, trigger }) => {
+    if (property === undefined ||
+        property === 'output_type' ||
+        property === 'outputs_configuration') {
+      const output_configuration = state.outputs_configuration?.[state.output_type] || {};
+      state.output_range_min = output_configuration.range_min || "";
+      viewer.notifyChange({ property: "output_range_min", trigger: self_trigger });
+      state.output_range_max = output_configuration.range_max || "";
+      viewer.notifyChange({ property: "output_range_max", trigger: self_trigger });
+      state.output_palette_enabled = output_configuration.palette_enabled || false;
+      viewer.notifyChange({ property: "output_palette_enabled", trigger: self_trigger });
+    }
+
+    if (property === undefined ||
+        property === 'split_output_type' ||
+        property === 'outputs_configuration') {
+      const output_configuration = state.outputs_configuration?.[state.split_output_type] || {};
+      let value = output_configuration.split_range_min;
+      if (value === undefined) {
+        value = output_configuration.range_min || "";
+      }
+      state.split_range_min = value;
+      viewer.notifyChange({ property: "split_range_min", trigger: self_trigger });
+      value = output_configuration.split_range_max;
+      if (value === undefined) {
+        value = output_configuration.range_max || "";
+      }
+      state.split_range_max = value;
+      viewer.notifyChange({ property: "split_range_max", trigger: self_trigger });
+      state.split_palette_enabled = output_configuration.palette_enabled || false;
+      viewer.notifyChange({ property: "split_palette_enabled", trigger: self_trigger });
+    }
+
+    if (property === 'output_range_min' && trigger !== self_trigger) {
+      let value = state.output_range_min;
+      const output_configuration = state.outputs_configuration?.[state.output_type] || {};
+      if (output_configuration.range_min !== value) {
+        state.outputs_configuration = {
+          ...state.outputs_configuration,
+          [state.output_type]: {
+            ...output_configuration,
+            range_min: value,
+          },
+        };
+      }
+      viewer.notifyChange({ property: "outputs_configuration", trigger: self_trigger });
+    }
+
+    if (property === 'output_range_max' && trigger !== self_trigger) {
+      let value = state.output_range_max;
+      const output_configuration = state.outputs_configuration?.[state.output_type] || {};
+      if (output_configuration.range_max !== value) {
+        state.outputs_configuration = {
+          ...state.outputs_configuration,
+          [state.output_type]: {
+            ...output_configuration,
+            range_max: value,
+          },
+        };
+      }
+      viewer.notifyChange({ property: "outputs_configuration", trigger: self_trigger });
+    }
+
+    if (property === 'split_range_min' && trigger !== self_trigger) {
+      let value = state.split_range_min;
+      const output_configuration = state.outputs_configuration?.[state.split_output_type] || {};
+      if (output_configuration.split_range_min !== value) {
+        state.outputs_configuration = {
+          ...state.outputs_configuration,
+          [state.split_output_type]: {
+            ...output_configuration,
+            split_range_min: value,
+          },
+        };
+      }
+      viewer.notifyChange({ property: "outputs_configuration", trigger: self_trigger });
+    }
+
+    if (property === 'split_range_max' && trigger !== self_trigger) {
+      let value = state.split_range_max;
+      const output_configuration = state.outputs_configuration?.[state.split_output_type] || {};
+      if (output_configuration.split_range_max !== value) {
+        state.outputs_configuration = {
+          ...state.outputs_configuration,
+          [state.split_output_type]: {
+            ...output_configuration,
+            split_range_max: value,
+          },
+        };
+      }
+      viewer.notifyChange({ property: "outputs_configuration", trigger: self_trigger });
+    }
+  });
 }
 
 
@@ -2438,6 +2540,11 @@ function parseBinding(expr, type=undefined) {
 const isNarrowScreen = () => window.innerWidth < 1000;
 const defaultState = {
   menu_visible: !isNarrowScreen(),
+  output_palettes: Object.keys(palettes),
+  outputs_configuration: {
+    depth: { palette_enabled: true },
+    accumulation: { palette_enabled: true },
+  },
 };
 
 
@@ -2452,6 +2559,11 @@ export class Viewer extends THREE.EventDispatcher {
   }) {
     super();
     state = Object.assign({}, defaultState, state || {});
+    for (const key in defaultState.outputs_configuration) {
+      state.outputs_configuration[key] = Object.assign({}, 
+        defaultState.outputs_configuration[key], 
+        state.outputs_configuration[key]);
+    }
     this._backgroundTexture = undefined;
     this.viewport = viewport || document.querySelector(".viewport");
     const width = this.viewport.clientWidth;
@@ -2538,6 +2650,7 @@ export class Viewer extends THREE.EventDispatcher {
     _attach_draggable_keyframe_panel(this);
     _attach_persistent_state(this);
     _attach_init_show_in_new_window(this);
+    _attach_output_configuration(this);
 
     this.addEventListener("change", ({ property, state }) => {
       if (property === undefined || property === 'render_fov') {
@@ -2633,10 +2746,16 @@ export class Viewer extends THREE.EventDispatcher {
       [width, height] = computeResolution([width, height], resolution);
       const round = (x) => Math.round(x * 100000) / 100000;
       const focal = height / (2 * Math.tan(THREE.MathUtils.degToRad(fov) / 2));
+      const notempty = (x) => x !== undefined && x !== null && x !== "";
       const request = {
         pose: matrix4ToArray(matrix).map(round),
         intrinsics: [focal, focal, width/2, height/2].map(round),
         image_size: [width, height],
+        palette: state.output_palette,
+        output_range: [
+          notempty(state.output_range_min) ? 1*state.output_range_min : null,
+          notempty(state.output_range_max) ? 1*state.output_range_max : null,
+        ],
         ...rest
       };
       request.output_type = state.output_type === "" ? undefined : state.output_type;
@@ -2644,6 +2763,11 @@ export class Viewer extends THREE.EventDispatcher {
         request.split_output_type = state.split_output_type === "" ? undefined : state.split_output_type;
         request.split_percentage = round(state.split_percentage === undefined ? 0.5 : state.split_percentage);
         request.split_tilt = round(state.split_tilt || 0.0);
+        request.split_palette = state.split_palette;
+        request.split_range = [
+          notempty(state.split_range_min) ? 1*state.split_range_min : null,
+          notempty(state.split_range_max) ? 1*state.split_range_max : null,
+        ];
       }
       return request;
     }

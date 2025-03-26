@@ -8,7 +8,7 @@ import numpy as np
 import nerfbaselines
 from PIL import Image
 from nerfbaselines import __version__
-from nerfbaselines.utils import image_to_srgb, visualize_depth, apply_colormap, convert_image_dtype
+from nerfbaselines.utils import image_to_srgb, apply_colormap, convert_image_dtype
 from nerfbaselines.results import get_dataset_info, get_method_info_from_spec
 from nerfbaselines import backends
 try:
@@ -64,6 +64,14 @@ def get_viewer_params_from_dataset_metadata(dataset_metadata, include_registry_d
         if isinstance(viewer_initial_pose, np.ndarray):
             viewer_initial_pose = viewer_initial_pose[:3, :4].flatten().tolist()
         info["viewer_initial_pose"] = viewer_initial_pose
+    if dataset_metadata.get("depth_range") is not None:
+        # Add output range configuration
+        info["state"]["outputs_configuration"] = {
+            "depth": {
+                "range_min": dataset_metadata["depth_range"][0],
+                "range_max": dataset_metadata["depth_range"][1],
+            },
+        }
 
     info["state"]["dataset_info"] = _dataset_info = {}
     _dataset_info.update({
@@ -132,6 +140,19 @@ def get_viewer_params_from_model_info(model_info, include_registry_data: bool = 
     if model_info.get("supported_outputs") is not None:
         supported_outputs = [x if isinstance(x, str) else x["name"] for x in model_info["supported_outputs"]]
         _method_info["supported_outputs"] = list(sorted(supported_outputs))
+        info["state"]["outputs_configuration"] = {}
+        for output in model_info["supported_outputs"]:
+            name = output if isinstance(output, str) else output["name"]
+            tp = output if isinstance(output, str) else output.get("type", name)
+            if tp == "depth":
+                config = { "palette_enabled": True }
+            elif tp == "color" or tp == "normal":
+                config = {}
+            elif tp == "accumulation":
+                config = { "palette_enabled": True, "range_min": 0, "range_max": 1 }
+            else:
+                config = { "palette_enabled": True }
+            info["state"]["outputs_configuration"][name] = config
 
     # Pull more details from the registry
     if include_registry_data:
@@ -148,6 +169,12 @@ def get_viewer_params_from_model_info(model_info, include_registry_data: bool = 
 
 
 def merge_viewer_params(*args):
+    def deepmerge(a, b):
+        out = {**a, **b}
+        for k in out.keys():
+            if k in a and k in b and isinstance(a[k], dict) and isinstance(b[k], dict):
+                out[k] = deepmerge(a[k], b[k])
+        return out
     if not args: return {}
     if len(args) == 1: return args[0]
     if len(args) > 2:
@@ -177,6 +204,10 @@ def merge_viewer_params(*args):
                 **astate.get("dataset_info", {}),
                 **bstate.get("dataset_info", {}),
             }
+        if "outputs_configuration" in astate and "outputs_configuration" in bstate:
+            state["outputs_configuration"] = deepmerge(
+                astate["outputs_configuration"], bstate["outputs_configuration"]
+            )
     return out
 
 
@@ -242,6 +273,7 @@ class Viewer:
         self._default_background_color = (self._nb_info or {}).get("dataset_metadata", {}).get("background_color", (0, 0, 0))
         self._default_background_color = np.array(self._default_background_color, dtype=np.uint8)
         self._default_expected_depth_scale = (self._nb_info or {}).get("dataset_metadata", {}).get("expected_depth_scale", 0.5)
+        self._default_depth_range = (self._nb_info or {}).get("dataset_metadata", {}).get("depth_range", None)
         self._process = None
         self._train_dataset = train_dataset
         self._test_dataset = test_dataset
@@ -291,7 +323,7 @@ class Viewer:
             })
         return not self._request_queue.empty()
 
-    def _format_output(self, output, name, *, background_color=None, expected_depth_scale=None):
+    def _format_output(self, output, name, *, background_color=None, expected_depth_scale=None, palette=None, output_range=None):
         name = name or "color"
         if self._output_types_map is None:
             raise ValueError("No output types map available")
@@ -309,12 +341,22 @@ class Viewer:
             output = convert_image_dtype(output*0.5+0.5, np.uint8)
         elif rtype == "depth":
             # Blend depth with correct color pallete
-            output = visualize_depth(output, expected_scale=expected_depth_scale)
+            # mmin, mmax = output.min(), output.max()
+            def map_output(x): return 1-1/(x+1)
+            mmin = mmax = None
+            if output_range is not None:
+                mmin, mmax = output_range
+            mmin = 0 if mmin is None else map_output(mmin)
+            mmax = 1 if mmax is None else map_output(mmax)
+            output = map_output(output)
+            # Map to a color scale
+            output = output * 0 if mmax == mmin else (output-mmin)/(mmax-mmin)
+            output = apply_colormap(output, pallete=palette or "coolwarm", invert=True)
         elif rtype == "accumulation":
-            output = apply_colormap(output, pallete="coolwarm")
+            output = apply_colormap(output, pallete=palette or "coolwarm")
         elif len(output.shape) == 2:
             mmin, mmax = output.min(), output.max()
-            output = apply_colormap((output-mmin)/(mmax-mmin), pallete="coolwarm")
+            output = apply_colormap((output-mmin)/(mmax-mmin), pallete=palette or "coolwarm")
         return output
 
     def _render(self,
@@ -325,8 +367,12 @@ class Viewer:
                 split_output_type,
                 split_percentage,
                 split_tilt,
+                palette=None,
                 appearance_weights=None,
                 appearance_train_indices=None,
+                output_range=None,
+                split_range=None,
+                split_palette=None,
                 format=None,
                 **kwargs):
         del kwargs
@@ -362,10 +408,14 @@ class Viewer:
         with backends.zero_copy():
             outputs = self._model.render(camera, options=options)
             # Format first output
-            frame = self._format_output(outputs[output_type], output_type)
+            frame = self._format_output(outputs[output_type], output_type, 
+                                        palette=palette,
+                                        output_range=output_range)
             if split_output_type is not None:
                 # Format second output
-                split_frame = self._format_output(outputs[split_output_type], split_output_type)
+                split_frame = self._format_output(outputs[split_output_type], split_output_type,
+                                                  palette=split_palette,
+                                                  output_range=split_range)
 
                 # Combine the two outputs
                 frame = combine_outputs(frame, split_frame, 
