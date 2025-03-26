@@ -1,4 +1,3 @@
-import sys
 import base64
 import os
 import json
@@ -8,8 +7,9 @@ import nerfbaselines.viewer
 from pathlib import Path
 import numpy as np
 from PIL import Image
-from nerfbaselines.utils import image_to_srgb
-
+from nerfbaselines.utils import (
+    image_to_srgb, convert_image_dtype, get_supported_palette_names, get_palette
+)
 
 
 def _yield_files(path, _path=None):
@@ -21,6 +21,17 @@ def _yield_files(path, _path=None):
     elif path.is_dir():
         for p in path.iterdir():
             yield from _yield_files(p, p.name if _path == None else f'{_path}/{p.name}')
+
+
+def get_palettes_js():
+    out = "const palettes = {\n"
+    for name in get_supported_palette_names():
+        palette = get_palette(name)
+        palette = convert_image_dtype(palette, np.uint8).reshape(-1)
+        palette_vals = ",".join(map(str, palette.tolist()))
+        out += f"{json.dumps(name)}:[{palette_vals}],\n"
+    out += "};\nexport default palettes;\n"
+    return out
 
 
 def build_static_viewer(output, params=None):
@@ -38,10 +49,13 @@ def build_static_viewer(output, params=None):
         with open(Path(output) / p, "wb") as f:
             f.write(file.read_bytes())
     # Add template
-    index = (path/"templates"/"index.html").read_text()
+    index = (path/"static"/"index.html").read_text()
     with open(Path(output) / "index.html", "w") as f2:
         index = index.replace("{{ data|safe }}", json.dumps(params))
         f2.write(index)
+    # Add palettes.js
+    with open(Path(output) / "palettes.js", "w") as f:
+        f.write(get_palettes_js())
 
 
 def get_image_thumbnail_url(image, dataset):

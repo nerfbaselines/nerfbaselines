@@ -22,6 +22,7 @@ from nerfbaselines.datasets import dataset_index_select, dataset_load_features
 from nerfbaselines.utils import image_to_srgb
 from ._proxy import cloudflared_tunnel
 from ._websocket import httpserver_websocket_handler, ConnectionClosed
+from ._static import get_palettes_js
 from nerfbaselines.backends._common import setup_logging as setup_logging
 
 
@@ -177,11 +178,15 @@ class ViewerBackend:
             image_size=image_size, 
             intrinsics=intrinsics,
             output_type=req.get("output_type"),
+            palette=req.get("palette") or None,
+            output_range=req.get("output_range") or (None, None),
             appearance_weights=req.get("appearance_weights"),
             appearance_train_indices=req.get("appearance_train_indices"),
             split_percentage=float(req.get("split_percentage", 0.5)),
+            split_palette=req.get("split_palette") or None,
             split_tilt=float(req.get("split_tilt", 0)),
             format="PNG" if lossless else "JPEG",
+            split_range=req.get("split_range") or (None, None),
             split_output_type=req.get("split_output_type"))
         mimetype = "image/png" if lossless else "image/jpeg"
         return frame_bytes, mimetype
@@ -339,7 +344,7 @@ class ViewerRequestHandler(SimpleHTTPRequestHandler):
         self.server_class = server_class
         static_directory = os.path.join(os.path.dirname(__file__), "static")
         self._templates = {}
-        templates_directory = os.path.join(os.path.dirname(__file__), "templates")
+        templates_directory = os.path.join(os.path.dirname(__file__), "static")
         with open(os.path.join(templates_directory, "index.html"), "r") as f:
             self._templates["index.html"] = f.read()
         super().__init__(request, client_address, server_class, directory=static_directory)
@@ -373,6 +378,15 @@ class ViewerRequestHandler(SimpleHTTPRequestHandler):
         self.send_header("Cross-Origin-Embedder-Policy", "require-corp");
         self.end_headers()
         return f
+
+    @httpserver_json_errorhandler
+    def _handle_palettes_js(self):
+        output_bytes = get_palettes_js().encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-type", "application/javascript")
+        self.send_header("Content-Length", str(len(output_bytes)))
+        self.end_headers()
+        self.wfile.write(output_bytes)
 
     @httpserver_json_errorhandler
     def _handle_dataset_cameras(self):
@@ -479,6 +493,8 @@ class ViewerRequestHandler(SimpleHTTPRequestHandler):
             return self._handle_render_websocket()
         if path == "/dataset.json":
             return self._handle_dataset_cameras()
+        if path == "/palettes.js":
+            return self._handle_palettes_js()
         if path == "/dataset/pointcloud.ply":
             return self._handle_dataset_pointcloud()
         if path.startswith("/dataset/images/") and path.endswith(".jpg"):
@@ -639,6 +655,11 @@ def run_flask_server(*args, port, host=None, verbose=False, **kwargs):
         payload, mimetype = backend.render(req)
         return Response(payload, mimetype=mimetype)
     del render
+
+    @app.route("/palettes.js")
+    def palettes_js():
+        return Response(get_palettes_js(), mimetype="application/javascript")
+    del palettes_js
 
     @app.route("/create-public-url", methods=["POST"])
     def create_public_url():

@@ -396,6 +396,8 @@ class ColmapMVS(Method):
             color, depth = out
             if cam.nears_fars is not None:
                 main_cam.znear, main_cam.zfar = cam.nears_fars
+            # Fix depth 0 == far
+            depth = np.where(depth == 0, main_cam.zfar, depth)
             return {
                 "color": color,
                 "depth": depth,

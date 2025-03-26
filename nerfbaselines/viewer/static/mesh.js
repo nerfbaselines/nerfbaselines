@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
+import palettes from './palettes.js';
 
 
 function makeMatrix4(elements) {
@@ -8,6 +9,58 @@ function makeMatrix4(elements) {
   }
   return new THREE.Matrix4().set(...elements, 0, 0, 0, 1);
 }
+
+
+export const depth_vertex_shader = /* glsl */`
+varying vec2 vUv;
+varying vec2 vHighPrecisionZW;
+
+void main() {
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+	vHighPrecisionZW = gl_Position.zw;
+}
+`;
+
+export const depth_fragment_shader = /* glsl */`
+uniform float znear;
+uniform float zfar;
+uniform float range_min;
+uniform float range_max;
+uniform sampler2D palette;
+
+varying vec2 vHighPrecisionZW;
+
+void main() {
+  float fragCoordZ = vHighPrecisionZW[0] / vHighPrecisionZW[1];
+  float zbuffer = (2.0 * znear * zfar) / (zfar + znear - fragCoordZ * (zfar - znear));
+  float mapped = 1.0 - 1.0 / (1.0 + zbuffer);
+  float zvalue = (mapped - range_min) / (range_max - range_min);
+  vec3 zcolor = texture(palette, vec2(1.0-zvalue, 0)).rgb;
+  gl_FragColor = vec4(zcolor, 1.0);
+}
+`;
+
+const mapValue = x => 1.0 - (1.0 / (1.0 + x));
+
+
+class MeshDepthMaterial extends THREE.ShaderMaterial {
+  constructor({ palette }) {
+    super({
+      uniforms: {
+        'tDiffuse': { value: null },
+        'opacity': { value: 1.0 },
+        'znear': { value: 0.001 },
+        'zfar': { value: 1000 },
+        'range_min': { value: mapValue(2.0) },
+        'range_max': { value: mapValue(6.0) },
+        'palette': { value: palette, type: 't'},
+      },
+      vertexShader: depth_vertex_shader,
+      fragmentShader: depth_fragment_shader,
+    });
+  }
+};
 
 
 export class MeshFrameRenderer {
@@ -28,13 +81,32 @@ export class MeshFrameRenderer {
     if (Array.isArray(background_color))
       background_color = new THREE.Color(...background_color);
     this.mesh_url = mesh_url;
-    this.scene.background = new THREE.Color(background_color || 0x000000);
+    this.defaultBackground = new THREE.Color(background_color || 0x000000);
+    this.scene.background = this.defaultBackground;
     this.camera = new THREE.Camera();
     this.canvas = new OffscreenCanvas(1, 1);
     this._flipCanvas = new OffscreenCanvas(1, 1);
     this.renderer = new THREE.WebGLRenderer({ antialias: true, canvas: this.canvas });
     this._loadPlyModel(mesh_url);
-    this.output_types = ["color"];
+
+    this.material = new THREE.MeshBasicMaterial({ vertexColors: true });
+    this.normalMaterial = new THREE.MeshNormalMaterial();
+    this.output_types = ["color", "depth", "normal"];
+    this.palettes = {};
+    for (const name in palettes) {
+      const palette = palettes[name];
+      const numColors = palette.length / 3;
+      const data = new Uint8Array(numColors * 4);
+      for (let i = 0; i < numColors; i++) {
+        data[i * 4 + 0] = palette[i*3];
+        data[i * 4 + 1] = palette[i*3+1];
+        data[i * 4 + 2] = palette[i*3+2];
+        data[i * 4 + 3] = 255;
+      }
+      this.palettes[name] = new THREE.DataTexture(data, numColors, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
+      this.palettes[name].needsUpdate = true;
+    }
+    this.depthMaterial = new MeshDepthMaterial({ palette: null });
   }
 
   async _loadPlyModel(mesh_url) {
@@ -97,8 +169,7 @@ export class MeshFrameRenderer {
       const arrayBuffer = await response.arrayBuffer();
       const geometry = new PLYLoader().parse(arrayBuffer);
       geometry.computeVertexNormals();
-      const material = new THREE.MeshBasicMaterial({ vertexColors: true });
-      const mesh = new THREE.Mesh(geometry, material);
+      const mesh = new THREE.Mesh(geometry, this.material);
       if (cancelled) return;
       this.scene.add(mesh);
       this.update_notification({ id: this._notificationId, autoclose: 0 });
@@ -177,6 +248,37 @@ export class MeshFrameRenderer {
     matrix.decompose(position, quaternion, scale);
     this.camera.position.copy(position);
     this.camera.quaternion.copy(quaternion);
+
+    // Set material
+    this.scene.children.forEach((mesh) => {
+      if (params.output_type === "normal") {
+        mesh.material = this.normalMaterial;
+        this.scene.background = new THREE.Color(0x000000);
+      } else if (params.output_type === "depth") {
+        mesh.material = this.depthMaterial;
+        const palette = this.palettes[params.palette || "viridis"];
+        this.depthMaterial.uniforms.palette.value = palette;
+        this.depthMaterial.uniforms.znear.value = this.near;
+        this.depthMaterial.uniforms.zfar.value = this.far;
+        const concreteValue = x => x !== null && x !== undefined && x !== "" && isFinite(x);
+        this.depthMaterial.uniforms.range_min.value = concreteValue(params.output_range?.[0]) ? mapValue(params.output_range[0]) : 0;
+        this.depthMaterial.uniforms.range_max.value = concreteValue(params.output_range?.[1]) ? mapValue(params.output_range[1]) : 1;
+        const coloridx = (
+          this.depthMaterial.uniforms.range_max.value >
+          this.depthMaterial.uniforms.range_min.value
+        ) ? 0 : palette.source.data.data.length/4-1;
+        this.scene.background = new THREE.Color().setRGB(
+          palette.source.data.data[coloridx*4+0]/255,
+          palette.source.data.data[coloridx*4+1]/255,
+          palette.source.data.data[coloridx*4+2]/255,
+          THREE.SRGBColorSpace
+        );
+      } else {
+        mesh.material = this.material;
+        this.scene.background = this.defaultBackground;
+      }
+    });
+
     this.renderer.render(this.scene, this.camera);
     // Flip the image vertically
     let imageBitmap = await this.canvas.transferToImageBitmap();

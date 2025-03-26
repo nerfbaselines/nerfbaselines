@@ -65,6 +65,7 @@ def load_blender_dataset(path: str, split: str, **kwargs):
         metadata={
             "color_space": "srgb",
             "expected_scene_scale": 4,
+            "depth_range": [2, 6],
             "background_color": np.array([255, 255, 255], dtype=np.uint8),
         },
     )
