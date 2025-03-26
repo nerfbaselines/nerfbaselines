@@ -1,3 +1,4 @@
+import json
 import numpy as np
 from operator import mul
 from functools import reduce
@@ -8,6 +9,11 @@ import numpy as np
 if TYPE_CHECKING:
     import torch
     import jax.numpy as jnp
+# For Python>=3.9, use importlib.resources
+if sys.version_info >= (3, 9):
+    import importlib.resources as importlib_resources
+else:
+    import importlib_resources
 
 
 T = TypeVar("T")
@@ -311,6 +317,37 @@ def _zipnerf_power_transformation(x, lam: float):
     return (((x / abs(lam - 1)) + 1) ** lam - 1) * m
 
 
+def get_supported_palette_names() -> List[str]:
+    """
+    Get the names of the supported palettes.
+
+    Returns:
+        The names of the supported palettes.
+    """
+    import nerfbaselines
+    with importlib_resources.open_text(nerfbaselines, 'palettes.json') as f:
+        palettes_dict = json.load(f)
+    return list(palettes_dict.keys())
+
+
+def get_palette(palette: str) -> np.ndarray:
+    """
+    Get a color palette.
+
+    Args:
+        palette: The name of the palette.
+
+    Returns:
+        The color palette as a numpy array of shape [N, 3] and dtype uint8.
+        N is usually 256, but it can be different for some palettes.
+    """
+    import nerfbaselines
+    with importlib_resources.open_text(nerfbaselines, 'palettes.json') as f:
+        palettes_dict = json.load(f)
+    return np.array(palettes_dict[palette], dtype=np.uint8).reshape(-1, 3)
+
+
+
 def apply_colormap(array: TTensor, *, pallete: str = "viridis", invert: bool = False) -> TTensor:
     """
     Apply a colormap to an array.
@@ -324,35 +361,18 @@ def apply_colormap(array: TTensor, *, pallete: str = "viridis", invert: bool = F
         The array with the colormap applied.
     """
     xnp = _get_xnp(array)
-    # TODO: remove matplotlib dependency
-    import matplotlib
-    colormaps: Dict[str, Any]
-    ListedColormap = None
-    try:
-        import matplotlib.colormaps as _colormaps  # type: ignore
-        colormaps = cast(Dict[str, Any], _colormaps)  # type: ignore
-        ListedColormap = matplotlib.colors.ListedColormap  # type: ignore
-    except ImportError:
-        import matplotlib.cm as _colormaps  # type: ignore
-        colormaps = cast(Dict[str, Any], vars(_colormaps))  # type: ignore
 
     # Map to a color scale
     array_long = cast(TTensor, _xnp_astype(array * 255, xnp.int32).clip(0, 255))
-    colormap = colormaps[pallete]
-    colormap_colors = None
-    if ListedColormap is not None and isinstance(colormap, ListedColormap):  # type: ignore
-        colormap_colors = colormap.colors
-    else:
-        colormap_colors = [list(colormap(i / 255))[:3] for i in range(256)]
+    palette_np = get_palette(pallete)
     if xnp.__name__ == "torch":
         import torch
-        pallete_array = cast(TTensor, torch.tensor(colormap_colors, dtype=torch.float32, device=cast(torch.Tensor, array).device))
+        pallete_array = cast(TTensor, torch.tensor(palette_np, dtype=torch.uint8, device=cast(torch.Tensor, array).device))
     else:
-        pallete_array = cast(TTensor, xnp.array(colormap_colors, dtype=xnp.float32))  # type: ignore
+        pallete_array = cast(TTensor, xnp.array(palette_np, dtype=xnp.uint8))  # type: ignore
     if invert:
         array_long = 255 - array_long
-    out = cast(TTensor, pallete_array[array_long])  # type: ignore
-    return _xnp_astype(out * 255, xnp.uint8)
+    return cast(TTensor, pallete_array[array_long])  # type: ignore
 
 
 def visualize_depth(depth: np.ndarray, expected_scale: Optional[float] = None, near_far: Optional[np.ndarray] = None, pallete: str = "viridis") -> np.ndarray:
