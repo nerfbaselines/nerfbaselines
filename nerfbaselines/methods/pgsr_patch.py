@@ -9,7 +9,11 @@ import_context = Context()
 metrics = {
     "loss": "loss.item()",
     "l1_loss": "Ll1.item()",
-    "ssim": "(1 - Lssim.item()) if 'Lssim' in locals() else (1 - (loss.item() - (1.0 - self._opt.lambda_dssim) * Ll1.item()) / self._opt.lambda_dssim)",
+    "normal_loss": "normal_loss.item() if normal_loss is not None else 0.0",
+    "image_loss": "image_loss.item() if image_loss is not None else 0.0",
+    "geo_loss": "geo_loss.item() if geo_loss is not None else 0.0",
+    "pho_loss": "ncc_loss.item() if ncc_loss is not None else 0.0",
+    "ssim": "1-ssim_loss.item()",
     "psnr": "10 * torch.log10(torch.mean(locals().get('alpha_mask', torch.tensor(1.0))) / torch.mean((image - gt_image) ** 2 * locals().get('alpha_mask', 1))).item()",
     "num_points": "len(gaussians.get_xyz)",
 }
@@ -107,7 +111,7 @@ def process_loaded_image_and_mask(image, sampling_mask, resolution, ncc_scale):
     gt_image = resized_image_rgb
     if ncc_scale != 1.0:
         ncc_resolution = (int(resolution[0]/ncc_scale), int(resolution[1]/ncc_scale))
-        resized_image_rgb = PILtoTorch(image, ncc_resolution)
+        resized_image_rgb = PILtoTorch(Image.fromarray(image), ncc_resolution)
     gray_image = (0.299 * resized_image_rgb[0] + 0.587 * resized_image_rgb[1] + 0.114 * resized_image_rgb[2])[None]
     return gt_image, gray_image, loaded_mask
 

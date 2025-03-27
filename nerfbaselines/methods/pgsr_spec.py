@@ -60,7 +60,7 @@ fi
     },
     "metadata": {
         "name": "PGSR",
-        "description": """Scaffold-GS uses anchor points to distribute local 3D Gaussians, and predicts their attributes on-the-fly based on viewing direction and distance within the view frustum. In NerfBaselines, we fixed bug with cx,cy, added appearance embedding optimization, and added support for sampling masks. Note, that we also implement a demo for the method, but it does not evaluate the MLP and the Gaussians are "baked" for specific viewing direction and appearance embedding (if enabled).""",
+        "description": """Planar-based Gaussian Splatting Reconstruction representation for efficient and high-fidelity surface reconstruction from multi-view RGB images without any geometric prior (depth or normal from pre-trained model).""",
         "paper_title": "PGSR: Planar-based Gaussian Splatting for Efficient and High-Fidelity Surface Reconstruction",
         "paper_authors": ["Danpeng Chen", "Hai Li", "Weicai Ye", "Yifan Wang", "Weijian Xie", "Shangjin Zhai", "Nan Wang", "Haomin Liu", "Hujun Bao", "Guofeng Zhang"],
         "paper_link": "https://zju3dv.github.io/pgsr/paper/pgsr.pdf",

@@ -415,9 +415,12 @@ class PGSR(Method):
                 render.Scene = lambda *args, **kwargs: self._scene
                 render.GaussianModel = lambda *args, **kwargs: self._gaussians
                 self._args.model_path = tmpdir
-
+                # Hack to avoid a bug in PGSR
+                for cam in self._scene.train_cameras[1.0]:
+                    cam.image_name = cam.image_name.replace("/", "__")
                 render.render_sets(self._args, self.step, self._args, False, True, self._args.max_depth, self._args.voxel_size, self._args.num_cluster, self._args.use_depth_filter)
 
+                os.makedirs(path, exist_ok=True)
                 shutil.move(os.path.join(tmpdir, "mesh", "tsdf_fusion_post.ply"), os.path.join(path, "mesh.ply"))
             finally:
                 render.Scene = backup_scene
