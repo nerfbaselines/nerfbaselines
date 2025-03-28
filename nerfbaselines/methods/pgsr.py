@@ -329,9 +329,12 @@ class PGSR(Method):
         camera = camera.item()
         assert camera.camera_models == camera_model_to_int("pinhole"), "Only pinhole cameras supported"
         viewpoint_cam = camera_to_minicam(camera)
+        if self._args.white_background:
+            background = torch.ones((3,), dtype=torch.float32, device='cuda')
+        else:
+            background = torch.zeros((3,), dtype=torch.float32, device='cuda')
         render_pkg = render(viewpoint_cam, self._gaussians, self._pipe, 
-                            torch.zeros((3,), dtype=torch.float32, device='cuda'),
-                            app_model=self._app_model)
+                            background, app_model=self._app_model)
         color = render_pkg["render"].clamp(0, 1).detach().permute(1, 2, 0)
         emb = (options or {}).get("embedding", None)
         if self._app_model is not None and emb is not None:
