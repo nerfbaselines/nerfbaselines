@@ -93,7 +93,6 @@ def download_zipnerf_dataset(path: str, output: Union[Path, str]):
                     "scene": scene_name,
                     "downscale_factor": res,
                     "evaluation_protocol": "nerf",
-                    "type": "object-centric",
                 }, f)
 
             # Generate split files

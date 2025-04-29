@@ -91,14 +91,12 @@ def test_mipnerf360_dataset(tmp_path):
 @pytest.mark.dataset("zipnerf")
 def test_zipnerf_dataset(tmp_path):
     train_dataset, test_dataset = _test_generic_dataset(
-        tmp_path, "zipnerf", "alameda", train_size=151, test_size=22)
-    assert train_dataset["metadata"].get("type") == "object-centric"
-    assert test_dataset["metadata"].get("type") == "object-centric"
+        tmp_path, "zipnerf", "alameda", train_size=1517, test_size=217)
     assert train_dataset["metadata"].get("evaluation_protocol") == "nerf"
     assert test_dataset["metadata"].get("evaluation_protocol") == "nerf"
     test_images = [os.path.relpath(x, test_dataset["image_paths_root"]) for x in test_dataset["image_paths"][:5]]
-    assert test_images == ['_DSC9040.JPG', '_DSC9048.JPG', '_DSC9056.JPG', '_DSC9064.JPG', '_DSC9072.JPG']
-    assert test_dataset["images"][0].shape == (828, 1256, 3)
+    assert test_images == ['indoor_DSC06836.JPG', 'indoor_DSC07249.JPG', 'indoor_DSC08034.JPG', 'indoor_DSC08058.JPG', 'indoor_DSC06500.JPG']
+    assert test_dataset["images"][0].shape == (793, 1394, 3)
 
 
 @pytest.mark.dataset("llff")
