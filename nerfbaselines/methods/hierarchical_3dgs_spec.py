@@ -16,6 +16,10 @@ In order to enable appearance optimization, add `--preset exposure` to the comma
 will optimize a affine mapping for each image during the training to map the rendered colors.
 This option is recommended for the scenes with strong lighting changes when rendering a video,
 but it can decrease metrics - especially PSNR. By default exposure optimization is turned off.
+
+Durring rendering, you can pass tau (float) in the rendering `options` to set the tau parameter
+used by H3DGS renderer. The default value is 0 which means the finest set of Gaussians will
+be used - highest quality, but slowest performance.
 """
 
 
@@ -97,20 +101,26 @@ fi
     },
     "metadata": {
         "name": "H3DGS",
-        "description": "",
-        "paper_title": "Taming 3DGS: High-Quality Radiance Fields with Limited Resources",
-        "paper_authors": [],
-        "paper_link": "",
-        "link": "",
-        "licenses": [],
+        "description": "H3DGS extends 3DGS with LOD rendering strategy based on hierarchical representation of the scene. For large scenes it splits it into chunks, optimize each separatedly and merge them into single model.",
+        "paper_title": "A Hierarchical 3D Gaussian Representation for Real-Time Rendering of Very Large Datasets",
+        "paper_authors": ["Bernhard Kerbl", "Andreas Meuleman", "Georgios Kopanas", "Michael Wimmer", "Alexandre Lanvin", "George Drettakis"],
+        "paper_link": "https://repo-sam.inria.fr/fungraph/hierarchical-3d-gaussians/hierarchical-3d-gaussians_low.pdf",
+        "link": "https://repo-sam.inria.fr/fungraph/hierarchical-3d-gaussians/",
+        "licenses": [{
+            "name": "custom, research only",
+            "url": "https://raw.githubusercontent.com/graphdeco-inria/hierarchical-3d-gaussians/refs/heads/main/LICENSE.md"
+        }, {
+            "name": "custom, research only",
+            "url": "https://raw.githubusercontent.com/graphdeco-inria/gaussian-splatting/refs/heads/main/LICENSE.md"
+        }],
         "long_description": long_description,
         "presets": {
-            "exposure": {
-                "exposure_lr_init": 0.001,
-            },
-            "depth-dpt": { 
-                "depth_mode": "dpt", 
-            },
+            "exposure": { "exposure_lr_init": 0.001 },
+            "depth-dpt": { "single.depth_mode": "dpt", "coarse.depth_mode": "dpt" },
+            "tau-0": { "post.tau": "0" },
+            "tau-3": { "post.tau": "3" },
+            "tau-6": { "post.tau": "6" },
+            "tau-6": { "post.tau": "15" },
         },
     },
 })

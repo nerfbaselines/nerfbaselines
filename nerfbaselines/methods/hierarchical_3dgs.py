@@ -443,10 +443,11 @@ class SingleHierarchical3DGS:
 
     @classmethod
     def _get_args(cls, config_overrides, store=None):
-        args_list = ["--source_path", "<empty>", "--resolution", "1", "--eval", "--exposure_lr_init", "0"]
+        args_list = ["--source_path", "<empty>", "--resolution", "1", "--eval"]
         _config_overrides_to_args_list(args_list, config_overrides)
         parser = cls.module.get_argparser(store or Namespace())
         parser.add_argument("--depth_mode", choices=["depth_anything_v2", "dpt", "none"], default="depth_anything_v2")
+        parser.set_defaults(exposure_lr_init=0.0)
         args = parser.parse_args(args_list)
         args.depths = "<provided>" if args.depth_mode == "none" else None
         return args
@@ -539,7 +540,7 @@ class CoarseHierarchical3DGS(SingleHierarchical3DGS):
         _config_overrides_to_args_list(args_list, config_overrides)
         parser = cls.module.get_argparser(store or Namespace())
 
-        parser.set_defaults(skybox_num=100000, position_lr_init=0.00016, position_lr_final=0.0000016)
+        parser.set_defaults(skybox_num=100000, position_lr_init=0.00016, position_lr_final=0.0000016, exposure_lr_init=0.0)
         args = parser.parse_args(args_list)
         return args
 
@@ -566,9 +567,16 @@ class PostHierarchical3DGS(SingleHierarchical3DGS):
         args_list = ["--source_path", "<empty>", "--resolution", "1", "--eval"]
         _config_overrides_to_args_list(args_list, config_overrides)
         parser = cls.module.get_argparser(store or Namespace())
-        parser.set_defaults(iterations=15000, feature_lr=0.0005, opacity_lr=0.01, scaling_lr=0.001)
+        parser.add_argument("--tau", type=float, default=6.0)
+        parser.set_defaults(iterations=15000, feature_lr=0.0005, opacity_lr=0.01, scaling_lr=0.001, exposure_lr_init=0.0)
         args = parser.parse_args(args_list)
         return args
+
+    def render(self, camera: Cameras, *, options=None) -> RenderOutput:
+        options = options or {}
+        if "tau" not in options:
+            options["tau"] = self._args.tau
+        return super().render(camera, options=options)
 
     def generate_hierarchy(self, checkpoint, train_dataset):
         assert train_dataset is not None, "train_dataset must be provided to generate hierarchy"
@@ -584,13 +592,15 @@ class PostHierarchical3DGS(SingleHierarchical3DGS):
 
 
 class Hierarchical3DGS(Method):
+    tempdir = None
+
     def __init__(self, *,
                  checkpoint: Optional[str] = None,
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
         config_overrides = (config_overrides or {}).copy()
-        mode = config_overrides.pop("mode", "hierarchical")
-        assert mode in ("hierarchical", "single"), f"Unknown mode {mode}"
+        mode = config_overrides.pop("mode", "single")
+        assert mode in ("per-chunk", "single"), f"Unknown mode {mode}"
         configs_per_stage = {
             name: {
                 k.split(".")[-1]: v for k, v in (config_overrides or {}).items()
@@ -603,7 +613,7 @@ class Hierarchical3DGS(Method):
                 ('single', SingleHierarchical3DGS, configs_per_stage['single'], train_dataset),
                 ('post', PostHierarchical3DGS, configs_per_stage['post'], train_dataset),
             ]
-        elif mode == "hierarchical":
+        elif mode == "per-chunk":
             self.tempdir = tempfile.TemporaryDirectory()
             train_datasets = split_dataset_into_chunks(train_dataset, configs_per_stage["generate_chunks"])
             stages = []
@@ -641,7 +651,8 @@ class Hierarchical3DGS(Method):
         return MethodInfo(
             method_id="",
             required_features=frozenset((
-                "color", "points3D_xyz", "images_points3D_indices", "images_points2D_xy",
+                "color", "points3D_xyz",
+                "images_points3D_indices", "images_points2D_xy",
                 "points3D_error", "points3D_rgb",
             )),
             supported_camera_models=frozenset(("pinhole",)),

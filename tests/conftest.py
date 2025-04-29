@@ -331,7 +331,7 @@ class Tensor(np.ndarray):
             return np.ndarray.view(value, Tensor)
         return np.array(value).view(Tensor)
 
-    def min(self, other=None, dim=None):
+    def min(self, other=None, dim=None, axis=None):
         self = np.ndarray.view(self, np.ndarray)
         if isinstance(other, int):
             dim = other
@@ -339,11 +339,11 @@ class Tensor(np.ndarray):
         if other is not None:
             other = np.ndarray.view(other, np.ndarray)
             return Tensor(np.minimum(self, other))
-        if dim is not None:
-            ind = np.argmin(self, axis=dim).view(Tensor)
-            values = np.min(self, axis=dim).view(Tensor)
+        if dim is not None or axis is not None:
+            ind = np.argmin(self, axis=dim or axis).view(Tensor)
+            values = np.min(self, axis=dim or axis).view(Tensor)
             return values, ind
-        return Tensor(np.min(self, axis=dim))
+        return Tensor(np.min(self))
 
     def max(self, other=None, dim=None, axis=None):
         self = np.ndarray.view(self, np.ndarray)

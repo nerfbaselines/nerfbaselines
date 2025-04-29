@@ -160,7 +160,11 @@ class NerfBaselinesDirective(SphinxDirective):
                                       nodes.field_body('', _get_field_value(supported_outputs))))
 
         section += nodes.field_list('', *fields)
-        section += nodes.paragraph("", nodes.Text(meta["description"]))
+        # section += nodes.paragraph("", nodes.Text(meta["description"]))
+        if meta.get("description"):
+            section += self.parse_text_to_nodes(meta["description"])
+        if meta.get("long_description"):
+            section += self.parse_text_to_nodes(meta["long_description"], allow_section_headings=True)
         return section
 
     def _register_all(self):

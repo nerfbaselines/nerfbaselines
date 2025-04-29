@@ -31,7 +31,10 @@ def method_source_code(load_source_code):
 @pytest.fixture
 def colmap_dataset(colmap_dataset_path):
     from nerfbaselines.datasets import load_dataset
-    return load_dataset(str(colmap_dataset_path), split="train", features=frozenset(("points3D_xyz",)))
+    from nerfbaselines import get_method_spec
+    from nerfbaselines.results import get_method_info_from_spec
+    info = get_method_info_from_spec(get_method_spec("hierarchical-3dgs"))
+    return load_dataset(str(colmap_dataset_path), split="train", features=info["required_features"])
 
 
 class Rasterizer:
@@ -59,7 +62,7 @@ class Rasterizer:
 
 
 @pytest.fixture
-def method_module(method_source_code, mock_module, dataloader_noworkers):
+def method_module(method_source_code, mock_module, dataloader_noworkers, tmp_path):
     del method_source_code, dataloader_noworkers
     diff_gaussian_rasterization = mock_module("diff_gaussian_rasterization")
     def distCUDA2(x):
@@ -75,10 +78,15 @@ def method_module(method_source_code, mock_module, dataloader_noworkers):
     mock_module("dpt").__file__ = ""
     mock_module("dpt.transforms")
     mock_module("dpt.models")
-    mock_module("depth_anything_v2").dpt.__file__ = ""
-    mock_module("depth_anything_v2.dpt").__file__ = ""
+    mock_module("depth_anything_v2").dpt.__file__ = str(tmp_path / "dpt" / "__init__.py")
+    mock_module("depth_anything_v2.dpt").__file__ = str(tmp_path / "__init__.py")
     diff_gaussian_rasterization.GaussianRasterizer = Rasterizer
     diff_gaussian_rasterization.GaussianRasterizationSettings = argparse.Namespace
+
+    # Create a mock of depth anything checkpoint
+    import torch
+    (tmp_path / "checkpoints").mkdir(parents=True, exist_ok=True)
+    torch.save({}, str(tmp_path / "checkpoints" / "depth_anything_v2_vitl.pth"))
 
     yield importlib.import_module("nerfbaselines.methods.hierarchical_3dgs")
 
