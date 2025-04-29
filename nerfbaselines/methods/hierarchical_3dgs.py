@@ -659,7 +659,21 @@ class Hierarchical3DGS(Method):
                  checkpoint: Optional[str] = None,
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
-        config_overrides = (config_overrides or {}).copy()
+        self._config_overrides = config_overrides or {}
+        self._loaded_step = None
+        if checkpoint is not None:
+            if not os.path.exists(checkpoint):
+                raise RuntimeError(f"Model directory {checkpoint} does not exist")
+            self._config_overrides = self._config_overrides.copy()
+
+            with open(os.path.join(checkpoint, "h3dgs-info.json"), "r") as f:
+                meta = json.load(f)
+
+            self._config_overrides = meta["config_overrides"]
+            self._config_overrides.update(config_overrides or {})
+            self._loaded_step = meta["iteration"]
+
+        config_overrides = self._config_overrides.copy()
         mode = config_overrides.pop("mode", "single")
         assert mode in ("per-chunk", "single"), f"Unknown mode {mode}"
         configs_per_stage = {
@@ -689,14 +703,9 @@ class Hierarchical3DGS(Method):
         self.stages = stages
         self._stages_cumsum = np.cumsum(
             [0] + [x[1].get_hparams(x[2])["iterations"] for x in self.stages])
-        self._loaded_step = None
         self.train_dataset = train_dataset
         self.checkpoint = checkpoint
-        if checkpoint is not None:
-            with open(os.path.join(checkpoint, "iteration.txt"), "r") as f:
-                self._loaded_step = int(f.read())
         current_stage_idx = self._get_current_stage_idx(self._loaded_step or 0)
-        print(current_stage_idx)
         _, cls, co, dataset = self.stages[current_stage_idx]
         self.current_stage = cls(
             checkpoint=checkpoint, 
@@ -770,6 +779,9 @@ class Hierarchical3DGS(Method):
 
     def save(self, path: str):
         self.current_stage.save(path)
-        with open(os.path.join(path, "iteration.txt"), "w") as f:
-            step_offset = self._stages_cumsum[self._current_stage_idx]
-            f.write(str(step_offset + self.current_stage.step))
+        step_offset = self._stages_cumsum[self._current_stage_idx]
+        with open(os.path.join(path, "h3dgs-info.json"), "w") as f:
+            json.dump({
+                "config_overrides": self._config_overrides,
+                "iteration": step_offset + self.current_stage.step,
+            }, f)
