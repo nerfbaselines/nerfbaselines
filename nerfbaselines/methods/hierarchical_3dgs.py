@@ -1,3 +1,4 @@
+import math
 import contextlib
 import tqdm
 import tempfile
@@ -26,7 +27,7 @@ with import_context:
     import utils.camera_utils  # type: ignore
     from scene import Scene  # type: ignore
     from scene.cameras import getWorld2View2, getProjectionMatrix, MiniCam  # type: ignore
-    from gaussian_renderer import render # type: ignore
+    from gaussian_renderer import render, render_post # type: ignore
     from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # type: ignore
     from scene.gaussian_model import BasicPointCloud  # type: ignore
     from preprocess import make_depth_scale  # type: ignore
@@ -34,6 +35,7 @@ with import_context:
     import train_single as _train_single  # type: ignore
     import train_post as _train_post  # type: ignore
     import train_coarse as _train_coarse  # type: ignore
+    from gaussian_hierarchy._C import expand_to_size, get_interpolation_weights
 
 
 _method_id = "hierarchical-3dgs"
@@ -414,22 +416,27 @@ class SingleHierarchical3DGS:
                              else None), 
                           **kwargs)
             # Fix exposure_mapping not being loaded
-            if getattr(gaussians, 'exposure_mapping', None) is None and self.checkpoint is not None:
-                gaussians.exposure_mapping = {}
-                exposure = []
-                with open(os.path.join(self.checkpoint, "exposure.json"), "r") as f:
-                    for i, (k, v) in enumerate(json.load(f).items()):
-                        gaussians.exposure_mapping[k] = i
-                        exposure.append(torch.tensor(v, dtype=torch.float32))
-                if getattr(gaussians, '_exposure', None) is None:
-                    gaussians._exposure = torch.stack(exposure)
+            ## if getattr(gaussians, 'exposure_mapping', None) is None and self.checkpoint is not None:
+            ##     gaussians.exposure_mapping = {}
+            ##     exposure = []
+            ##     with open(os.path.join(self.checkpoint, "exposure.json"), "r") as f:
+            ##         for i, (k, v) in enumerate(json.load(f).items()):
+            ##             gaussians.exposure_mapping[k] = i
+            ##             exposure.append(torch.tensor(v, dtype=torch.float32))
+            ##     if getattr(gaussians, '_exposure', None) is None:
+            ##         gaussians._exposure = torch.stack(exposure)
             return scene
         oldstdout = sys.stdout
+        training_setup = self.module.GaussianModel.training_setup
         try:
+            # Disable training setup for inference
+            if train_dataset is None:
+                self.module.GaussianModel.training_setup = lambda self, *args, **kwargs: None
             with import_context:
                 self.module.setup_train(self, self._args, build_scene)
         finally:
             sys.stdout = oldstdout
+            self.module.GaussianModel.training_setup = training_setup
 
     def _next_viewpoint_cam(self):
         if getattr(self, '_train_cam_generator', None) is None:
@@ -548,6 +555,11 @@ class CoarseHierarchical3DGS(SingleHierarchical3DGS):
 
 class PostHierarchical3DGS(SingleHierarchical3DGS):
     module = _train_post
+    _render_indices = None
+    _parent_indices = None
+    _nodes_for_render_indices = None
+    _interpolation_weights = None
+    _num_siblings = None
 
     def __init__(self, *,
                  checkpoint,
@@ -572,11 +584,60 @@ class PostHierarchical3DGS(SingleHierarchical3DGS):
         args = parser.parse_args(args_list)
         return args
 
+    def _prepare_buffers(self):
+        if self._render_indices is None or self._render_indices.size(0) != self._gaussians._xyz.size(0):
+            self._render_indices = torch.zeros(self._gaussians._xyz.size(0)).int().cuda()
+            self._parent_indices = torch.zeros(self._gaussians._xyz.size(0)).int().cuda()
+            self._nodes_for_render_indices = torch.zeros(self._gaussians._xyz.size(0)).int().cuda()
+            self._interpolation_weights = torch.zeros(self._gaussians._xyz.size(0)).float().cuda()
+            self._num_siblings = torch.zeros(self._gaussians._xyz.size(0)).int().cuda()
+
+    @torch.no_grad()
     def render(self, camera: Cameras, *, options=None) -> RenderOutput:
+        camera = camera.item()
+        assert camera.camera_models == camera_model_to_int("pinhole"), "Only pinhole cameras supported"
         options = options or {}
-        if "tau" not in options:
-            options["tau"] = self._args.tau
-        return super().render(camera, options=options)
+        tau = options.get("tau", self._args.tau)
+        viewpoint_cam = camera_to_minicam(camera, 'cuda')
+        render_pkg = render(viewpoint_cam, self._gaussians, self._pipe, 
+                            torch.zeros((3,), dtype=torch.float32, device='cuda'),
+                            indices=None, use_trained_exp=False)
+        tanfovx = math.tan(viewpoint_cam.FoVx * 0.5)
+        threshold = (2 * (tau + 0.5)) * tanfovx / (0.5 * viewpoint_cam.image_width)
+        to_render = expand_to_size(
+            self._gaussians.nodes,
+            self._gaussians.boxes,
+            threshold,
+            viewpoint_cam.camera_center,
+            torch.zeros((3)),
+            self._render_indices,
+            self._parent_indices,
+            self._nodes_for_render_indices)
+        indices = self._render_indices[:to_render].int().contiguous()
+        node_indices = self._nodes_for_render_indices[:to_render].contiguous()
+        get_interpolation_weights(
+            node_indices,
+            threshold,
+            self._gaussians.nodes,
+            self._gaussians.boxes,
+            viewpoint_cam.camera_center.cpu(),
+            torch.zeros((3)),
+            self._interpolation_weights,
+            self._num_siblings
+        )
+        render_pkg = render_post(
+            viewpoint_cam, 
+            self._gaussians, 
+            self._args, 
+            torch.tensor([0.0, 0.0, 0.0], dtype=torch.float32, device="cuda"), 
+            render_indices=indices,
+            parent_indices = self._parent_indices,
+            interpolation_weights = self._interpolation_weights,
+            num_node_kids = self._num_siblings, 
+            use_trained_exp=self._args.train_test_exp)
+        return {
+            "color": render_pkg["render"].clamp(0, 1).detach().permute(1, 2, 0).cpu().numpy(),
+        }
 
     def generate_hierarchy(self, checkpoint, train_dataset):
         assert train_dataset is not None, "train_dataset must be provided to generate hierarchy"
@@ -635,6 +696,7 @@ class Hierarchical3DGS(Method):
             with open(os.path.join(checkpoint, "iteration.txt"), "r") as f:
                 self._loaded_step = int(f.read())
         current_stage_idx = self._get_current_stage_idx(self._loaded_step or 0)
+        print(current_stage_idx)
         _, cls, co, dataset = self.stages[current_stage_idx]
         self.current_stage = cls(
             checkpoint=checkpoint, 
@@ -642,7 +704,7 @@ class Hierarchical3DGS(Method):
             config_overrides=co)
 
     def _get_current_stage_idx(self, step):
-        out = min(np.searchsorted(self._stages_cumsum, step, side="right")-1, len(self.stages))
+        out = min(np.searchsorted(self._stages_cumsum, step, side="right")-1, len(self.stages)-1)
         self._current_stage_idx = out
         return out
 
