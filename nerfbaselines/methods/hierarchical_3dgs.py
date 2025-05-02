@@ -35,10 +35,15 @@ with import_context:
     import train_single as _train_single  # type: ignore
     import train_post as _train_post  # type: ignore
     import train_coarse as _train_coarse  # type: ignore
-    from gaussian_hierarchy._C import expand_to_size, get_interpolation_weights
+    from gaussian_hierarchy._C import expand_to_size, get_interpolation_weights  # type: ignore
 
 
 _method_id = "hierarchical-3dgs"
+
+
+def _noop(*args, **kwargs):
+    del args, kwargs
+    pass
 
 
 def _config_overrides_to_args_list(args_list, config_overrides):
@@ -379,7 +384,7 @@ class SingleHierarchical3DGS:
 
         self.config_overrides = config_overrides
         self._load_config()
-        self.train_dataset = train_dataset
+        self.train_dataset = copy.copy(train_dataset)
         self._setup(train_dataset)
 
     def _load_config(self):
@@ -416,22 +421,22 @@ class SingleHierarchical3DGS:
                              else None), 
                           **kwargs)
             # Fix exposure_mapping not being loaded
-            ## if getattr(gaussians, 'exposure_mapping', None) is None and self.checkpoint is not None:
-            ##     gaussians.exposure_mapping = {}
-            ##     exposure = []
-            ##     with open(os.path.join(self.checkpoint, "exposure.json"), "r") as f:
-            ##         for i, (k, v) in enumerate(json.load(f).items()):
-            ##             gaussians.exposure_mapping[k] = i
-            ##             exposure.append(torch.tensor(v, dtype=torch.float32))
-            ##     if getattr(gaussians, '_exposure', None) is None:
-            ##         gaussians._exposure = torch.stack(exposure)
+            if getattr(gaussians, 'exposure_mapping', None) is None and self.checkpoint is not None:
+                gaussians.exposure_mapping = {}
+                exposure = []
+                with open(os.path.join(self.checkpoint, "exposure.json"), "r") as f:
+                    for i, (k, v) in enumerate(json.load(f).items()):
+                        gaussians.exposure_mapping[k] = i
+                        exposure.append(torch.tensor(v, dtype=torch.float32))
+                if getattr(gaussians, '_exposure', None) is None:
+                    gaussians._exposure = torch.stack(exposure)
             return scene
         oldstdout = sys.stdout
         training_setup = self.module.GaussianModel.training_setup
         try:
             # Disable training setup for inference
             if train_dataset is None:
-                self.module.GaussianModel.training_setup = lambda self, *args, **kwargs: None
+                self.module.GaussianModel.training_setup = _noop
             with import_context:
                 self.module.setup_train(self, self._args, build_scene)
         finally:
@@ -783,5 +788,16 @@ class Hierarchical3DGS(Method):
         with open(os.path.join(path, "h3dgs-info.json"), "w") as f:
             json.dump({
                 "config_overrides": self._config_overrides,
-                "iteration": step_offset + self.current_stage.step,
+                "iteration": int(step_offset + self.current_stage.step),
             }, f)
+
+        # Add missing exposure saving for post stage
+        scene = self.current_stage._scene
+        if not os.path.exists(os.path.join(path, "exposure.json")):
+            exposure_dict = {
+                image_name: scene.gaussians.get_exposure_from_name(image_name).detach().cpu().numpy().tolist()
+                for image_name in scene.gaussians.exposure_mapping
+            }
+            with open(os.path.join(path, "exposure.json"), "w") as f:
+                json.dump(exposure_dict, f, indent=2)
+

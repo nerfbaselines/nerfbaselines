@@ -573,6 +573,7 @@ def run_inside_eval_container(backend_name: Optional[str] = None):
         "method_class": "base",
         "conda": {
             "environment_name": "_metrics", 
+            "python_version": "3.10",
             "install_script": """
 # Install dependencies
 pip install \

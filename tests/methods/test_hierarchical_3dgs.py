@@ -68,6 +68,7 @@ def method_module(method_source_code, mock_module, dataloader_noworkers, tmp_pat
     def distCUDA2(x):
         return x.norm(dim=-1)
     import torch.optim
+    from torch import nn
     class PatchedAdam(torch.optim.Adam):
         def step(self, relevant, closure=None):
             del relevant
@@ -78,8 +79,14 @@ def method_module(method_source_code, mock_module, dataloader_noworkers, tmp_pat
     mock_module("dpt").__file__ = ""
     mock_module("dpt.transforms")
     mock_module("dpt.models")
-    mock_module("depth_anything_v2").dpt.__file__ = str(tmp_path / "dpt" / "__init__.py")
-    mock_module("depth_anything_v2.dpt").__file__ = str(tmp_path / "__init__.py")
+    depth_anything_v2 = mock_module("depth_anything_v2")
+    depth_anything_v2.dpt = mock_module("depth_anything_v2.dpt")
+    depth_anything_v2.dpt.__file__ = str(tmp_path / "dpt" / "__init__.py")
+    class DepthAnythingV2(nn.Module):
+        def infer_image(self, img, *args, **kwargs):
+            del args, kwargs
+            return (img + 0.1)[:, :, 0]
+    depth_anything_v2.dpt.DepthAnythingV2 = DepthAnythingV2
     diff_gaussian_rasterization.GaussianRasterizer = Rasterizer
     diff_gaussian_rasterization.GaussianRasterizationSettings = argparse.Namespace
 
