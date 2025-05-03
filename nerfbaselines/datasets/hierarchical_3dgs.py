@@ -24,11 +24,14 @@ _scenes_prefix = {
 SCENES = set(_scenes_links.keys())
 
 
+def _noop(*args, **kwargs): del args, kwargs
+
+
 def download_hierarchical_3dgs_dataset(path: str, output: Union[Path, str]):
     if path == DATASET_NAME:
         # We will download all faster here
         for x in _scenes_links:
-            download_hierarchical_3dgs_dataset(f"{DATASET_NAME}/{x}", output / x)
+            download_hierarchical_3dgs_dataset(f"{DATASET_NAME}/{x}", Path(output) / x)
 
     output = Path(output)
     if not path.startswith(f"{DATASET_NAME}/") and path != DATASET_NAME:
@@ -111,7 +114,7 @@ def download_hierarchical_3dgs_dataset(path: str, output: Union[Path, str]):
                     # NOTE: The following two lines should be atomic, but they are not
                     shutil.move(str(output), os.path.join(tmp_to_del, "old"))
                     shutil.move(str(output_tmp), str(output))
-                    tmpdir._delete = False  # Prevent deletion of the temporary directory
+                    tmpdir.__exit__ = _noop  # Prevent deletion of the temporary directory
             else:
                 shutil.move(str(output_tmp), str(output))
             logging.info(f"Downloaded {DATASET_NAME}/{scene_name} to {output}")

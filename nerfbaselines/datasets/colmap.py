@@ -304,6 +304,7 @@ def load_colmap_dataset(path: Union[Path, str],
         image_names.append(image.name)
         image_paths.append(str(images_path / image.name))
         if sampling_mask_paths is not None:
+            assert sampling_masks_path is not None, "sampling_masks_path is None"
             sampling_mask_paths.append(str(sampling_masks_path / Path(image.name).with_suffix(".png")))
 
         # rotation = qvec2rotmat(image.qvec).astype(np.float32)
