@@ -518,6 +518,18 @@ class SingleHierarchical3DGS:
             if old_hierarchy is not _empty:
                 self._gaussians.hierarchy_path = old_hierarchy
 
+    def export_gaussian_splats(self, options=None):
+        options = (options or {}).copy()
+        return {
+            "antialias_2D_kernel_size": 0.3,
+            "means": self._gaussians.get_xyz.detach().cpu().numpy(),
+            "scales": self._gaussians.get_scaling_with_3D_filter.detach().cpu().numpy(),
+            "opacities": self._gaussians.get_opacity_with_3D_filter.detach().cpu().numpy(),
+            "quaternions": self._gaussians.get_rotation.detach().cpu().numpy(),
+            "spherical_harmonics": self._gaussians.get_features.transpose(1, 2).detach().cpu().numpy(),
+        }
+
+
 
 def write_colmap_dataset(path, dataset):
     cameras = dataset["cameras"]
@@ -616,9 +628,6 @@ class PostHierarchical3DGS(SingleHierarchical3DGS):
         options = options or {}
         tau = options.get("tau", self._args.tau)
         viewpoint_cam = camera_to_minicam(camera, 'cuda')
-        render_pkg = render(viewpoint_cam, self._gaussians, self._pipe, 
-                            torch.zeros((3,), dtype=torch.float32, device='cuda'),
-                            indices=None, use_trained_exp=False)
         tanfovx = math.tan(viewpoint_cam.FoVx * 0.5)
         threshold = (2 * (tau + 0.5)) * tanfovx / (0.5 * viewpoint_cam.image_width)
         to_render = expand_to_size(
