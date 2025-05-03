@@ -42,6 +42,13 @@ conda install -y cuda-toolkit -c "nvidia/label/cuda-11.7.1"
 conda install -c conda-forge -y nodejs==20.9.0
 conda develop .
 
+# Fix gcc paths
+_prefix="$CONDA_PREFIX"
+conda deactivate; conda activate "$_prefix"
+ln -s "$CC" "$CONDA_PREFIX/bin/gcc"
+ln -s "$CXX" "$CONDA_PREFIX/bin/g++"
+export CPATH="$CONDA_PREFIX/x86_64-conda-linux-gnu/sysroot/usr/include:$CPATH"
+
 pip install -U pip 'setuptools<70.0.0' 'wheel==0.43.0'
 pip install plyfile==0.8.1 \
         mediapy==1.1.2 \
