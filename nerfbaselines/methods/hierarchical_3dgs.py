@@ -462,11 +462,15 @@ class SingleHierarchical3DGS:
 
     @classmethod
     def _get_args(cls, config_overrides, store=None):
-        args_list = ["--source_path", "<empty>", "--resolution", "1", "--eval"]
+        args_list = ["--source_path", "<empty>"]
         _config_overrides_to_args_list(args_list, config_overrides)
         parser = cls.module.get_argparser(store or Namespace())
         parser.add_argument("--depth_mode", choices=["depth_anything_v2", "dpt", "none"], default="depth_anything_v2")
-        parser.set_defaults(exposure_lr_init=0.0, exposure_lr_final=0.0)
+        parser.set_defaults(
+            exposure_lr_init=0.0, 
+            resolution=1,
+            eval=True,
+            exposure_lr_final=0.0)
         args = parser.parse_args(args_list)
         args.depths = "<provided>" if args.depth_mode == "none" else None
         return args
@@ -733,6 +737,8 @@ class Hierarchical3DGS(Method):
         }
             
         if mode == "single":
+            if "skip_scale_big_gauss" not in configs_per_stage["single"]:
+                configs_per_stage["single"]["skip_scale_big_gauss"] = True
             stages = [
                 ('single', SingleHierarchical3DGS, configs_per_stage['single'], train_dataset),
                 ('post', PostHierarchical3DGS, configs_per_stage['post'], train_dataset),
