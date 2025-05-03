@@ -8,11 +8,10 @@ import pprint
 import logging
 import struct
 import math
-import contextlib
 import json
 import os
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, cast
 try:
     from typing import get_origin, get_args
 except ImportError:
@@ -590,7 +589,7 @@ class InstantNGP(Method):
 
             with tempfile.TemporaryDirectory() as tmpdir:
                 w, h = camera.image_sizes
-                dataset: Dataset = Dataset(
+                dataset = cast(Dataset, dict(
                     points3D_xyz=None,
                     points3D_rgb=None,
                     images_points3D_indices=None,
@@ -604,7 +603,7 @@ class InstantNGP(Method):
                     metadata={
                         "color_space": self.dataparser_params["color_space"],
                     }
-                )
+                ))
                 self._write_images(dataset, tmpdir)
                 with (Path(tmpdir) / "transforms.json").open("w") as f:
                     json.dump(get_transforms(dataset, **self.dataparser_params)[0], f)

@@ -221,8 +221,6 @@ def load_colmap_dataset(path: Union[Path, str],
         images_path = Path(images_path)
     if colmap_path is not None:
         colmap_path = Path(colmap_path)
-    if sampling_masks_path is not None:
-        sampling_masks_path = Path(sampling_masks_path)
     if features is None:
         features = typing.cast(FrozenSet[DatasetFeature], frozenset())
     load_points = "points3D_xyz" in features or "points3D_rgb" in features
@@ -241,7 +239,12 @@ def load_colmap_dataset(path: Union[Path, str],
     images_path = (path / images_path).resolve()
     if sampling_masks_path is None:
         sampling_masks_path = "sampling_masks"
-    sampling_masks_path = (path / sampling_masks_path).resolve()
+        sampling_masks_path = (path / sampling_masks_path).resolve()
+        if not sampling_masks_path.exists():
+            sampling_masks_path = None
+    else:
+        sampling_masks_path = Path(sampling_masks_path)
+        sampling_masks_path = (path / sampling_masks_path).resolve()
     if not colmap_path.exists():
         raise DatasetNotFoundError(f"Missing '{rel_colmap_path}' folder in COLMAP dataset")
     if not (colmap_path / "cameras.bin").exists() and not (colmap_path / "cameras.txt").exists():
@@ -283,7 +286,7 @@ def load_colmap_dataset(path: Union[Path, str],
     camera_distortion_params = []
     image_paths: List[str] = []
     image_names = []
-    sampling_mask_paths: Optional[List[str]] = None if not sampling_masks_path.exists() else []
+    sampling_mask_paths: Optional[List[str]] = None if not sampling_masks_path is not None else []
     camera_sizes = []
 
     image: colmap_utils.Image
@@ -301,7 +304,7 @@ def load_colmap_dataset(path: Union[Path, str],
         image_names.append(image.name)
         image_paths.append(str(images_path / image.name))
         if sampling_mask_paths is not None:
-            sampling_mask_paths.append(str(sampling_masks_path / Path(image.name + ".png")))
+            sampling_mask_paths.append(str(sampling_masks_path / Path(image.name).with_suffix(".png")))
 
         # rotation = qvec2rotmat(image.qvec).astype(np.float32)
         # translation = image.tvec.reshape(3, 1).astype(np.float32)

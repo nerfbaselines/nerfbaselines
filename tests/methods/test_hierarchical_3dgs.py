@@ -34,7 +34,7 @@ def colmap_dataset(colmap_dataset_path):
     from nerfbaselines import get_method_spec
     from nerfbaselines.results import get_method_info_from_spec
     info = get_method_info_from_spec(get_method_spec("hierarchical-3dgs"))
-    return load_dataset(str(colmap_dataset_path), split="train", features=info["required_features"])
+    return load_dataset(str(colmap_dataset_path), split="train", features=info.get("required_features"))
 
 
 class Rasterizer:
@@ -70,7 +70,7 @@ def method_module(method_source_code, mock_module, dataloader_noworkers, tmp_pat
     import torch.optim
     from torch import nn
     class PatchedAdam(torch.optim.Adam):
-        def step(self, relevant, closure=None):
+        def step(self, relevant, closure=None):  # type: ignore
             del relevant
             super().step(closure=closure)
     mock_module("simple_knn._C").distCUDA2 = distCUDA2
@@ -83,6 +83,9 @@ def method_module(method_source_code, mock_module, dataloader_noworkers, tmp_pat
     depth_anything_v2.dpt = mock_module("depth_anything_v2.dpt")
     depth_anything_v2.dpt.__file__ = str(tmp_path / "dpt" / "__init__.py")
     class DepthAnythingV2(nn.Module):
+        def __init__(self, *args, **kwargs):
+            del args, kwargs
+            super().__init__()
         def infer_image(self, img, *args, **kwargs):
             del args, kwargs
             return (img + 0.1)[:, :, 0]

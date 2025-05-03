@@ -13,7 +13,7 @@ _method = os.environ.get("NERFBASELINES_ALLOWED_METHODS", "").split(",")[0] or "
     f"train --data data --method {_method} --checkpoint checkpoint --output output".split(),
     "render --data data --checkpoint checkpoint --output output".split(),
     "render-trajectory --checkpoint checkpoint --output output --trajectory trajectory".split(),
-    "evaluate predictions --output output".split(),
+    "evaluate predictions --output output.json".split(),
     "build-docker-image".split(),
     "download-dataset dataset".split(),
     "generate-dataset-results".split(),

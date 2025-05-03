@@ -234,7 +234,7 @@ def generate_invdepths(dataset, mode):
                 img = img.astype(np.float32) / 255.
             img_input = transform({"image": img})["image"]
             sample = torch.from_numpy(img_input).cuda().unsqueeze(0)
-            sample = sample.to(memory_format=torch.channels_last)
+            sample = sample.to(memory_format=torch.channels_last)  # type: ignore
             sample = sample.half()
             prediction = model.forward(sample)
             prediction = (
@@ -367,11 +367,13 @@ class SingleHierarchical3DGS:
         self.checkpoint = checkpoint
         self.step = 0
         self._gaussians: Any = None
+        self._scene: Any = None
         self._dataset: Any = None
         self._opt: Any = None
         self._pipe: Any = None
         self._background: Any = None
         self._args: Any = None
+        self._training_generator: Any = None
 
         # Setup parameters
         self._loaded_step = None
@@ -489,6 +491,7 @@ class SingleHierarchical3DGS:
         }
 
     def train_iteration(self, step):
+        assert self.train_dataset is not None, "train_dataset must be set"
         if step == 0:
             # Generate invdepths
             if self.train_dataset.get("invdepths") is None and getattr(self._args, "depth_mode", "none") != "none":
@@ -571,6 +574,7 @@ class PostHierarchical3DGS(SingleHierarchical3DGS):
                  train_dataset: Optional[Dataset] = None,
                  config_overrides: Optional[dict] = None):
         # If there is no hierarchy, we need to convert the checkpoint to a hierarchy
+        assert checkpoint is not None, "Checkpoint must be provided"
         if (not os.path.exists(os.path.join(checkpoint, "hierarchy.hier_opt")) and
             not os.path.exists(os.path.join(checkpoint, "hierarchy.hier"))):
             self.generate_hierarchy(checkpoint, train_dataset)
@@ -599,6 +603,14 @@ class PostHierarchical3DGS(SingleHierarchical3DGS):
 
     @torch.no_grad()
     def render(self, camera: Cameras, *, options=None) -> RenderOutput:
+        self._prepare_buffers()
+        # Pyright assertions
+        assert self._render_indices is not None, "Buffers not prepared"
+        assert self._parent_indices is not None, "Buffers not prepared"
+        assert self._nodes_for_render_indices is not None, "Buffers not prepared"
+        assert self._interpolation_weights is not None, "Buffers not prepared"
+        assert self._num_siblings is not None, "Buffers not prepared"
+
         camera = camera.item()
         assert camera.camera_models == camera_model_to_int("pinhole"), "Only pinhole cameras supported"
         options = options or {}
@@ -674,16 +686,16 @@ class Hierarchical3DGS(Method):
             with open(os.path.join(checkpoint, "h3dgs-info.json"), "r") as f:
                 meta = json.load(f)
 
-            self._config_overrides = meta["config_overrides"]
+            self._config_overrides = meta["config_overrides"] or {}
             self._config_overrides.update(config_overrides or {})
             self._loaded_step = meta["iteration"]
 
-        config_overrides = self._config_overrides.copy()
-        mode = config_overrides.pop("mode", "single")
+        config_overrides_ = self._config_overrides.copy()
+        mode = config_overrides_.pop("mode", "single")
         assert mode in ("per-chunk", "single"), f"Unknown mode {mode}"
         configs_per_stage = {
             name: {
-                k.split(".")[-1]: v for k, v in (config_overrides or {}).items()
+                k.split(".")[-1]: v for k, v in (config_overrides_ or {}).items()
                 if k.startswith(f"{name}.") or "." not in k}
                 for name in ("single", "post", "coarse", "generate_chunks")
         }
