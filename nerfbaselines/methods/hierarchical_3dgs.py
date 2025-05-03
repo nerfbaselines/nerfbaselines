@@ -380,10 +380,14 @@ class SingleHierarchical3DGS:
         if checkpoint is not None:
             if not os.path.exists(checkpoint):
                 raise RuntimeError(f"Model directory {checkpoint} does not exist")
-            self._loaded_step = sorted(
-                int(x[x.find("_") + 1:]) for x in os.listdir(os.path.join(str(checkpoint), "point_cloud")) if x.startswith("iteration_"))[-1]
-            self.step = self._loaded_step
+            iters = []
+            if os.path.exists(os.path.join(checkpoint, "point_cloud")):
+                iters = sorted(
+                    int(x[x.find("_") + 1:]) for x in os.listdir(os.path.join(str(checkpoint), "point_cloud")) if x.startswith("iteration_"))
+            if iters:
+                self._loaded_step = iters[-1]
 
+        self.step = self._loaded_step
         self.config_overrides = config_overrides
         self._load_config()
         self.train_dataset = copy.copy(train_dataset)
@@ -677,6 +681,20 @@ class PostHierarchical3DGS(SingleHierarchical3DGS):
                 tmpdir,
                 checkpoint])
 
+    def export_gaussian_splats(self, options=None):
+        options = (options or {}).copy()
+        # We select all leafs for the demo
+        indices = self._gaussians.nodes[:, -1] == 0
+        return {
+            "antialias_2D_kernel_size": 0.3,
+            "means": self._gaussians.get_xyz[indices].detach().cpu().numpy(),
+            "scales": self._gaussians.get_scaling[indices].detach().cpu().numpy(),
+            "opacities": self._gaussians.get_opacity[indices].detach().cpu().numpy(),
+            "quaternions": self._gaussians.get_rotation[indices].detach().cpu().numpy(),
+            "spherical_harmonics": self._gaussians.get_features[indices].transpose(1, 2).detach().cpu().numpy(),
+        }
+
+
 
 class Hierarchical3DGS(Method):
     tempdir = None
@@ -822,3 +840,5 @@ class Hierarchical3DGS(Method):
             with open(os.path.join(path, "exposure.json"), "w") as f:
                 json.dump(exposure_dict, f, indent=2)
 
+    def export_gaussian_splats(self, options=None):
+        return self.current_stage.export_gaussian_splats(options=options)
