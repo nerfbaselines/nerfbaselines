@@ -245,6 +245,7 @@ def generate_invdepths(dataset, mode):
                     align_corners=False,
                 )
                 .squeeze()
+                .float()
                 .cpu()
                 .numpy()
             )
@@ -465,7 +466,7 @@ class SingleHierarchical3DGS:
         _config_overrides_to_args_list(args_list, config_overrides)
         parser = cls.module.get_argparser(store or Namespace())
         parser.add_argument("--depth_mode", choices=["depth_anything_v2", "dpt", "none"], default="depth_anything_v2")
-        parser.set_defaults(exposure_lr_init=0.0)
+        parser.set_defaults(exposure_lr_init=0.0, exposure_lr_final=0.0)
         args = parser.parse_args(args_list)
         args.depths = "<provided>" if args.depth_mode == "none" else None
         return args
@@ -527,8 +528,8 @@ class SingleHierarchical3DGS:
         return {
             "antialias_2D_kernel_size": 0.3,
             "means": self._gaussians.get_xyz.detach().cpu().numpy(),
-            "scales": self._gaussians.get_scaling_with_3D_filter.detach().cpu().numpy(),
-            "opacities": self._gaussians.get_opacity_with_3D_filter.detach().cpu().numpy(),
+            "scales": self._gaussians.get_scaling.detach().cpu().numpy(),
+            "opacities": self._gaussians.get_opacity.detach().cpu().numpy(),
             "quaternions": self._gaussians.get_rotation.detach().cpu().numpy(),
             "spherical_harmonics": self._gaussians.get_features.transpose(1, 2).detach().cpu().numpy(),
         }
@@ -571,7 +572,9 @@ class CoarseHierarchical3DGS(SingleHierarchical3DGS):
         _config_overrides_to_args_list(args_list, config_overrides)
         parser = cls.module.get_argparser(store or Namespace())
 
-        parser.set_defaults(skybox_num=100000, position_lr_init=0.00016, position_lr_final=0.0000016, exposure_lr_init=0.0)
+        parser.set_defaults(skybox_num=100000,
+                            position_lr_init=0.00016, position_lr_final=0.0000016, 
+                            exposure_lr_init=0.0, exposure_lr_final=0.0)
         args = parser.parse_args(args_list)
         return args
 
@@ -605,7 +608,9 @@ class PostHierarchical3DGS(SingleHierarchical3DGS):
         _config_overrides_to_args_list(args_list, config_overrides)
         parser = cls.module.get_argparser(store or Namespace())
         parser.add_argument("--tau", type=float, default=6.0)
-        parser.set_defaults(iterations=15000, feature_lr=0.0005, opacity_lr=0.01, scaling_lr=0.001, exposure_lr_init=0.0)
+        parser.set_defaults(iterations=15000, feature_lr=0.0005, 
+                            opacity_lr=0.01, scaling_lr=0.001, 
+                            exposure_lr_init=0.0, exposure_lr_final=0.0)
         args = parser.parse_args(args_list)
         return args
 

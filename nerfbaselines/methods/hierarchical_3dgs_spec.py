@@ -115,7 +115,7 @@ fi
         }],
         "long_description": long_description,
         "presets": {
-            "exposure": { "exposure_lr_init": 0.001 },
+            "exposure": { "exposure_lr_init": 0.001, "exposure_lr_final": 0.0001 },
             "depth-dpt": { "single.depth_mode": "dpt", "coarse.depth_mode": "dpt" },
             "tau-0": { "post.tau": "0" },
             "tau-3": { "post.tau": "3" },

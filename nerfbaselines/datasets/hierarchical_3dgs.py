@@ -9,6 +9,7 @@ import zipfile
 import tempfile
 from nerfbaselines import DatasetNotFoundError
 from nerfbaselines.io import wget
+from nerfbaselines.evaluation import NerfEvaluationProtocol
 from PIL import Image
 
 
@@ -118,5 +119,6 @@ def download_hierarchical_3dgs_dataset(path: str, output: Union[Path, str]):
             else:
                 shutil.move(str(output_tmp), str(output))
             logging.info(f"Downloaded {DATASET_NAME}/{scene_name} to {output}")
+
 
 __all__ = ["download_hierarchical_3dgs_dataset"]

@@ -106,6 +106,15 @@ def test_metric(metric):
         with pytest.raises(Exception):
             getattr(metrics, metric)(a, b[:-1])
 
+        # Test with reduce=False
+        if metric not in ["torchmetrics_ssim", "psnr"]:
+            val = getattr(metrics, metric)(a, b, reduce=False)
+            assert isinstance(val, np.ndarray)
+            if "ssim" in metric:
+                assert val.shape == (*bs, 47-10, 31-10, 3)
+            else:
+                assert val.shape == (*bs, 47, 31, 3)
+
 
 def test_psnr():
     np.random.seed(42)
