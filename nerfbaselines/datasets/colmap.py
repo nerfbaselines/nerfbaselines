@@ -221,8 +221,6 @@ def load_colmap_dataset(path: Union[Path, str],
         images_path = Path(images_path)
     if colmap_path is not None:
         colmap_path = Path(colmap_path)
-    if sampling_masks_path is not None:
-        sampling_masks_path = Path(sampling_masks_path)
     if features is None:
         features = typing.cast(FrozenSet[DatasetFeature], frozenset())
     load_points = "points3D_xyz" in features or "points3D_rgb" in features
@@ -241,7 +239,12 @@ def load_colmap_dataset(path: Union[Path, str],
     images_path = (path / images_path).resolve()
     if sampling_masks_path is None:
         sampling_masks_path = "sampling_masks"
-    sampling_masks_path = (path / sampling_masks_path).resolve()
+        sampling_masks_path = (path / sampling_masks_path).resolve()
+        if not sampling_masks_path.exists():
+            sampling_masks_path = None
+    else:
+        sampling_masks_path = Path(sampling_masks_path)
+        sampling_masks_path = (path / sampling_masks_path).resolve()
     if not colmap_path.exists():
         raise DatasetNotFoundError(f"Missing '{rel_colmap_path}' folder in COLMAP dataset")
     if not (colmap_path / "cameras.bin").exists() and not (colmap_path / "cameras.txt").exists():
@@ -283,13 +286,14 @@ def load_colmap_dataset(path: Union[Path, str],
     camera_distortion_params = []
     image_paths: List[str] = []
     image_names = []
-    sampling_mask_paths: Optional[List[str]] = None if not sampling_masks_path.exists() else []
+    sampling_mask_paths: Optional[List[str]] = None if not sampling_masks_path is not None else []
     camera_sizes = []
 
     image: colmap_utils.Image
     i = 0
     c2w: np.ndarray
     images_points3D_ids = []
+    images_points2D_xy = []
     for image in images.values():
         camera: colmap_utils.Camera = colmap_cameras[image.camera_id]
         intrinsics, camera_model, distortion_params, (w, h) = _parse_colmap_camera_params(camera)
@@ -300,7 +304,8 @@ def load_colmap_dataset(path: Union[Path, str],
         image_names.append(image.name)
         image_paths.append(str(images_path / image.name))
         if sampling_mask_paths is not None:
-            sampling_mask_paths.append(str(sampling_masks_path / Path(image.name + ".png")))
+            assert sampling_masks_path is not None, "sampling_masks_path is None"
+            sampling_mask_paths.append(str(sampling_masks_path / Path(image.name).with_suffix(".png")))
 
         # rotation = qvec2rotmat(image.qvec).astype(np.float32)
         # translation = image.tvec.reshape(3, 1).astype(np.float32)
@@ -317,8 +322,12 @@ def load_colmap_dataset(path: Union[Path, str],
 
         i += 1
 
+        if "images_points2D_xy" in features:
+            images_points2D_xy.append(image.xys[image.point3D_ids >= 0].astype(np.float32))
+
         if "images_points3D_indices" in features:
-            images_points3D_ids.append(image.point3D_ids)
+            images_points3D_ids.append(image.point3D_ids[image.point3D_ids >= 0])
+
 
 
     # Estimate nears fars
@@ -331,11 +340,14 @@ def load_colmap_dataset(path: Union[Path, str],
     # Load points
     points3D_xyz = None
     points3D_rgb = None
+    points3D_error = None
     images_points3D_indices = None
     if load_points:
         assert points3D is not None, "3D points have not been loaded"
         points3D_xyz = np.array([p.xyz for p in points3D.values()], dtype=np.float32)
         points3D_rgb = np.array([p.rgb for p in points3D.values()], dtype=np.uint8)
+        if "points3D_error" in features:
+            points3D_error = np.array([p.error for p in points3D.values()], dtype=np.float32)
         if "images_points3D_indices" in features:
             images_points3D_indices = []
             ptmap = {point3D_id: i for i, point3D_id in enumerate(points3D.keys())}
@@ -394,6 +406,8 @@ def load_colmap_dataset(path: Union[Path, str],
         sampling_mask_paths_root=str(sampling_masks_path) if sampling_mask_paths is not None else None,
         points3D_xyz=points3D_xyz,
         points3D_rgb=points3D_rgb,
+        points3D_error=points3D_error,
+        images_points2D_xy=images_points2D_xy if "images_points2D_xy" in features else None,
         images_points3D_indices=images_points3D_indices if "images_points3D_indices" in features else None,
         metadata={
             "id": None,

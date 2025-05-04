@@ -3,7 +3,6 @@ import json
 import fnmatch
 import os
 import argparse
-import shutil
 import nerfbaselines
 from nerfbaselines.datasets import load_dataset
 from nerfbaselines.viewer._static import export_viewer_dataset

@@ -45,6 +45,8 @@ from .io import (
     _save_predictions_iterate,
     save_image,
     read_image, 
+    read_mask,
+    save_mask,
 )
 from .datasets import dataset_index_select
 from . import metrics
@@ -85,18 +87,17 @@ def build_evaluation_protocol(id: str) -> 'EvaluationProtocol':
 
 
 @typing.overload
-def compute_metrics(pred: np.ndarray, gt: np.ndarray, *, reduce: Literal[True] = True, run_lpips_vgg: bool = ...) -> Dict[str, float]:
+def compute_metrics(pred: np.ndarray, gt: np.ndarray, *, mask=None, reduce: Literal[True] = True, run_lpips_vgg: bool = ...) -> Dict[str, float]:
     ...
 
 
 @typing.overload
-def compute_metrics(pred: np.ndarray, gt: np.ndarray, *, reduce: Literal[False], run_lpips_vgg: bool = ...) -> Dict[str, np.ndarray]:
+def compute_metrics(pred: np.ndarray, gt: np.ndarray, *, mask=None, reduce: Literal[False], run_lpips_vgg: bool = ...) -> Dict[str, np.ndarray]:
     ...
 
 
 @run_on_host()
-def compute_metrics(pred, gt, *, reduce: bool = True, run_lpips_vgg: bool = False):
-    # NOTE: we blend with black background here!
+def compute_metrics(pred, gt, *, mask=None, reduce: bool = True, run_lpips_vgg: bool = False):
     def reduction(x):
         if reduce:
             return x.mean().item()
@@ -106,6 +107,10 @@ def compute_metrics(pred, gt, *, reduce: bool = True, run_lpips_vgg: bool = Fals
     pred = pred[..., : gt.shape[-1]]
     pred = convert_image_dtype(pred, np.float32)
     gt = convert_image_dtype(gt, np.float32)
+    if mask is not None:
+        mask = convert_image_dtype(mask, np.float32)[..., None]
+        pred = pred * mask
+        gt = gt * mask
     mse = metrics.mse(pred, gt)
     out = {
         "psnr": reduction(metrics.psnr(mse)),
@@ -167,18 +172,32 @@ def evaluate(predictions: str,
                     "color": read_image(predictions_path / "color" / relname)
                 }
 
-        gt_images = [
-            read_image(predictions_path / "gt-color" / name) for name in relpaths
+        gt_image_paths = [
+            str(predictions_path / "gt-color" / x) for x in relpaths
         ]
+        gt_images = list(map(read_image, gt_image_paths))
+        if (predictions_path / "mask").exists():
+            gt_sampling_masks_root = str(predictions_path / "mask")
+            gt_sampling_mask_paths = [
+                str(Path(gt_sampling_masks_root).joinpath(x).with_suffix(".png")) for x in relpaths
+            ]
+            gt_sampling_masks = list(map(read_mask, gt_sampling_mask_paths))
+        else:
+            gt_sampling_masks_root = None
+            gt_sampling_masks = None
+            gt_sampling_mask_paths = None
         with suppress_type_checks():
             from pprint import pprint
             pprint(nb_info)
             dataset = new_dataset(
                 cameras=typing.cast(Cameras, None),
                 image_paths=relpaths,
-                image_paths_root=str(predictions_path / "color"),
+                image_paths_root=str(predictions_path / "gt-color"),
+                sampling_mask_paths=gt_sampling_mask_paths,
+                sampling_mask_paths_root=gt_sampling_masks_root,
                 metadata=typing.cast(Dict, nb_info.get("render_dataset_metadata", nb_info.get("dataset_metadata", {}))),
-                images=gt_images)
+                images=gt_images,
+                sampling_masks=gt_sampling_masks)
 
             # Evaluate the prediction
             with tqdm(desc=description, dynamic_ncols=True, total=len(relpaths)) as progress:
@@ -242,7 +261,12 @@ class DefaultEvaluationProtocol(EvaluationProtocol):
         gt = image_to_srgb(gt, np.uint8, color_space=color_space, background_color=background_color)
         pred_f = convert_image_dtype(pred, np.float32)
         gt_f = convert_image_dtype(gt, np.float32)
-        return compute_metrics(pred_f[None], gt_f[None], run_lpips_vgg=self._lpips_vgg, reduce=True)
+        mask = None
+        if dataset.get("sampling_masks") is not None:
+            assert dataset["sampling_masks"] is not None  # pyright issues
+            mask = convert_image_dtype(dataset["sampling_masks"][0], np.float32)
+        return compute_metrics(pred_f[None], gt_f[None], run_lpips_vgg=self._lpips_vgg, mask=mask, 
+                               reduce=True)
 
     def accumulate_metrics(self, metrics: Iterable[Dict[str, Union[float, int]]]) -> Dict[str, Union[float, int]]:
         acc = {}
@@ -573,6 +597,7 @@ def run_inside_eval_container(backend_name: Optional[str] = None):
         "method_class": "base",
         "conda": {
             "environment_name": "_metrics", 
+            "python_version": "3.10",
             "install_script": """
 # Install dependencies
 pip install \

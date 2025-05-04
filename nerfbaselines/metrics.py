@@ -18,7 +18,7 @@ def _wrap_metric_arbitrary_shape(fn):
         a = np.reshape(a, (-1, *a.shape[-3:]))
         b = np.reshape(b, (-1, *b.shape[-3:]))
         out = fn(a, b, **kwargs)
-        return np.reshape(out, bs)
+        return np.reshape(out, bs + out.shape[1:])
 
     return wrapped
 
@@ -33,7 +33,7 @@ def dmpix_ssim(
     sigma: float = 1.5,
     k1: float = 0.01,
     k2: float = 0.03,
-    return_map: bool = False,
+    reduce: bool = True,
     filter_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None,
 ) -> np.ndarray:
     """Computes the structural similarity index (SSIM) between image pairs.
@@ -61,11 +61,11 @@ def dmpix_ssim(
         sigma: The bandwidth of the Gaussian used for filtering (> 0.).
         k1: One of the SSIM dampening parameters (> 0.).
         k2: One of the SSIM dampening parameters (> 0.).
-        return_map: If True, will cause the per-pixel SSIM "map" to be returned.
+        reduce: If False, will cause the per-pixel SSIM "map" to be returned.
         precision: The numerical precision to use when performing convolution.
 
     Returns:
-        Each image's mean SSIM, or a tensor of individual values if `return_map`.
+        Each image's mean SSIM, or a tensor of individual values if not `reduce`.
     """
     # DO NOT REMOVE - Logging usage.
 
@@ -133,8 +133,10 @@ def dmpix_ssim(
     numer = (2 * mu01 + c1) * (2 * sigma01 + c2)
     denom = (mu00 + mu11 + c1) * (sigma00 + sigma11 + c2)
     ssim_map = numer / denom
-    ssim_value = np.mean(ssim_map, tuple(range(-3, 0)))
-    return ssim_map if return_map else ssim_value
+    if reduce:
+        return np.mean(ssim_map, tuple(range(-3, 0)))
+    else:
+        return ssim_map
 
 
 def _gaussian(kernel_size: int, sigma: float, dtype: np.dtype) -> np.ndarray:
@@ -305,44 +307,48 @@ def _normalize_input(a):
     return np.clip(a, 0, 1).astype(np.float32)
 
 
-def ssim(a: np.ndarray, b: np.ndarray) -> Union[np.ndarray, np.float32]:
+def ssim(a: np.ndarray, b: np.ndarray, reduce: bool = True) -> Union[np.ndarray, np.float32]:
     """
     Compute Structural Similarity Index Measure (the higher the better).
     Args:
         a: Tensor of prediction images [B, H, W, C].
         b: Tensor of target images [B, H, W, C].
+        reduce: If True, return the mean SSIM value for each image [B].
     Returns:
-        Tensor of mean SSIM values for each image [B].
+        Tensor of mean SSIM values for each image [B] or SSIM map [B, H, W, C].
     """
     assert a.shape == b.shape, f"Images must have the same shape, got {a.shape} and {b.shape}"
     assert a.dtype.kind == "f" and b.dtype.kind == "f", f"Expected floating point inputs, got {a.dtype} and {b.dtype}"
     a = _normalize_input(a)
     b = _normalize_input(b)
-    return dmpix_ssim(a, b)
+    return dmpix_ssim(a, b, reduce=reduce)
 
 
-def mse(a: np.ndarray, b: np.ndarray) -> Union[np.ndarray, np.float32]:
+def mse(a: np.ndarray, b: np.ndarray, reduce: bool = True) -> Union[np.ndarray, np.float32]:
     """
     Compute Mean Squared Error (the lower the better).
     Args:
         a: Tensor of prediction images [B, H, W, C].
         b: Tensor of target images [B, H, W, C].
+        reduce: If True, return the mean MSE value for each image [B], otherwise return the per-pixel map [B, H, W, C].
     Returns:
-        Tensor of mean squared error values for each image [B].
+        Tensor of mean squared error values for each image [B] or per-pixel map [B, H, W, C].
     """
     assert a.shape == b.shape, f"Images must have the same shape, got {a.shape} and {b.shape}"
     assert a.dtype.kind == "f" and b.dtype.kind == "f", f"Expected floating point inputs, got {a.dtype} and {b.dtype}"
     a = _normalize_input(a)
     b = _normalize_input(b)
-    return _mean((a - b) ** 2)
+    out = (a - b) ** 2
+    return _mean(out) if reduce else out
 
 
-def mae(a: np.ndarray, b: np.ndarray) -> Union[np.ndarray, np.float32]:
+def mae(a: np.ndarray, b: np.ndarray, reduce: bool = True) -> Union[np.ndarray, np.float32]:
     """
     Compute Mean Absolute Error (the lower the better).
     Args:
         a: Tensor of prediction images [B, H, W, C].
         b: Tensor of target images [B, H, W, C].
+        reduce: If True, return the mean MAE value for each image [B], otherwise return the per-pixel map [B, H, W, C].
     Returns:
         Tensor of mean absolute error values for each image [B].
     """
@@ -350,7 +356,8 @@ def mae(a: np.ndarray, b: np.ndarray) -> Union[np.ndarray, np.float32]:
     assert a.dtype.kind == "f" and b.dtype.kind == "f", f"Expected floating point inputs, got {a.dtype} and {b.dtype}"
     a = _normalize_input(a)
     b = _normalize_input(b)
-    return _mean(np.abs(a - b))
+    out = np.abs(a - b)
+    return _mean(out) if reduce else out
 
 
 def psnr(a: Union[np.ndarray, np.float32, np.float64], b: Optional[np.ndarray] = None) -> Union[np.ndarray, np.float32, np.float64]:

@@ -99,6 +99,17 @@ def test_zipnerf_dataset(tmp_path):
     assert test_dataset["images"][0].shape == (793, 1394, 3)
 
 
+@pytest.mark.dataset("hierarchical-3dgs")
+def test_hierarchical_3dgs_dataset(tmp_path):
+    train_dataset, test_dataset = _test_generic_dataset(
+        tmp_path, "hierarchical-3dgs", "smallcity", train_size=1470, test_size=30)
+    assert train_dataset["metadata"].get("evaluation_protocol") == "nerf"
+    assert test_dataset["metadata"].get("evaluation_protocol") == "nerf"
+    test_images = [os.path.relpath(x, test_dataset["image_paths_root"]) for x in test_dataset["image_paths"][:5]]
+    assert test_images == ['pass2_0424.png', 'pass1_0213.png', 'pass2_1480.png', 'pass3_0036.png', 'pass1_0743.png']
+    assert test_dataset["images"][0].shape == (690, 1024, 3)
+
+
 @pytest.mark.dataset("llff")
 def test_llff_dataset(tmp_path):
     train_dataset, test_dataset = _test_generic_dataset(

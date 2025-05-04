@@ -12,7 +12,7 @@ import tarfile
 import os
 from typing import (
     Union, Iterator, Any, Dict, List, Iterable, Optional, TypeVar, overload,
-    ContextManager, IO, cast
+    ContextManager, IO
 )
 import zipfile
 import contextlib
@@ -625,6 +625,10 @@ def _save_predictions_iterate(output: str, predictions: Iterable[RenderOutput], 
                 relative_name = relative_name.relative_to(Path(dataset["image_paths_root"]))
             with open_fn(f"gt-color/{relative_name.with_suffix('.png')}") as f:
                 save_image(f, gt_image)
+            if dataset["sampling_masks"] is not None:
+                with open_fn(f"mask/{relative_name.with_suffix('.png')}") as f:
+                    gt_mask = convert_image_dtype(dataset["sampling_masks"][i][:h, :w], np.uint8)
+                    save_mask(f, gt_mask)
             with open_fn(f"color/{relative_name.with_suffix('.png')}") as f:
                 save_image(f, pred_image)
 
@@ -797,6 +801,24 @@ def save_image(file: Union[IO[bytes], str, Path], tensor: np.ndarray):
         image.save(file, format="png")
 
 
+def save_mask(file: Union[IO[bytes], str, Path], tensor: np.ndarray):
+    if isinstance(file, (str, Path)):
+        with open(file, "wb") as f:
+            return save_image(f, tensor)
+    path = Path(file.name)
+    if str(path).endswith(".bin"):
+        assert tensor.ndim == 2
+        file.write(struct.pack("<ii", tensor.shape[0], tensor.shape[1]))
+        file.write(tensor.astype(np.float16).tobytes())
+    else:
+        assert tensor.ndim == 2
+        from PIL import Image
+
+        tensor = convert_image_dtype(tensor, np.uint8)
+        image = Image.fromarray(tensor)
+        image.save(file, format="png")
+
+
 def read_image(file: Union[IO[bytes], str, Path]) -> np.ndarray:
     if isinstance(file, (str, Path)):
         with open(file, "rb") as f:
@@ -812,6 +834,26 @@ def read_image(file: Union[IO[bytes], str, Path]) -> np.ndarray:
         from PIL import Image
 
         return np.array(Image.open(file))
+
+
+def read_mask(file: Union[IO[bytes], str, Path]) -> np.ndarray:
+    if isinstance(file, (str, Path)):
+        with open(file, "rb") as f:
+            return read_image(f)
+    path = Path(file.name)
+    if str(path).endswith(".bin"):
+        h, w = struct.unpack("<II", file.read(8))
+        itemsize = 2
+        img = np.frombuffer(file.read(h * w * itemsize), dtype=np.float16, count=h * w, offset=8).reshape([h, w])
+        assert img.itemsize == itemsize
+        return img.astype(np.float32)
+    else:
+        from PIL import Image
+
+        with Image.open(file) as img:
+            w, h = img.size
+            array = np.array(img)
+            return convert_image_dtype(array, np.float32).reshape((h, w))
 
 
 def save_depth(file: Union[IO[bytes], str, Path], tensor: np.ndarray):
