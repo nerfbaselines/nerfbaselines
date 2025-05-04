@@ -10,7 +10,7 @@ not use the splitting - this matches the original implementation when applied to
 The splitting implementation is not yet available in NerfBaselines, but it is planned for the future.
 
 Also, we added `depth_mode` option which allows to use different monodular depth predictors. Currently,
-add `--preset depth-dpt` to use DPT depth predictor, or use the default `depth-anything` model.
+add `--preset depth-anything` to use Depth Anything V2 depth predictor, or use the default `dpt` model.
 
 In order to enable appearance optimization, add `--preset exposure` to the command line. This 
 will optimize a affine mapping for each image during the training to map the rendered colors.
@@ -123,7 +123,7 @@ fi
         "long_description": long_description,
         "presets": {
             "exposure": { "exposure_lr_init": 0.001, "exposure_lr_final": 0.0001 },
-            "depth-dpt": { "single.depth_mode": "dpt", "coarse.depth_mode": "dpt" },
+            "depth-anything": { "single.depth_mode": "depth-anything" },
             "tau-0": { "post.tau": "0" },
             "tau-3": { "post.tau": "3" },
             "tau-6": { "post.tau": "6" },

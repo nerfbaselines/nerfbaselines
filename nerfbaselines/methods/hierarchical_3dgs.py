@@ -465,7 +465,7 @@ class SingleHierarchical3DGS:
         args_list = ["--source_path", "<empty>"]
         _config_overrides_to_args_list(args_list, config_overrides)
         parser = cls.module.get_argparser(store or Namespace())
-        parser.add_argument("--depth_mode", choices=["depth_anything_v2", "dpt", "none"], default="depth_anything_v2")
+        parser.add_argument("--depth_mode", choices=["depth_anything_v2", "dpt", "none"], default="dpt")
         parser.set_defaults(
             exposure_lr_init=0.0, 
             resolution=1,
