@@ -193,7 +193,7 @@ def evaluate(predictions: str,
                 cameras=typing.cast(Cameras, None),
                 image_paths=relpaths,
                 image_paths_root=str(predictions_path / "gt-color"),
-                sampling_mask_paths=gt_sampling_masks,
+                sampling_mask_paths=gt_sampling_mask_paths,
                 sampling_mask_paths_root=gt_sampling_masks_root,
                 metadata=typing.cast(Dict, nb_info.get("render_dataset_metadata", nb_info.get("dataset_metadata", {}))),
                 images=gt_images,
@@ -263,6 +263,7 @@ class DefaultEvaluationProtocol(EvaluationProtocol):
         gt_f = convert_image_dtype(gt, np.float32)
         mask = None
         if dataset.get("sampling_masks") is not None:
+            assert dataset["sampling_masks"] is not None  # pyright issues
             mask = convert_image_dtype(dataset["sampling_masks"][0], np.float32)
         return compute_metrics(pred_f[None], gt_f[None], run_lpips_vgg=self._lpips_vgg, mask=mask, 
                                reduce=True)
