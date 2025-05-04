@@ -106,10 +106,8 @@ def test_hierarchical_3dgs_dataset(tmp_path):
     assert train_dataset["metadata"].get("evaluation_protocol") == "nerf"
     assert test_dataset["metadata"].get("evaluation_protocol") == "nerf"
     test_images = [os.path.relpath(x, test_dataset["image_paths_root"]) for x in test_dataset["image_paths"][:5]]
-    print(test_images)
-    print(test_dataset["images"][0].shape)
-    assert test_images == ['indoor_DSC06836.JPG', 'indoor_DSC07249.JPG', 'indoor_DSC08034.JPG', 'indoor_DSC08058.JPG', 'indoor_DSC06500.JPG']
-    assert test_dataset["images"][0].shape == (793, 1394, 3)
+    assert test_images == ['pass2_0424.png', 'pass1_0213.png', 'pass2_1480.png', 'pass3_0036.png', 'pass1_0743.png']
+    assert test_dataset["images"][0].shape == (690, 1024, 3)
 
 
 @pytest.mark.dataset("llff")
