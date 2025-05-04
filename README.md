@@ -103,6 +103,7 @@ Detailed results are available on the project page: [https://nerfbaselines.githu
 | [gsplat](https://nerfbaselines.github.io/m-gsplat)                                   |     27.412 |     0.815 |       0.256 |     29m 19s |   8.3 GB |
 | [Taming 3DGS](https://nerfbaselines.github.io/m-taming-3dgs)                         |     27.217 |     0.793 |       0.305 |    *5m 59s* |   8.7 GB |
 | [PGSR](https://nerfbaselines.github.io/m-pgsr)                                       |     27.199 |     0.819 |       0.233 |     39m 58s |  14.3 GB |
+| [H3DGS](https://nerfbaselines.github.io/m-hierarchical-3dgs)                         |     26.927 |     0.790 |       0.269 |     55m 29s |   9.1 GB |
 | [2D Gaussian Splatting](https://nerfbaselines.github.io/m-2d-gaussian-splatting)     |     26.815 |     0.796 |       0.297 |     31m 10s |  13.2 GB |
 | [NerfStudio](https://nerfbaselines.github.io/m-nerfacto)                             |     26.388 |     0.731 |       0.343 |     19m 30s | *5.9 GB* |
 | [Instant NGP](https://nerfbaselines.github.io/m-instant-ngp)                         |     25.507 |     0.684 |       0.398 |  **3m 54s** |   7.8 GB |
