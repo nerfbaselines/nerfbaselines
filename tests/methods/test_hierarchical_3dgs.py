@@ -76,9 +76,8 @@ def method_module(method_source_code, mock_module, dataloader_noworkers, tmp_pat
     mock_module("simple_knn._C").distCUDA2 = distCUDA2
     mock_module("gaussian_hierarchy._C")
     mock_module("scene.OurAdam").Adam = PatchedAdam
-    mock_module("dpt").__file__ = ""
-    mock_module("dpt.transforms")
-    mock_module("dpt.models")
+
+    # Mock depth anything
     depth_anything_v2 = mock_module("depth_anything_v2")
     depth_anything_v2.dpt = mock_module("depth_anything_v2.dpt")
     depth_anything_v2.dpt.__file__ = str(tmp_path / "dpt" / "__init__.py")
@@ -90,6 +89,33 @@ def method_module(method_source_code, mock_module, dataloader_noworkers, tmp_pat
             del args, kwargs
             return (img + 0.1)[:, :, 0]
     depth_anything_v2.dpt.DepthAnythingV2 = DepthAnythingV2
+    
+    # Mock DPT
+    mock_module("dpt").__file__ = ""
+    trans = mock_module("dpt.transforms")
+    class DPTDepthModel(nn.Module):
+        def __init__(self, *args, **kwargs):
+            del args, kwargs
+            super().__init__()
+        def forward(self, x):
+            return x[..., 0]
+    trans.PrepareForNet = lambda: lambda x: x
+    trans.NormalizeImage = lambda mean, std: lambda x: x
+    trans.Resize = lambda *args, **kwargs: lambda x: x
+    mock_module("dpt.models").DPTDepthModel = DPTDepthModel
+
+    depth_anything_v2 = mock_module("depth_anything_v2")
+    depth_anything_v2.dpt = mock_module("depth_anything_v2.dpt")
+    depth_anything_v2.dpt.__file__ = str(tmp_path / "dpt" / "__init__.py")
+    class DepthAnythingV2(nn.Module):
+        def __init__(self, *args, **kwargs):
+            del args, kwargs
+            super().__init__()
+        def infer_image(self, img, *args, **kwargs):
+            del args, kwargs
+            return (img + 0.1)[:, :, 0]
+    depth_anything_v2.dpt.DepthAnythingV2 = DepthAnythingV2
+
     diff_gaussian_rasterization.GaussianRasterizer = Rasterizer
     diff_gaussian_rasterization.GaussianRasterizationSettings = argparse.Namespace
 

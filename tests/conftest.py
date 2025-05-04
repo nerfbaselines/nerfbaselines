@@ -403,6 +403,9 @@ class Tensor(np.ndarray):
     def float(self):
         return self.astype(np.float32)
 
+    def half(self):
+        return self.astype(np.float16)
+
     def int(self):
         return self.astype(np.int32)
 
@@ -741,6 +744,9 @@ def mock_torch(patch_modules):
             del device
             return self
 
+        def half(self):
+            return self
+
         def state_dict(self):
             return {}
         
@@ -790,6 +796,13 @@ def mock_torch(patch_modules):
             return Image.fromarray(x)
     torchvision.transforms.ToTensor = lambda: to_tensor
     torchvision.transforms.ToPILImage = lambda: to_pil_image
+    def Compose(transforms):
+        def compose2(x):
+            for t in transforms:
+                x = t(x)
+            return x
+        return compose2
+    torchvision.transforms.Compose = Compose
 
     def conv2d(x, weight, bias=None, groups=None, stride=1, padding=0):
         del bias, groups

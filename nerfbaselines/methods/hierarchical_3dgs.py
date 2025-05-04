@@ -239,7 +239,7 @@ def generate_invdepths(dataset, mode):
             prediction = model.forward(sample)
             prediction = (
                 torch.nn.functional.interpolate(
-                    prediction.unsqueeze(1),
+                    prediction.float().unsqueeze(1),
                     size=img.shape[:2],
                     mode="bicubic",
                     align_corners=False,
