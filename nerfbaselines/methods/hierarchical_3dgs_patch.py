@@ -15,6 +15,7 @@ metrics = {
     "num_points": "len(gaussians.get_xyz)",
 }
 train_step_disabled_names = [
+    "prepare_output_and_logger",
     "debug_from",
     "iter_start", 
     "iter_end",

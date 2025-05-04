@@ -486,7 +486,7 @@ class SingleHierarchical3DGS:
         return hparams
 
     @torch.no_grad()
-    def render(self, camera: Cameras, *, options=None) -> RenderOutput:
+    def render(self, camera: Cameras, *, options=None):
         del options
         camera = camera.item()
         assert camera.camera_models == camera_model_to_int("pinhole"), "Only pinhole cameras supported"
@@ -495,8 +495,8 @@ class SingleHierarchical3DGS:
                             torch.zeros((3,), dtype=torch.float32, device='cuda'),
                             indices=None, use_trained_exp=False)
         return {
-            "color": render_pkg["render"].clamp(0, 1).detach().permute(1, 2, 0).cpu().numpy(),
-            "depth": (1/render_pkg["depth"]).squeeze(0).cpu().numpy(),
+            "color": render_pkg["render"].clamp(0, 1).detach().permute(1, 2, 0),
+            "depth": (1/render_pkg["depth"]).squeeze(0),
         }
 
     def train_iteration(self, step):
@@ -627,7 +627,7 @@ class PostHierarchical3DGS(SingleHierarchical3DGS):
             self._num_siblings = torch.zeros(self._gaussians._xyz.size(0)).int().cuda()
 
     @torch.no_grad()
-    def render(self, camera: Cameras, *, options=None) -> RenderOutput:
+    def render(self, camera: Cameras, *, options=None):
         self._prepare_buffers()
         # Pyright assertions
         assert self._render_indices is not None, "Buffers not prepared"
@@ -675,7 +675,7 @@ class PostHierarchical3DGS(SingleHierarchical3DGS):
             num_node_kids = self._num_siblings, 
             use_trained_exp=self._args.train_test_exp)
         return {
-            "color": render_pkg["render"].clamp(0, 1).detach().permute(1, 2, 0).cpu().numpy(),
+            "color": render_pkg["render"].clamp(0, 1).detach().permute(1, 2, 0),
         }
 
     def generate_hierarchy(self, checkpoint, train_dataset):
@@ -798,9 +798,16 @@ class Hierarchical3DGS(Method):
             **self.get_method_info(),
         )
 
+    def _format_output(self, output, options):
+        del options
+        return {
+            k: v.cpu().numpy() for k, v in output.items()
+        }
+
     @torch.no_grad()
     def render(self, camera: Cameras, *, options=None) -> RenderOutput:
-        return self.current_stage.render(camera, options=options)
+        out = self.current_stage.render(camera, options=options)
+        return self._format_output(out, options)
 
     def train_iteration(self, step):
         if self.checkpoint is not None:
