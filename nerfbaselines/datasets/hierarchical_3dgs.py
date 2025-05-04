@@ -42,6 +42,7 @@ def download_hierarchical_3dgs_dataset(path: str, output: Union[Path, str]):
     if scene_name not in SCENES:
         raise DatasetNotFoundError(f"Unknown scene '{scene_name}'. Available scenes: {', '.join(SCENES)}")
 
+    output.parent.mkdir(exist_ok=True, parents=True)
     tmpdir = tempfile.TemporaryDirectory(dir=output.parent)
     with tmpdir, tempfile.TemporaryFile("rb+") as file:
         output_tmp = Path(tmpdir.name)
