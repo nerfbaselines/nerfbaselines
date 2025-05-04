@@ -2,6 +2,16 @@ import os
 from nerfbaselines import register
 
 
+_note = """Results in the paper were evaluated using different tau (0, 3, 6, 15),
+where tau=0 is the slowest, but highest quality.
+We choose tau=6 - consistent with most experiments in the paper,
+providing a good trade-off between quality and speed.""".replace("\n", " ")
+paper_results = {
+    "hierarchical-3dgs/smallcity": { "psnr": 26.29, "ssim": 0.810, "lpips": 0.275, "note": _note },
+    "hierarchical-3dgs/campus": { "psnr": 24.50, "ssim": 0.801, "lpips": 0.340, "note": _note },
+}
+
+
 long_description = """
 The Hierarchical 3DGS implementation performs splitting the scene into regions, each
 of which is optimized separately. This set is then merged into a single model. This
@@ -121,6 +131,7 @@ fi
             "url": "https://raw.githubusercontent.com/graphdeco-inria/gaussian-splatting/refs/heads/main/LICENSE.md"
         }],
         "long_description": long_description,
+        "paper_results": paper_results,
         "presets": {
             "exposure": { "exposure_lr_init": 0.001, "exposure_lr_final": 0.0001 },
             "depth-anything": { "single.depth_mode": "depth-anything" },
