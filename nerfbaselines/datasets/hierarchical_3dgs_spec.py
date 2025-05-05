@@ -18,7 +18,11 @@ register({
         "scenes": [
             {
                 "id": "smallcity",
-                "name": "Small City"
+                "name": "SmallCity"
+            },
+            {
+                "id": "campus",
+                "name": "Campus"
             },
         ]
     }

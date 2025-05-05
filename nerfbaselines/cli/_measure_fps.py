@@ -3,6 +3,7 @@ import json
 import logging
 import click
 import time
+import tqdm
 from nerfbaselines import backends
 from nerfbaselines import load_checkpoint
 from nerfbaselines.datasets import dataset_index_select, load_dataset, dataset_load_features
@@ -11,18 +12,35 @@ from ._common import NerfBaselinesCliCommand, click_backend_option, IndicesClick
 
 @backends.run_on_host()
 def _measure_fps_local(method, cameras, output_names, *, num_repeats):
-    frame_count = 0
-    time_start = time.perf_counter()
+    try:
+        import torch
+    except ImportError:
+        torch = None
 
-    logging.info("Measuring FPS for image sizes: " + str(cameras.image_sizes))
-
-    for cam in cameras:
-        for _ in range(num_repeats):
+    warmup_steps = 2
+    with tqdm.tqdm(total=len(cameras)*num_repeats+warmup_steps, desc="Measuring FPS") as pbar:
+        for _ in range(warmup_steps):
+            cam = cameras[0]
             with backends.zero_copy():
                 method.render(cam, options={
                     "outputs": output_names.split(","),
+                    "keep_torch": True,
                 } if output_names is not None else {})
-                frame_count += 1
+                pbar.update(1)
+
+        time_start = time.perf_counter()
+        frame_count = 0
+        for cam in cameras:
+            for _ in range(num_repeats):
+                with backends.zero_copy():
+                    method.render(cam, options={
+                        "outputs": output_names.split(","),
+                        "keep_torch": True,
+                    } if output_names is not None else {})
+                    if torch is not None:
+                        torch.cuda.synchronize()
+                    frame_count += 1
+                    pbar.update(1)
     
     # Return FPS
     return frame_count / (time.perf_counter() - time_start)
@@ -59,7 +77,7 @@ def _override_resolution(cameras, resolution_string: str):
     "A path to the dataset to render the cameras from. The dataset can be either an external dataset (e.g., a path starting with `external://{dataset}/{scene}`) or a local path to a dataset. If the dataset is an external dataset, the dataset will be downloaded and cached locally. If the dataset is a local path, the dataset will be loaded directly from the specified path."))
 @click.option("--num-repeats", type=int, default=10, show_default=True, help="Number of times to repeat the rendering to estimate the FPS.")
 @click.option("--split", type=str, default="test", show_default=True, help="Dataset split to use to estimate the FPS.")
-@click.option("--data-indices", type=IndicesClickType(), default=Indices([0]), help="Indices of the dataset to use to estimate the FPS. Default is to use the first camera.")
+@click.option("--data-indices", type=IndicesClickType(), default=Indices(slice(None, None)), help="Indices of the dataset to use to estimate the FPS. Default is to use all test cameras.")
 @click.option("--resolution", type=str, default=None, help="Override the resolution of the output. Use 'widthxheight' format (e.g., 1920x1080). If one of the dimensions is negative, the aspect ratio will be preserved and the dimension will be rounded to the nearest multiple of the absolute value of the dimension.")
 @click.option("--output-names", type=str, default="color", help="Comma separated list of output types (e.g. color,depth,accumulation). See the method's `get_info()['supported_outputs']` for supported outputs. By default, only `color` is rendered.")
 @click.option("--output", type=str, default=None, help="Write output to a JSON file.")

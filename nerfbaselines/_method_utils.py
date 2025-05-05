@@ -49,16 +49,17 @@ def _wrap_method_class(method_class: Type[Method], spec: MethodSpec):
             # Finally, if the output is a tensor, convert it to a numpy array
             # Use shared memory to avoid unnecessary data transfer
             if getattr(v, "__module__", None) == "torch":
-                # First, we allocate the output in shared memory
-                import torch
-                dtype_name = str(v.dtype).split(".")[-1]
-                if hasattr(np, dtype_name):
-                    new_v = backend_allocate_ndarray(v.shape, dtype=dtype_name)
-                    new_v_torch = torch.from_numpy(new_v)
-                    new_v_torch.copy_(v)
-                else:
-                    new_v = v.cpu().numpy()
-                v = new_v
+                if not (options or {}).get("keep_torch", False):
+                    # First, we allocate the output in shared memory
+                    import torch
+                    dtype_name = str(v.dtype).split(".")[-1]
+                    if hasattr(np, dtype_name):
+                        new_v = backend_allocate_ndarray(v.shape, dtype=dtype_name)
+                        new_v_torch = torch.from_numpy(new_v)
+                        new_v_torch.copy_(v)
+                    else:
+                        new_v = v.cpu().numpy()
+                    v = new_v
             out[k] = v
         return out
 

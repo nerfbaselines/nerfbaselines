@@ -217,14 +217,21 @@ def _is_scene_results(data: Dict) -> bool:
         "metrics_raw" in data)
 
 
-def _list_dataset_results(path: Union[str, Path], dataset: str, scenes: Optional[List[str]] = None, dataset_info=None) -> List[Tuple[str, Dict]]:
+def _list_dataset_results(path: Union[str, Path], dataset: Optional[str] = None, scenes: Optional[List[str]] = None, dataset_info=None) -> List[Tuple[str, Dict]]:
     dataset_info = (dataset_info or {}).copy()
     dataset_info_scenes = dataset_info.get("scenes", None)
     if scenes is not None:
         dataset_info_scenes = dataset_info["scenes"] = [next((y for y in dataset_info_scenes if x == y["id"]), dict(id=x)) for x in scenes]
     out = []
     for path in Path(path).glob("**/*.json"):
-        scene_results = json.loads(path.read_text(encoding="utf8"))
+        try:
+            scene_results = json.loads(path.read_text(encoding="utf8"))
+        except UnicodeDecodeError as e:
+            logging.warning(f"Skipping invalid results file {path}: {e}")
+            continue
+        except json.JSONDecodeError as e:
+            logging.warning(f"Skipping invalid results file {path}: {e}")
+            continue
         if not _is_scene_results(scene_results):
             logging.warning(f"Skipping invalid results file {path}")
             continue
@@ -235,6 +242,7 @@ def _list_dataset_results(path: Union[str, Path], dataset: str, scenes: Optional
         dataset_ = render_dataset_metadata.get("id", render_dataset_metadata.get("name", None))
         scene_id = render_dataset_metadata.get("scene", None)
         method_id = scene_results.get("nb_info", {}).get("method", None)
+        scene_results["dataset"] = dataset_
 
         # For old data we try to get method from the scene results
         if method_id is None:
@@ -246,7 +254,7 @@ def _list_dataset_results(path: Union[str, Path], dataset: str, scenes: Optional
             logging.warning(f"Skipping results file {path} without render_dataset_metadata (scene, dataset), or nb_info(method_id)")
             continue
 
-        if dataset_ != dataset:
+        if dataset is not None and dataset_ != dataset:
             logging.debug(f"Skipping results file {path} with dataset {dataset_} != {dataset}")
             continue
 
@@ -259,7 +267,7 @@ def _list_dataset_results(path: Union[str, Path], dataset: str, scenes: Optional
     return out
 
 
-def _compile_dataset_results(results_list: List[Any], dataset: str, scenes: Optional[List[str]] = None, dataset_info=None) -> Dict[str, Any]:
+def _compile_dataset_results(results_list: List[Tuple[str, Any]], dataset: str, scenes: Optional[List[str]] = None, dataset_info=None) -> Dict[str, Any]:
     """
     Compile list of per-scene results into a dataset results.
     """
@@ -295,9 +303,9 @@ def _compile_dataset_results(results_list: List[Any], dataset: str, scenes: Opti
         results_list = []
         for path in results_path.glob("**/*.json"):
             scene_results = json.loads(path.read_text(encoding="utf8"))
-            results_list.append((path, scene_results))
-    
-    for scene_results in results_list:
+            results_list.append((str(path), scene_results))
+
+    for results_path, scene_results in results_list:
         render_dataset_metadata = scene_results.get("render_dataset_metadata", 
                                                     scene_results.get("info", scene_results.get("nb_info", {})).get("dataset_metadata", {}))
         scene_id = render_dataset_metadata.get("scene", None)
@@ -376,7 +384,7 @@ def compile_dataset_results(results_path: Union[Path, str], dataset: str, scenes
             dataset_info = {}
         else:
             raise e
-    scene_results = [x for _, x in _list_dataset_results(results_path, dataset, scenes, dataset_info)]
+    scene_results = _list_dataset_results(results_path, dataset, scenes, dataset_info)
     return _compile_dataset_results(scene_results, dataset, scenes, dataset_info)
 
 

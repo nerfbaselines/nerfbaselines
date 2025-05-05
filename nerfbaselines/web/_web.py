@@ -75,12 +75,6 @@ def _clean_slug(slug):
     return slug.replace("_", "-").replace(":", "-").replace("/", "-")
 
 
-def get_raw_data(data_path):
-    dataset_ids = [f[:-5] for f in os.listdir(data_path) if f.endswith(".json")]
-    return [{"id": dataset_id, **json.load(open(f"{data_path}/{dataset_id}.json", "r", encoding="utf8"))} 
-            for dataset_id in dataset_ids]
-
-
 def _sort_versions(versions, *, reverse=True):
     def _version_tuple(x):
         if x == "latest":
@@ -171,18 +165,17 @@ class WebBuilder:
             return self._raw_data
         self._raw_scene_data = {}
         datasets = self.datasets
+        raw_data = []
         if self.data_path is not None:
-            # TODO: fix this!!
             logging.info(f"Loading data from {self.data_path}")
-            raw_datasets = get_raw_data(self.data_path)
             if datasets is None:
-                raw_datasets.sort(key=lambda x: DEFAULT_DATASET_ORDER.index(x["id"]) 
-                                  if x in DEFAULT_DATASET_ORDER 
-                                  else len(DEFAULT_DATASET_ORDER))
-            else:
-                raw_datasets_map = {d["id"]: d for d in raw_datasets}
-                raw_datasets = [raw_datasets_map[d] for d in datasets]
-            raw_data = raw_datasets
+                all_results = results._list_dataset_results(self.data_path, dataset=None, scenes=None, dataset_info=None)
+                datasets = list(set(x[1]["dataset"] for x in all_results))
+                datasets.sort(key=lambda x: DEFAULT_DATASET_ORDER.index(x) 
+                              if x in DEFAULT_DATASET_ORDER 
+                              else len(DEFAULT_DATASET_ORDER))
+                logging.info("Found datasets: " + ", ".join(datasets))
+            source_path = self.data_path
         else:
             logging.info("Loading data from NerfBaselines repository")
 
@@ -195,28 +188,29 @@ class WebBuilder:
                 logging.info("Selected datasets: " + ", ".join(datasets))
 
             # Clone results repository
-            raw_data = []
-            tmpdir = self._get_results_path()
+            source_path = self._get_results_path()
 
-            for dataset in datasets:
-                dataset_info = (_get_dataset_info_from_registry(dataset) or {}).copy()
-                scene_results = results._list_dataset_results(tmpdir, dataset, scenes=None, dataset_info=dataset_info)
-                for _, scene_data in scene_results:
-                    method_id = scene_data["nb_info"]["method"]
-                    scene_id = scene_data["nb_info"]["dataset_metadata"]["scene"]
-                    self._raw_scene_data[f"{method_id}/{dataset}/{scene_id}"] = scene_data
-                dataset_info = results._compile_dataset_results(
-                    [x[1] for x in scene_results], dataset, scenes=None, dataset_info=dataset_info)
-                dataset_info["id"] = dataset
-                rel_paths = [os.path.relpath(path, tmpdir) for path, _ in scene_results]
-                def replace_ext(p):
-                    assert p.endswith(".json")
-                    return p[:-len(".json")] + ".zip"
+        for dataset in datasets:
+            dataset_info = (_get_dataset_info_from_registry(dataset) or {}).copy()
+            scene_results = results._list_dataset_results(source_path, dataset, scenes=None, dataset_info=dataset_info)
+            for _, scene_data in scene_results:
+                method_id = scene_data["nb_info"]["method"]
+                scene_id = scene_data["nb_info"]["dataset_metadata"]["scene"]
+                self._raw_scene_data[f"{method_id}/{dataset}/{scene_id}"] = scene_data
+            dataset_info = results._compile_dataset_results(
+                scene_results, dataset, scenes=None, dataset_info=dataset_info)
+            dataset_info["id"] = dataset
+            rel_paths = [os.path.relpath(path, source_path) for path, _ in scene_results]
+            def replace_ext(p):
+                assert p.endswith(".json")
+                return p[:-len(".json")] + ".zip"
+            if self.data_path is None:
+                # We don't have links for local files
                 dataset_info["resolved_paths"] = {
                     replace_ext(path): replace_ext(f"https://{RESULTS_REPOSITORY}/resolve/main/{path}")
                     for path in rel_paths
                 }
-                raw_data.append(dataset_info)
+            raw_data.append(dataset_info)
         self._raw_data = raw_data
         return raw_data
 
@@ -682,16 +676,23 @@ class WebBuilder:
                         k: urllib.parse.urljoin(url, v)
                         for k, v in par["scene_url_per_appearance"].items()
                     }
-                dataset_url, _ , dataset_par = raw_params["dataset"][path.split("/", 1)[-1]]
                 nb_info = self._raw_scene_data[path]['nb_info']
                 params = {
                     "renderer": par,
-                    "dataset": {"url": dataset_url}
                 }
-                params = viewer.merge_viewer_params(
-                    viewer.get_viewer_params_from_nb_info(nb_info),
-                    params, 
-                    viewer.get_viewer_params_from_dataset_metadata(dataset_par))
+                if path.split("/", 1)[-1] in raw_params["dataset"]:
+                    dataset_url, _ , dataset_par = raw_params["dataset"][path.split("/", 1)[-1]]
+                    params["dataset"] = {"url": dataset_url}
+                    params = viewer.merge_viewer_params(
+                        viewer.get_viewer_params_from_nb_info(nb_info),
+                        params, 
+                        viewer.get_viewer_params_from_dataset_metadata(dataset_par))
+                else:
+                    logging.warning(f"Missing dataset params for {path.split('/', 1)[-1]}")
+                    params = viewer.merge_viewer_params(
+                        viewer.get_viewer_params_from_nb_info(nb_info),
+                        params
+                    )
 
             # Save params
             fpath = os.path.join(self._output, local_path)
