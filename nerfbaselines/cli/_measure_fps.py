@@ -34,6 +34,8 @@ def _measure_fps_local(method, cameras, output_names, *, num_repeats):
             sub_times = []
             for _ in range(num_repeats):
                 with backends.zero_copy():
+                    if torch is not None:
+                        torch.cuda.synchronize()
                     time_start = time.perf_counter()
                     method.render(cam, options={
                         "outputs": output_names.split(","),
@@ -46,7 +48,6 @@ def _measure_fps_local(method, cameras, output_names, *, num_repeats):
             times.append(float(np.median(sub_times)))
     
     # Return FPS
-    print(times)
     return len(times) / sum(times)
 
 
