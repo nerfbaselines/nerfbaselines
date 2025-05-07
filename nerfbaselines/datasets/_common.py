@@ -9,6 +9,7 @@ import warnings
 import gc
 import functools
 import logging
+import concurrent.futures
 import os
 import struct
 import tempfile
@@ -353,8 +354,8 @@ def dataset_load_features(
     if image_paths_root is not None:
         logger.info(f"Loading images from {image_paths_root}")
 
-    i = 0
-    for p in tqdm(dataset["image_paths"], desc="loading images", dynamic_ncols=True, disable=not show_progress):
+    def load_image(i):
+        p = dataset["image_paths"][i]
         if str(p).endswith(".bin"):
             assert dataset["metadata"]["color_space"] == "linear"
             with open(p, "rb") as f:
@@ -381,38 +382,54 @@ def dataset_load_features(
                 warnings.warn(f"Resized image with a factor of {resize}")
 
             image = np.array(pil_image, dtype=np.uint8)
-        images.append(image)
-        image_sizes.append([image.shape[1], image.shape[0]])
-        all_metadata.append(metadata)
-        i += 1
+        images[i] = image
+        image_sizes[i] = [image.shape[1], image.shape[0]]
+        all_metadata[i] = metadata
 
-    logger.debug(f"Loaded {len(images)} images")
+    def load_sampling_mask(p):
+        sampling_mask = PIL.Image.open(p).convert("L")
+        if resize is not None:
+            w, h = sampling_mask.size
+            new_size = round(w*resize), round(h*resize)
+            sampling_mask = sampling_mask.resize(new_size, PIL.Image.Resampling.NEAREST)
+            warnings.warn(f"Resized sampling mask with a factor of {resize}")
 
-    if dataset["sampling_mask_paths"] is not None:
-        sampling_masks = []
-        for p in tqdm(dataset["sampling_mask_paths"], desc="loading sampling masks", dynamic_ncols=True):
-            sampling_mask = PIL.Image.open(p).convert("L")
-            if resize is not None:
-                w, h = sampling_mask.size
-                new_size = round(w*resize), round(h*resize)
-                sampling_mask = sampling_mask.resize(new_size, PIL.Image.Resampling.NEAREST)
-                warnings.warn(f"Resized sampling mask with a factor of {resize}")
+        return np.array(sampling_mask, dtype=np.uint8).astype(bool)
 
-            sampling_masks.append(np.array(sampling_mask, dtype=np.uint8).astype(bool))
-        dataset["sampling_masks"] = sampling_masks  # padded_stack(sampling_masks)
-        logger.debug(f"Loaded {len(sampling_masks)} sampling masks")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
+        with tqdm(total=len(dataset["image_paths"]), 
+                  desc="loading images", 
+                  dynamic_ncols=True, 
+                  disable=not show_progress) as progress:
+            images = [None] * len(dataset["image_paths"])
+            all_metadata = [None] * len(dataset["image_paths"])
+            image_sizes = [None] * len(dataset["image_paths"])
+            for _ in executor.map(load_image, range(len(dataset["image_paths"]))):
+                progress.update(1)
+        logger.debug(f"Loaded {len(images)} images")
 
-    if resize is not None:
-        # Replace all paths with the resized paths
-        dataset["image_paths"] = [
-            os.path.join("/resized", os.path.relpath(p, dataset["image_paths_root"])) 
-            for p in dataset["image_paths"]]
-        dataset["image_paths_root"] = "/resized"
         if dataset["sampling_mask_paths"] is not None:
-            dataset["sampling_mask_paths"] = [
-                os.path.join("/resized-sampling-masks", os.path.relpath(p, dataset["sampling_mask_paths_root"])) 
-                for p in dataset["sampling_mask_paths"]]
-            dataset["sampling_mask_paths_root"] = "/resized-sampling-masks"
+            sampling_masks = []
+            sampling_masks = list(tqdm(
+                executor.map(load_sampling_mask, dataset["sampling_mask_paths"]),
+                total=len(dataset["sampling_mask_paths"]),
+                desc="loading sampling masks", 
+                dynamic_ncols=True, 
+                disable=not show_progress))
+            dataset["sampling_masks"] = sampling_masks  # padded_stack(sampling_masks)
+            logger.debug(f"Loaded {len(sampling_masks)} sampling masks")
+
+        if resize is not None:
+            # Replace all paths with the resized paths
+            dataset["image_paths"] = [
+                os.path.join("/resized", os.path.relpath(p, dataset["image_paths_root"])) 
+                for p in dataset["image_paths"]]
+            dataset["image_paths_root"] = "/resized"
+            if dataset["sampling_mask_paths"] is not None:
+                dataset["sampling_mask_paths"] = [
+                    os.path.join("/resized-sampling-masks", os.path.relpath(p, dataset["sampling_mask_paths_root"])) 
+                    for p in dataset["sampling_mask_paths"]]
+                dataset["sampling_mask_paths_root"] = "/resized-sampling-masks"
 
     dataset["images"] = images
 

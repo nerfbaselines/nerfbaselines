@@ -12,15 +12,14 @@ from ._common import NerfBaselinesCliCommand, click_backend_option, IndicesClick
 
 
 @backends.run_on_host()
-def _measure_fps_local(method, cameras, output_names, *, num_repeats):
+def _measure_render_times_local(method, cameras, output_names, *, num_repeats, num_repeats_median, warmup_steps=2):
     try:
         import torch
     except ImportError:
         torch = None
 
-    warmup_steps = 2
     times = []
-    with tqdm.tqdm(total=len(cameras)*num_repeats+warmup_steps, desc="Measuring FPS") as pbar:
+    with tqdm.tqdm(total=len(cameras)*num_repeats*num_repeats_median+warmup_steps, desc="Measuring FPS") as pbar:
         for _ in range(warmup_steps):
             cam = cameras[0]
             with backends.zero_copy():
@@ -33,22 +32,23 @@ def _measure_fps_local(method, cameras, output_names, *, num_repeats):
         for cam in cameras:
             sub_times = []
             for _ in range(num_repeats):
-                with backends.zero_copy():
-                    if torch is not None:
-                        torch.cuda.synchronize()
-                    time_start = time.perf_counter()
-                    method.render(cam, options={
-                        "outputs": output_names.split(","),
-                        "keep_torch": True,
-                    } if output_names is not None else {})
-                    if torch is not None:
-                        torch.cuda.synchronize()
-                    times.append(time.perf_counter() - time_start)
-                    pbar.update(1)
-            times.append(float(np.median(sub_times)))
+                for _ in range(num_repeats_median):
+                    with backends.zero_copy():
+                        if torch is not None:
+                            torch.cuda.synchronize()
+                        time_start = time.perf_counter()
+                        method.render(cam, options={
+                            "outputs": output_names.split(","),
+                            "keep_torch": True,
+                        } if output_names is not None else {})
+                        if torch is not None:
+                            torch.cuda.synchronize()
+                        sub_times.append(time.perf_counter() - time_start)
+                        pbar.update(1)
+                times.append(float(np.median(sub_times)))
     
-    # Return FPS
-    return len(times) / sum(times)
+    # Return times
+    return times
 
 
 def _override_resolution(cameras, resolution_string: str):
@@ -80,14 +80,15 @@ def _override_resolution(cameras, resolution_string: str):
 ))
 @click.option("--data", type=str, required=True, help=(
     "A path to the dataset to render the cameras from. The dataset can be either an external dataset (e.g., a path starting with `external://{dataset}/{scene}`) or a local path to a dataset. If the dataset is an external dataset, the dataset will be downloaded and cached locally. If the dataset is a local path, the dataset will be loaded directly from the specified path."))
-@click.option("--num-repeats", type=int, default=7, show_default=True, help="Number of times to repeat the rendering to estimate the FPS.")
+@click.option("--num-repeats", type=int, default=1, show_default=True, help="Number of times to repeat the rendering to estimate the FPS (results are averaged).")
+@click.option("--num-repeats-median", type=int, default=1, show_default=True, help="Number of times to repeat the rendering to estimate the FPS (median is taken from results).")
 @click.option("--split", type=str, default="test", show_default=True, help="Dataset split to use to estimate the FPS.")
 @click.option("--data-indices", type=IndicesClickType(), default=Indices(slice(None, None)), help="Indices of the dataset to use to estimate the FPS. Default is to use all test cameras.")
 @click.option("--resolution", type=str, default=None, help="Override the resolution of the output. Use 'widthxheight' format (e.g., 1920x1080). If one of the dimensions is negative, the aspect ratio will be preserved and the dimension will be rounded to the nearest multiple of the absolute value of the dimension.")
 @click.option("--output-names", type=str, default="color", help="Comma separated list of output types (e.g. color,depth,accumulation). See the method's `get_info()['supported_outputs']` for supported outputs. By default, only `color` is rendered.")
 @click.option("--output", type=str, default=None, help="Write output to a JSON file.")
 @click_backend_option()
-def measure_fps_command(*, checkpoint, backend_name, data, split="test", data_indices=None, resolution=None, num_repeats=7, output_names, output=None):
+def measure_fps_command(*, checkpoint, backend_name, data, split="test", data_indices=None, resolution=None, num_repeats=1, num_repeats_median=1, output_names, output=None):
     # Load the checkpoint
     with load_checkpoint(checkpoint, backend=backend_name) as (model, _):
 
@@ -110,7 +111,12 @@ def measure_fps_command(*, checkpoint, backend_name, data, split="test", data_in
             _override_resolution(cameras, resolution)
 
         # Measure FPS
-        fps = _measure_fps_local(model, cameras, output_names, num_repeats=num_repeats)
+        times = _measure_render_times_local(
+            model, cameras, output_names, 
+            num_repeats=num_repeats, 
+            num_repeats_median=num_repeats_median)
+
+        fps = len(times) / sum(times)
         logging.info(f"FPS: {fps:.2f}")
 
         if output is not None:
