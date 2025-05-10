@@ -701,8 +701,24 @@ def mock_torch(patch_modules):
 
         return from_numpy_rec(pickle.load(file))
 
+    def unique(x, dim=None, return_inverse=False):
+        del dim
+        if return_inverse:
+            _, indices = np.unique(x, return_index=True)
+            return x[indices], indices
+        else:
+            return np.unique(x)
+
+    def empty(*shape, dtype=None, device=None):
+        del device
+        if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
+            shape = shape[0]
+        return np.empty(shape, dtype=dtype).view(Tensor)
+
     torch.save = save
     torch.load = load
+    torch.unique = unique
+    torch.empty = empty
     torch.float = 'float32'
     torchvision = mock.MagicMock()
     alexnet = mock.MagicMock()

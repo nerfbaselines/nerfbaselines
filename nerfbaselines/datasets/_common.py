@@ -401,7 +401,7 @@ def dataset_load_features(
                   desc="loading images", 
                   dynamic_ncols=True, 
                   disable=not show_progress) as progress:
-            images = [None] * len(dataset["image_paths"])
+            images = [np.ndarray(0)] * len(dataset["image_paths"])
             all_metadata = [None] * len(dataset["image_paths"])
             image_sizes = [None] * len(dataset["image_paths"])
             for _ in executor.map(load_image, range(len(dataset["image_paths"]))):
