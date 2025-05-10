@@ -344,8 +344,8 @@ def dataset_load_features(
     if features is None:
         features = frozenset(("color",))
     images: List[np.ndarray] = []
-    image_sizes = []
-    all_metadata = []
+    image_sizes: List[List[int]] = []
+    all_metadata: List[Dict] = []
     resize = dataset["metadata"].get("downscale_loaded_factor")
     if resize == 1:
         resize = None
@@ -402,8 +402,8 @@ def dataset_load_features(
                   dynamic_ncols=True, 
                   disable=not show_progress) as progress:
             images = [np.ndarray(0)] * len(dataset["image_paths"])
-            all_metadata = [None] * len(dataset["image_paths"])
-            image_sizes = [None] * len(dataset["image_paths"])
+            all_metadata = [{}] * len(dataset["image_paths"])
+            image_sizes = [[0, 0]] * len(dataset["image_paths"])
             for _ in executor.map(load_image, range(len(dataset["image_paths"]))):
                 progress.update(1)
         logger.debug(f"Loaded {len(images)} images")
@@ -434,9 +434,8 @@ def dataset_load_features(
     dataset["images"] = images
 
     # Replace image sizes and metadata
-    image_sizes = np.array(image_sizes, dtype=np.int32)
-
-    _dataset_rescale_intrinsics(cast(Dataset, dataset), image_sizes)
+    image_sizes_array = np.array(image_sizes, dtype=np.int32)
+    _dataset_rescale_intrinsics(cast(Dataset, dataset), image_sizes_array)
 
     if supported_camera_models is not None:
         if _dataset_undistort_unsupported(cast(Dataset, dataset), supported_camera_models):

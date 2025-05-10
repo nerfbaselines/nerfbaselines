@@ -12,6 +12,7 @@ from nerfbaselines import (
 import torch
 import numpy as np
 from PIL import Image
+import hashlib
 
 from .octree_gs_patch import import_context
 with import_context:
@@ -30,6 +31,13 @@ _disabled_config_keys = (
     "quiet", "checkpoint_iterations", "start_checkpoint", "websockets", "benchmark_dir", 
     "debug", "compute_conv3D_python", "convert_SHs_python"
 )
+
+
+def get_module_hash(module):
+    out = hashlib.sha256()
+    for param in module.parameters():
+        out.update(param.data.cpu().numpy().tobytes())
+    return out.hexdigest()
 
 
 def _config_overrides_to_args_list(args_list, config_overrides):
@@ -292,6 +300,8 @@ class OctreeGS(Method):
 
     def _render(self, camera: Cameras, *, options=None):
         del options
+        training = self._gaussians.mlp_opacity.training
+        self._gaussians.eval()
         camera = camera.item()
         assert camera.camera_models == camera_model_to_int("pinhole"), "Only pinhole cameras supported"
         view = camera_to_minicam(camera)
@@ -305,6 +315,8 @@ class OctreeGS(Method):
         # TODO: Handle appearance
         render_pkg = render(view, self._gaussians, self._args, background, visible_mask=voxel_visible_mask, ape_code=-1)
         color = render_pkg["render"].clamp(0, 1).detach().permute(1, 2, 0)
+        if training:
+            self._gaussians.train()
         return {
             "color": color,
         }
@@ -329,6 +341,10 @@ class OctreeGS(Method):
             self._scene.model_path = old_model_path
         with open(os.path.join(path, "config-overrides.json"), "w") as f:
             json.dump(self.config_overrides, f, indent=2)
+        for net in ('cov_mlp', 'color_mlp', 'opacity_mlp'):
+            hash_ = get_module_hash(getattr(self._gaussians, "get_" + net))
+            with open(os.path.join(path, "point_cloud", f"iteration_{self.step}", net + ".pt.sha256"), "w") as f:
+                f.write(hash_)
 
     @classmethod
     def get_method_info(cls):
