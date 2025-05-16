@@ -261,7 +261,7 @@ class OctreeGS(Method):
             visible_threshold=-1,
             dist2level="round",
             update_ratio=0.2,
-            progressive="True",
+            progressive=True,
             dist_ratio=0.999,
             levels=-1,
             init_level=-1,

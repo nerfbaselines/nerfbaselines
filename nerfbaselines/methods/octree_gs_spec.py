@@ -64,13 +64,13 @@ fi
 """,
     },
     "metadata": {
-        "name": "PGSR",
-        "description": """Planar-based Gaussian Splatting Reconstruction representation for efficient and high-fidelity surface reconstruction from multi-view RGB images without any geometric prior (depth or normal from pre-trained model).""",
-        "paper_title": "PGSR: Planar-based Gaussian Splatting for Efficient and High-Fidelity Surface Reconstruction",
-        "paper_authors": ["Danpeng Chen", "Hai Li", "Weicai Ye", "Yifan Wang", "Weijian Xie", "Shangjin Zhai", "Nan Wang", "Haomin Liu", "Hujun Bao", "Guofeng Zhang"],
-        "paper_link": "https://zju3dv.github.io/pgsr/paper/pgsr.pdf",
-        "link": "https://zju3dv.github.io/pgsr/",
-        "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/zju3dv/PGSR/refs/heads/main/LICENSE.md"}],
+        "name": "Octree-GS",
+        "description": """An LOD-structured 3D Gaussian approach supporting level-of-detail decomposition for scene representation that contributes to the final rendering results.""",
+        "paper_title": "Octree-GS: Towards Consistent Real-time Rendering with LOD-Structured 3D Gaussians",
+        "paper_authors": ["Kerui Ren", "Lihan Jiang", "Tao Lu", "Mulin Yu", "Linning Xu", "Zhangkai Ni", "Bo Dai"],
+        "paper_link": "https://arxiv.org/pdf/2403.17898.pdf",
+        "link": "https://city-super.github.io/octree-gs/",
+        "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/city-super/Octree-GS/refs/heads/main/LICENSE.md"}],
     },
     "presets": {
         "tanksandtemples": {
@@ -84,6 +84,7 @@ fi
         "hierarchical-3dgs": {
             "@apply": [{"dataset": "hierarchical-3dgs"}],
             "visible_threshold": 0.01,
+            "base_layer": 13,
         },
     },
 }
