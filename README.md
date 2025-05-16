@@ -101,6 +101,7 @@ Detailed results are available on the project page: [https://nerfbaselines.githu
 | [Gaussian Splatting](https://nerfbaselines.github.io/m-gaussian-splatting)           |     27.434 |     0.814 |       0.257 |     23m 25s |  11.1 GB |
 | [Gaussian Opacity Fields](https://nerfbaselines.github.io/m-gaussian-opacity-fields) |     27.421 |     0.826 |       0.234 |   1h 3m 54s |  28.4 GB |
 | [gsplat](https://nerfbaselines.github.io/m-gsplat)                                   |     27.412 |     0.815 |       0.256 |     29m 19s |   8.3 GB |
+| [Octree-GS](https://nerfbaselines.github.io/m-octree-gs)                             |     27.397 |     0.811 |       0.264 |      28m 3s |   8.5 GB |
 | [Taming 3DGS](https://nerfbaselines.github.io/m-taming-3dgs)                         |     27.217 |     0.793 |       0.305 |    *5m 59s* |   8.7 GB |
 | [PGSR](https://nerfbaselines.github.io/m-pgsr)                                       |     27.199 |     0.819 |       0.233 |     39m 58s |  14.3 GB |
 | [H3DGS](https://nerfbaselines.github.io/m-hierarchical-3dgs)                         |     26.927 |     0.790 |       0.269 |     55m 29s |   9.1 GB |
@@ -171,6 +172,7 @@ Detailed results are available on the project page: [https://nerfbaselines.githu
 | NeRF On-the-go            | ❔        | ❔                | ❔        | ❔           | ❔         | ❔            | ❔           | ❔                | ❔        |
 | NeRF-W (reimplementation) | ❔        | ❔                | ❔        | ❔           | ❔         | 🥇 gold       | ❔           | ❔                | ❔        |
 | NerfStudio                | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔         | ❔            | ❔           | 🥇 gold           | ❔        |
+| Octree-GS                 | ❔        | ❔                | ❔        | ❔           | ❔         | ❔            | ❔           | ❔                | ❔        |
 | PGSR                      | ❔        | ❔                | ❔        | 🥇 gold      | ❔         | ❔            | ❔           | 🥇 gold           | ❔        |
 | Scaffold-GS               | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔         | ❔            | 🥇 gold      | 🥇 gold           | ❔        |
 | SeaThru-NeRF              | ❔        | ❔                | ❔        | ❔           | ❔         | ❔            | 🥇 gold      | ❔                | ❔        |
@@ -216,6 +218,7 @@ For the currently implemented methods, the following licenses apply:
 - NeRF-W (reimplementation): [MIT](https://raw.githubusercontent.com/kwea123/nerf_pl/master/LICENSE)
 - NeRF: [MIT](https://github.com/bmild/nerf/blob/master/LICENSE)
 - NerfStudio: [Apache 2.0](https://raw.githubusercontent.com/nerfstudio-project/nerfstudio/main/LICENSE)
+- Octree-GS: [custom, research only](https://raw.githubusercontent.com/city-super/Octree-GS/refs/heads/main/LICENSE.md)
 - PGSR: [custom, research only](https://raw.githubusercontent.com/zju3dv/PGSR/refs/heads/main/LICENSE.md)
 - Scaffold-GS: [custom, research only](https://raw.githubusercontent.com/city-super/Scaffold-GS/main/LICENSE.md)
 - SeaThru-NeRF: [Apache 2.0](https://raw.githubusercontent.com/deborahLevy130/seathru_NeRF/master/LICENSE)
