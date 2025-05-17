@@ -6,6 +6,12 @@ on:
   pull_request:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      run-all:
+        description: "Run all methods (by default only methods with changes are run)"
+        required: false
+        type: boolean
+        default: 'false'
 jobs:
   readme-up-to-date:
     runs-on: ubuntu-latest
@@ -185,7 +191,7 @@ jobs:
             # Tetra-NeRF currently uses too much disk space, so we skip it
             if backend in ("apptainer", "conda"):
               methods = [x for x in methods if not x.startswith("tetra-nerf")]
-            if os.environ["GITHUB_EVENT_NAME"] in ("pull_request", "push"):
+            if os.environ["GITHUB_EVENT_NAME"] in ("pull_request", "push") and "${{ inputs.run-all }}" != "true":
               methods = [x for x in methods if method_has_changes(x, backend)]
             print(f"{backend}_methods=" + json.dumps(methods))
           from nerfbaselines import get_supported_datasets
@@ -305,6 +311,13 @@ jobs:
         with:
           remove-gcc: false
           remove-cplusplus: false
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:

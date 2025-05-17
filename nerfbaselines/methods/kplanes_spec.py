@@ -11,19 +11,19 @@ cd kplanes
 git checkout 7e3a82dbdda31eddbe2a160bc9ef89e734d9fc54
 git submodule update --init --recursive
 
-conda install -y --override-channels -c nvidia/label/cuda-11.8.0 cuda-toolkit cuda-nvcc
-conda install -y pytorch==2.3.0 torchvision==0.18.0 pytorch-cuda=11.8 'numpy<2.0.0' -c pytorch -c nvidia
+conda install -y --override-channels -c nvidia/label/cuda-11.8.0 cuda-toolkit
+pip install torch==2.3.0 torchvision==0.18.0 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu118
 # Install ffmpeg if not available
 command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
-if [ "$NERFBASELINES_DOCKER_BUILD" != "1" ]; then
+if [[ "$(gcc -v 2>&1)" != *"gcc version 11"* ]]; then
     conda install -y gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
-    _prefix="$CONDA_PREFIX"
-    conda deactivate; conda activate "$_prefix"
     ln -s "$CC" "$CONDA_PREFIX/bin/gcc"
     ln -s "$CXX" "$CONDA_PREFIX/bin/g++"
     export CPATH="$CONDA_PREFIX/x86_64-conda-linux-gnu/sysroot/usr/include:$CPATH"
 fi
-LIBRARY_PATH="$CONDA_PREFIX/lib/stubs" pip install ninja git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
+_prefix="$CONDA_PREFIX";conda deactivate;conda activate "$_prefix" || exit 1
+pip install -U pip 'setuptools<70.0.0' 'wheel==0.43.0'
+LIBRARY_PATH="$CONDA_PREFIX/lib/stubs" pip install ninja 'git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch' --no-build-isolation
 pip install tqdm pillow opencv-python pandas lpips==0.1.4 imageio torchmetrics scikit-image tensorboard matplotlib
 conda install -y conda-build;conda develop .
 pip install lpips==0.1.4 \

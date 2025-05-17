@@ -65,6 +65,8 @@ jobs:
       - basic-tests
       - build-base-docker-image
     uses: ./.github/workflows/run-tests-slow.yml
+    with:
+      run-all: true
   release:
     needs: 
       - run-tests

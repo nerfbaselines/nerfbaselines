@@ -1,10 +1,11 @@
 from unittest import mock
+import subprocess
 import argparse
 import sys
 import re
 import os
 import ast
-from functools import lru_cache
+from functools import lru_cache, partial
 
 
 @lru_cache(maxsize=None)
@@ -197,7 +198,7 @@ def dependency_tree_to_list(tree):
     return sorted(out)
 
 
-def git_has_change(*paths):
+def git_has_change(base_commit, *paths):
     # Test if there is a change in the paths from the last commit or uncommited changes
     import subprocess
     try:
@@ -207,7 +208,7 @@ def git_has_change(*paths):
         elif len(paths) == 1:
             root_path = os.path.dirname(paths[0])
         # Check for changes in the last commit
-        subprocess.check_output("git diff --exit-code HEAD~1 --".split() + list(paths), cwd=root_path)
+        subprocess.check_output("git diff --exit-code".split() + [base_commit, "--"] + list(paths), cwd=root_path)
         # Check for untracked files
         subprocess.run("git ls-files --exclude-standard --error-unmatch --".split() + list(paths), 
                        cwd=root_path, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -217,7 +218,9 @@ def git_has_change(*paths):
     return False
 
 
-def method_has_changes(method, backend=None):
+def method_has_changes(method, backend=None, base_commit=None):
+    if base_commit is None:
+        base_commit = get_base_commit()
     root_path = os.path.abspath(os.path.join(__file__, "../.."))
     dep_tree = get_method_dependency_tree(root_path, method, backend)
     dep_tree_formatted = format_dependency_tree(dep_tree, root_path + "/nerfbaselines").splitlines(keepends=True)
@@ -228,7 +231,7 @@ def method_has_changes(method, backend=None):
     dependencies = dependency_tree_to_list(dep_tree)
     if os.path.join(root_path, "nerfbaselines/_version.py") in dependencies:
         dependencies.remove(os.path.join(root_path, "nerfbaselines/_version.py"))
-    changes = list(map(git_has_change, dependencies))
+    changes = list(map(partial(git_has_change, base_commit), dependencies))
     dependencies_formatted = [
         f"   \033[31m{os.path.relpath(x, root_path)}\033[0m\n" if change else f"   {os.path.relpath(x, root_path)}\n"
         for x, change in zip(dependencies, changes)]
@@ -236,13 +239,43 @@ def method_has_changes(method, backend=None):
     return any(changes)
 
 
+def get_main_branch():
+    # git for-each-ref --format='%(refname:short)' refs/heads/
+    branches = subprocess.check_output("git for-each-ref --format='%(refname:short)' refs/heads/".split()).decode("utf-8").strip().splitlines()
+    branches = [x.strip("'") for x in branches]
+    # Test if main exists, otherwise use master
+    if "main" in branches:
+        return "main"
+    if "master" in branches:
+        return "master"
+    raise ValueError("No main or master branch found")
+
+
+def get_base_commit():
+    # First, we get the name of main/master branch
+    # Test if main exists, otherwise use master
+    branch = subprocess.check_output("git rev-parse --abbrev-ref HEAD".split()).decode("utf-8").strip()
+    main_branch = get_main_branch()
+
+    # Now, for main branch, we get the last commit HEAD~1
+    if branch == main_branch:
+        base_commit = "HEAD~1"
+    else:
+        # Use common ancestor with main branch
+        # git merge-base main HEAD
+        base_commit = subprocess.check_output(f"git merge-base {main_branch} HEAD".split()).decode("utf-8").strip()
+    print(f"Current branch: {branch}, detected main: {main_branch}, using common ancestor", file=sys.stderr)
+    return base_commit
+
+
 def main():
     parser = argparse.ArgumentParser(description="Check if a method has changed")
     parser.add_argument("method", help="Method name")
     parser.add_argument("--backend", help="Backend name", default=None)
+    parser.add_argument("--base-commit", help="Base commit", default=None)
     args = parser.parse_args()
 
-    changes = method_has_changes(args.method, args.backend)
+    changes = method_has_changes(args.method, args.backend, base_commit=args.base_commit)
     sys.exit(changes)
 
 

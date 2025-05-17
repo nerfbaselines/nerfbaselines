@@ -23,11 +23,14 @@ NerfStudioSpec: MethodSpec = {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.10",
         "install_script": r"""
-conda install -y --override-channels -c nvidia/label/cuda-11.8.0 cuda-toolkit
-conda install -y pytorch==2.3.0 torchvision==0.18.0 pytorch-cuda=11.8 'numpy<2.0.0' -c pytorch -c nvidia
-if [ "$NERFBASELINES_DOCKER_BUILD" != "1" ]; then
-conda install -y gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
+conda install -y cuda-toolkit -c nvidia/label/cuda-11.8.0
+if [[ "$(gcc -v 2>&1)" != *"gcc version 11"* ]]; then
+  conda install -y gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
+  ln -s "$CC" "$CONDA_PREFIX/bin/gcc"
+  ln -s "$CXX" "$CONDA_PREFIX/bin/g++"
+  export CPATH="$CONDA_PREFIX/x86_64-conda-linux-gnu/sysroot/usr/include:$CPATH"
 fi
+pip install torch==2.3.0 torchvision==0.18.0 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu118
 LIBRARY_PATH="$CONDA_PREFIX/lib/stubs" pip install ninja git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
 if ! pip install open3d>=0.16.0; then
     wget -O open3d-0.18.0-py3-none-any.whl https://files.pythonhosted.org/packages/5c/ba/a4c5986951344f804b5cbd86f0a87d9ea5969e8d13f1e8913e2d8276e0d8/open3d-0.18.0-cp311-cp311-manylinux_2_27_x86_64.whl;

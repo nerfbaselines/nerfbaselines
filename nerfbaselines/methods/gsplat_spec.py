@@ -32,15 +32,20 @@ git submodule update --recursive
 conda develop "$PWD/examples"
 
 # Install build dependencies
-conda install -y cuda-toolkit 'numpy<2.0.0' pytorch==2.1.2 torchvision==0.16.2 -c pytorch -c nvidia/label/cuda-11.8.0
+conda install -y cuda-toolkit -c nvidia/label/cuda-11.8.0
+pip install torch==2.3.0 torchvision==0.18.0 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu118
 # Install ffmpeg if not available
 command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
 export LIBRARY_PATH="$CONDA_PREFIX/lib/stubs"
-if [ "$NERFBASELINES_DOCKER_BUILD" != "1" ]; then
-conda install -y gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
+if [[ "$(gcc -v 2>&1)" != *"gcc version 11"* ]]; then
+  conda install -y gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
+  ln -s "$CC" "$CONDA_PREFIX/bin/gcc"
+  ln -s "$CXX" "$CONDA_PREFIX/bin/g++"
+  export CPATH="$CONDA_PREFIX/x86_64-conda-linux-gnu/sysroot/usr/include:$CPATH"
 fi
 
 # Install dependencies
+pip install -U pip 'setuptools<70.0.0' 'wheel==0.43.0'
 pip install opencv-python-headless==4.10.0.84 \
     -r examples/requirements.txt \
     plyfile==0.8.1 \
@@ -58,7 +63,7 @@ pip install opencv-python-headless==4.10.0.84 \
     scipy==1.13.1
 
 # Install and build gsplat
-pip install -e . --use-pep517 --no-build-isolation
+MAX_JOBS=8 pip install -e . --use-pep517 --no-build-isolation
 python -c 'from gsplat import csrc'  # Test import
 
 # Clear build dependencies
