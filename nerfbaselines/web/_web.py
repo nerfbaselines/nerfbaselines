@@ -724,7 +724,8 @@ def build(output: str,
 def start_dev_server(data: Optional[str] = None,
                      datasets: Optional[Tuple[str, ...]] = None,
                      include_docs: Literal["all", "docs", None] = None,
-                     include_demos: bool = False):
+                     include_demos: bool = False,
+                     port: int = 5500):
     from livereload import Server  # type: ignore
     with tempfile.TemporaryDirectory() as output, \
          WebBuilder(data, output, 
@@ -789,5 +790,5 @@ def start_dev_server(data: Optional[str] = None,
                          ignore=ignore_files)
         server._setup_logging = lambda: None
         logging.info("Starting dev server")
-        server.serve(root=output)
+        server.serve(root=output, port=port)
 
