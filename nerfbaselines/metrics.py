@@ -378,6 +378,14 @@ _LPIPS_CACHE = {}
 _LPIPS_GPU_AVAILABLE = None
 
 
+def clear_cache():
+    """Clear the LPIPS cache."""
+    global _LPIPS_GPU_AVAILABLE
+    for key in list(_LPIPS_CACHE):
+        del _LPIPS_CACHE[key]
+    _LPIPS_GPU_AVAILABLE = None
+
+
 def _lpips(a, b, net, version="0.1"):
     global _LPIPS_GPU_AVAILABLE
     assert a.shape == b.shape, f"Images must have the same shape, got {a.shape} and {b.shape}"

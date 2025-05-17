@@ -233,6 +233,9 @@ def _(ast_module: ast.Module):
 def _(ast_module: ast.Module):
     # Remove CUDA_VISIBLE_DEVICES manipulation
     ast_module.body = ast_module.body[:3] + ast_module.body[7:]
+    # Remove lpips_fn = ...
+    ast_module.body = ast_remove_names(ast_module.body, ["lpips_fn"])
+    ast_module.body = [x for x in ast_module.body if not isinstance(x, ast.Import) or x.names[0].name != "lpips"]
 
     training_ast = copy.deepcopy(next(x for x in ast_module.body if isinstance(x, ast.FunctionDef) and x.name == "training"))
     # Patch torch.load => torch.load(..., weights_only=False)

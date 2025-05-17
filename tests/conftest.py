@@ -922,7 +922,10 @@ def mock_torch(patch_modules):
         "torchvision": torchvision,
         "torchvision.transforms": torchvision.transforms,
     }):
+        from nerfbaselines.metrics import clear_cache as metrics_clear_cache
+        metrics_clear_cache()
         yield torch
+        metrics_clear_cache()
 
 
 @pytest.fixture

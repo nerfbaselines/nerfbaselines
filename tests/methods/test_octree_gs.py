@@ -74,7 +74,6 @@ def method_module(method_source_code, mock_module):
     mock_module("torchvision.transforms.functional")
     mock_module("laspy")
     einops = mock_module("einops")
-    mock_module("lpips")
     def repeat(*args, **kwargs):
         return args[0]
     einops.repeat = repeat
