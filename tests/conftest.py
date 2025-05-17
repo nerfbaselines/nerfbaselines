@@ -468,6 +468,8 @@ class Tensor(np.ndarray):
             return self
 
     def view(self, *shape):  # type: ignore
+        if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
+            shape = shape[0]
         return self.reshape(shape)
 
     def add_(self, value):
@@ -538,9 +540,12 @@ class Tensor(np.ndarray):
     def norm(self, dim=None, keepdim=False):
         return np.linalg.norm(self, axis=dim, keepdims=keepdim).view(Tensor)
 
-    def transpose(self, axis1, axis2):
+    def transpose(self, *args):
+        if len(args) == 1 and isinstance(args[0], (list, tuple)):
+            args = args[0]
         self = np.ndarray.view(self, np.ndarray)
-        return Tensor(np.swapaxes(self, axis1, axis2))
+        self = np.swapaxes(self, *args)
+        return Tensor(self)
 
     def repeat(self, *args):
         if len(args) == 1 and isinstance(args[0], (list, tuple)):
@@ -555,6 +560,15 @@ class Tensor(np.ndarray):
     def nonzero(self):
         self = np.ndarray.view(self, np.ndarray)
         return Tensor(np.nonzero(self)[0])
+
+    def split(self, split_size, dim=0):
+        self = np.ndarray.view(self, np.ndarray)
+        if isinstance(split_size, list):
+            split_size = tuple(split_size)
+        if isinstance(dim, list):
+            dim = tuple(dim)
+        splits = np.cumsum(split_size)[:-1]
+        return [x.view(Tensor) for x in np.split(self, splits, axis=dim)]
 
     def __repr__(self):
         self = np.ndarray.view(self, np.ndarray)
@@ -610,6 +624,8 @@ def mock_torch(patch_modules):
 
             def v2(ok, *args, device=None, requires_grad=None, **kwargs):
                 out = getattr(np, ok)(*args, **kwargs)
+                if (isinstance(out, np.float32) or isinstance(out, np.float64)):
+                    out = np.array(out)
                 if isinstance(out, np.ndarray) and not isinstance(out, Tensor):
                     out = from_numpy(out)
                 return out
@@ -632,10 +648,12 @@ def mock_torch(patch_modules):
     torch.from_numpy = from_numpy
     torch.bool = bool
     torch.long = np.int64
+    torch.int = np.int32
     def concatenate(tensors, dim):
         return np.concatenate(tensors, axis=dim).view(Tensor)
     torch.bmm = Tensor.bmm
     torch.cat = concatenate
+    torch.concat = concatenate
     torch.sum = Tensor.sum
     torch.mean = Tensor.mean
     torch.max = Tensor.max
@@ -652,6 +670,7 @@ def mock_torch(patch_modules):
         del device
         if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
             shape = shape[0]
+        print(shape, dtype)
         return np.zeros(shape, dtype=dtype).view(Tensor)
     def ones(*shape, dtype=None, device=None):
         del device
@@ -701,8 +720,26 @@ def mock_torch(patch_modules):
 
         return from_numpy_rec(pickle.load(file))
 
+    def unique(x, dim=None, return_inverse=False):
+        axis = None
+        if dim is not None:
+            axis = [x for x in range(len(x.shape)) if x != dim]
+        if return_inverse:
+            _, indices = np.unique(x, axis=axis, return_index=True)
+            return x[indices], indices
+        else:
+            return np.unique(x, axis=axis)
+
+    def empty(*shape, dtype=None, device=None):
+        del device
+        if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
+            shape = shape[0]
+        return np.empty(shape, dtype=dtype).view(Tensor)
+
     torch.save = save
     torch.load = load
+    torch.unique = unique
+    torch.empty = empty
     torch.float = 'float32'
     torchvision = mock.MagicMock()
     alexnet = mock.MagicMock()
@@ -713,6 +750,7 @@ def mock_torch(patch_modules):
     class Module:
         def __init__(self, *args, **kwargs):
             self._modules = []
+            self.training = True
 
         @property
         def modules(self):
@@ -729,6 +767,7 @@ def mock_torch(patch_modules):
             setattr(self, name, value)
 
         def train(self, train=True):
+            self.training = train
             return self
 
         def eval(self):
@@ -769,6 +808,7 @@ def mock_torch(patch_modules):
 
     class Sequential(Module):
         def __init__(self, *args):
+            super().__init__()
             self.modules = list(args)
 
         def add_module(self, name, module):
@@ -822,9 +862,24 @@ def mock_torch(patch_modules):
         del mode, align_corners
         return x[:size[0], :size[1]]
 
+    class Linear(Module):
+        def __init__(self, in_features, out_features):
+            super().__init__()
+            self.in_features = in_features
+            self.out_features = out_features
+
+        def forward(self, x):
+            return torch.zeros((x.shape[0], self.out_features), dtype=x.dtype)
+
     torch.nn.functional.normalize = lambda x, dim=-1, p=2: x / x.norm(dim=dim, keepdim=True)
     torch.nn.functional.interpolate = interpolate
     torch.nn.functional.conv2d = conv2d
+    torch.nn.functional.relu = lambda x: np.maximum(x, 0)
+    torch.nn.Tanh = lambda: lambda x: torch.tanh(x)
+    torch.nn.Sigmoid = lambda: lambda x: torch.sigmoid(x)
+    torch.nn.Linear = Linear
+    torch.nn.ReLU = lambda inplace=False: lambda x: torch.nn.functional.relu(x)
+
 
     torch.autograd.Variable = Tensor
 
@@ -867,7 +922,10 @@ def mock_torch(patch_modules):
         "torchvision": torchvision,
         "torchvision.transforms": torchvision.transforms,
     }):
+        from nerfbaselines.metrics import clear_cache as metrics_clear_cache
+        metrics_clear_cache()
         yield torch
+        metrics_clear_cache()
 
 
 @pytest.fixture
