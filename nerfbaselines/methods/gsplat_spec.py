@@ -32,7 +32,8 @@ git submodule update --recursive
 conda develop "$PWD/examples"
 
 # Install build dependencies
-conda install -y cuda-toolkit 'numpy<2.0.0' pytorch==2.1.2 torchvision==0.16.2 -c pytorch -c nvidia/label/cuda-11.8.0
+conda install -y cuda-toolkit -c nvidia/label/cuda-11.8.0
+pip install torch==2.3.0 torchvision==0.18.0 'numpy<2.0.0' --index-url https://download.pytorch.org/whl/cu118
 # Install ffmpeg if not available
 command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
 export LIBRARY_PATH="$CONDA_PREFIX/lib/stubs"

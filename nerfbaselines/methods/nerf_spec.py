@@ -62,7 +62,7 @@ pip install \
 pip install tensorboard==1.15.0 --no-deps --force-reinstall
 
 # Install ffmpeg if not available
-command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
+command -v ffmpeg >/dev/null || conda install -y 'ffmpeg==6.1.2' x264
 
 conda develop "$PWD"
 """,
