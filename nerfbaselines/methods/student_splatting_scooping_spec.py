@@ -19,9 +19,9 @@ StudentSplattingScoopingSpec: MethodSpec = {
     "conda": {
         "environment_name": os.path.split(__file__[:-len("_spec.py")])[-1].replace("_", "-"),
         "python_version": "3.9",
-        "install_script": """git clone https://github.com/zju3dv/PGSR.git pgsr
-cd pgsr
-git checkout de24f1a38b350387e8d8fe381b2cd70c1ae946e7
+        "install_script": """git clone https://github.com/realcrane/student-splating-scooping.git student-splatting-scooping
+cd student-splatting-scooping
+git checkout bf6d26f0aa54663d9084c24d6121eab7705b9fdd
 git submodule update --init --recursive
 
 conda install -y mkl==2023.1.0 pytorch==2.0.1 torchvision==0.15.2 pytorch-cuda=11.7 'numpy<2.0.0' -c pytorch -c nvidia
@@ -33,7 +33,6 @@ command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
 pip install -U pip 'setuptools<70.0.0' 'wheel==0.43.0'
 pip install plyfile==0.8.1 \
         mediapy==1.1.2 \
-        open3d==0.18.0 \
         lpips==0.1.4 \
         scikit-image==0.21.0 \
         tqdm==4.66.2 \
@@ -51,7 +50,7 @@ pip install plyfile==0.8.1 \
         laspy==2.5.4 \
         jaxtyping==0.2.34 \
         'pytest<=8.3.4' \
-        submodules/diff-plane-rasterization \
+        submodules/diff-t-rasterization \
         submodules/simple-knn \
         --no-build-isolation
 conda develop .
