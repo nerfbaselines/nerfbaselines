@@ -176,6 +176,7 @@ Detailed results are available on the project page: [https://nerfbaselines.githu
 | PGSR                      | ❔        | ❔                | ❔        | 🥇 gold      | ❔         | ❔            | ❔           | 🥇 gold           | ❔        |
 | Scaffold-GS               | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔         | ❔            | 🥇 gold      | 🥇 gold           | ❔        |
 | SeaThru-NeRF              | ❔        | ❔                | ❔        | ❔           | ❔         | ❔            | 🥇 gold      | ❔                | ❔        |
+| SSS                       | ❔        | ❔                | ❔        | ❔           | ❔         | ❔            | ❔           | ❔                | ❔        |
 | Taming 3DGS               | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔         | ❔            | ❔           | 🥇 gold           | ❔        |
 | TensoRF                   | 🥇 gold   | ❔                | 🥇 gold   | ❌           | ❔         | ❔            | ❔           | ❔                | ❔        |
 | Tetra-NeRF                | 🥈 silver | ❔                | ❔        | 🥈 silver    | ❔         | ❔            | ❔           | ❔                | ❔        |
@@ -222,6 +223,7 @@ For the currently implemented methods, the following licenses apply:
 - PGSR: [custom, research only](https://raw.githubusercontent.com/zju3dv/PGSR/refs/heads/main/LICENSE.md)
 - Scaffold-GS: [custom, research only](https://raw.githubusercontent.com/city-super/Scaffold-GS/main/LICENSE.md)
 - SeaThru-NeRF: [Apache 2.0](https://raw.githubusercontent.com/deborahLevy130/seathru_NeRF/master/LICENSE)
+- SSS: [custom, research only](https://raw.githubusercontent.com/realcrane/3D-student-splating-and-scooping/refs/heads/main/submodules/diff-t-rasterization/LICENSE.md), [GPL-2.0](https://raw.githubusercontent.com/realcrane/3D-student-splating-and-scooping/refs/heads/main/LICENSE)
 - Taming 3DGS: [MIT](https://raw.githubusercontent.com/humansensinglab/taming-3dgs/refs/heads/main/LICENSE.md), [custom, research only](https://raw.githubusercontent.com/humansensinglab/taming-3dgs/refs/heads/main/LICENSE_ORIGINAL.md)
 - TensoRF: [MIT](https://github.com/apchenstu/TensoRF/blob/main/LICENSE)
 - Tetra-NeRF: [MIT](https://raw.githubusercontent.com/jkulhanek/tetra-nerf/master/LICENSE)

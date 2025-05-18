@@ -3,13 +3,16 @@ from nerfbaselines import register, MethodSpec
 
 
 note = r"""
+We extend the original implementation of Student Splatting Scooping with the following features:
+  - support for image masks
+  - support for cameras models where cx, cy is not the center of the image
 
 In our implementation, we picked sensible defaults for new datasets as default which corresponds to the following:
-    --cap_max=1300000 \
-    --nu_degree=100 \
-    --C_burnin=5e5 \
-    --burnin_iterations=7000 \
-    --iterations=40000
+  --cap_max=1300000 \
+  --nu_degree=100 \
+  --C_burnin=5e5 \
+  --burnin_iterations=7000 \
+  --iterations=40000
 However, at least --cap_max have to be tuned for each dataset.
 """
 
@@ -71,12 +74,12 @@ fi
     },
     "metadata": {
         "name": "SSS",
-        "description": """Planar-based Gaussian Splatting Reconstruction representation for efficient and high-fidelity surface reconstruction from multi-view RGB images without any geometric prior (depth or normal from pre-trained model).""",
-        "paper_title": "PGSR: Planar-based Gaussian Splatting for Efficient and High-Fidelity Surface Reconstruction",
-        "paper_authors": ["Danpeng Chen", "Hai Li", "Weicai Ye", "Yifan Wang", "Weijian Xie", "Shangjin Zhai", "Nan Wang", "Haomin Liu", "Hujun Bao", "Guofeng Zhang"],
-        "paper_link": "https://zju3dv.github.io/pgsr/paper/pgsr.pdf",
-        "link": "https://zju3dv.github.io/pgsr/",
-        "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/zju3dv/PGSR/refs/heads/main/LICENSE.md"}],
+        "description": """SSS is a new (unnormalized) mixture model for 3D reconstruction by improving the fundamental paradigm and formulation of 3DGS.""",
+        "paper_title": "3D Student Splatting and Scooping",
+        "paper_authors": ["Jialin Zhu", "Jiangbei Yue", "Feixiang He", "He Wang"],
+        "paper_link": "https://arxiv.org/pdf/2503.10148.pdf",
+        "link": "https://github.com/realcrane/3D-student-splating-and-scooping/tree/main",
+        "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/realcrane/3D-student-splating-and-scooping/refs/heads/main/submodules/diff-t-rasterization/LICENSE.md"}, {"name": "GPL-2.0", "url": "https://raw.githubusercontent.com/realcrane/3D-student-splating-and-scooping/refs/heads/main/LICENSE"}],
     },
     "presets": {
         "mipnerf360/bicycle": { 
