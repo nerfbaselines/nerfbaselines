@@ -73,8 +73,8 @@ fi
 """,
     },
     "metadata": {
-        "name": "SSS",
-        "description": """SSS is a new (unnormalized) mixture model for 3D reconstruction by improving the fundamental paradigm and formulation of 3DGS.""",
+        "name": "Student Splatting Scooping",
+        "description": """Student Splatting Scooping is a new (unnormalized) mixture model for 3D reconstruction by improving the fundamental paradigm and formulation of 3DGS.""",
         "paper_title": "3D Student Splatting and Scooping",
         "paper_authors": ["Jialin Zhu", "Jiangbei Yue", "Feixiang He", "He Wang"],
         "paper_link": "https://arxiv.org/pdf/2503.10148.pdf",
