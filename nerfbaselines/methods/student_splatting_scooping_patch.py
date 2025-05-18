@@ -340,3 +340,26 @@ if viewpoint_cam.sampling_mask is not None:
     ## print()
     ## print("===== Get argparser =====")
     ## print(ast.unparse(get_argparser))
+
+
+import_context.apply_patch(r"""
+diff --git a/utils/reloc_utils.py b/utils/reloc_utils.py
+index 51edf79..8f12b66 100644
+--- a/utils/reloc_utils.py
++++ b/utils/reloc_utils.py
+@@ -5,3 +5,3 @@ import math
+ N_max = 51
+-binoms = torch.zeros((N_max, N_max)).float().cuda()
++binoms = torch.zeros((N_max, N_max)).float()
+ for n in range(N_max):
+@@ -12,2 +12,4 @@ for n in range(N_max):
+ def compute_relocation_cuda(opacity_old, scale_old, N):
++    global binoms
++    binoms = binoms.cuda()
+     N.clamp_(min=1, max=N_max)
+@@ -17,2 +19,4 @@ def compute_relocation_cuda(opacity_old, scale_old, N):
+ def compute_relocation_student_t_cuda(opacity_old, scale_old, nu_degree, N):
++    global binoms
++    binoms = binoms.cuda()
+     N.clamp_(min=1, max=N_max)
+""".strip())
