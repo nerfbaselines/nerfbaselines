@@ -11,7 +11,7 @@ on:
         description: "Run all methods (by default only methods with changes are run)"
         required: false
         type: boolean
-        default: 'false'
+        default: false
 jobs:
   readme-up-to-date:
     runs-on: ubuntu-latest
