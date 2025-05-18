@@ -164,7 +164,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 10 # Fetch the last 10 commits
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: 3.9
@@ -178,6 +178,7 @@ jobs:
           # TODO: remove nerfw-reimpl from blacklist as soon as it supports no-point3D setup
           pip install --upgrade pip
           pip install -e .
+          git fetch origin main:main
           python -c '
           import sys,os
           sys.path.append("scripts")
