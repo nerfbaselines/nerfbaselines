@@ -2,7 +2,7 @@ import os
 from nerfbaselines import register, MethodSpec
 
 
-note = r"""
+long_description = r"""
 We extend the original implementation of Student Splatting Scooping with the following features:
   - support for image masks
   - support for cameras models where cx, cy is not the center of the image
@@ -77,6 +77,7 @@ fi
         "description": """Student Splatting Scooping is a new (unnormalized) mixture model for 3D reconstruction by improving the fundamental paradigm and formulation of 3DGS.""",
         "paper_title": "3D Student Splatting and Scooping",
         "paper_authors": ["Jialin Zhu", "Jiangbei Yue", "Feixiang He", "He Wang"],
+        "long_description": long_description,
         "paper_link": "https://arxiv.org/pdf/2503.10148.pdf",
         "link": "https://github.com/realcrane/3D-student-splating-and-scooping/tree/main",
         "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/realcrane/3D-student-splating-and-scooping/refs/heads/main/submodules/diff-t-rasterization/LICENSE.md"}, {"name": "GPL-2.0", "url": "https://raw.githubusercontent.com/realcrane/3D-student-splating-and-scooping/refs/heads/main/LICENSE"}],
