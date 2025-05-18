@@ -2,6 +2,23 @@ import os
 from nerfbaselines import register, MethodSpec
 
 
+_MIPNERF360_NOTE = """Authors evaluated on larger images which were downscaled to the target size (avoiding JPEG compression artifacts) instead of using the official provided downscaled images. As mentioned in the 3DGS paper, this increases results slightly ~0.5 dB PSNR."""
+paper_results = {
+    "mipnerf360/bicycle": {"psnr": 25.68, "ssim": 0.798, "note": _MIPNERF360_NOTE},
+    "mipnerf360/bonsai":  {"psnr": 33.50, "ssim": 0.956, "note": _MIPNERF360_NOTE},
+    "mipnerf360/counter": {"psnr": 29.87, "ssim": 0.926, "note": _MIPNERF360_NOTE},
+    "mipnerf360/garden":  {"psnr": 28.09, "ssim": 0.882, "note": _MIPNERF360_NOTE},
+    "mipnerf360/kitchen": {"psnr": 32.43, "ssim": 0.939, "note": _MIPNERF360_NOTE},
+    "mipnerf360/room":    {"psnr": 32.57, "ssim": 0.938, "note": _MIPNERF360_NOTE},
+    "mipnerf360/stump":   {"psnr": 27.17, "ssim": 0.813, "note": _MIPNERF360_NOTE},
+    "tanksandtemples/train": {"psnr": 23.32, "ssim": 0.850 },
+    "tanksandtemples/truck": {"psnr": 26.41, "ssim": 0.897 },
+    "deepblending/drjohnson":{"psnr": 29.66, "ssim": 0.905 },
+    "deepblending/playroom": {"psnr": 30.47, "ssim": 0.909 },
+}
+
+
+
 long_description = r"""
 We extend the original implementation of Student Splatting Scooping with the following features:
   - support for image masks
@@ -78,6 +95,7 @@ fi
         "paper_title": "3D Student Splatting and Scooping",
         "paper_authors": ["Jialin Zhu", "Jiangbei Yue", "Feixiang He", "He Wang"],
         "long_description": long_description,
+        "paper_results": paper_results,
         "paper_link": "https://arxiv.org/pdf/2503.10148.pdf",
         "link": "https://github.com/realcrane/3D-student-splating-and-scooping/tree/main",
         "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/realcrane/3D-student-splating-and-scooping/refs/heads/main/submodules/diff-t-rasterization/LICENSE.md"}, {"name": "GPL-2.0", "url": "https://raw.githubusercontent.com/realcrane/3D-student-splating-and-scooping/refs/heads/main/LICENSE"}],
