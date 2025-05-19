@@ -410,7 +410,7 @@ class GaussianOpacityFields(Method):
                 "distortion_map": distortion_map,
             }, options)
 
-    def train_iteration(self, step):
+    def training_iteration(self, step):
         assert self.trainCameras is not None, "Method not initialized with training dataset"
         assert self.highresolution_index is not None, "Method not initialized with training dataset"
         self.step = step

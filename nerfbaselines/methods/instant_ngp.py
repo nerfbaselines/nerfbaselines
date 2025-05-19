@@ -490,7 +490,7 @@ class InstantNGP(Method):
             self._validate_config(train_dataset)
         assert self.testbed.training_step == current_step, "Training step mismatch"
 
-    def train_iteration(self, step: int):
+    def training_iteration(self, step: int):
         assert self._tempdir is not None, "Tempdir is not set"
         self._set_mode_and_data(training=True)
         assert self.testbed.shall_train, "Training is disabled"

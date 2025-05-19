@@ -28,7 +28,7 @@ with import_context:
     from scene import GaussianModel # type: ignore
     from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # type: ignore
     from utils.general_utils import safe_state  # type: ignore
-    from train import train_iteration  # type: ignore
+    from train import training_iteration  # type: ignore
     from scene.dataset_readers import blender_create_pcd  # type: ignore
     from scene.gaussian_model import BasicPointCloud  # type: ignore
 
@@ -263,9 +263,9 @@ class GaussianSplattingMCMC(Method):
             "color": render_pkg["render"].clamp(0, 1).detach().permute(1, 2, 0),
         }, options)
 
-    def train_iteration(self, step):
+    def training_iteration(self, step):
         self.step = step
-        metrics = train_iteration(self, step+1)
+        metrics = training_iteration(self, step+1)
         self.step = step+1
         return metrics
 

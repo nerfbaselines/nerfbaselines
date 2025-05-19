@@ -366,7 +366,7 @@ class GaussianSplatting(Method):
             color = image.detach().permute(1, 2, 0)
             return self._format_output({"color": color}, options)
 
-    def train_iteration(self, step):
+    def training_iteration(self, step):
         self.step = step
         iteration = step + 1  # Gaussian Splatting is 1-indexed
         del step

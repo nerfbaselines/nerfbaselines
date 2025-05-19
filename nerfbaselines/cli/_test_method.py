@@ -289,7 +289,7 @@ def main(method_name: str,
 
             # Test running the training
             for i in trange(steps, desc="Training"):
-                model.train_iteration(i)
+                model.training_iteration(i)
             mark_success("Train iteration passes")
 
             with tempfile.TemporaryDirectory() as tmpdir_logger:

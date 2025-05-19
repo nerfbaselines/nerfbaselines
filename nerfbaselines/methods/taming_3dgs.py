@@ -24,7 +24,7 @@ with import_context:
     from scene import Scene  # type: ignore
     from gaussian_renderer import render # type: ignore
     from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # type: ignore
-    from train import train_iteration  # type: ignore
+    from train import training_iteration  # type: ignore
     from scene.dataset_readers import blender_create_pcd  # type: ignore
     from scene.gaussian_model import BasicPointCloud  # type: ignore
     import train as _train  # type: ignore
@@ -254,12 +254,12 @@ class Taming3DGS(Method):
             "color": render_pkg["render"].clamp(0, 1).detach().permute(1, 2, 0),
         }, options)
 
-    def train_iteration(self, step):
+    def training_iteration(self, step):
         if self._loaded_step is not None:
             method_id = self.get_method_info()["method_id"]
             raise RuntimeError(f"Method {method_id} was loaded from checkpoint and training cannot be resumed.")
         self.step = step
-        metrics = train_iteration(self, step+1)
+        metrics = training_iteration(self, step+1)
         self.step = step+1
         return metrics
 

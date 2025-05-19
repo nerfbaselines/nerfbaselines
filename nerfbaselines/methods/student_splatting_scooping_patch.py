@@ -290,11 +290,11 @@ if viewpoint_cam.mask is not None:
     for instruction in train_step:
         train_step_transformer.visit(instruction)
 
-    # Define function train_iteration
-    train_iteration = cast(ast.FunctionDef, ast.parse("def train_iteration(self, iteration):\n    pass").body[0])
-    train_iteration.body = train_step
+    # Define function training_iteration
+    training_iteration = cast(ast.FunctionDef, ast.parse("def training_iteration(self, iteration):\n    pass").body[0])
+    training_iteration.body = train_step
     # Add `return metrics` where metrics is obtained as {name: eval(name) for name in metrics}
-    ast_module.body.append(train_iteration)
+    ast_module.body.append(training_iteration)
     
     #
     # <get_argparser>

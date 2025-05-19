@@ -26,7 +26,7 @@ def test_render(use_remote_method):
             del camera, options
             return {"color": np.full(tuple(), 23)}
 
-        def train_iteration(self, step: int) -> dict:
+        def training_iteration(self, step: int) -> dict:
             del step
             raise NotImplementedError()
 
@@ -75,7 +75,7 @@ def use_remote_method():
                     del train_dataset, kwargs
                     pass
 
-                def train_iteration(self, step: int) -> dict:
+                def training_iteration(self, step: int) -> dict:
                     del step
                     raise NotImplementedError()
 

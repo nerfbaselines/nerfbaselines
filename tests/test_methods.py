@@ -56,7 +56,7 @@ def test_supported_methods():
 ##                 method = method_cls(train_dataset=dataset, config_overrides=dataset_overrides)
 ## 
 ##                 # Try training step
-##                 method.train_iteration(0)
+##                 method.training_iteration(0)
 ## 
 ##                 assert isinstance(method, Method)  # type: ignore
 ##                 method.save(tmpdir)

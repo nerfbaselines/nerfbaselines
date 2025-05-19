@@ -37,7 +37,7 @@ class MyMethod(Method):
     def render(self, camera, *, options=None):
         ...
 
-    def train_iteration(self, step: int) -> Dict[str, float]:
+    def training_iteration(self, step: int) -> Dict[str, float]:
         ...
 
     def save(self, path):
@@ -143,12 +143,12 @@ the method's capabilities and requirements.
         }
 ```
 
-Next, we will implement the {meth}`train_iteration <nerfbaselines.Method.train_iteration>` method which will perform a single iteration of the training.
+Next, we will implement the {meth}`training_iteration <nerfbaselines.Method.training_iteration>` method which will perform a single iteration of the training.
 In this example, we will sample a random image from the training dataset and optimize the color to match the image.
 For the purpose of the tutorial we will do this by utilizing PyTorch to show how more complicated methods (e.g., PyTorch based)
 can be implemented.
 ```python
-    def train_iteration(self, step):
+    def training_iteration(self, step):
         # Perform a single iteration of the training
         self.step = step
 

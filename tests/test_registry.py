@@ -48,7 +48,7 @@ class _TestMethod(Method):
             "anoutput2": np.zeros((23, 30), dtype=np.float32),
         }
 
-    def train_iteration(self, *args, **kwargs):
+    def training_iteration(self, *args, **kwargs):
         del args, kwargs
         raise NotImplementedError()
 

@@ -42,7 +42,7 @@ def customize_wrapper_separated_fs(local_shared_path, backend_shared_path, mount
         return None
     # Customize the wrapper for Method.
     # We check for simplified protocol
-    if "save" in ns and "train_iteration" in ns and "render" in ns:
+    if "save" in ns and "training_iteration" in ns and "render" in ns:
         # We replace the save with a custom save
         old_save = ns["save"].__func__
         @staticmethod

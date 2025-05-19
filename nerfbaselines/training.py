@@ -690,9 +690,9 @@ class Trainer:
             json.dump(serialize_nb_info(self._get_nb_info()), f, indent=2)
         logging.info(f"checkpoint saved at step={self.step}")
 
-    def train_iteration(self):
+    def training_iteration(self):
         start = time.perf_counter()
-        metrics = self.method.train_iteration(self.step)
+        metrics = self.method.training_iteration(self.step)
 
         elapsed = time.perf_counter() - start
         self._total_train_time += elapsed
@@ -762,7 +762,7 @@ class Trainer:
             for i in range(self.step, self.num_iterations):
                 final_metrics = None
                 self.step = i
-                metrics = self.train_iteration()
+                metrics = self.training_iteration()
                 # Checkpoint changed, reset sha
                 self._checkpoint_sha = None
                 self.step = i + 1

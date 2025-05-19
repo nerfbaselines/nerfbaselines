@@ -398,7 +398,7 @@ class TensoRF(Method):
         self.TV_weight_density, self.TV_weight_app = self.args.TV_weight_density, self.args.TV_weight_app
         self.tvreg = TVLoss()
 
-    def train_iteration(self, step: int):
+    def training_iteration(self, step: int):
         iteration = step
         ray_idx = self.trainingSampler.nextids()
         rays_train, rgb_train = self.allrays[ray_idx], self.allrgbs[ray_idx].to(self.device)

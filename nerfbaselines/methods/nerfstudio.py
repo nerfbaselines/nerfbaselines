@@ -699,7 +699,7 @@ class NerfStudio(Method):
         ## self._mode = "eval"
         ## self._trainer = trainer
 
-    def train_iteration(self, step: int):
+    def training_iteration(self, step: int):
         if self._mode != "train":
             raise RuntimeError("Method is not in train mode. Call setup_train first.")
         self.step = step

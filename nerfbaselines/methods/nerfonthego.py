@@ -397,7 +397,7 @@ class NeRFOnthego(Method):
     def train_frac(self):
         return jnp.clip((self.step - 1) / (self.config.max_steps - 1), 0, 1)
 
-    def train_iteration(self, step: int):
+    def training_iteration(self, step: int):
         self.step = step
         batch = next(self.pdataset_iter)
 

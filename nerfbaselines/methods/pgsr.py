@@ -351,9 +351,9 @@ class PGSR(Method):
     def render(self, camera: Cameras, *, options=None) -> RenderOutput:
         return self._format_output(self._render(camera, options=options), options)
 
-    def train_iteration(self, step):
+    def training_iteration(self, step):
         self.step = step
-        metrics = self.module.train_iteration(self, step+1)
+        metrics = self.module.training_iteration(self, step+1)
         self.step = step+1
         return metrics
 

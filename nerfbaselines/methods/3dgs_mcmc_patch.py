@@ -9,7 +9,7 @@ import_context = Context()
 # 1. Patch Gaussian Splatting Cameras to include sampling masks
 # 2. Patch 3DGS to handle cx, cy correctly
 # 3. Patch scene.Scene to take scene_info as input
-# 4. Extract train_iteration from train.py
+# 4. Extract training_iteration from train.py
 # 5. Extract blender_create_pcd
 
 
@@ -297,17 +297,17 @@ if viewpoint_cam.mask is not None:
     for instruction in train_step:
         train_step_transformer.visit(instruction)
 
-    # Define function train_iteration
-    train_iteration = cast(ast.FunctionDef, ast.parse("def train_iteration(self, iteration):\n    pass").body[0])
-    train_iteration.body = train_step
+    # Define function training_iteration
+    training_iteration = cast(ast.FunctionDef, ast.parse("def training_iteration(self, iteration):\n    pass").body[0])
+    training_iteration.body = train_step
     # Add `return metrics` where metrics is obtained as {name: eval(name) for name in metrics}
-    ast_module.body.append(train_iteration)
+    ast_module.body.append(training_iteration)
 
     #
     # Use this code to debug when integrating new codebase
     #
     # print("Train iteration: ")
-    # print(ast.unparse(train_iteration))
+    # print(ast.unparse(training_iteration))
     # setup_train = ast_remove_names(training_ast.body[:-1], ["first_iter"])
     # for instruction in setup_train:
     #     Transformer().visit(instruction)

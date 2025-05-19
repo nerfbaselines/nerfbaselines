@@ -89,7 +89,7 @@ class _TestMethod(Method):
             "color": np.zeros([cam.image_sizes[1], cam.image_sizes[0], 3], dtype=np.float32),
         }
 
-    def train_iteration(self, step: int) -> dict:
+    def training_iteration(self, step: int) -> dict:
         _TestMethod._last_step = step
         return {"loss": 0.1}
 

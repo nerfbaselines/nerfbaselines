@@ -286,7 +286,7 @@ class ColmapMVS(Method):
             hparams=self._hparams,
         )
 
-    def train_iteration(self, step):
+    def training_iteration(self, step):
         assert self._train_dataset is not None, "No training dataset provided"
         assert step == 0, "COLMAP is not an iterative method"
 

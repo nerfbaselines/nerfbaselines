@@ -552,7 +552,7 @@ class MultiNeRF(Method):
     def train_frac(self):
         return jnp.clip((self.step - 1) / (self.config.max_steps - 1), 0, 1)
 
-    def train_iteration(self, step: int):
+    def training_iteration(self, step: int):
         assert self.train_pstep is not None, "Method is not set up for training"
         assert self.pdataset_iter is not None, "Method is not set up for training"
         assert self.lr_fn is not None, "Method is not set up for training"

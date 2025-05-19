@@ -381,7 +381,7 @@ class NeRF(Method):
         logging.debug('Begin')
 
 
-    def train_iteration(self, step: int):
+    def training_iteration(self, step: int):
         no_train_dataset_message = "Method not initialized with a training dataset"
         assert self._train_rays_rgb is not None, no_train_dataset_message
         assert self._train_cameras is not None, no_train_dataset_message

@@ -499,7 +499,7 @@ class SingleHierarchical3DGS:
             "depth": (1/render_pkg["depth"]).squeeze(0),
         }
 
-    def train_iteration(self, step):
+    def training_iteration(self, step):
         assert self.train_dataset is not None, "train_dataset must be set"
         if step == 0:
             # Generate invdepths
@@ -509,7 +509,7 @@ class SingleHierarchical3DGS:
                 compute_depth_params(self.train_dataset)
         self.step = step
         viewpoint_cam = self._next_viewpoint_cam()
-        metrics = self.module.train_iteration(self, viewpoint_cam, step+1)
+        metrics = self.module.training_iteration(self, viewpoint_cam, step+1)
         self.step = step+1
         return metrics
 
@@ -809,7 +809,7 @@ class Hierarchical3DGS(Method):
         out = self.current_stage.render(camera, options=options)
         return self._format_output(out, options)
 
-    def train_iteration(self, step):
+    def training_iteration(self, step):
         if self.checkpoint is not None:
             raise RuntimeError(f"Method {_method_id} was loaded from checkpoint and training cannot be resumed.")
         current_stage = self._get_current_stage_idx(step)
@@ -837,7 +837,7 @@ class Hierarchical3DGS(Method):
                     checkpoint=checkpoint,
                     train_dataset=dataset, 
                     config_overrides=co)
-        return self.current_stage.train_iteration(step - step_offset)
+        return self.current_stage.training_iteration(step - step_offset)
 
     def save(self, path: str):
         self.current_stage.save(path)

@@ -79,7 +79,7 @@ class MyMethod(Method):
             "num_iterations": 100,
         }
 
-    def train_iteration(self, step):
+    def training_iteration(self, step):
         # Perform a single iteration of the training
 
         # Sample a random image

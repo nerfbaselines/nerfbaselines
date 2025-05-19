@@ -386,7 +386,7 @@ schedulers=self.schedulers
 """).body[0].body)  # type: ignore
     runner_train_ast.body = init_train_body
     runner_ast.body.append(ast.FunctionDef(lineno=0, col_offset=0,
-        name="train_iteration",
+        name="training_iteration",
         args=ast.arguments(  # type: ignore
             args=[
                 ast.arg(arg="self", annotation=None, lineno=0, col_offset=0),
@@ -528,9 +528,9 @@ class GSplat(Method):
             loaded_checkpoint=self.checkpoint,
         )
 
-    def train_iteration(self, step):
+    def training_iteration(self, step):
         self.step = step
-        out = self.runner.train_iteration(step)
+        out = self.runner.training_iteration(step)
         self.step = step+1
         return out
 

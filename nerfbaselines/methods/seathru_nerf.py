@@ -600,7 +600,7 @@ class SeaThruNeRF(Method):
     def train_frac(self):
         return jnp.clip((self.step - 1) / (self.config.max_steps - 1), 0, 1)
 
-    def train_iteration(self, step: int):
+    def training_iteration(self, step: int):
         assert self.pdataset_iter is not None, "Method not initialized for training"
         assert self.train_pstep is not None, "Method not initialized for training"
         self.step = step

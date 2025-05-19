@@ -510,7 +510,7 @@ class CamP_ZipNeRF(Method):
     def train_frac(self):
         return jnp.clip((self.step - 1) / (self.config.max_steps - 1), 0, 1)
 
-    def train_iteration(self, step: int):
+    def training_iteration(self, step: int):
         self.step = step
         assert self.lr_fn is not None, "Must call setup_train before training"
         assert self.train_pstep is not None, "Must call setup_train before training"

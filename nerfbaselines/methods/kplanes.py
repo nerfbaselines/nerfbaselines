@@ -531,7 +531,7 @@ class KPlanes(Method):
         load_state_dict.__patched__ = True  # type: ignore
         self.load_state_dict = load_state_dict
 
-    def train_iteration(self, step):
+    def training_iteration(self, step):
         if self.batch_iter is None:
             self.trainer.pre_epoch()
             self.batch_iter = iter(self.trainer.train_data_loader)

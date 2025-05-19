@@ -332,7 +332,7 @@ class PhototourismDataset(_PhototourismDataset):
         }
 
 
-def _override_train_iteration(model, old, cb, *args, **kwargs):
+def _override_training_iteration(model, old, cb, *args, **kwargs):
     cb(None)
     metrics = {}
     def log(name, value, *args, **kwargs):
@@ -490,7 +490,7 @@ class NeRFWReimpl(Method):
                 sys.argv = [os.path.abspath(__file__), tmpfile.name]
                 os.environ["_NERFBASELINES_DISABLE_LOGGING"] = "1"
                 def _run_training(yield_cb):
-                    system.training_step = partial(_override_train_iteration, system, system.training_step, yield_cb)
+                    system.training_step = partial(_override_training_iteration, system, system.training_step, yield_cb)
                     # Patch yield_cb to pause the training after each step
                     trainer.fit(system, ckpt_path=ckpt_file)
 
@@ -660,7 +660,7 @@ class NeRFWReimpl(Method):
         self.trainer.strategy._lightning_module = self.trainer.strategy.model = model
         logger.info(f"Model initialized for evaluation")
 
-    def train_iteration(self, step):
+    def training_iteration(self, step):
         assert self._train_iterator is not None, "Method not initialized for training"
         del step
         out = None
@@ -792,4 +792,4 @@ if __name__ == "__main__":
     del kwargs
     info = method.get_info()
     for i in range(info.get("loaded_step") or 0, info["num_iterations"]):
-        method.train_iteration(i)
+        method.training_iteration(i)

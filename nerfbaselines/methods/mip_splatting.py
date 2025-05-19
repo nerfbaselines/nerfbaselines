@@ -387,7 +387,7 @@ class MipSplatting(Method):
             color = image.detach().permute(1, 2, 0)
             return self._format_output({"color": color}, options)
 
-    def train_iteration(self, step):
+    def training_iteration(self, step):
         assert self.trainCameras is not None, "Model was not initialized with a training dataset"
         assert self.highresolution_index is not None, "Model was not initialized with a training dataset"
         self.step = step

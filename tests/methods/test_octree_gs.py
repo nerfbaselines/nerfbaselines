@@ -88,7 +88,7 @@ def _test_method(method_module, colmap_dataset, tmp_path):
     model = Method(train_dataset=dataset)
 
     # Test train iteration
-    out = model.train_iteration(0)
+    out = model.training_iteration(0)
     assert isinstance(out, dict)
     assert isinstance(out.get("loss"), float)
     assert isinstance(out.get("psnr"), float)
