@@ -63,8 +63,8 @@ def load_llff_dataset(path: Union[Path, str], split: str, *, downscale_factor: i
         ),
         image_paths_root=str(path),
         image_paths=[str(x) for i, x in enumerate(image_paths) if i in indices],
-        sampling_mask_paths=None,
-        sampling_mask_paths_root=None,
+        mask_paths=None,
+        mask_paths_root=None,
         metadata={
             "downscale_factor": downscale_factor,
             "color_space": "srgb",

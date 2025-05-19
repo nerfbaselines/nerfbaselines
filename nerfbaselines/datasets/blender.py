@@ -61,7 +61,7 @@ def load_blender_dataset(path: str, split: str, **kwargs):
         ),
         image_paths_root=path,
         image_paths=image_paths,
-        sampling_mask_paths=None,
+        mask_paths=None,
         metadata={
             "color_space": "srgb",
             "expected_scene_scale": 4,

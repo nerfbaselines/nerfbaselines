@@ -66,7 +66,7 @@ def _config_overrides_to_args_list(args_list, config_overrides):
 
 def get_scene_info(train_dataset, args):
     images_root = train_dataset["image_paths_root"]
-    sampling_masks = train_dataset.get("sampling_masks", None)
+    masks = train_dataset.get("masks", None)
     gargs = args
 
     def get_caminfo(i):
@@ -88,14 +88,14 @@ def get_scene_info(train_dataset, args):
                 alpha = alpha.astype(np.float32) / 255.0
                 image = image * alpha[..., None] + (1 - alpha[..., None])
                 image = (image.clip(0, 1) * 255).astype(np.uint8)
-        sampling_mask = None
+        mask = None
         if image.dtype != np.uint8:
             image = (image * 255).astype(np.uint8)
-        if sampling_masks is not None:
-            sampling_mask = sampling_masks[i]
-            if sampling_mask.dtype == np.uint8:
-                sampling_mask = sampling_mask.astype(np.float32) / 255.0
-            sampling_mask = torch.from_numpy(sampling_mask).float()
+        if masks is not None:
+            mask = masks[i]
+            if mask.dtype == np.uint8:
+                mask = mask.astype(np.float32) / 255.0
+            mask = torch.from_numpy(mask).float()
         return Namespace(
             global_id=i,
             uid=i,
@@ -107,7 +107,7 @@ def get_scene_info(train_dataset, args):
             image_name=image_name,
             image=Image.fromarray(image),
             image_path=image_name,
-            sampling_mask=sampling_mask,
+            mask=mask,
             id=i,
             args=args,
             FovX=focal2fov(camera.intrinsics[0], w),

@@ -421,10 +421,10 @@ def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor
     #     scale_factor *= applied_scale
     if downscale_factor > 1:
         images_root = data_dir / f"images_{downscale_factor}"
-        sampling_masks_root = data_dir / f"masks_{downscale_factor}"
+        masks_root = data_dir / f"masks_{downscale_factor}"
     else:
         images_root = data_dir
-        sampling_masks_root = data_dir
+        masks_root = data_dir
 
     # "depth_filenames": depth_filenames if len(depth_filenames) > 0 else None,
     # "depth_unit_scale_factor": depth_unit_scale_factor,
@@ -477,8 +477,8 @@ def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor
             cameras=all_cameras,
             image_paths=image_filenames,
             image_paths_root=str(images_root),
-            sampling_mask_paths=mask_filenames if len(mask_filenames) > 0 else None,
-            sampling_mask_paths_root=str(sampling_masks_root) if len(mask_filenames) > 0 else None,
+            mask_paths=mask_filenames if len(mask_filenames) > 0 else None,
+            mask_paths_root=str(masks_root) if len(mask_filenames) > 0 else None,
             points3D_xyz=points3D_xyz,
             points3D_rgb=points3D_rgb,
             images_points3D_indices=images_points3D_indices,
