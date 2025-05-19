@@ -178,7 +178,6 @@ jobs:
           # TODO: remove nerfw-reimpl from blacklist as soon as it supports no-point3D setup
           pip install --upgrade pip
           pip install -e .
-          git fetch origin main:main
           python -c '
           import sys,os
           sys.path.append("scripts")

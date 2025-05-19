@@ -73,6 +73,9 @@ fi
         "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/city-super/Octree-GS/refs/heads/main/LICENSE.md"}],
     },
     "presets": {
+        "appearance": {
+            "appearance_dim": 32,
+        },
         "tanksandtemples": {
             "@apply": [{"dataset": "tanksandtemples"}],
             "visible_threshold": 0.9,
