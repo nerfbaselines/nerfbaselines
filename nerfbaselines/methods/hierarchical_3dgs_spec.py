@@ -132,13 +132,13 @@ fi
         }],
         "long_description": long_description,
         "paper_results": paper_results,
-        "presets": {
-            "exposure": { "exposure_lr_init": 0.001, "exposure_lr_final": 0.0001 },
-            "depth-anything": { "single.depth_mode": "depth-anything" },
-            "tau-0": { "post.tau": "0" },
-            "tau-3": { "post.tau": "3" },
-            "tau-6": { "post.tau": "6" },
-            "tau-6": { "post.tau": "15" },
-        },
+    },
+    "presets": {
+        "exposure": { "exposure_lr_init": 0.001, "exposure_lr_final": 0.0001 },
+        "depth-anything": { "single.depth_mode": "depth-anything" },
+        "tau-0": { "post.tau": "0" },
+        "tau-3": { "post.tau": "3" },
+        "tau-6": { "post.tau": "6" },
+        "tau-6": { "post.tau": "15" },
     },
 })
