@@ -355,7 +355,11 @@ class Viewer:
         elif rtype == "accumulation":
             output = apply_colormap(output, pallete=palette or "coolwarm")
         elif len(output.shape) == 2:
-            mmin, mmax = output.min(), output.max()
+            mmin, mmax = None, None
+            if output_range is not None:
+                mmin, mmax = output_range
+            if mmin is None: mmin = output.min()
+            if mmax is None: mmax = output.max()
             output = apply_colormap((output-mmin)/(mmax-mmin), pallete=palette or "coolwarm")
         return output
 
