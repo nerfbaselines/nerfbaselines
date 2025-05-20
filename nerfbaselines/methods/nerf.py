@@ -5,7 +5,7 @@ import warnings
 import shlex
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 from argparse import ArgumentParser
 import tempfile
 import logging
@@ -13,7 +13,7 @@ import numpy as np
 
 from nerfbaselines import (
     Dataset, RenderOutput, MethodInfo, ModelInfo,
-    Cameras, CameraModel, Method,
+    Camera, CameraModel, Method,
 )
 from nerfbaselines import cameras as _cameras
 from nerfbaselines.utils import (
@@ -62,8 +62,8 @@ def transform_images(args, images):
         for img in images]
 
 
-def transform_cameras(args, cameras, transform_args, verbose=False):
-    poses = cameras.poses.copy()
+def transform_cameras(args, cameras: Sequence[Camera], transform_args, verbose=False):
+    poses = np.stack([cam.pose for cam in cameras], 0)
 
     near, far = 0, 1
     spherify = False
@@ -76,14 +76,15 @@ def transform_cameras(args, cameras, transform_args, verbose=False):
             poses, _, _ = spherify_poses(poses, 1)
     elif args.dataset_type == 'blender':
         sc = 1
-        near = cameras.nears_fars[..., 0].min()
-        far = cameras.nears_fars[..., 1].max()
+        nears_fars = np.stack([cam.near_far for cam in cameras], 0)
+        near = nears_fars.min()
+        far = nears_fars.max()
         transform = np.eye(4, dtype=np.float32)
     elif args.dataset_type == 'llff':
         recenter=True
         spherify=args.spherify
 
-        bds = cameras.nears_fars
+        bds = np.stack([cam.near_far for cam in cameras], 0)
         print('Loaded', bds.min(), bds.max())
         
         # Rescale if bd_factor is provided
@@ -118,10 +119,12 @@ def transform_cameras(args, cameras, transform_args, verbose=False):
     }
 
     # Replace cameras
-    cameras = cameras.replace(
-        poses=poses,
-        nears_fars=np.stack([np.full(len(poses), near), np.full(len(poses), far)], -1),
-    )
+    cameras = [
+        x.replace(
+            pose=poses[i],
+            near_far=np.array([near, far], dtype=np.float32),
+        ) for i, x in enumerate(cameras)
+    ]
 
     if verbose:
         print('Data:')
@@ -139,10 +142,10 @@ def get_rays(cameras, images=None):
         return img
     rays = [np.concatenate(
         _cameras.unproject(cameras[i], np.stack(np.meshgrid(
-            np.arange(w, dtype=np.float32), 
-            np.arange(h, dtype=np.float32), 
+            np.arange(cam.image_size[0], dtype=np.float32), 
+            np.arange(cam.image_size[1], dtype=np.float32), 
             indexing="xy"), -1)
-        ) + (_load_image(w, h, i),), -1).reshape(-1, 3, 3) for i, (w, h) in enumerate(cameras.image_sizes)]
+        ) + (_load_image(cam.image_size[0], cam.image_size[1], i),), -1).reshape(-1, 3, 3) for i, cam in enumerate(cameras)]
     return np.concatenate(rays, axis=0)
 
 
@@ -362,7 +365,7 @@ class NeRF(Method):
 
                 self._train_i_batch = 0
             else:
-                self._train_rays_cumsum = np.cumsum([0] + [w*h for w, h in self._train_cameras.image_sizes])
+                self._train_rays_cumsum = np.cumsum([0] + [cam.image_size[0]*cam.image_size[1] for cam in self._train_cameras])
                 assert self._train_rays_cumsum[-1] == self._train_rays_rgb.shape[0], "Invalid rays shape"
             logging.info("Train rays cached")
 
@@ -399,8 +402,8 @@ class NeRF(Method):
             batch = self._train_rays_rgb[self._train_i_batch:self._train_i_batch+N_rand]  # [B, 2+1, 3*?]
             
             # TODO: handle NDC better (not a single camera)
-            W, H = self._train_cameras.image_sizes[0]
-            focal = self._train_cameras.intrinsics[0, 0]
+            W, H = self._train_cameras[0].image_size
+            focal = self._train_cameras[0].intrinsics[0]
 
             self._train_i_batch += N_rand
             if self._train_i_batch >= self._train_rays_rgb.shape[0]:
@@ -410,9 +413,9 @@ class NeRF(Method):
         else:
             # Random from one image
             img_i = np.random.choice(list(range(len(self._train_cameras))))
-            W, H = self._train_cameras.image_sizes[img_i]
+            W, H = self._train_cameras[img_i].image_size
             # TODO: handle fx != fy
-            focal = self._train_cameras.intrinsics[img_i, 0]
+            focal = self._train_cameras[img_i].intrinsics[0]
             assert self._train_rays_cumsum is not None, "_train_rays_cumsum must be set"
             batch = self._train_rays_rgb[self._train_rays_cumsum[img_i]:self._train_rays_cumsum[img_i+1]]
 
@@ -474,13 +477,12 @@ class NeRF(Method):
             out["mse0"] = img_loss0.numpy().item()
         return out
 
-    def render(self, camera: Cameras, *, options=None) -> RenderOutput:
+    def render(self, camera: Camera, *, options=None) -> RenderOutput:
         del options
-        camera = camera.item()
-        cameras, _ = transform_cameras(self.args, camera[None], self.transform_args)
-        W, H = cameras.image_sizes[0]
+        cameras, _ = transform_cameras(self.args, [camera], self.transform_args)
+        W, H = cameras[0].image_size
         # TODO: handle fx != fy
-        focal = cameras.intrinsics[0, 0]
+        focal = cameras[0].intrinsics[0]
         batch_rays = get_rays(cameras[:1])
         rays_o, rays_d = batch_rays[:, 0], batch_rays[:, 1]
         rgb, disp, acc, extras = render(

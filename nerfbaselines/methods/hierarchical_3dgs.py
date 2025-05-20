@@ -13,7 +13,7 @@ from argparse import Namespace
 import os
 
 from nerfbaselines import (
-    Method, MethodInfo, ModelInfo, RenderOutput, Cameras, camera_model_to_int, Dataset
+    Method, MethodInfo, ModelInfo, RenderOutput, Camera, Dataset
 )
 from nerfbaselines.datasets import _colmap_utils as colmap_utils
 from nerfbaselines.datasets import dataset_index_select
@@ -100,7 +100,7 @@ def get_scene_info(train_dataset, args):
 
     def get_caminfo(i):
         camera = train_dataset["cameras"][i]
-        pose = camera.poses
+        pose = camera.pose
         R = pose[:3, :3]
         T = pose[:3, 3]
         T = -R.T @ T
@@ -147,17 +147,16 @@ def get_scene_info(train_dataset, args):
                      ply_path=None)
 
 
-def camera_to_minicam(camera, device):
-    camera = camera.item()
+def camera_to_minicam(camera: Camera, device):
     zfar = 100.0
     znear = 0.01
-    width, height = camera.image_sizes
+    width, height = camera.image_size
     fx, fy, cx, cy = camera.intrinsics
     fovy = focal2fov(fy, height)
     fovx = focal2fov(fx, width)
     primx = float(cx) / width
     primy = float(cy) / height
-    pose = camera.poses
+    pose = camera.pose
     R = pose[:3, :3]
     T = pose[:3, 3]
     T = -R.T @ T
@@ -267,7 +266,7 @@ def compute_depth_params(dataset):
         return dataset
     dataset["invdepth_params"] = []
     for i in tqdm.tqdm(range(len(cameras)), desc="Computing depth params"):
-        pose = cameras.poses[i]
+        pose = cameras[i].pose
         qvec = colmap_utils.rotmat2qvec(pose[:3, :3].T)
         tvec = -np.matmul(pose[:3, :3].T, pose[:3, 3]).reshape(3)
         xys = dataset["images_points2D_xy"][i]
@@ -280,7 +279,7 @@ def compute_depth_params(dataset):
             xys=xys,
             point3D_ids=point3D_ids,
         )
-        w, h = cameras.image_sizes[i]
+        w, h = cameras[i].image_size
         cam = Namespace(height=h, width=w)
         invdepth = dataset["invdepths"][i]
         params = make_depth_scale.get_scales(0, [cam], [img], points3D, None, invdepth, [img])
@@ -309,8 +308,8 @@ def split_dataset_into_chunks(dataset, config_overrides):
             id=i+1,
             model="PINHOLE",
         )
-        qvec = colmap_utils.rotmat2qvec(dataset["cameras"][i].poses[:3, :3].T)
-        tvec = -np.matmul(dataset["cameras"][i].poses[:3, :3].T, dataset["cameras"][i].poses[:3, 3]).reshape(3)
+        qvec = colmap_utils.rotmat2qvec(dataset["cameras"][i].pose[:3, :3].T)
+        tvec = -np.matmul(dataset["cameras"][i].pose[:3, :3].T, dataset["cameras"][i].pose[:3, 3]).reshape(3)
         imgs[i+1] = Namespace(
             id=i+1,
             camera_id=i+1,
@@ -486,10 +485,9 @@ class SingleHierarchical3DGS:
         return hparams
 
     @torch.no_grad()
-    def render(self, camera: Cameras, *, options=None):
+    def render(self, camera: Camera, *, options=None):
         del options
-        camera = camera.item()
-        assert camera.camera_models == camera_model_to_int("pinhole"), "Only pinhole cameras supported"
+        assert camera.camera_model == "pinhole", "Only pinhole cameras supported"
         viewpoint_cam = camera_to_minicam(camera, 'cuda')
         render_pkg = render(viewpoint_cam, self._gaussians, self._pipe, 
                             torch.zeros((3,), dtype=torch.float32, device='cuda'),
@@ -627,7 +625,7 @@ class PostHierarchical3DGS(SingleHierarchical3DGS):
             self._num_siblings = torch.zeros(self._gaussians._xyz.size(0)).int().cuda()
 
     @torch.no_grad()
-    def render(self, camera: Cameras, *, options=None):
+    def render(self, camera: Camera, *, options=None):
         self._prepare_buffers()
         # Pyright assertions
         assert self._render_indices is not None, "Buffers not prepared"
@@ -636,8 +634,7 @@ class PostHierarchical3DGS(SingleHierarchical3DGS):
         assert self._interpolation_weights is not None, "Buffers not prepared"
         assert self._num_siblings is not None, "Buffers not prepared"
 
-        camera = camera.item()
-        assert camera.camera_models == camera_model_to_int("pinhole"), "Only pinhole cameras supported"
+        assert camera.camera_model == "pinhole", "Only pinhole cameras supported"
         options = options or {}
         tau = options.get("tau", self._args.tau)
         viewpoint_cam = camera_to_minicam(camera, 'cuda')
@@ -805,7 +802,7 @@ class Hierarchical3DGS(Method):
         }
 
     @torch.no_grad()
-    def render(self, camera: Cameras, *, options=None) -> RenderOutput:
+    def render(self, camera: Camera, *, options=None) -> RenderOutput:
         out = self.current_stage.render(camera, options=options)
         return self._format_output(out, options)
 

@@ -105,10 +105,10 @@ def camera_model_from_int(i: int) -> CameraModel:
     return get_args(CameraModel)[i]
 
 
-class GenericCameras(Protocol[TTensor_co]):
+class GenericCamera(Protocol[TTensor_co]):
     @property
-    def poses(self) -> TTensor_co:
-        """Camera-to-world matrices, [N, (R, t)]"""
+    def pose(self) -> TTensor_co:
+        """Camera-to-world matrices, [R, t]"""
         ...
 
     @property
@@ -164,124 +164,68 @@ class GenericCameras(Protocol[TTensor_co]):
     def replace(self, **changes) -> Self:
         ...
 
-    def apply(self, fn: Callable[[TTensor_co, str], TTensor]) -> 'GenericCameras[TTensor]':
+    def apply(self, fn: Callable[[TTensor_co, str], TTensor]) -> 'GenericCamera[TTensor]':
         ...
 
 
 @runtime_checkable
-class Cameras(GenericCameras[np.ndarray], Protocol):
+class Camera(GenericCamera[np.ndarray], Protocol):
     pass
 
 
 @dataclass(frozen=True)
-class GenericCamerasImpl(Generic[TTensor_co]):
-    poses: TTensor_co  # [N, (R, t)]
-    intrinsics: TTensor_co  # [N, (fx,fy,cx,cy)]
+class GenericCameraImpl(Generic[TTensor_co]):
+    pose: TTensor_co  # [(R, t)]
+    intrinsics: TTensor_co  # [(fx,fy,cx,cy)]
 
-    camera_models: TTensor_co  # [N]
+    camera_model: CameraModel
     distortion_parameters: TTensor_co  # [N, num_params]
-    image_sizes: TTensor_co  # [N, 2]
+    image_sizes: Tuple[int, int]  # [N, 2]
 
     nears_fars: Optional[TTensor_co]  # [N, 2]
     metadata: Optional[TTensor_co] = None
 
-    def __len__(self) -> int:
-        return 1 if len(self.poses.shape) == 2 else len(self.poses)
-
-    def item(self):
-        assert len(self) == 1, "Cameras must have exactly one element to be converted to a single camera"
-        return self if len(self.poses.shape) == 2 else self[0]
-
-    def __getitem__(self, index):
-        return type(self)(
-            poses=self.poses[index],
-            intrinsics=self.intrinsics[index],
-            camera_models=self.camera_models[index],
-            distortion_parameters=self.distortion_parameters[index],
-            image_sizes=self.image_sizes[index],
-            nears_fars=self.nears_fars[index] if self.nears_fars is not None else None,
-            metadata=self.metadata[index] if self.metadata is not None else None,
-        )
-
-    def __setitem__(self, index, value: Self) -> None:
-        assert (self.image_sizes is None) == (value.image_sizes is None), "Either both or none of the cameras must have image sizes"
-        assert (self.nears_fars is None) == (value.nears_fars is None), "Either both or none of the cameras must have nears and fars"
-        self.poses[index] = value.poses
-        self.intrinsics[index] = value.intrinsics
-        self.camera_models[index] = value.camera_models
-        self.distortion_parameters[index] = value.distortion_parameters
-        self.image_sizes[index] = value.image_sizes
-        if self.nears_fars is not None:
-            self.nears_fars[index] = cast(TTensor_co, value.nears_fars)
-        if self.metadata is not None:
-            self.metadata[index] = cast(TTensor_co, value.metadata)
-
-    def __iter__(self) -> Iterator[Self]:
-        for i in range(len(self)):
-            yield self[i]
-
-    @classmethod
-    def cat(cls, values: Sequence[Self]) -> Self:
-        xnp = _get_xnp(values[0].poses)
-        nears_fars: Optional[TTensor_co] = None
-        metadata: Optional[TTensor_co] = None
-        if any(v.nears_fars is not None for v in values):
-            assert all(v.nears_fars is not None for v in values), "Either all or none of the cameras must have nears and fars"
-            nears_fars = xnp.concatenate([cast(TTensor_co, v.nears_fars) for v in values])
-        if any(v.metadata is not None for v in values):
-            assert all(v.metadata is not None for v in values), "Either all or none of the cameras must have metadata"
-            metadata = xnp.concatenate([cast(TTensor_co, v.metadata) for v in values])
-        return cls(
-            poses=xnp.concatenate([v.poses for v in values]),
-            intrinsics=xnp.concatenate([v.intrinsics for v in values]),
-            camera_models=xnp.concatenate([v.camera_models for v in values]),
-            distortion_parameters=xnp.concatenate([v.distortion_parameters for v in values]),
-            image_sizes=xnp.concatenate([cast(TTensor_co, v.image_sizes) for v in values]),
-            nears_fars=nears_fars,
-            metadata=metadata,
-        )
-
     def replace(self, **changes) -> Self:
         return dataclasses.replace(self, **changes)
 
-    def apply(self, fn: Callable[[TTensor_co, str], TTensor]) -> 'GenericCamerasImpl[TTensor]':
-        return GenericCamerasImpl[TTensor](
-            poses=fn(self.poses, "poses"),
+    def apply(self, fn: Callable[[TTensor_co, str], TTensor]) -> 'GenericCameraImpl[TTensor]':
+        return GenericCameraImpl[TTensor](
+            pose=fn(self.pose, "pose"),
             intrinsics=fn(self.intrinsics, "intrinsics"),
-            camera_models=fn(self.camera_models, "camera_models"),
+            camera_model=fn(self.camera_model, "camera_model"),
             distortion_parameters=fn(self.distortion_parameters, "distortion_parameters"),
-            image_sizes=fn(self.image_sizes, "image_sizes"),
-            nears_fars=fn(cast(TTensor_co, self.nears_fars), "nears_fars") if self.nears_fars is not None else None,
+            image_size=fn(self.image_size, "image_size"),
+            nears_far=fn(cast(TTensor_co, self.nears_far), "nears_far") if self.nears_far is not None else None,
             metadata=fn(cast(TTensor_co, self.metadata), "metadata") if self.metadata is not None else None,
         )
 
 
-def new_cameras(
+def new_camera(
     *,
-    poses: np.ndarray,
+    pose: np.ndarray,
     intrinsics: np.ndarray,
-    camera_models: np.ndarray,
-    image_sizes: np.ndarray,
+    camera_model: np.ndarray,
+    image_size: np.ndarray,
     distortion_parameters: Optional[np.ndarray] = None,
-    nears_fars: Optional[np.ndarray] = None,
+    nears_far: Optional[np.ndarray] = None,
     metadata: Optional[np.ndarray] = None,
-) -> Cameras:
+) -> Camera:
     if distortion_parameters is None:
         shape = list(intrinsics.shape)
         shape[-1] = 0
         distortion_parameters = np.zeros(tuple(shape), dtype=intrinsics.dtype)
-    return GenericCamerasImpl[np.ndarray](
-        poses=poses,
+    return GenericCameraImpl[np.ndarray](
+        pose=pose,
         intrinsics=intrinsics,
-        camera_models=camera_models,
+        camera_model=camera_model,
         distortion_parameters=distortion_parameters,
-        image_sizes=image_sizes,
-        nears_fars=nears_fars,
+        image_size=image_size,
+        nears_far=nears_far,
         metadata=metadata)
     
 
 class _IncompleteDataset(TypedDict, total=True):
-    cameras: Cameras  # [N]
+    cameras: List[Camera]  # [N]
 
     image_paths: List[str]
     image_paths_root: str
@@ -306,7 +250,7 @@ class Dataset(_IncompleteDataset):
 
 @overload
 def new_dataset(*,
-                cameras: Cameras,
+                cameras: Sequence[Camera],
                 image_paths: Sequence[str],
                 image_paths_root: Optional[str] = ...,
                 images: Union[np.ndarray, List[np.ndarray]],
@@ -324,7 +268,7 @@ def new_dataset(*,
 
 @overload
 def new_dataset(*,
-                cameras: Cameras,
+                cameras: Sequence[Camera],
                 image_paths: Sequence[str],
                 image_paths_root: Optional[str] = ...,
                 images: Literal[None] = None,
@@ -341,7 +285,7 @@ def new_dataset(*,
 
 
 def new_dataset(*,
-                cameras: Cameras,
+                cameras: Sequence[Camera],
                 image_paths: Sequence[str],
                 image_paths_root: Optional[str] = None,
                 images: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W, 3]
@@ -483,7 +427,7 @@ class Method(Protocol):
 
     @abstractmethod
     def render(self, 
-               camera: Cameras, *, 
+               camera: Camera, *, 
                options: Optional[RenderOptions] = None) -> RenderOutput:  # [h w c]
         """
         Render single image.

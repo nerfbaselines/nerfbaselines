@@ -11,7 +11,7 @@ import os
 import numpy as np
 from PIL import Image
 from nerfbaselines import (
-    Method, MethodInfo, ModelInfo, RenderOutput, Cameras, camera_model_to_int, Dataset
+    Method, MethodInfo, ModelInfo, RenderOutput, Camera, Dataset
 )
 import shlex
 from importlib import import_module
@@ -80,19 +80,19 @@ def _config_overrides_to_args_list(args_list, config_overrides):
 def _convert_dataset_to_scene_info(dataset: Optional[Dataset], white_background: bool = False, scale_coords=None, init_type="sfm"):
     if dataset is None:
         return SceneInfo(None, [], [], nerf_normalization=dict(radius=None, translate=None), ply_path=None)
-    assert np.all(dataset["cameras"].camera_models == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
+    assert np.all([x.camera_model == "pinhole" for x in dataset["cameras"]]), "Only pinhole cameras supported"
 
     cam_infos = []
-    for idx, extr in enumerate(dataset["cameras"].poses):
+    for idx, camera in enumerate(dataset["cameras"]):
         del extr
-        intrinsics = dataset["cameras"].intrinsics[idx]
-        pose = dataset["cameras"].poses[idx]
+        intrinsics = camera.intrinsics
+        pose = camera.pose
         image_path = dataset["image_paths"][idx] if dataset["image_paths"] is not None else f"{idx:06d}.png"
         image_name = (
             os.path.relpath(str(dataset["image_paths"][idx]), str(dataset["image_paths_root"])) if dataset["image_paths"] is not None and dataset["image_paths_root"] is not None else os.path.basename(image_path)
         )
 
-        w, h = dataset["cameras"].image_sizes[idx]
+        w, h = camera.image_size
         im_data = dataset["images"][idx][:h, :w]
         assert im_data.dtype == np.uint8, "Gaussian Splatting supports images as uint8"
         if white_background and im_data.shape[-1] == 4:
@@ -251,12 +251,11 @@ class GaussianSplattingMCMC(Method):
         }
 
     @torch.no_grad()
-    def render(self, camera: Cameras, *, options=None) -> RenderOutput:
-        camera = camera.item()
-        assert camera.camera_models == camera_model_to_int("pinhole"), "Only pinhole cameras supported"
+    def render(self, camera: Camera, *, options=None) -> RenderOutput:
+        assert camera.camera_model == "pinhole", "Only pinhole cameras supported"
 
         viewpoint_cam = _build_caminfo(
-            0, camera.poses, camera.intrinsics, f"{0:06d}.png", camera.image_sizes, scale_coords=self._dataset.scale_coords)
+            0, camera.pose, camera.intrinsics, f"{0:06d}.png", camera.image_size, scale_coords=self._dataset.scale_coords)
         render_pkg = render(loadCam(self._dataset, 0, viewpoint_cam, 1.0), 
                             self._gaussians, self._pipe, self._background)
         return self._format_output({

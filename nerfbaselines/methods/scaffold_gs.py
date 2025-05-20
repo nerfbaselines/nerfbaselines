@@ -33,7 +33,7 @@ import numpy as np
 from PIL import Image
 from nerfbaselines import (
     Method, MethodInfo, ModelInfo, OptimizeEmbeddingOutput, 
-    RenderOutput, Cameras, camera_model_to_int, Dataset
+    RenderOutput, Camera, Dataset
 )
 from nerfbaselines.utils import convert_image_dtype
 import shlex
@@ -179,19 +179,18 @@ def _config_overrides_to_args_list(args_list, config_overrides):
 def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: str, white_background: bool = False, scale_coords=None):
     if dataset is None:
         return SceneInfo(None, [], [], nerf_normalization=dict(radius=None, translate=None), ply_path=None)
-    assert np.all(dataset["cameras"].camera_models == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
+    assert np.all([x.camera_model == "pinhole" for x in dataset["cameras"]]), "Only pinhole cameras supported"
 
     cam_infos = []
-    for idx, extr in enumerate(dataset["cameras"].poses):
-        del extr
-        intrinsics = dataset["cameras"].intrinsics[idx]
-        pose = dataset["cameras"].poses[idx]
+    for idx, camera in enumerate(dataset["cameras"]):
+        intrinsics = camera.intrinsics
+        pose = camera.pose
         image_path = dataset["image_paths"][idx] if dataset["image_paths"] is not None else f"{idx:06d}.png"
         image_name = (
             os.path.relpath(str(dataset["image_paths"][idx]), str(dataset["image_paths_root"])) if dataset["image_paths"] is not None and dataset["image_paths_root"] is not None else os.path.basename(image_path)
         )
 
-        w, h = dataset["cameras"].image_sizes[idx]
+        w, h = camera.image_size
         im_data = dataset["images"][idx][:h, :w]
         assert im_data.dtype == np.uint8, "Gaussian Splatting supports images as uint8"
         if im_data.shape[-1] == 4:
@@ -384,15 +383,14 @@ class ScaffoldGS(Method):
             k: v.cpu().numpy() for k, v in output.items()
         }
 
-    def render(self, camera: Cameras, *, options=None) -> RenderOutput:
-        camera = camera.item()
-        assert camera.camera_models == camera_model_to_int("pinhole"), "Only pinhole cameras supported"
+    def render(self, camera: Camera, *, options=None) -> RenderOutput:
+        assert camera.camera_model == "pinhole", "Only pinhole cameras supported"
 
         bg_color = [1,1,1] if self.dataset.white_background else [0, 0, 0]
         background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
 
         with torch.no_grad():
-            viewpoint_cam = _load_caminfo(0, camera.poses, camera.intrinsics, f"{0:06d}.png", camera.image_sizes, scale_coords=self.dataset.scale_coords)
+            viewpoint_cam = _load_caminfo(0, camera.pose, camera.intrinsics, f"{0:06d}.png", camera.image_size, scale_coords=self.dataset.scale_coords)
             viewpoint = loadCam(self.dataset, 0, viewpoint_cam, 1.0)
 
             embedding = (options or {}).get("embedding", None)
@@ -508,8 +506,9 @@ class ScaffoldGS(Method):
             dataset: Dataset.
             embeddings: Optional initial embeddings.
         """
-        camera = dataset["cameras"].item()
-        assert camera.camera_models == camera_model_to_int("pinhole"), "Only pinhole cameras supported"
+        assert len(dataset["cameras"]) == 1, "Only one dataset example is expected"
+        camera = dataset["cameras"][0]
+        assert camera.camera_model == "pinhole", "Only pinhole cameras supported"
 
         bg_color = [1,1,1] if self.dataset.white_background else [0, 0, 0]
         background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
@@ -527,7 +526,7 @@ class ScaffoldGS(Method):
             gt_image = torch.tensor(convert_image_dtype(dataset["images"][0], np.float32), dtype=torch.float32).cuda().permute(2, 0, 1)
             gt_mask = torch.tensor(convert_image_dtype(dataset["masks"][0], np.float32), dtype=torch.float32).cuda()[..., None].permute(2, 0, 1) if dataset["masks"] is not None else None
 
-            viewpoint_cam = _load_caminfo(0, camera.poses, camera.intrinsics, f"{0:06d}.png", camera.image_sizes, scale_coords=self.dataset.scale_coords)
+            viewpoint_cam = _load_caminfo(0, camera.pose, camera.intrinsics, f"{0:06d}.png", camera.image_size, scale_coords=self.dataset.scale_coords)
             viewpoint = loadCam(self.dataset, 0, viewpoint_cam, 1.0)
             voxel_visible_mask = prefilter_voxel(viewpoint, self.gaussians, self.pipe, background)
 
