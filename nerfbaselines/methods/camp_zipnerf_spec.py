@@ -105,6 +105,11 @@ Instead of sampling along the ray it samples along a spiral path - approximating
             "@apply": [{ "dataset": "blender", }],
             "base_config": "zipnerf/blender",
         },
+        "appearance": {
+            "Model.num_glo_features": "128",
+            "MLP.glo_mode": "'affine'",
+            "MLP.glo_mlp_arch": "[128, 128]",
+        },
     },
     "implementation_status": {
         "blender": "reproducing",
