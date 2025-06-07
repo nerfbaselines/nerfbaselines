@@ -207,6 +207,18 @@ class MNDataset(datasets.Dataset):
                 img = img[..., :3] * img[..., 3:] + (1 - img[..., 3:])
             images.append(img)
 
+        masks = None
+        if self.dataset.get("sampling_masks") is not None:
+            masks = []
+            for mask in self.dataset["sampling_masks"]:
+                if mask.dtype == np.uint8:
+                    mask = mask.astype(np.float32) / 255.0
+                else:
+                    mask = mask.astype(np.float32)
+                if len(mask.shape) == 2:
+                    mask = mask[..., None]
+                masks.append(mask)
+
         # TODO: load exif data
         self.exifs = None
         self.exposures = None
@@ -261,6 +273,7 @@ class MNDataset(datasets.Dataset):
 
         if config.multiscale_train_factors is not None:
             all_images = images
+            all_masks = masks
             all_pixtocams = [self.pixtocams]
             lcm = np.lcm.reduce(config.multiscale_train_factors)
             if self.verbose:
@@ -275,12 +288,15 @@ class MNDataset(datasets.Dataset):
                 return np.array(jax.image.resize(z, down_sh, "bicubic"))
 
             images = [crop(z) for z in images]
+            if masks is not None: masks = [crop(z) for z in masks]
             lossmult = [1.0] * len(images)
             # Warning: we use box filter downsampling here, for now.
             for factor in config.multiscale_train_factors:
                 if self.verbose:
                     print(f"*** Downsampling by factor of {factor}x")
                 all_images += [downsample(z, factor) for z in images]
+                if masks is not None:
+                    all_masks += [downsample(z, factor) for z in masks]
                 all_pixtocams.append(self.pixtocams @ np.diag([factor, factor, 1.0]))
                 # Weight by the scale factor. In mip-NeRF I think we weighted by the
                 # pixel area (factor**2) but empirically this seems to weight coarser
@@ -295,6 +311,7 @@ class MNDataset(datasets.Dataset):
                 self.exposures = np.concatenate([self.exposures] * n_copies, axis=0)
 
             images = all_images
+            masks = all_masks
             self.pixtocams = np.concatenate(all_pixtocams, axis=0).astype(np.float32)
 
         widths, heights = np.moveaxis(self.dataset["cameras"].image_sizes, -1, 0)
@@ -302,8 +319,11 @@ class MNDataset(datasets.Dataset):
         const_width = np.all(np.array(widths) == widths[0])
         if const_height and const_width:
             images = np.stack(images, axis=0)
+            if masks is not None:
+                masks = np.stack(masks, axis=0)
         else:
             self.images_flattened, self.indices_flattened = flatten_data(images)
+            self.masks_flattened, _ = flatten_data(masks)
             self.heights = heights
             self.widths = widths
             self._flattened = True
@@ -311,6 +331,7 @@ class MNDataset(datasets.Dataset):
                 print(f"*** Flattened images into f{len(self.images_flattened)} pixels")
 
         self.images = images
+        self.masks = masks
         self.camtoworlds = poses
         self.height, self.width = images[0].shape[:2]
         if self.verbose:
@@ -319,6 +340,19 @@ class MNDataset(datasets.Dataset):
             print(f"*** #images/poses/exposures={len(images)}")
             print(f"*** #camtoworlds={len(self.camtoworlds)}")
             print(f"*** resolution={(self.height, self.width)}")
+            if masks is not None:
+                print(f"*** #masks={len(masks)}")
+
+    def _make_ray_batch(self, pix_x_int, pix_y_int, cam_idx, lossmult=None, rgb=None) -> utils.Batch:
+        batch = super()._make_ray_batch(pix_x_int, pix_y_int, cam_idx, lossmult=lossmult, rgb=rgb)
+        # Add masks
+        # TODO: Implement for flattened masks
+        if self.masks is not None:
+            kwargs = vars(batch)
+            kwargs["masks"] = self.masks[cam_idx, pix_y_int, pix_x_int]
+            batch = batch.__class__(**kwargs)
+        return batch
+
 
 
 class CamP_ZipNeRF(Method):
