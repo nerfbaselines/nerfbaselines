@@ -84,9 +84,10 @@ def patch_modules_fixture():
 def mock_module():
     old_values = dict()
     try:
-        def mock_module(module):
+        def mock_module(module, value=None):
             old_values[module] = sys.modules.get(module)
-            sys.modules[module] = mock.MagicMock()
+            value = mock.MagicMock() if value is None else value
+            sys.modules[module] = value
             return sys.modules[module]
         yield mock_module
     finally:
