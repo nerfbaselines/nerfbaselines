@@ -329,6 +329,9 @@ def httpserver_json_errorhandler(fn):
                 status = 400
             elif isinstance(e, NotFound):
                 status = 404
+            else:
+                # We want to log all other exceptions
+                logging.exception(e)
             self.send_response(status)
             out = json.dumps(out_data).encode("utf-8")
             self.send_header("Content-Type", "application/json")
