@@ -921,6 +921,7 @@ def mock_torch(patch_modules):
         "torch.nn.functional": torch.nn.functional,
         "torchvision": torchvision,
         "torchvision.transforms": torchvision.transforms,
+        "torchvision.utils": torchvision.utils,
     }):
         from nerfbaselines.metrics import clear_cache as metrics_clear_cache
         metrics_clear_cache()

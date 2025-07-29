@@ -111,7 +111,14 @@ def pytest_collection_modifyitems(config, items: List[pytest.Item]):
     for i, item in reversed(list(enumerate(items))):
         if datasets:
             if "dataset" in item.keywords:
-                if len(item.keywords["dataset"].args) == 0 or item.keywords["dataset"].args[0] in datasets:
+                has_match = False
+                for marker in item.iter_markers(name="dataset"):
+                    # If the dataset marker has no args, it means all datasets are enabled
+                    # or if the first arg matches one of the enabled datasets
+                    if len(marker.args) == 1 and marker.args[0] in datasets:
+                        has_match = True
+                        break
+                if has_match:
                     continue
             # Only dataset's tests are enabled
             items.pop(i)

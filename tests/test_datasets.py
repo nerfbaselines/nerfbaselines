@@ -76,9 +76,24 @@ def test_blender_dataset(tmp_path):
 
 
 @pytest.mark.dataset("mipnerf360")
+@pytest.mark.dataset("mipnerf360-sparse")
 def test_mipnerf360_dataset(tmp_path):
+    # Test mipnerf360
     train_dataset, test_dataset = _test_generic_dataset(
         tmp_path, "mipnerf360", "flowers", train_size=151, test_size=22)
+    assert train_dataset["metadata"].get("type") == "object-centric"
+    assert test_dataset["metadata"].get("type") == "object-centric"
+    assert train_dataset["metadata"].get("evaluation_protocol") == "nerf"
+    assert test_dataset["metadata"].get("evaluation_protocol") == "nerf"
+    test_images = [os.path.relpath(x, test_dataset["image_paths_root"]) for x in test_dataset["image_paths"][:5]]
+    assert test_images == ['_DSC9040.JPG', '_DSC9048.JPG', '_DSC9056.JPG', '_DSC9064.JPG', '_DSC9072.JPG']
+    assert test_dataset["images"][0].shape == (828, 1256, 3)
+
+    # Test mipnerf360-sparse
+    train_dataset, test_dataset = _test_generic_dataset(
+        tmp_path, "mipnerf360-sparse", "flowers-n12", train_size=12, test_size=22)
+    train_dataset, test_dataset = _test_generic_dataset(
+        tmp_path, "mipnerf360-sparse", "flowers-n24", train_size=24, test_size=22)
     assert train_dataset["metadata"].get("type") == "object-centric"
     assert test_dataset["metadata"].get("type") == "object-centric"
     assert train_dataset["metadata"].get("evaluation_protocol") == "nerf"
@@ -213,9 +228,10 @@ def test_phototourism_evaluation_protocol(tmp_path):
 
 def test_all_dataset_tested():
     from nerfbaselines import get_supported_datasets
-    untested_datasets = set(x.replace("-", "_") for x in get_supported_datasets())
-    for k in globals():
-        if k.startswith("test_") and k.endswith("_dataset"):
-            dataset = k[5:-8]
-            untested_datasets.remove(dataset)
+    untested_datasets = set(get_supported_datasets())
+    for v in globals().values():
+        for mark in getattr(v, "pytestmark", []):
+            if isinstance(mark, pytest.Mark) and mark.name == "dataset":
+                dataset = mark.args[0]
+                untested_datasets.discard(dataset)
     assert len(untested_datasets) == 0, f"Untested datasets: {untested_datasets}"
