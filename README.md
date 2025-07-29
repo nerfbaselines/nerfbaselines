@@ -153,35 +153,36 @@ Detailed results are available on the project page: [https://nerfbaselines.githu
 
 
 ## Implementation status
-| Method                     | Blender   | Hierarchical 3DGS | LLFF      | Mip-NeRF 360 | Nerfstudio | Photo Tourism | SeaThru-NeRF | Tanks and Temples | Zip-NeRF  |
-|:-------------------------- |:--------- |:----------------- |:--------- |:------------ |:---------- |:------------- |:------------ |:----------------- |:--------- |
-| 2D Gaussian Splatting      | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔         | ❔            | 🥇 gold      | 🥈 silver         | ❔        |
-| 3DGS-MCMC                  | 🥈 silver | ❔                | ❔        | 🥇 gold      | ❔         | ❔            | 🥇 gold      | 🥇 gold           | ❔        |
-| CamP                       | ❔        | ❔                | ❔        | ❔           | ❔         | ❔            | ❔           | ❔                | ❔        |
-| COLMAP                     | 🥇 gold   | ❔                | ❔        | 🥇 gold      | 🥇 gold    | ❔            | ❔           | 🥇 gold           | ❔        |
-| Gaussian Opacity Fields    | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔         | ❔            | ❔           | 🥇 gold           | ❔        |
-| Gaussian Splatting         | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔         | ❔            | 🥇 gold      | 🥇 gold           | ❔        |
-| GS-W                       | ❔        | ❔                | ❔        | ❔           | ❔         | ❔            | ❔           | ❔                | ❔        |
-| gsplat                     | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔         | 🥇 gold       | ❔           | 🥇 gold           | ❔        |
-| H3DGS                      | ❔        | ❔                | ❔        | ❔           | ❔         | ❔            | ❔           | ❔                | ❔        |
-| Instant NGP                | 🥇 gold   | ❔                | ❔        | 🥇 gold      | 🥇 gold    | ❔            | ❔           | 🥇 gold           | ❔        |
-| K-Planes                   | 🥇 gold   | ❔                | ❔        | ❔           | ❔         | 🥈 silver     | ❔           | ❔                | ❔        |
-| Mip-NeRF 360               | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔         | ❔            | ❔           | 🥇 gold           | ❔        |
-| Mip-Splatting              | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔         | ❔            | 🥇 gold      | 🥇 gold           | ❔        |
-| NeRF                       | 🥇 gold   | ❔                | ❔        | ❔           | ❔         | ❔            | ❔           | ❔                | ❔        |
-| NeRF On-the-go             | ❔        | ❔                | ❔        | ❔           | ❔         | ❔            | ❔           | ❔                | ❔        |
-| NeRF-W (reimplementation)  | ❔        | ❔                | ❔        | ❔           | ❔         | 🥇 gold       | ❔           | ❔                | ❔        |
-| NerfStudio                 | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔         | ❔            | ❔           | 🥇 gold           | ❔        |
-| Octree-GS                  | ❔        | ❔                | ❔        | ❔           | ❔         | ❔            | ❔           | ❔                | ❔        |
-| PGSR                       | ❔        | ❔                | ❔        | 🥇 gold      | ❔         | ❔            | ❔           | 🥇 gold           | ❔        |
-| Scaffold-GS                | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔         | ❔            | 🥇 gold      | 🥇 gold           | ❔        |
-| SeaThru-NeRF               | ❔        | ❔                | ❔        | ❔           | ❔         | ❔            | 🥇 gold      | ❔                | ❔        |
-| Student Splatting Scooping | ❔        | ❔                | ❔        | ❔           | ❔         | ❔            | ❔           | ❔                | ❔        |
-| Taming 3DGS                | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔         | ❔            | ❔           | 🥇 gold           | ❔        |
-| TensoRF                    | 🥇 gold   | ❔                | 🥇 gold   | ❌           | ❔         | ❔            | ❔           | ❔                | ❔        |
-| Tetra-NeRF                 | 🥈 silver | ❔                | ❔        | 🥈 silver    | ❔         | ❔            | ❔           | ❔                | ❔        |
-| WildGaussians              | ❔        | ❔                | ❔        | ❔           | ❔         | 🥇 gold       | ❔           | ❔                | ❔        |
-| Zip-NeRF                   | 🥇 gold   | ❔                | ❌        | 🥇 gold      | 🥇 gold    | ❔            | ❔           | ❔                | ❔        |
+| Method                     | Blender   | Hierarchical 3DGS | LLFF      | Mip-NeRF 360 | Mip-NeRF 360 Sparse | Nerfstudio | Photo Tourism | SeaThru-NeRF | Tanks and Temples | Zip-NeRF  |
+|:-------------------------- |:--------- |:----------------- |:--------- |:------------ |:------------------- |:---------- |:------------- |:------------ |:----------------- |:--------- |
+| 2D Gaussian Splatting      | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔                  | ❔         | ❔            | 🥇 gold      | 🥈 silver         | ❔        |
+| 3DGS-MCMC                  | 🥈 silver | ❔                | ❔        | 🥇 gold      | ❔                  | ❔         | ❔            | 🥇 gold      | 🥇 gold           | ❔        |
+| CamP                       | ❔        | ❔                | ❔        | ❔           | ❔                  | ❔         | ❔            | ❔           | ❔                | ❔        |
+| COLMAP                     | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔                  | 🥇 gold    | ❔            | ❔           | 🥇 gold           | ❔        |
+| DropGaussian               | ❔        | ❔                | ❔        | ❔           | ❔                  | ❔         | ❔            | ❔           | ❔                | ❔        |
+| Gaussian Opacity Fields    | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔                  | ❔         | ❔            | ❔           | 🥇 gold           | ❔        |
+| Gaussian Splatting         | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔                  | ❔         | ❔            | 🥇 gold      | 🥇 gold           | ❔        |
+| GS-W                       | ❔        | ❔                | ❔        | ❔           | ❔                  | ❔         | ❔            | ❔           | ❔                | ❔        |
+| gsplat                     | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔                  | ❔         | 🥇 gold       | ❔           | 🥇 gold           | ❔        |
+| H3DGS                      | ❔        | ❔                | ❔        | ❔           | ❔                  | ❔         | ❔            | ❔           | ❔                | ❔        |
+| Instant NGP                | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔                  | 🥇 gold    | ❔            | ❔           | 🥇 gold           | ❔        |
+| K-Planes                   | 🥇 gold   | ❔                | ❔        | ❔           | ❔                  | ❔         | 🥈 silver     | ❔           | ❔                | ❔        |
+| Mip-NeRF 360               | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔                  | ❔         | ❔            | ❔           | 🥇 gold           | ❔        |
+| Mip-Splatting              | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔                  | ❔         | ❔            | 🥇 gold      | 🥇 gold           | ❔        |
+| NeRF                       | 🥇 gold   | ❔                | ❔        | ❔           | ❔                  | ❔         | ❔            | ❔           | ❔                | ❔        |
+| NeRF On-the-go             | ❔        | ❔                | ❔        | ❔           | ❔                  | ❔         | ❔            | ❔           | ❔                | ❔        |
+| NeRF-W (reimplementation)  | ❔        | ❔                | ❔        | ❔           | ❔                  | ❔         | 🥇 gold       | ❔           | ❔                | ❔        |
+| NerfStudio                 | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔                  | ❔         | ❔            | ❔           | 🥇 gold           | ❔        |
+| Octree-GS                  | ❔        | ❔                | ❔        | ❔           | ❔                  | ❔         | ❔            | ❔           | ❔                | ❔        |
+| PGSR                       | ❔        | ❔                | ❔        | 🥇 gold      | ❔                  | ❔         | ❔            | ❔           | 🥇 gold           | ❔        |
+| Scaffold-GS                | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔                  | ❔         | ❔            | 🥇 gold      | 🥇 gold           | ❔        |
+| SeaThru-NeRF               | ❔        | ❔                | ❔        | ❔           | ❔                  | ❔         | ❔            | 🥇 gold      | ❔                | ❔        |
+| Student Splatting Scooping | ❔        | ❔                | ❔        | ❔           | ❔                  | ❔         | ❔            | ❔           | ❔                | ❔        |
+| Taming 3DGS                | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔                  | ❔         | ❔            | ❔           | 🥇 gold           | ❔        |
+| TensoRF                    | 🥇 gold   | ❔                | 🥇 gold   | ❌           | ❔                  | ❔         | ❔            | ❔           | ❔                | ❔        |
+| Tetra-NeRF                 | 🥈 silver | ❔                | ❔        | 🥈 silver    | ❔                  | ❔         | ❔            | ❔           | ❔                | ❔        |
+| WildGaussians              | ❔        | ❔                | ❔        | ❔           | ❔                  | ❔         | 🥇 gold       | ❔           | ❔                | ❔        |
+| Zip-NeRF                   | 🥇 gold   | ❔                | ❌        | 🥇 gold      | ❔                  | 🥇 gold    | ❔            | ❔           | ❔                | ❔        |
 
 
 
@@ -207,6 +208,7 @@ For the currently implemented methods, the following licenses apply:
 - 3DGS-MCMC: [custom, research only](https://raw.githubusercontent.com/ubc-vision/3dgs-mcmc/refs/heads/main/LICENSE.md)
 - CamP: [Apache 2.0](https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE)
 - COLMAP: [BSD](https://colmap.github.io/license.html)
+- DropGaussian: [custom, research only](https://github.com/DCVL-3D/DropGaussian_release/blob/main/LICENSE_GAUSSIAN_SPLATTING.md), [Apache 2.0](https://github.com/DCVL-3D/DropGaussian_release/blob/main/LICENSE)
 - Gaussian Opacity Fields: [custom, research only](https://raw.githubusercontent.com/autonomousvision/gaussian-opacity-fields/main/LICENSE.md)
 - Gaussian Splatting: [custom, research only](https://raw.githubusercontent.com/graphdeco-inria/gaussian-splatting/main/LICENSE.md)
 - GS-W: unknown
