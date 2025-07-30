@@ -82,14 +82,14 @@ fi
     },
     "metadata": {
         "name": "SparseGS",
-        "description": "",
-        "paper_title": "",
-        "paper_authors": "".split(", "),
-        "paper_link": "",
-        "link": "",
-        "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/ubc-vision/3dgs-mcmc/refs/heads/main/LICENSE.md"}],
+        "description": "SparseGS augments 3D Gaussian Splatting with depth-based priors, tailored depth rendering, a floater-pruning heuristic, and Unseen Viewpoint Regularization, letting it overcome “floaters” and background collapse when training views are scarce. Tested on Mip-NeRF360, LLFF, and DTU, it still trains quickly and renders in real time while reconstructing unbounded or forward-facing scenes from as few as 12 and 3 input images, respectively.",
+        "paper_title": "SparseGS: Real-Time 360° Sparse View Synthesis using Gaussian Splatting",
+        "paper_authors": "Haolin Xiong, Sairisheek Muttukuru, Rishi Upadhyay, Pradyumna Chari, Achuta Kadambi".split(", "),
+        "paper_venue": "3DV 2025",
+        "paper_link": "https://arxiv.org/pdf/2312.00206.pdf",
+        "link": "https://formycat.github.io/SparseGS-Real-Time-360-Sparse-View-Synthesis-using-Gaussian-Splatting/",
+        "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/ForMyCat/SparseGS/refs/heads/master/LICENSE.md"}],
     },
-    "presets": {
-    },
+    "presets": {},
     "implementation_status": {}
 })

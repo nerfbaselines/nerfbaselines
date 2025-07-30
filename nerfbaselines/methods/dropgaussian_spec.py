@@ -73,7 +73,7 @@ fi
         "paper_results": _paper_results,
         "paper_link": "https://openaccess.thecvf.com/content/CVPR2025/papers/Park_DropGaussian_Structural_Regularization_for_Sparse-view_Gaussian_Splatting_CVPR_2025_paper.pdf",
         "link": "https://github.com/DCVL-3D/DropGaussian_release",
-        "licenses": [{"name": "custom, research only", "url": "https://github.com/DCVL-3D/DropGaussian_release/blob/main/LICENSE_GAUSSIAN_SPLATTING.md"}, {"name": "Apache 2.0", "url": "https://github.com/DCVL-3D/DropGaussian_release/blob/main/LICENSE"}],
+        "licenses": [{"name": "custom, research only", "url": "https://raw.githubusercontent.com/DCVL-3D/DropGaussian_release/refs/heads/main/LICENSE_GAUSSIAN_SPLATTING.md"}, {"name": "Apache 2.0", "url": "https://raw.githubusercontent.com/DCVL-3D/DropGaussian_release/refs/heads/main/LICENSE"}],
     },
     "presets": {
     },

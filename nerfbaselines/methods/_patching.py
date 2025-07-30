@@ -110,6 +110,7 @@ class _MetaFinder(importlib.abc.MetaPathFinder):
             module.__loader__ = self
             module.__name__ = spec.name
             self._being_imported[spec.name] = module
+            ast_module = ast.fix_missing_locations(ast_module)
             try:
                 exec(compile(ast_module, spec.origin, "exec"), module.__dict__)
             finally:

@@ -19,6 +19,10 @@ metrics = {
     "loss": "loss.item()",
     "l1_loss": "Ll1.item()",
     "psnr": "10 * torch.log10(1 / torch.mean((image - gt_image) ** 2)).item()",
+    "depth_lp_loss": "lp_loss.item() if lp_loss is not None else 0.0",
+    "depth_pearson_loss": "pearson_loss.item() if pearson_loss is not None else 0.0",
+    "diffusion_loss": "diffusion_loss.item() if diffusion_loss is not None else 0.0",
+    "reg_loss": "reg_loss.item() if reg_loss is not None else 0.0",
     "num_points": "len(gaussians.get_xyz)",
 }
 train_step_disabled_names = [
@@ -33,8 +37,7 @@ train_step_disabled_names = [
     "tb_writer",
     "progress_bar",
     "ema_loss_for_log",
-    "ema_dist_for_log",
-    "ema_normal_for_log",
+    "save_cc",
 ]
 
 #
@@ -66,7 +69,7 @@ def _(ast_module: ast.Module):
     assert isinstance(return_ast, ast.Return), "loadCam does not return camera"
     camera = return_ast.value
     assert isinstance(camera, ast.Call), "loadCam does not return camera"
-    camera.keywords.append(ast.keyword(arg="sampling_mask", value=ast.parse("PILtoTorch(cam_info.sampling_mask, (gt_image.size[1], gt_image.size[0])) if cam_info.sampling_mask is not None else None").body[0].value, lineno=0, col_offset=0))  # type: ignore
+    camera.keywords.append(ast.keyword(arg="mask", value=ast.parse("PILtoTorch(cam_info.mask, (gt_image.size[1], gt_image.size[0])) if cam_info.mask is not None else None").body[0].value, lineno=0, col_offset=0))  # type: ignore
     camera.keywords.append(ast.keyword(arg="cx", value=ast.parse("cam_info.cx").body[0].value, lineno=0, col_offset=0))  # type: ignore
     camera.keywords.append(ast.keyword(arg="cy", value=ast.parse("cam_info.cy").body[0].value, lineno=0, col_offset=0))  # type: ignore
 
@@ -76,7 +79,7 @@ def _(ast_module: ast.Module):
 def _(ast_module: ast.Module):
     camera_ast = next((x for x in ast_module.body if isinstance(x, ast.ClassDef) and x.name == "Camera"), None)
     assert camera_ast is not None, "Camera not found in cameras"
-    # Add sampling_mask and cx, cy to Camera.__init__
+    # Add mask and cx, cy to Camera.__init__
     init = next((x for x in camera_ast.body if isinstance(x, ast.FunctionDef) and x.name == "__init__"), None)
     assert init is not None, "Camera.__init__ not found"
 
@@ -95,12 +98,15 @@ def _(ast_module: ast.Module):
     ast_module.body.append(getProjectionMatrixFromOpenCV_ast)
 
     # Add missing arguments
-    init.args.args.insert(1, ast.arg(arg="sampling_mask", annotation=None, lineno=0, col_offset=0))
-    init.args.args.insert(2, ast.arg(arg="cx", annotation=None, lineno=0, col_offset=0))
-    init.args.args.insert(3, ast.arg(arg="cy", annotation=None, lineno=0, col_offset=0))
+    init.args.kwonlyargs.append(ast.arg(arg="mask", annotation=None, lineno=0, col_offset=0))
+    init.args.kw_defaults.append(ast.Constant(value=None, lineno=0, col_offset=0))
+    init.args.kwonlyargs.append(ast.arg(arg="cx", annotation=None, lineno=0, col_offset=0))
+    init.args.kw_defaults.append(ast.Constant(value=None, lineno=0, col_offset=0))
+    init.args.kwonlyargs.append(ast.arg(arg="cy", annotation=None, lineno=0, col_offset=0))
+    init.args.kw_defaults.append(ast.Constant(value=None, lineno=0, col_offset=0))
 
     # Store sampling mask
-    init.body.insert(0, ast.parse("self.sampling_mask = sampling_mask").body[0])
+    init.body.insert(0, ast.parse("self.mask = mask").body[0])
 
     # Finally, we fix the computed projection matrix
     projection_matrix_ast = next((x for x in init.body if isinstance(x, ast.Assign) and ast.unparse(x.targets[0]) == "self.projection_matrix"), None)
@@ -110,8 +116,8 @@ def _(ast_module: ast.Module):
     self.image_height, 
     fov2focal(FoVx, self.image_width), 
     fov2focal(FoVy, self.image_height), 
-    cx, 
-    cy, 
+    cx if cx is not None else self.image_width / 2.0, 
+    cy if cy is not None else self.image_height / 2.0,
     self.znear, 
     self.zfar).transpose(0, 1).cuda()
 """).body[0].value  # type: ignore
@@ -129,9 +135,9 @@ def _(ast_module: ast.Module):
     # Add typing import
     ast_module.body.insert(0, ast.ImportFrom(module="typing", names=[ast.alias(name="Optional", asname=None, lineno=0, col_offset=0)], level=0, lineno=0, col_offset=0))
 
-    # Add sampling_mask and cx, cy attributes to CameraInfo
+    # Add mask and cx, cy attributes to CameraInfo
     camera_info_ast.body.extend([
-        ast.AnnAssign(target=ast.Name(id="sampling_mask", ctx=ast.Store(), lineno=0, col_offset=0), 
+        ast.AnnAssign(target=ast.Name(id="mask", ctx=ast.Store(), lineno=0, col_offset=0), 
                       annotation=ast.parse("Optional[np.ndarray]").body[0].value,  # type: ignore
                       value=None, simple=1, lineno=0, col_offset=0),
         ast.AnnAssign(target=ast.Name(id="cx", ctx=ast.Store(), lineno=0, col_offset=0), 
@@ -194,7 +200,8 @@ def _(ast_module: ast.Module):
 # </patch blender_create_pcd>
 
 
-def ast_remove_names(tree, names):
+
+def ast_remove(tree, callback):
     tree = copy.deepcopy(tree)
     def _rem(tree):
         if isinstance(tree, list):
@@ -202,9 +209,17 @@ def ast_remove_names(tree, names):
         sentinel = ast.AST()
         class Transformer(ast.NodeTransformer):
             def visit(self, node):
-                if isinstance(node, ast.Name) and node.id in names:
+                if callback(node):
                     return sentinel
                 out = self.generic_visit(node)
+                if isinstance(out, ast.Dict):
+                    valid_indices = [
+                        out.keys[i] is not sentinel and out.values[i] is not sentinel 
+                        for i in range(len(out.keys))]
+                    out = ast.Dict(
+                        keys=[x for i, x in enumerate(out.keys) if valid_indices[i]],
+                        values=[x for i, x in enumerate(out.keys) if valid_indices[i]]
+                    )
                 for k, v in ast.iter_fields(out):
                     if v == sentinel:
                         return sentinel
@@ -221,6 +236,12 @@ def ast_remove_names(tree, names):
     return _rem(tree)
 
 
+def ast_remove_names(tree, names):
+    def _callback(node):
+        return isinstance(node, ast.Name) and node.id in names
+    return ast_remove(tree, _callback)
+
+
 # Patch train to extract the training loop and init
 # <patch train>
 @import_context.patch_ast_import("train")
@@ -229,26 +250,38 @@ def _(ast_module: ast.Module):
     # Patch torch.load => torch.load(..., weights_only=False)
     for node in ast.walk(training_ast):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "load":
-            node.keywords.append(ast.keyword(arg="weights_only", value=ast.Constant(value=False, kind=None, lineno=0, col_offset=0), lineno=0, col_offset=0))
+            node.keywords.append(ast.keyword(arg="weights_only", value=ast.Constant(value=False, kind=None)))
 
     # We remove the unused code
-    ast_remove_names(training_ast, train_step_disabled_names)
+    training_ast = ast_remove_names(training_ast, train_step_disabled_names)
+    # Remove os.makedirs and scene.save
+    def _remove_callback(node):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if (node.func.attr in ("makedirs", "save") and
+                isinstance(node.func.value, ast.Name) and node.func.value.id == "os"):
+                return True
+            if (node.func.attr == "save" and
+                isinstance(node.func.value, ast.Name) and node.func.value.id == "scene"):
+                return True
+        return False
+    training_ast = ast_remove(training_ast, _remove_callback)
+
     # Now, we extract the train iteration code
     train_loop = training_ast.body[-1]
     assert isinstance(train_loop, ast.For) and train_loop.target.id == "iteration", "Expected for loop in training"  # type: ignore
     train_step = list(train_loop.body)
     # Add return statement to train_step
     train_step.append(ast.Return(value=ast.Dict(
-        keys=[ast.Constant(value=name, kind=None, lineno=0, col_offset=0) for name in metrics.keys()], 
+        keys=[ast.Constant(value=name, kind=None) for name in metrics.keys()], 
         values=[ast.parse(value).body[0].value for value in metrics.values()],  # type: ignore
-        lineno=0, col_offset=0), lineno=0, col_offset=0))
+    )))
     # Extract render_pkg = ... index
     render_pkg_idx = next(i for i, x in enumerate(train_step) if isinstance(x, ast.Assign) and x.targets[0].id == "render_pkg")  # type: ignore
     train_step.insert(render_pkg_idx+1, ast.parse("""
-if viewpoint_cam.sampling_mask is not None:
-    sampling_mask = viewpoint_cam.sampling_mask.cuda()
+if viewpoint_cam.mask is not None:
+    mask = viewpoint_cam.mask.cuda()
     for k in ["render", "rend_normal", "surf_normal", "rend_dist"]:
-        render_pkg[k] = render_pkg[k] * sampling_mask + (1.0 - sampling_mask) * render_pkg[k].detach()
+        render_pkg[k] = render_pkg[k] * mask + (1.0 - mask) * render_pkg[k].detach()
 """).body[0])
 
     # Detect global names
@@ -284,15 +317,15 @@ if viewpoint_cam.sampling_mask is not None:
     #
     # Use this code to debug when integrating new codebase
     #
-    print("Train iteration: ")
-    print(ast.unparse(train_iteration))
-    setup_train = ast_remove_names(training_ast.body[:-1], ["first_iter"])
-    for instruction in setup_train:
-        Transformer().visit(instruction)
-    print("Setup train:") 
-    print(ast.unparse(setup_train))
-    print()
-    print("Train step:")
-    print(ast.unparse(train_step))
-    print("Train step sets: ")
-    print(train_step_transformer._stored_names)
+    # print("Train iteration: ")
+    # print(ast.unparse(train_iteration))
+    # setup_train = ast_remove_names(training_ast.body[:-1], ["first_iter"])
+    # for instruction in setup_train:
+    #     Transformer().visit(instruction)
+    # print("Setup train:") 
+    # print(ast.unparse(setup_train))
+    # print()
+    # # print("Train step:")
+    # # print(ast.unparse(train_step))
+    # print("Train step sets: ")
+    # print(train_step_transformer._stored_names)

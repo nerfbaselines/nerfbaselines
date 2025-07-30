@@ -6,6 +6,7 @@ from argparse import ArgumentParser
 import logging
 import warnings
 import itertools
+import types
 import shlex
 from typing import Optional
 import os
@@ -32,14 +33,14 @@ with import_context:
     from scene import GaussianModel # type: ignore
     from scene.dataset_readers import SceneInfo, getNerfppNorm, focal2fov  # type: ignore
     from utils.general_utils import safe_state  # type: ignore
-    import train
+    import train  # type: ignore
     from train import train_iteration  # type: ignore
     from scene.dataset_readers import blender_create_pcd  # type: ignore
     from scene.gaussian_model import BasicPointCloud  # type: ignore
 
 
 def _build_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, depth=None,
-                  image_path=None, sampling_mask=None, scale_coords=None):
+                  image_path=None, mask=None, scale_coords=None):
     pose = np.concatenate([pose, np.array([[0, 0, 0, 1]], dtype=pose.dtype)], axis=0)
     pose = np.linalg.inv(pose)
     R = pose[:3, :3]
@@ -59,7 +60,7 @@ def _build_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, de
         depth=depth,
         image=image, image_path=image_path, image_name=image_name, 
         width=int(width), height=int(height),
-        sampling_mask=sampling_mask,
+        mask=mask,
         cx=cx, cy=cy)
 
 
@@ -86,7 +87,6 @@ def _config_overrides_to_args_list(args_list, config_overrides):
 def _write_images(dataset: Dataset, temp_dir: str):
     img_paths = []
     for i, image in tqdm(enumerate(dataset["images"]), desc="preparing images", total=len(dataset["images"])):
-        if i == 4: break
         width, height = dataset["cameras"].image_sizes[i]
         image = image[:height, :width]
         image = convert_image_dtype(image, "uint8")
@@ -109,7 +109,7 @@ def _extract_depths(dataset: Dataset):
             with import_context:
                 root = os.path.dirname(os.path.abspath(train.__file__))
                 sys.path = sys.path + [os.path.join(root, "BoostingMonocularDepth")]
-                import BoostingMonocularDepth.prepare_depth
+                import BoostingMonocularDepth.prepare_depth  # type: ignore
                 sys.argv = ["python", "code.py"]
                 os.chdir(root)
 
@@ -137,9 +137,28 @@ def _extract_depths(dataset: Dataset):
     return depths
 
 
-def _convert_dataset_to_scene_info(dataset: Optional[Dataset], white_background: bool = False, scale_coords=None, init_type="sfm"):
+def _convert_dataset_to_scene_info(dataset: Optional[Dataset], 
+                                   *,
+                                   white_background: bool = False, 
+                                   scale_coords=None, 
+                                   init_type="sfm",
+                                   depths):
     if dataset is None:
-        return SceneInfo(None, [], [], hold_cameras=[], nerf_normalization=dict(radius=None, translate=None), ply_path=None)
+        image=types.SimpleNamespace()
+        image.size = (10, 12)
+        image.resize = lambda *_: image
+        image.__array__ = lambda: np.zeros((10, 12, 3), dtype=np.uint8)
+        fake_train_cams = [
+            CameraInfo(
+                uid=i, 
+                R=np.random.rand(3, 3).astype(np.float32), 
+                T=np.random.rand(3).astype(np.float32), 
+                FovX=12, FovY=10,
+                depth=None, image=image, image_path=None, image_name=None, 
+                width=12, height=10, mask=None, cx=6, cy=5)
+            for i in range(4)
+        ]
+        return SceneInfo(None, fake_train_cams, [], hold_cameras=[], nerf_normalization=dict(radius=None, translate=None), ply_path=None)
     assert np.all(dataset["cameras"].camera_models == camera_model_to_int("pinhole")), "Only pinhole cameras supported"
 
     cam_infos = []
@@ -165,9 +184,9 @@ def _convert_dataset_to_scene_info(dataset: Optional[Dataset], white_background:
         elif white_background and dataset["metadata"].get("id") != "blender":
             warnings.warn("white_background=True is set, but the dataset is not a blender scene. The background may not be white.")
         image = Image.fromarray(im_data)
-        sampling_mask = None
+        mask = None
         if dataset["sampling_masks"] is not None:
-            sampling_mask = Image.fromarray((dataset["sampling_masks"][idx] * 255).astype(np.uint8))
+            mask = Image.fromarray((dataset["sampling_masks"][idx] * 255).astype(np.uint8))
 
         cam_info = _build_caminfo(
             idx, pose, intrinsics, 
@@ -175,8 +194,9 @@ def _convert_dataset_to_scene_info(dataset: Optional[Dataset], white_background:
             image_path=image_path,
             image_size=(w, h),
             image=image,
-            sampling_mask=sampling_mask,
+            mask=mask,
             scale_coords=scale_coords,
+            depth=depths[idx],
         )
         cam_infos.append(cam_info)
 
@@ -223,7 +243,7 @@ class SparseGS(Method):
         self.step = 0
 
         # Setup parameters
-        self._args_list = ["--source_path", "<empty>", "--resolution", "1", "--eval"]
+        self._args_list = []
         self._loaded_step = None
         if checkpoint is not None:
             if not os.path.exists(checkpoint):
@@ -248,7 +268,26 @@ class SparseGS(Method):
         op = OptimizationParams(parser)
         pp = PipelineParams(parser)
         parser.add_argument("--scale_coords", type=float, default=None, help="Scale the coords")
-        # Set default init_type to sfm to match paper's "ours"
+        parser.add_argument("--prune_sched", nargs="+", type=int, default=[])
+        # Set defaults from the README
+        parser.set_defaults(
+            source_path="<empty>",
+            resolution=1,
+            eval=True,
+            beta=5.0,
+            lambda_pearson=0.05,
+            lambda_local_pearson=0.15,
+            box_p=128,
+            p_corr=0.5,
+            lambda_diffusion=0.001,
+            SDS_freq=0.1,
+            step_ratio=0.99,
+            lambda_reg=0.1,
+            prune_sched=[20000],
+            prune_perc=0.98,
+            prune_exp=7.5,
+            iterations=30000,
+        )
         args = parser.parse_args(self._args_list)
         self._dataset = lp.extract(args)
         self._dataset.init_type = args.init_type
@@ -270,12 +309,15 @@ class SparseGS(Method):
         # Setup model
         self._gaussians = GaussianModel(self._dataset.sh_degree)
         scene_info =  _convert_dataset_to_scene_info(
-            train_dataset, white_background=self._dataset.white_background, 
+            train_dataset, 
+            white_background=self._dataset.white_background, 
+            depths=depths,
             scale_coords=self._dataset.scale_coords,
             init_type=self._dataset.init_type)
         self._dataset.model_path = self.checkpoint
         self._scene = Scene(scene_info, args=self._dataset, gaussians=self._gaussians, 
-                            load_iteration=str(self._loaded_step) if train_dataset is None else None)
+                            load_iteration=str(self._loaded_step) if train_dataset is None else None,
+                            mode="train" if train_dataset is not None else "eval")
         if train_dataset is not None:
             self._gaussians.training_setup(self._opt)
         if train_dataset is None or self.checkpoint:
@@ -288,6 +330,9 @@ class SparseGS(Method):
         bg_color = [1, 1, 1] if self._dataset.white_background else [0, 0, 0]
         self._background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
         self._viewpoint_stack = None
+        self._last_prune_iter = None
+        self._warp_cam_stack = None
+        self._prune_sched = self._args.prune_sched
 
     @classmethod
     def get_method_info(cls):

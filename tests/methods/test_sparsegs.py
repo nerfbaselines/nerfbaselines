@@ -1,10 +1,10 @@
-import sys
 import importlib
 import numpy as np
 import copy
 import argparse
 import os
 import pytest
+from PIL import Image
 from nerfbaselines._registry import collect_register_calls
 
 METHOD_ID = "sparsegs"
@@ -27,7 +27,7 @@ class Rasterizer:
     def __init__(self, raster_settings):
         self.raster_settings = raster_settings
 
-    def __call__(self, means3D, means2D, shs, colors_precomp, opacities, scales, rotations, cov3D_precomp):
+    def __call__(self, means3D, means2D, shs, colors_precomp, opacities, scales, rotations, cov3D_precomp, var_loss):
         import torch
         keep_grad = 0
         if means3D is not None: keep_grad += means3D.sum()
@@ -38,12 +38,26 @@ class Rasterizer:
         if scales is not None: keep_grad += scales.sum()
         if rotations is not None: keep_grad += rotations.sum()
         if cov3D_precomp is not None: keep_grad += cov3D_precomp.sum()
+        if var_loss is not None: keep_grad += var_loss.sum()
         num_points = means3D.shape[0]
         width = self.raster_settings.image_width
         height = self.raster_settings.image_height
         rendered_image = torch.zeros((3, height, width), dtype=torch.float32) + keep_grad
         radii = torch.zeros((num_points,), dtype=torch.float32) + keep_grad
-        return rendered_image, radii
+        depth = torch.full((height, width,), 0.5, dtype=torch.float32) + keep_grad
+        mode_id = torch.zeros((num_points,), dtype=torch.float32) + keep_grad
+        modes = torch.zeros((num_points,), dtype=torch.float32) + keep_grad
+        point_list = torch.zeros((num_points,), dtype=torch.float32) + keep_grad
+        means2D = torch.zeros((num_points, 2), dtype=torch.float32) + keep_grad
+        conic_opacity = torch.zeros((num_points,), dtype=torch.float32) + keep_grad
+        return rendered_image, radii, depth, num_points, depth, mode_id, modes, point_list, means2D, conic_opacity
+
+
+def prepare_gt_depth(input_folder, save_folder):
+    for fname in os.listdir(input_folder):
+        w, h = Image.open(os.path.join(input_folder, fname)).size
+        depth = np.random.rand(h, w).astype(np.float32)
+        np.save(os.path.join(save_folder, fname.replace(".png", ".npy")), depth)
 
 
 @pytest.fixture
@@ -55,6 +69,9 @@ def method_module(method_source_code, mock_module):
     mock_module("diptest")
     mock_module("icecream")
     mock_module("transformers")
+    BoostingMonocularDepth = mock_module("BoostingMonocularDepth")
+    BoostingMonocularDepth.prepare_depth = mock_module("BoostingMonocularDepth.prepare_depth")
+    BoostingMonocularDepth.prepare_depth.prepare_gt_depth = prepare_gt_depth
     diffusers = mock_module("diffusers")
     diffusers.utils = mock_module("diffusers.utils")
     diffusers.utils.import_utils = mock_module("diffusers.utils.import_utils")
@@ -122,25 +139,25 @@ def test_method_torch(torch_cpu, isolated_modules, method_module, colmap_dataset
 @pytest.mark.method(METHOD_ID)
 def test_train_method_cpu(torch_cpu, isolated_modules, method_module, run_test_train):
     del torch_cpu, isolated_modules, method_module
-    run_test_train()
+    run_test_train(config_overrides=dict(box_p=3))
 
 
 @pytest.mark.method(METHOD_ID)
 @pytest.mark.apptainer
 def test_train_method_apptainer(run_test_train):
-    run_test_train()
+    run_test_train(config_overrides=dict(box_p=3))
 
 
 @pytest.mark.method(METHOD_ID)
 @pytest.mark.docker
 def test_train_method_docker(run_test_train):
-    run_test_train()
+    run_test_train(config_overrides=dict(box_p=3))
 
 
 @pytest.mark.method(METHOD_ID)
 @pytest.mark.conda
 def test_train_method_conda(run_test_train):
-    run_test_train()
+    run_test_train(config_overrides=dict(box_p=3))
 
 
 # Fix test names
