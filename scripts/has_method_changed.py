@@ -6,6 +6,8 @@ import re
 import os
 import ast
 from functools import lru_cache, partial
+import os, subprocess, sys, json
+
 
 
 @lru_cache(maxsize=None)
@@ -239,33 +241,82 @@ def method_has_changes(method, backend=None, base_commit=None):
     return any(changes)
 
 
-def get_main_branch():
-    # git for-each-ref --format='%(refname:short)' refs/heads/
-    branches = subprocess.check_output("git for-each-ref --format='%(refname:short)' refs/heads/".split()).decode("utf-8").strip().splitlines()
-    branches = [x.strip("'") for x in branches]
-    # Test if main exists, otherwise use master
-    if "main" in branches:
-        return "main"
-    if "master" in branches:
-        return "master"
-    raise ValueError("No main or master branch found in branches: " + ", ".join(branches))
+def _cmd(*args: str) -> str:
+    """Run a git command and return stripped stdout (empty on error)."""
+    try:
+        return subprocess.check_output(args, stderr=subprocess.DEVNULL).decode().strip()
+    except subprocess.CalledProcessError:
+        return ""
 
 
-def get_base_commit():
-    # First, we get the name of main/master branch
-    # Test if main exists, otherwise use master
-    branch = subprocess.check_output("git rev-parse --abbrev-ref HEAD".split()).decode("utf-8").strip()
-    main_branch = get_main_branch()
+def get_default_branch() -> str:
+    """
+    Works without any local refs:
+      1.  In Actions → use the event payload (always present and 100 % reliable);
+      2.  Anywhere else  → ask the remote (`origin/HEAD`), which always tracks the
+          repository’s default branch  [oai_citation:0‡Stack Overflow](https://stackoverflow.com/questions/8839958/how-does-origin-head-get-set).
+    """
+    # 1) CI: the payload file always knows the default branch
+    if path := os.getenv("GITHUB_EVENT_PATH"):
+        with open(path) as f:
+            if d := json.load(f)["repository"].get("default_branch"):
+                return d
 
-    # Now, for main branch, we get the last commit HEAD~1
-    if branch == main_branch:
-        base_commit = "HEAD~1"
+    # 2) Fallback: read origin/HEAD (works off-line too)
+    ref = _cmd("git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+    if ref:
+        return ref.split("/", 1)[1]           # origin/main → main
+
+    # 3) Last-ditch: look for a local main or master
+    for cand in ("main", "master"):
+        if _cmd("git", "show-ref", "--verify", f"refs/heads/{cand}"):
+            return cand
+    raise RuntimeError("Cannot determine repository default branch")
+
+
+def _current_branch() -> str | None:
+    """
+    Best-effort branch name for the *checked-out commit*.
+
+    • PR runs  → `GITHUB_HEAD_REF`  
+    • Pushes  → `GITHUB_REF_NAME`  
+    • Local   → `git symbolic-ref HEAD`  
+    • Detached→ None
+    """
+    return (
+        os.getenv("GITHUB_HEAD_REF")
+        or os.getenv("GITHUB_REF_NAME")
+        or _cmd("git", "symbolic-ref", "--short", "-q", "HEAD") or None
+    )
+
+def get_base_commit() -> str:
+    """
+    • On the default branch → compare to the previous commit (HEAD~1)  
+    • On any other ref      → compare to the merge-base with the default branch
+      (uses the remote ref so it works in detached-HEAD CI jobs).
+    """
+    default_branch = get_default_branch()
+    branch = _current_branch()
+
+    # In CI the local ref for the default branch usually doesn't exist,
+    # so ensure we have the remote one:
+    subprocess.check_call(
+        ["git", "fetch", "--quiet", "origin", default_branch, "--depth", "1"]
+    )
+
+    if branch == default_branch:
+        base = _cmd("git", "rev-parse", "HEAD~1")
     else:
-        # Use common ancestor with main branch
-        # git merge-base main HEAD
-        base_commit = subprocess.check_output(f"git merge-base {main_branch} HEAD".split()).decode("utf-8").strip()
-    print(f"Current branch: {branch}, detected main: {main_branch}, using common ancestor", file=sys.stderr)
-    return base_commit
+        base = _cmd("git", "merge-base", "HEAD", f"origin/{default_branch}")
+
+    print(
+        f"[debug] HEAD branch: {branch or '(detached)'}  "
+        f"default: {default_branch}  base: {base}",
+        file=sys.stderr,
+    )
+    if not base:
+        raise RuntimeError("Could not determine base commit")
+    return base
 
 
 def main():
