@@ -248,7 +248,7 @@ def get_main_branch():
         return "main"
     if "master" in branches:
         return "master"
-    raise ValueError("No main or master branch found")
+    raise ValueError("No main or master branch found in branches: " + ", ".join(branches))
 
 
 def get_base_commit():

@@ -7,7 +7,7 @@ import logging
 import os
 import io
 import base64
-from typing import Optional, Any
+from typing import Optional, Any, cast
 from pathlib import Path
 import numpy as np
 import functools
@@ -296,6 +296,7 @@ class MNDataset(datasets.Dataset):
                     print(f"*** Downsampling by factor of {factor}x")
                 all_images += [downsample(z, factor) for z in images]
                 if masks is not None:
+                    assert all_masks is not None
                     all_masks += [downsample(z, factor) for z in masks]
                 all_pixtocams.append(self.pixtocams @ np.diag([factor, factor, 1.0]))
                 # Weight by the scale factor. In mip-NeRF I think we weighted by the
@@ -331,7 +332,7 @@ class MNDataset(datasets.Dataset):
                 print(f"*** Flattened images into f{len(self.images_flattened)} pixels")
 
         self.images = images
-        self.masks = masks
+        self.masks = cast(np.ndarray, masks)
         self.camtoworlds = poses
         self.height, self.width = images[0].shape[:2]
         if self.verbose:
