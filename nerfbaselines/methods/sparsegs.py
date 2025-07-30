@@ -101,11 +101,11 @@ def _extract_depths(dataset: Dataset):
         os.makedirs(input_folder, exist_ok=True)
         output_folder = os.path.join(temp_dir, "output")
         os.makedirs(output_folder, exist_ok=True)
+        old_sys_argv = sys.argv
+        old_sys_path = sys.path
+        old_cwd = os.getcwd()
         try:
             # Patch sys argv because of bug in sparsegs
-            old_sys_argv = sys.argv
-            old_sys_path = sys.path
-            old_cwd = os.getcwd()
             with import_context:
                 root = os.path.dirname(os.path.abspath(train.__file__))
                 sys.path = sys.path + [os.path.join(root, "BoostingMonocularDepth")]
