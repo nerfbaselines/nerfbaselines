@@ -95,7 +95,11 @@ def download_mipnerf360_sparse_dataset(path: str, output: Union[Path, str]):
                     shutil.copy(src_image_path, os.path.join(tmpoutput, images_dir, img_name))
 
             # Write the nb-info.json
-            shutil.copy(os.path.join(source, "nb-info.json"), os.path.join(tmpoutput, "nb-info.json"))
+            with open(os.path.join(source, "nb-info.json"), "r", encoding="utf8") as fsource, open(os.path.join(tmpoutput, "nb-info.json"), "w", encoding="utf8") as fout:
+                nb_info = json.load(fsource)
+                nb_info["id"] = DATASET_NAME
+                nb_info["scene"] = scene
+                json.dump(nb_info, fout, indent=2, ensure_ascii=False)
 
             # Write the output
             if os.path.exists(output):
