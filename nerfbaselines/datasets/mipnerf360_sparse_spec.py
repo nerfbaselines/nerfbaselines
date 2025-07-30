@@ -16,7 +16,7 @@ register({
         "metrics": ["psnr", "ssim", "lpips_vgg"],
         "default_metric": "psnr",
         "scenes": [
-            { "id": "garden-12", "name": "garden n12" },
+            { "id": "garden-n12", "name": "garden n12" },
             { "id": "bicycle-n12", "name": "bicycle n12" },
             { "id": "flowers-n12", "name": "flowers n12" },
             { "id": "treehill-n12", "name": "treehill n12" },
