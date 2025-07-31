@@ -353,3 +353,13 @@ if viewpoint_cam.mask is not None:
     ## # print(ast.unparse(train_step))
     ## print("Train step sets: ")
     ## print(train_step_transformer._stored_names)
+
+
+import_context.apply_patch(r"""
+diff --git a/utils/loss_utils.py b/utils/loss_utils.py
+index fc4dc06..17ec63e 100755
+--- a/utils/loss_utils.py
++++ b/utils/loss_utils.py
+@@ -25,1 +24,0 @@ import torch.nn as nn
+-pearson = PearsonCorrCoef().cuda()
+""".strip())
