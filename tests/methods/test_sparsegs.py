@@ -82,9 +82,12 @@ def method_module(method_source_code, mock_module):
     guidance.sd_utils = mock_module("guidance.sd_utils")
     guidance.sd_utils.StableDiffusion = mock.MagicMock()
 
-    scipy = mock_module("scipy")
-    scipy.signal = mock_module("scipy.signal")
-    scipy.interpolate = mock_module("scipy.interpolate")
+    try:
+        import scipy.signal
+    except ImportError:
+        scipy = mock_module("scipy")
+        scipy.signal = mock_module("scipy.signal")
+        scipy.interpolate = mock_module("scipy.interpolate")
 
     diptest = mock_module("diptest")
     diptest.dipstat = lambda x: x.mean()
