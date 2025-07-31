@@ -18,7 +18,9 @@ Please visit the <a href="https://nerfbaselines.github.io/">project page to see 
 </h3>
 
 ## News
-*[25/01/2025]* Added Taming-3DGS method.</br>
+*[30/07/2025]* Added Sparse-GS, DropGaussian methods and Mip-NeRF 360-sparse dataset.</br>
+*[19/05/2025]* Added Hierarchical-3DGS dataset and method, and Octree-GS method.</br>
+*[18/05/2025]* Added Taming-3DGS, 3DGS-MCMC, Student-Splatting-Scooping method.</br>
 *[30/12/2024]* Added a new viewer implementation.</br>
 *[22/09/2024]* Added mesh export for 2DGS, COLMAP, and GOF.</br>
 *[17/09/2024]* Moved project to nerfbaselines/nerfbaselines repository.</br>
