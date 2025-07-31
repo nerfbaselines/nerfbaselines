@@ -1,13 +1,13 @@
 # NOTE: This code modifies 3DGS-mcmc:
 # 1) Adds support for cx, cy not in the center of the image
 # 2) Adds support for sampling masks
+import copy
+import json
 import sys
 from argparse import ArgumentParser
-import logging
 import warnings
 import itertools
 import types
-import shlex
 from typing import Optional
 import os
 import numpy as np
@@ -18,7 +18,6 @@ from nerfbaselines import (
     Method, MethodInfo, ModelInfo, RenderOutput, Cameras, camera_model_to_int, Dataset
 )
 from nerfbaselines.utils import convert_image_dtype
-import shlex
 from importlib import import_module
 
 import_context = import_module(".sparsegs_patch", __package__).import_context
@@ -37,6 +36,7 @@ with import_context:
     from train import train_iteration  # type: ignore
     from scene.dataset_readers import blender_create_pcd  # type: ignore
     from scene.gaussian_model import BasicPointCloud  # type: ignore
+    from guidance.sd_utils import StableDiffusion  # type: ignore
 
 
 def _build_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, depth=None,
@@ -64,13 +64,49 @@ def _build_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, de
         cx=cx, cy=cy)
 
 
-def _config_overrides_to_args_list(args_list, config_overrides):
+def _apply_config_overrides(parser, config_overrides):
+    actions_map = {action.dest: action for action in parser._actions}
+    for key, value in config_overrides.items():
+        if key not in actions_map:
+            raise ValueError(f"Unknown config override key: {key}")
+
+        # Convert value to correct type
+        action = actions_map[key]
+        target_type = str
+        if action.type is not None:
+            target_type = action.type
+        if isinstance(action.const, bool):
+            target_type = bool
+        if action.nargs == "+":
+            if isinstance(value, str):
+                value = value.split(",")
+            if not isinstance(value, list):
+                raise ValueError(f"Expected a list or comma separated list for {key}, got {type(value)}")
+            value = [target_type(v) for v in value]
+        else:
+            if target_type is bool:
+                if isinstance(value, str):
+                    assert value.lower() in ("true", "false", "1", "0", "yes", "no"), \
+                        f"Invalid boolean value for {key}: {value}. Expected 'true', 'false', '1', '0', 'yes', or 'no'."
+                elif not isinstance(value, bool):
+                    raise ValueError(f"Expected a boolean for {key}, got {type(value)}")
+            else:
+                value = target_type(value)
+        parser.set_defaults(**{key: value})
+
+
+
+def _(args_list, config_overrides):
     for k, v in config_overrides.items():
         if str(v).lower() == "true":
             v = True
         if str(v).lower() == "false":
             v = False
-        if isinstance(v, bool):
+        if isinstance(v, list):
+            for val in enumerate(v):
+                args_list.append(f"--{k}")
+                args_list.append(str(val))
+        elif isinstance(v, bool):
             if v:
                 if f'--{k}' not in args_list:
                     args_list.append(f'--{k}')
@@ -243,20 +279,16 @@ class SparseGS(Method):
         self.step = 0
 
         # Setup parameters
-        self._args_list = []
+        self._config_overrides = config_overrides if config_overrides is not None else {}
         self._loaded_step = None
         if checkpoint is not None:
             if not os.path.exists(checkpoint):
                 raise RuntimeError(f"Model directory {checkpoint} does not exist")
-            with open(os.path.join(checkpoint, "args.txt"), "r", encoding="utf8") as f:
-                self._args_list = shlex.split(f.read())
+            with open(os.path.join(checkpoint, "config_overrides.json"), "r", encoding="utf8") as f:
+                _config_overrides = json.load(f)
+                _config_overrides.update(self._config_overrides)
+                self._config_overrides = _config_overrides
             self._loaded_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(str(checkpoint)) if x.startswith("chkpnt-"))[-1]
-
-        if config_overrides is not None:
-            if checkpoint is not None:
-                logging.warning("Checkpoint hyperparameters are being overriden by the provided config_overrides")
-            _config_overrides_to_args_list(self._args_list, config_overrides)
-
         self._load_config()
         self._setup(train_dataset)
 
@@ -288,7 +320,8 @@ class SparseGS(Method):
             prune_exp=7.5,
             iterations=30000,
         )
-        args = parser.parse_args(self._args_list)
+        _apply_config_overrides(parser, self._config_overrides)
+        args = parser.parse_args([])
         self._dataset = lp.extract(args)
         self._dataset.init_type = args.init_type
         self._dataset.scale_coords = args.scale_coords
@@ -314,7 +347,7 @@ class SparseGS(Method):
             depths=depths,
             scale_coords=self._dataset.scale_coords,
             init_type=self._dataset.init_type)
-        self._dataset.model_path = self.checkpoint
+        self._dataset.model_path = self.checkpoint or ""
         self._scene = Scene(scene_info, args=self._dataset, gaussians=self._gaussians, 
                             load_iteration=str(self._loaded_step) if train_dataset is None else None,
                             mode="train" if train_dataset is not None else "eval")
@@ -333,6 +366,13 @@ class SparseGS(Method):
         self._last_prune_iter = None
         self._warp_cam_stack = None
         self._prune_sched = self._args.prune_sched
+        if train_dataset is not None:
+            if self._dataset.lambda_diffusion:
+                self._guidance_sd = StableDiffusion(device="cuda")
+                self._guidance_sd.get_text_embeds([""], [""])
+                print(f"[INFO] loaded SD!")
+
+            self._diff_cam = copy.deepcopy(self._scene.getTrainCameras()[0])
 
     @classmethod
     def get_method_info(cls):
@@ -384,8 +424,8 @@ class SparseGS(Method):
     def save(self, path: str):
         self._gaussians.save_ply(os.path.join(str(path), f"point_cloud/iteration_{self.step}", "point_cloud.ply"))
         torch.save((self._gaussians.capture(), self.step), str(path) + f"/chkpnt-{self.step}.pth")
-        with open(str(path) + "/args.txt", "w", encoding="utf8") as f:
-            f.write(" ".join(shlex.quote(x) for x in self._args_list))
+        with open(os.path.join(str(path), "config_overrides.json"), "w", encoding="utf8") as f:
+            json.dump(self._config_overrides, f, indent=2, ensure_ascii=False)
 
     def export_gaussian_splats(self, *, options=None):
         del options

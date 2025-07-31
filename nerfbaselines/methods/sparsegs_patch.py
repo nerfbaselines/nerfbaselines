@@ -246,6 +246,30 @@ def ast_remove_names(tree, names):
 # <patch train>
 @import_context.patch_ast_import("train")
 def _(ast_module: ast.Module):
+    # Remove instructions from prune_floaters
+    def _prune_callback(node):
+        # Remove plt.figure
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "figure":
+            return True
+        # Remove plt.imsave
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "imsave":
+            if isinstance(node.func.value, ast.Name) and node.func.value.id == "plt":
+                return True
+        # Remove os.makedirs
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if (node.func.attr == "makedirs" and
+                isinstance(node.func.value, ast.Name) and node.func.value.id == "os"):
+                return True
+        return False
+    # Replace prune_floaters in ast_module
+    for i, x in enumerate(ast_module.body):
+        if isinstance(x, ast.FunctionDef) and x.name == "prune_floaters":
+            prune_floaters_ast = ast_remove(x, _prune_callback)
+            ast_module.body[i] = prune_floaters_ast
+            break
+    else:
+        assert False, "prune_floaters not found in train"
+
     training_ast = copy.deepcopy(next(x for x in ast_module.body if isinstance(x, ast.FunctionDef) and x.name == "training"))
     # Patch torch.load => torch.load(..., weights_only=False)
     for node in ast.walk(training_ast):
@@ -317,15 +341,15 @@ if viewpoint_cam.mask is not None:
     #
     # Use this code to debug when integrating new codebase
     #
-    # print("Train iteration: ")
-    # print(ast.unparse(train_iteration))
-    # setup_train = ast_remove_names(training_ast.body[:-1], ["first_iter"])
-    # for instruction in setup_train:
-    #     Transformer().visit(instruction)
-    # print("Setup train:") 
-    # print(ast.unparse(setup_train))
-    # print()
-    # # print("Train step:")
-    # # print(ast.unparse(train_step))
-    # print("Train step sets: ")
-    # print(train_step_transformer._stored_names)
+    ## print("Train iteration: ")
+    ## print(ast.unparse(train_iteration))
+    ## setup_train = ast_remove_names(training_ast.body[:-1], ["first_iter"])
+    ## for instruction in setup_train:
+    ##     Transformer().visit(instruction)
+    ## print("Setup train:") 
+    ## print(ast.unparse(setup_train))
+    ## print()
+    ## # print("Train step:")
+    ## # print(ast.unparse(train_step))
+    ## print("Train step sets: ")
+    ## print(train_step_transformer._stored_names)

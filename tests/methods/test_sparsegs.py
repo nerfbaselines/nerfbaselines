@@ -1,3 +1,4 @@
+from unittest import mock
 import importlib
 import numpy as np
 import copy
@@ -39,17 +40,21 @@ class Rasterizer:
         if rotations is not None: keep_grad += rotations.sum()
         if cov3D_precomp is not None: keep_grad += cov3D_precomp.sum()
         if var_loss is not None: keep_grad += var_loss.sum()
+        keep_grad = keep_grad * 0.0
         num_points = means3D.shape[0]
         width = self.raster_settings.image_width
         height = self.raster_settings.image_height
         rendered_image = torch.zeros((3, height, width), dtype=torch.float32) + keep_grad
         radii = torch.zeros((num_points,), dtype=torch.float32) + keep_grad
-        depth = torch.full((height, width,), 0.5, dtype=torch.float32) + keep_grad
-        mode_id = torch.zeros((num_points,), dtype=torch.float32) + keep_grad
-        modes = torch.zeros((num_points,), dtype=torch.float32) + keep_grad
+        depth = 1 + 10 * torch.rand((height, width,), dtype=torch.float32) + keep_grad
+        mode_id = torch.stack((
+            1 + torch.zeros((height, width,), dtype=torch.int32),
+            3 + torch.ones((height, width,), dtype=torch.int32),
+        ), 0).int()
+        modes = torch.full((height, width,), 0.5, dtype=torch.float32) + keep_grad
         point_list = torch.zeros((num_points,), dtype=torch.float32) + keep_grad
         means2D = torch.zeros((num_points, 2), dtype=torch.float32) + keep_grad
-        conic_opacity = torch.zeros((num_points,), dtype=torch.float32) + keep_grad
+        conic_opacity = torch.zeros((num_points,3), dtype=torch.float32) + keep_grad
         return rendered_image, radii, depth, num_points, depth, mode_id, modes, point_list, means2D, conic_opacity
 
 
@@ -72,6 +77,13 @@ def method_module(method_source_code, mock_module):
     BoostingMonocularDepth = mock_module("BoostingMonocularDepth")
     BoostingMonocularDepth.prepare_depth = mock_module("BoostingMonocularDepth.prepare_depth")
     BoostingMonocularDepth.prepare_depth.prepare_gt_depth = prepare_gt_depth
+
+    guidance = mock_module("guidance")
+    guidance.sd_utils = mock_module("guidance.sd_utils")
+    guidance.sd_utils.StableDiffusion = mock.MagicMock()
+
+    diptest = mock_module("diptest")
+    diptest.dipstat = lambda x: x.mean()
     diffusers = mock_module("diffusers")
     diffusers.utils = mock_module("diffusers.utils")
     diffusers.utils.import_utils = mock_module("diffusers.utils.import_utils")
@@ -139,7 +151,7 @@ def test_method_torch(torch_cpu, isolated_modules, method_module, colmap_dataset
 @pytest.mark.method(METHOD_ID)
 def test_train_method_cpu(torch_cpu, isolated_modules, method_module, run_test_train):
     del torch_cpu, isolated_modules, method_module
-    run_test_train(config_overrides=dict(box_p=3))
+    run_test_train(config_overrides=dict(box_p=3, prune_sched=[2]))
 
 
 @pytest.mark.method(METHOD_ID)
