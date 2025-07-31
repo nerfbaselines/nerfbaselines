@@ -11,7 +11,7 @@
 
 # NOTE: This code modifies ScaffoldGS in several ways:
 # - It adds support for cx, cy not in the center of the image
-# - It also adds support for sampling masks
+# - It also adds support for masks
 # - It fixes bugs with ScaffoldGS saving and restoring
 # - It implements functionality to obtain appearance embeddings and render with specifif
 #  embeddings
@@ -87,18 +87,18 @@ def getProjectionMatrixFromOpenCV(w, h, fx, fy, cx, cy, znear, zfar):
 
 
 #
-# Patch Gaussian Splatting to include sampling masks
+# Patch Gaussian Splatting to include masks
 # Also, fix cx, cy (ignored in gaussian-splatting)
 #
-# Patch loadCam to include sampling mask
+# Patch loadCam to include mask
 _old_loadCam = camera_utils.loadCam
 def loadCam(args, id, cam_info, resolution_scale):
     camera = _old_loadCam(args, id, cam_info, resolution_scale)
 
-    sampling_mask = None
-    if cam_info.sampling_mask is not None:
-        sampling_mask = PILtoTorch(cam_info.sampling_mask, (camera.image_width, camera.image_height))
-    setattr(camera, "sampling_mask", sampling_mask)
+    mask = None
+    if cam_info.mask is not None:
+        mask = PILtoTorch(cam_info.mask, (camera.image_width, camera.image_height))
+    setattr(camera, "mask", mask)
     setattr(camera, "_patched", True)
 
     # Fix cx, cy (ignored in gaussian-splatting)
@@ -121,18 +121,18 @@ def loadCam(args, id, cam_info, resolution_scale):
 camera_utils.loadCam = loadCam
 
 
-# Patch CameraInfo to add sampling mask
+# Patch CameraInfo to add mask
 class CameraInfo(_old_CameraInfo):
-    def __new__(cls, *args, sampling_mask=None, cx, cy, **kwargs):
+    def __new__(cls, *args, mask=None, cx, cy, **kwargs):
         self = super(CameraInfo, cls).__new__(cls, *args, **kwargs)
-        self.sampling_mask = sampling_mask
+        self.mask = mask
         self.cx = cx
         self.cy = cy
         return self
 scene.dataset_readers.CameraInfo = CameraInfo
 
 
-def _load_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, image_path=None, sampling_mask=None, scale_coords=None):
+def _load_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, image_path=None, mask=None, scale_coords=None):
     pose = np.copy(pose)
     pose = np.concatenate([pose, np.array([[0, 0, 0, 1]], dtype=pose.dtype)], axis=0)
     pose = np.linalg.inv(pose)
@@ -152,7 +152,7 @@ def _load_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, ima
         FovY=focal2fov(float(fy), float(height)),
         image=image, image_path=image_path, image_name=image_name, 
         width=int(width), height=int(height),
-        sampling_mask=sampling_mask,
+        mask=mask,
         cx=cx, cy=cy)
 
 
@@ -204,9 +204,9 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
         elif white_background and dataset["metadata"].get("id") != "blender":
             warnings.warn("white_background=True is set, but the dataset is not a blender scene. The background may not be white.")
         image = Image.fromarray(im_data)
-        sampling_mask = None
-        if dataset["sampling_masks"] is not None:
-            sampling_mask = Image.fromarray((dataset["sampling_masks"][idx] * 255).astype(np.uint8))
+        mask = None
+        if dataset["masks"] is not None:
+            mask = Image.fromarray((dataset["masks"][idx] * 255).astype(np.uint8))
 
         cam_info = _load_caminfo(
             idx, pose, intrinsics, 
@@ -214,7 +214,7 @@ def _convert_dataset_to_gaussian_splatting(dataset: Optional[Dataset], tempdir: 
             image_path=image_path,
             image_size=(w, h),
             image=image,
-            sampling_mask=sampling_mask,
+            mask=mask,
             scale_coords=scale_coords,
         )
         cam_infos.append(cam_info)
@@ -438,11 +438,11 @@ class ScaffoldGS(Method):
         gt_image = viewpoint_cam.original_image.cuda()
 
 
-        # NOTE: Modified to include sampling mask
+        # NOTE: Modified to include mask
         # Apply mask
-        sampling_mask = viewpoint_cam.sampling_mask.cuda() if viewpoint_cam.sampling_mask is not None else None
-        if sampling_mask is not None:
-            image = image * sampling_mask + (1.0 - sampling_mask) * image.detach()
+        mask = viewpoint_cam.mask.cuda() if viewpoint_cam.mask is not None else None
+        if mask is not None:
+            image = image * mask + (1.0 - mask) * image.detach()
 
         Ll1 = l1_loss(image, gt_image)
 
@@ -525,7 +525,7 @@ class ScaffoldGS(Method):
             losses, psnrs, mses = [], [], []
 
             gt_image = torch.tensor(convert_image_dtype(dataset["images"][0], np.float32), dtype=torch.float32).cuda().permute(2, 0, 1)
-            gt_mask = torch.tensor(convert_image_dtype(dataset["sampling_masks"][0], np.float32), dtype=torch.float32).cuda()[..., None].permute(2, 0, 1) if dataset["sampling_masks"] is not None else None
+            gt_mask = torch.tensor(convert_image_dtype(dataset["masks"][0], np.float32), dtype=torch.float32).cuda()[..., None].permute(2, 0, 1) if dataset["masks"] is not None else None
 
             viewpoint_cam = _load_caminfo(0, camera.poses, camera.intrinsics, f"{0:06d}.png", camera.image_sizes, scale_coords=self.dataset.scale_coords)
             viewpoint = loadCam(self.dataset, 0, viewpoint_cam, 1.0)

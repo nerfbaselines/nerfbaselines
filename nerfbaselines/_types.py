@@ -285,10 +285,10 @@ class _IncompleteDataset(TypedDict, total=True):
 
     image_paths: List[str]
     image_paths_root: str
-    sampling_mask_paths: Optional[List[str]]
-    sampling_mask_paths_root: Optional[str]
+    mask_paths: Optional[List[str]]
+    mask_paths_root: Optional[str]
     metadata: Dict
-    sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]]  # [N][H, W]
+    masks: Optional[Union[np.ndarray, List[np.ndarray]]]  # [N][H, W]
     points3D_xyz: Optional[np.ndarray]  # [M, 3]
     points3D_rgb: Optional[np.ndarray]  # [M, 3]
     points3D_error: Optional[np.ndarray]  # [M]
@@ -310,9 +310,9 @@ def new_dataset(*,
                 image_paths: Sequence[str],
                 image_paths_root: Optional[str] = ...,
                 images: Union[np.ndarray, List[np.ndarray]],
-                sampling_mask_paths: Optional[Sequence[str]] = ...,
-                sampling_mask_paths_root: Optional[str] = ...,
-                sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = ...,  # [N][H, W]
+                mask_paths: Optional[Sequence[str]] = ...,
+                mask_paths_root: Optional[str] = ...,
+                masks: Optional[Union[np.ndarray, List[np.ndarray]]] = ...,  # [N][H, W]
                 points3D_xyz: Optional[np.ndarray] = ...,  # [M, 3]
                 points3D_rgb: Optional[np.ndarray] = ...,  # [M, 3]
                 points3D_error: Optional[np.ndarray] = ...,  # [M]
@@ -328,9 +328,9 @@ def new_dataset(*,
                 image_paths: Sequence[str],
                 image_paths_root: Optional[str] = ...,
                 images: Literal[None] = None,
-                sampling_mask_paths: Optional[Sequence[str]] = ...,
-                sampling_mask_paths_root: Optional[str] = ...,
-                sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = ...,  # [N][H, W]
+                mask_paths: Optional[Sequence[str]] = ...,
+                mask_paths_root: Optional[str] = ...,
+                masks: Optional[Union[np.ndarray, List[np.ndarray]]] = ...,  # [N][H, W]
                 points3D_xyz: Optional[np.ndarray] = ...,  # [M, 3]
                 points3D_rgb: Optional[np.ndarray] = ...,  # [M, 3]
                 points3D_error: Optional[np.ndarray] = ...,  # [M]
@@ -345,9 +345,9 @@ def new_dataset(*,
                 image_paths: Sequence[str],
                 image_paths_root: Optional[str] = None,
                 images: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W, 3]
-                sampling_mask_paths: Optional[Sequence[str]] = None,
-                sampling_mask_paths_root: Optional[str] = None,
-                sampling_masks: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W]
+                mask_paths: Optional[Sequence[str]] = None,
+                mask_paths_root: Optional[str] = None,
+                masks: Optional[Union[np.ndarray, List[np.ndarray]]] = None,  # [N][H, W]
                 points3D_xyz: Optional[np.ndarray] = None,  # [M, 3]
                 points3D_rgb: Optional[np.ndarray] = None,  # [M, 3]
                 points3D_error: Optional[np.ndarray] = None,  # [M]
@@ -356,8 +356,8 @@ def new_dataset(*,
                 metadata: Optional[Dict] = None) -> Union[UnloadedDataset, Dataset]:
     if image_paths_root is None:
         image_paths_root = os.path.commonpath(image_paths)
-    if sampling_mask_paths_root is None and sampling_mask_paths is not None:
-        sampling_mask_paths_root = os.path.commonpath(sampling_mask_paths)
+    if mask_paths_root is None and mask_paths is not None:
+        mask_paths_root = os.path.commonpath(mask_paths)
     if image_paths_root is None:
         image_paths_root = os.path.commonpath(image_paths)
     if metadata is None:
@@ -365,11 +365,11 @@ def new_dataset(*,
     return UnloadedDataset(
         cameras=cameras,
         image_paths=list(image_paths),
-        sampling_mask_paths=list(sampling_mask_paths) if sampling_mask_paths is not None else None,
-        sampling_mask_paths_root=sampling_mask_paths_root,
+        mask_paths=list(mask_paths) if mask_paths is not None else None,
+        mask_paths_root=mask_paths_root,
         image_paths_root=image_paths_root,
         images=images,
-        sampling_masks=sampling_masks,
+        masks=masks,
         points3D_xyz=points3D_xyz,
         points3D_rgb=points3D_rgb,
         points3D_error=points3D_error,

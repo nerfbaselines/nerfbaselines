@@ -637,9 +637,9 @@ def _save_predictions_iterate(output: str, predictions: Iterable[RenderOutput], 
                 relative_name = relative_name.relative_to(Path(dataset["image_paths_root"]))
             with open_fn(f"gt-color/{relative_name.with_suffix('.png')}") as f:
                 save_image(f, gt_image)
-            if dataset["sampling_masks"] is not None:
+            if dataset["masks"] is not None:
                 with open_fn(f"mask/{relative_name.with_suffix('.png')}") as f:
-                    gt_mask = convert_image_dtype(dataset["sampling_masks"][i][:h, :w], np.uint8)
+                    gt_mask = convert_image_dtype(dataset["masks"][i][:h, :w], np.uint8)
                     save_mask(f, gt_mask)
             with open_fn(f"color/{relative_name.with_suffix('.png')}") as f:
                 save_image(f, pred_image)

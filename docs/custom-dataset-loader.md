@@ -16,8 +16,8 @@ In your loader function should need to generate at least the following:
 However, many other fields can be added, such as:
 - `metadata`: A dictionary containing metadata about the dataset like dataset ID, scene name, and others (see [Using custom data](using-custom-data.md) for more information).
 - `image_paths_root`: By default {func}`new_dataset <nerfbaselines.new_dataset>` will try to detect the common prefix for `image_paths`, however, you can specify it explicitly.
-- `sampling_mask_paths`: A list of paths to the sampling masks. The paths are absolute.
-- `sampling_mask_paths_root`: Same as `image_paths_root`, but for `sampling_mask_paths`.
+- `mask_paths`: A list of paths to the masks. The paths are absolute.
+- `mask_paths_root`: Same as `image_paths_root`, but for `mask_paths`.
 - `points3D_xyz`: A numpy array of shape `(N, 3)` containing the 3D points (e.g., COLMAP points3D.ply).
 - `points3D_rgb`: A numpy array of shape `(N, 3)`, dtype `uint8`, containing the RGB values of the 3D points.
 - `points3D_indices`: A list of numpy arrays of indices into `points3D_xyz` and `points3D_rgb` for each image.

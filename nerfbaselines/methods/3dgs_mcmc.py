@@ -1,6 +1,6 @@
 # NOTE: This code modifies 3DGS-mcmc:
 # 1) Adds support for cx, cy not in the center of the image
-# 2) Adds support for sampling masks
+# 2) Adds support for masks
 from argparse import ArgumentParser
 import logging
 import warnings
@@ -34,7 +34,7 @@ with import_context:
 
 
 def _build_caminfo(idx, pose, intrinsics, image_name, image_size, image=None, 
-                  image_path=None, sampling_mask=None, scale_coords=None):
+                  image_path=None, mask=None, scale_coords=None):
     pose = np.concatenate([pose, np.array([[0, 0, 0, 1]], dtype=pose.dtype)], axis=0)
     pose = np.linalg.inv(pose)
     R = pose[:3, :3]
@@ -53,7 +53,7 @@ def _build_caminfo(idx, pose, intrinsics, image_name, image_size, image=None,
         FovY=focal2fov(float(fy), float(height)),
         image=image, image_path=image_path, image_name=image_name, 
         width=int(width), height=int(height),
-        sampling_mask=sampling_mask,
+        mask=mask,
         cx=cx, cy=cy)
 
 
@@ -105,9 +105,9 @@ def _convert_dataset_to_scene_info(dataset: Optional[Dataset], white_background:
         elif white_background and dataset["metadata"].get("id") != "blender":
             warnings.warn("white_background=True is set, but the dataset is not a blender scene. The background may not be white.")
         image = Image.fromarray(im_data)
-        sampling_mask = None
-        if dataset["sampling_masks"] is not None:
-            sampling_mask = Image.fromarray((dataset["sampling_masks"][idx] * 255).astype(np.uint8))
+        mask = None
+        if dataset["masks"] is not None:
+            mask = Image.fromarray((dataset["masks"][idx] * 255).astype(np.uint8))
 
         cam_info = _build_caminfo(
             idx, pose, intrinsics, 
@@ -115,7 +115,7 @@ def _convert_dataset_to_scene_info(dataset: Optional[Dataset], white_background:
             image_path=image_path,
             image_size=(w, h),
             image=image,
-            sampling_mask=sampling_mask,
+            mask=mask,
             scale_coords=scale_coords,
         )
         cam_infos.append(cam_info)

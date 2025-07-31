@@ -231,11 +231,11 @@ def _dataset_undistort_unsupported(dataset: Dataset, supported_camera_models):
 
     was_list = isinstance(dataset["images"], list)
     new_images = list(dataset["images"])
-    new_sampling_masks = (
-        list(dataset["sampling_masks"]) if dataset["sampling_masks"] is not None else None
+    new_masks = (
+        list(dataset["masks"]) if dataset["masks"] is not None else None
     )
     dataset["images"] = new_images
-    dataset["sampling_masks"] = new_sampling_masks
+    dataset["masks"] = new_masks
 
     # Release memory here
     gc.collect()
@@ -247,23 +247,23 @@ def _dataset_undistort_unsupported(dataset: Dataset, supported_camera_models):
             dataset["image_paths"][i] = os.path.join(
                 "/undistorted", os.path.split(dataset["image_paths"][i])[-1]
             )
-        if dataset["sampling_mask_paths"] is not None:
-            dataset["sampling_mask_paths"][i] = os.path.join(
-                "/undistorted-masks", os.path.split(dataset["sampling_mask_paths"][i])[-1]
+        if dataset["mask_paths"] is not None:
+            dataset["mask_paths"][i] = os.path.join(
+                "/undistorted-masks", os.path.split(dataset["mask_paths"][i])[-1]
             )
         warped = cameras.warp_image_between_cameras(
             camera, undistorted_camera, new_images[i][:oh, :ow]
         )
         new_images[i] = warped
-        if new_sampling_masks is not None:
-            warped = cameras.warp_image_between_cameras(camera, undistorted_camera, new_sampling_masks[i][:oh, :ow])
-            new_sampling_masks[i] = warped
+        if new_masks is not None:
+            warped = cameras.warp_image_between_cameras(camera, undistorted_camera, new_masks[i][:oh, :ow])
+            new_masks[i] = warped
         # IMPORTANT: camera is modified in-place
         dataset["cameras"][i] = undistorted_camera
     if not was_list:
         dataset["images"] = padded_stack(new_images)
-        dataset["sampling_masks"] = (
-            padded_stack(new_sampling_masks) if new_sampling_masks is not None else None
+        dataset["masks"] = (
+            padded_stack(new_masks) if new_masks is not None else None
         )
     dataset["image_paths_root"] = "/undistorted"
     return True
@@ -386,15 +386,15 @@ def dataset_load_features(
         image_sizes[i] = [image.shape[1], image.shape[0]]
         all_metadata[i] = metadata
 
-    def load_sampling_mask(p):
-        sampling_mask = PIL.Image.open(p).convert("L")
+    def load_mask(p):
+        mask = PIL.Image.open(p).convert("L")
         if resize is not None:
-            w, h = sampling_mask.size
+            w, h = mask.size
             new_size = round(w*resize), round(h*resize)
-            sampling_mask = sampling_mask.resize(new_size, PIL.Image.Resampling.NEAREST)
-            warnings.warn(f"Resized sampling mask with a factor of {resize}")
+            mask = mask.resize(new_size, PIL.Image.Resampling.NEAREST)
+            warnings.warn(f"Resized mask with a factor of {resize}")
 
-        return np.array(sampling_mask, dtype=np.uint8).astype(bool)
+        return np.array(mask, dtype=np.uint8).astype(bool)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
         with tqdm(total=len(dataset["image_paths"]), 
@@ -408,16 +408,16 @@ def dataset_load_features(
                 progress.update(1)
         logger.debug(f"Loaded {len(images)} images")
 
-        if dataset["sampling_mask_paths"] is not None:
-            sampling_masks = []
-            sampling_masks = list(tqdm(
-                executor.map(load_sampling_mask, dataset["sampling_mask_paths"]),
-                total=len(dataset["sampling_mask_paths"]),
-                desc="loading sampling masks", 
+        if dataset["mask_paths"] is not None:
+            masks = []
+            masks = list(tqdm(
+                executor.map(load_mask, dataset["mask_paths"]),
+                total=len(dataset["mask_paths"]),
+                desc="loading masks", 
                 dynamic_ncols=True, 
                 disable=not show_progress))
-            dataset["sampling_masks"] = sampling_masks  # padded_stack(sampling_masks)
-            logger.debug(f"Loaded {len(sampling_masks)} sampling masks")
+            dataset["masks"] = masks  # padded_stack(masks)
+            logger.debug(f"Loaded {len(masks)} masks")
 
         if resize is not None:
             # Replace all paths with the resized paths
@@ -425,11 +425,11 @@ def dataset_load_features(
                 os.path.join("/resized", os.path.relpath(p, dataset["image_paths_root"])) 
                 for p in dataset["image_paths"]]
             dataset["image_paths_root"] = "/resized"
-            if dataset["sampling_mask_paths"] is not None:
-                dataset["sampling_mask_paths"] = [
-                    os.path.join("/resized-sampling-masks", os.path.relpath(p, dataset["sampling_mask_paths_root"])) 
-                    for p in dataset["sampling_mask_paths"]]
-                dataset["sampling_mask_paths_root"] = "/resized-sampling-masks"
+            if dataset["mask_paths"] is not None:
+                dataset["mask_paths"] = [
+                    os.path.join("/resized-masks", os.path.relpath(p, dataset["mask_paths_root"])) 
+                    for p in dataset["mask_paths"]]
+                dataset["mask_paths_root"] = "/resized-masks"
 
     dataset["images"] = images
 
@@ -497,7 +497,7 @@ def dataset_index_select(dataset: TDataset, i: Union[slice, list, np.ndarray]) -
     _dataset = cast(Dict, dataset.copy())
     _dataset.update({k: index(k, v) for k, v in dataset.items() if k not in {
         "image_paths_root", 
-        "sampling_mask_paths_root", 
+        "mask_paths_root", 
         "points3D_xyz", 
         "points3D_rgb", 
         "points3D_error",

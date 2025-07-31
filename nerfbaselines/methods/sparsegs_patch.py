@@ -6,7 +6,7 @@ from ._patching import Context
 import_context = Context()
 
 # This file includes several patches to 3DGS codebase
-# 1. Patch Gaussian Splatting Cameras to include sampling masks
+# 1. Patch Gaussian Splatting Cameras to include masks
 # 2. Patch 3DGS to handle cx, cy correctly
 # 3. Patch scene.Scene to take scene_info as input
 # 4. Extract train_iteration from train.py
@@ -41,7 +41,7 @@ train_step_disabled_names = [
 ]
 
 #
-# Patch Gaussian Splatting to include sampling masks
+# Patch Gaussian Splatting to include masks
 # Also, fix cx, cy (ignored in gaussian-splatting)
 #
 # <fix cameras>
@@ -74,7 +74,7 @@ def _(ast_module: ast.Module):
     camera.keywords.append(ast.keyword(arg="cy", value=ast.parse("cam_info.cy").body[0].value, lineno=0, col_offset=0))  # type: ignore
 
 
-# Patch Cameras to include sampling masks and cx, cy
+# Patch Cameras to include masks and cx, cy
 @import_context.patch_ast_import("scene.cameras")
 def _(ast_module: ast.Module):
     camera_ast = next((x for x in ast_module.body if isinstance(x, ast.ClassDef) and x.name == "Camera"), None)
@@ -105,7 +105,7 @@ def _(ast_module: ast.Module):
     init.args.kwonlyargs.append(ast.arg(arg="cy", annotation=None, lineno=0, col_offset=0))
     init.args.kw_defaults.append(ast.Constant(value=None, lineno=0, col_offset=0))
 
-    # Store sampling mask
+    # Store mask
     init.body.insert(0, ast.parse("self.mask = mask").body[0])
 
     # Finally, we fix the computed projection matrix

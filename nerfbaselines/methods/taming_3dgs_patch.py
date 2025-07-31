@@ -7,7 +7,7 @@ from ._patching import Context
 import_context = Context()
 
 # This file includes several patches to 3DGS codebase
-# 1. Patch Gaussian Splatting Cameras to include sampling masks
+# 1. Patch Gaussian Splatting Cameras to include masks
 # 2. Patch 3DGS to handle cx, cy correctly
 # 3. Patch scene.Scene to take scene_info as input
 # 4. Extract train_iteration from train.py
@@ -93,10 +93,10 @@ def _(ast_module: ast.Module):
     # Extract render_pkg = ... index
     render_pkg_idx = next(i for i, x in enumerate(train_step) if isinstance(x, ast.Assign) and x.targets[0].id == "render_pkg")  # type: ignore
     train_step.insert(render_pkg_idx+1, ast.parse("""
-if viewpoint_cam.sampling_mask is not None:
-    sampling_mask = viewpoint_cam.sampling_mask.cuda()
+if viewpoint_cam.mask is not None:
+    mask = viewpoint_cam.mask.cuda()
     for k in ["render", "rend_normal", "surf_normal", "rend_dist"]:
-        render_pkg[k] = render_pkg[k] * sampling_mask + (1.0 - sampling_mask) * render_pkg[k].detach()
+        render_pkg[k] = render_pkg[k] * mask + (1.0 - mask) * render_pkg[k].detach()
 """).body[0])
 
     # Detect global names
@@ -229,9 +229,9 @@ index abf6e52..4ef519f 100644
 + 
 @@ -19 +20 @@ class Camera(nn.Module):
 -                 image_name, uid,
-+                 image_name, uid, sampling_mask, cx, cy,
++                 image_name, uid, mask, cx, cy,
 @@ -30,0 +32 @@ class Camera(nn.Module):
-+        self.sampling_mask = sampling_mask
++        self.mask = mask
 @@ -55 +57,9 @@ class Camera(nn.Module):
 -        self.projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx, fovY=self.FoVy).transpose(0,1).cuda()
 +        self.projection_matrix = getProjectionMatrixFromOpenCV(
@@ -250,7 +250,7 @@ index 2a6f904..3597aee 100644
 @@ -15,0 +16 @@ from typing import NamedTuple
 +from typing import Optional
 @@ -36,0 +38,3 @@ class CameraInfo(NamedTuple):
-+    sampling_mask: Optional[np.array]
++    mask: Optional[np.array]
 +    cx: float
 +    cy: float
 @@ -256,0 +261,11 @@ def readNerfSyntheticInfo(path, white_background, eval, extension=".png"):
@@ -272,8 +272,8 @@ index 1a54d0a..87075d6 100644
 @@ -50,0 +53 @@ def loadCam(args, id, cam_info, resolution_scale):
 +                  cx=cam_info.cx, cy=cam_info.cy,
 @@ -51,0 +55,2 @@ def loadCam(args, id, cam_info, resolution_scale):
-+                  sampling_mask=(PILtoTorch(cam_info.sampling_mask, resolution) 
-+                                 if cam_info.sampling_mask is not None else None),
++                  mask=(PILtoTorch(cam_info.mask, resolution) 
++                                 if cam_info.mask is not None else None),
 diff --git a/utils/graphics_utils.py b/utils/graphics_utils.py
 index b4627d8..33ba2dc 100644
 --- a/utils/graphics_utils.py

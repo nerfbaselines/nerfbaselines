@@ -1,3 +1,4 @@
+import warnings
 import typing
 from collections import OrderedDict
 import logging
@@ -215,7 +216,12 @@ def load_colmap_dataset(path: Union[Path, str],
         features: Optional[FrozenSet[DatasetFeature]] = None,
         images_path: Optional[Union[Path, str]] = None, 
         colmap_path: Optional[Union[Path, str]] = None,
+        masks_path: Optional[Union[Path, str]] = None,
         sampling_masks_path: Optional[Union[Path, str]] = None):
+    if sampling_masks_path is not None:
+        # Obsolete
+        warnings.warn("sampling_masks_path is deprecated and will be removed in the future. Use masks_path instead.")
+        masks_path = sampling_masks_path
     path = Path(path)
     if images_path is not None:
         images_path = Path(images_path)
@@ -237,14 +243,14 @@ def load_colmap_dataset(path: Union[Path, str],
         images_path = "images"
     rel_images_path = images_path
     images_path = (path / images_path).resolve()
-    if sampling_masks_path is None:
-        sampling_masks_path = "sampling_masks"
-        sampling_masks_path = (path / sampling_masks_path).resolve()
-        if not sampling_masks_path.exists():
-            sampling_masks_path = None
+    if masks_path is None:
+        masks_path = "masks"
+        masks_path = (path / masks_path).resolve()
+        if not masks_path.exists():
+            masks_path = None
     else:
-        sampling_masks_path = Path(sampling_masks_path)
-        sampling_masks_path = (path / sampling_masks_path).resolve()
+        masks_path = Path(masks_path)
+        masks_path = (path / masks_path).resolve()
     if not colmap_path.exists():
         raise DatasetNotFoundError(f"Missing '{rel_colmap_path}' folder in COLMAP dataset")
     if not (colmap_path / "cameras.bin").exists() and not (colmap_path / "cameras.txt").exists():
@@ -286,7 +292,7 @@ def load_colmap_dataset(path: Union[Path, str],
     camera_distortion_params = []
     image_paths: List[str] = []
     image_names = []
-    sampling_mask_paths: Optional[List[str]] = None if not sampling_masks_path is not None else []
+    mask_paths: Optional[List[str]] = None if not masks_path is not None else []
     camera_sizes = []
 
     image: colmap_utils.Image
@@ -303,9 +309,9 @@ def load_colmap_dataset(path: Union[Path, str],
         camera_distortion_params.append(distortion_params)
         image_names.append(image.name)
         image_paths.append(str(images_path / image.name))
-        if sampling_mask_paths is not None:
-            assert sampling_masks_path is not None, "sampling_masks_path is None"
-            sampling_mask_paths.append(str(sampling_masks_path / Path(image.name).with_suffix(".png")))
+        if mask_paths is not None:
+            assert masks_path is not None, "masks_path is None"
+            mask_paths.append(str(masks_path / Path(image.name).with_suffix(".png")))
 
         # rotation = qvec2rotmat(image.qvec).astype(np.float32)
         # translation = image.tvec.reshape(3, 1).astype(np.float32)
@@ -402,8 +408,8 @@ def load_colmap_dataset(path: Union[Path, str],
         cameras=all_cameras,
         image_paths=image_paths,
         image_paths_root=str(images_path),
-        sampling_mask_paths=sampling_mask_paths,
-        sampling_mask_paths_root=str(sampling_masks_path) if sampling_mask_paths is not None else None,
+        mask_paths=mask_paths,
+        mask_paths_root=str(masks_path) if mask_paths is not None else None,
         points3D_xyz=points3D_xyz,
         points3D_rgb=points3D_rgb,
         points3D_error=points3D_error,

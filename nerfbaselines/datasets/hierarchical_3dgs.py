@@ -72,7 +72,7 @@ def download_hierarchical_3dgs_dataset(path: str, output: Union[Path, str]):
                         imgname = relname[len("images/"):]
                         all_images.append(imgname)
 
-                        target_alpha = (output_tmp / ("sampling_masks/" + imgname)).with_suffix(".png")
+                        target_alpha = (output_tmp / ("masks/" + imgname)).with_suffix(".png")
                         target_alpha.parent.mkdir(exist_ok=True, parents=True)
 
                         # Export image as mask and RGB
@@ -95,7 +95,7 @@ def download_hierarchical_3dgs_dataset(path: str, output: Union[Path, str]):
                     "loader_kwargs": {
                         "colmap_path": "sparse/0",
                         "images_path": "images",
-                        "sampling_masks_path": "sampling_masks",
+                        "masks_path": "masks",
                     },
                     "id": DATASET_NAME,
                     "scene": scene_name,

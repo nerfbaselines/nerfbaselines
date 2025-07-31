@@ -95,7 +95,7 @@ utils.camera_utils.CameraDataset = CameraDataset
 
 def get_scene_info(train_dataset, args):
     images_root = train_dataset["image_paths_root"]
-    sampling_masks = train_dataset.get("sampling_masks", None)
+    masks = train_dataset.get("masks", None)
     gargs = args
 
     def get_caminfo(i):
@@ -108,8 +108,8 @@ def get_scene_info(train_dataset, args):
         image = train_dataset["images"][i]
         if image.dtype != np.uint8:
             image = (image * 255).astype(np.uint8)
-        if sampling_masks is not None:
-            alpha_mask = sampling_masks[i]
+        if masks is not None:
+            alpha_mask = masks[i]
             if alpha_mask.dtype != np.uint8:
                 alpha_mask = (alpha_mask * 255).astype(np.uint8)
             image = np.concatenate([image, alpha_mask[..., None]], axis=-1)

@@ -177,15 +177,15 @@ def evaluate(predictions: str,
         ]
         gt_images = list(map(read_image, gt_image_paths))
         if (predictions_path / "mask").exists():
-            gt_sampling_masks_root = str(predictions_path / "mask")
-            gt_sampling_mask_paths = [
-                str(Path(gt_sampling_masks_root).joinpath(x).with_suffix(".png")) for x in relpaths
+            gt_masks_root = str(predictions_path / "mask")
+            gt_mask_paths = [
+                str(Path(gt_masks_root).joinpath(x).with_suffix(".png")) for x in relpaths
             ]
-            gt_sampling_masks = list(map(read_mask, gt_sampling_mask_paths))
+            gt_masks = list(map(read_mask, gt_mask_paths))
         else:
-            gt_sampling_masks_root = None
-            gt_sampling_masks = None
-            gt_sampling_mask_paths = None
+            gt_masks_root = None
+            gt_masks = None
+            gt_mask_paths = None
         with suppress_type_checks():
             from pprint import pprint
             pprint(nb_info)
@@ -193,11 +193,11 @@ def evaluate(predictions: str,
                 cameras=typing.cast(Cameras, None),
                 image_paths=relpaths,
                 image_paths_root=str(predictions_path / "gt-color"),
-                sampling_mask_paths=gt_sampling_mask_paths,
-                sampling_mask_paths_root=gt_sampling_masks_root,
+                mask_paths=gt_mask_paths,
+                mask_paths_root=gt_masks_root,
                 metadata=typing.cast(Dict, nb_info.get("render_dataset_metadata", nb_info.get("dataset_metadata", {}))),
                 images=gt_images,
-                sampling_masks=gt_sampling_masks)
+                masks=gt_masks)
 
             # Evaluate the prediction
             with tqdm(desc=description, dynamic_ncols=True, total=len(relpaths)) as progress:
@@ -262,9 +262,9 @@ class DefaultEvaluationProtocol(EvaluationProtocol):
         pred_f = convert_image_dtype(pred, np.float32)
         gt_f = convert_image_dtype(gt, np.float32)
         mask = None
-        if dataset.get("sampling_masks") is not None:
-            assert dataset["sampling_masks"] is not None  # pyright issues
-            mask = convert_image_dtype(dataset["sampling_masks"][0], np.float32)
+        if dataset.get("masks") is not None:
+            assert dataset["masks"] is not None  # pyright issues
+            mask = convert_image_dtype(dataset["masks"][0], np.float32)
         return compute_metrics(pred_f[None], gt_f[None], run_lpips_vgg=self._lpips_vgg, mask=mask, 
                                reduce=True)
 

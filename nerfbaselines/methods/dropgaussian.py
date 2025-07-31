@@ -1,6 +1,6 @@
 # NOTE: This code modifies 3DGS-mcmc:
 # 1) Adds support for cx, cy not in the center of the image
-# 2) Adds support for sampling masks
+# 2) Adds support for masks
 from argparse import ArgumentParser
 import logging
 import warnings
@@ -113,8 +113,8 @@ def _convert_dataset_to_scene_info(dataset: Optional[Dataset], white_background:
             warnings.warn("white_background=True is set, but the dataset is not a blender scene. The background may not be white.")
         image = Image.fromarray(im_data)
         mask = None
-        if dataset["sampling_masks"] is not None:
-            mask = Image.fromarray((dataset["sampling_masks"][idx] * 255).astype(np.uint8))
+        if dataset["masks"] is not None:
+            mask = Image.fromarray((dataset["masks"][idx] * 255).astype(np.uint8))
 
         cam_info = _build_caminfo(
             idx, pose, intrinsics, 

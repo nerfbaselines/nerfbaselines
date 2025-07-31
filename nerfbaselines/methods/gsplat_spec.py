@@ -78,7 +78,7 @@ fi
         "name": "gsplat",
         "description": """gsplat is an open-source library for CUDA accelerated rasterization of gaussians with python bindings. \
 It is inspired by the 3DGS paper, but it is faster, more memory efficient, and with a growing list of new features. In NerfBaselines, \
-the method was modified to enable appearance optimization, to support sampling masks, and to support setting background color (which is required for the Blender dataset).""",
+the method was modified to enable appearance optimization, to support masks, and to support setting background color (which is required for the Blender dataset).""",
         "paper_title": "gsplat: An Open-Source Library for Gaussian Splatting",
         "paper_authors": [ "Vickie Ye", "Ruilong Li", "Justin Kerr", "Matias Turkulainen", "Brent Yi", "Zhuoyang Pan", "Otto Seiskari", "Jianbo Ye", "Jeffrey Hu", "Matthew Tancik", "Angjoo Kanazawa" ],
         "paper_link": "https://arxiv.org/pdf/2409.06765.pdf",

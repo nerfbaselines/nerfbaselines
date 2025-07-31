@@ -208,9 +208,9 @@ class MNDataset(datasets.Dataset):
             images.append(img)
 
         masks = None
-        if self.dataset.get("sampling_masks") is not None:
+        if self.dataset.get("masks") is not None:
             masks = []
-            for mask in self.dataset["sampling_masks"]:
+            for mask in self.dataset["masks"]:
                 if mask.dtype == np.uint8:
                     mask = mask.astype(np.float32) / 255.0
                 else:

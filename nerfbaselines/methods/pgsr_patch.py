@@ -69,7 +69,7 @@ def single(xs):
     return out[0]
 
 #
-# Patch Gaussian Splatting to include sampling masks
+# Patch Gaussian Splatting to include masks
 # Also, fix cx, cy (ignored in gaussian-splatting)
 #
 # <fix cameras>
@@ -96,18 +96,18 @@ def _(ast_module: ast.Module):
     assert isinstance(return_ast, ast.Return), "loadCam does not return camera"
     camera = return_ast.value
     assert isinstance(camera, ast.Call), "loadCam does not return camera"
-    camera.keywords.append(ast.keyword(arg="sampling_mask", value=ast.parse("cam_info.sampling_mask").body[0].value, lineno=0, col_offset=0))  # type: ignore
+    camera.keywords.append(ast.keyword(arg="mask", value=ast.parse("cam_info.mask").body[0].value, lineno=0, col_offset=0))  # type: ignore
     camera.keywords.append(ast.keyword(arg="image", value=ast.parse("cam_info.image").body[0].value, lineno=0, col_offset=0))  # type: ignore
     camera.keywords.append(ast.keyword(arg="cx", value=ast.parse("cam_info.cx").body[0].value, lineno=0, col_offset=0))  # type: ignore
     camera.keywords.append(ast.keyword(arg="cy", value=ast.parse("cam_info.cy").body[0].value, lineno=0, col_offset=0))  # type: ignore
 
 
-def process_loaded_image_and_mask(image, sampling_mask, resolution, ncc_scale):
+def process_loaded_image_and_mask(image, mask, resolution, ncc_scale):
     from PIL import Image
     resized_image_rgb = PILtoTorch(Image.fromarray(image), resolution)
     loaded_mask = None
-    if sampling_mask is not None:
-        loaded_mask = PILtoTorch(Image.fromarray(sampling_mask), resolution)
+    if mask is not None:
+        loaded_mask = PILtoTorch(Image.fromarray(mask), resolution)
     gt_image = resized_image_rgb
     if ncc_scale != 1.0:
         ncc_resolution = (int(resolution[0]/ncc_scale), int(resolution[1]/ncc_scale))
@@ -116,12 +116,12 @@ def process_loaded_image_and_mask(image, sampling_mask, resolution, ncc_scale):
     return gt_image, gray_image, loaded_mask
 
 
-# Patch Cameras to include sampling masks and cx, cy
+# Patch Cameras to include masks and cx, cy
 @import_context.patch_ast_import("scene.cameras")
 def _(ast_module: ast.Module):
     camera_ast = next((x for x in ast_module.body if isinstance(x, ast.ClassDef) and x.name == "Camera"), None)
     assert camera_ast is not None, "Camera not found in cameras"
-    # Add sampling_mask and cx, cy to Camera.__init__
+    # Add mask and cx, cy to Camera.__init__
     init = next((x for x in camera_ast.body if isinstance(x, ast.FunctionDef) and x.name == "__init__"), None)
     assert init is not None, "Camera.__init__ not found"
 
@@ -143,13 +143,13 @@ def _(ast_module: ast.Module):
     ast_module.body.append(process_loaded_image_and_mask_ast)
 
     # Add missing arguments
-    init.args.args.insert(1, ast.arg(arg="sampling_mask", annotation=None, lineno=0, col_offset=0))
+    init.args.args.insert(1, ast.arg(arg="mask", annotation=None, lineno=0, col_offset=0))
     init.args.args.insert(2, ast.arg(arg="image", annotation=None, lineno=0, col_offset=0))
     init.args.args.insert(3, ast.arg(arg="cx", annotation=None, lineno=0, col_offset=0))
     init.args.args.insert(4, ast.arg(arg="cy", annotation=None, lineno=0, col_offset=0))
 
-    # Store sampling mask
-    init.body.insert(0, ast.parse("self.sampling_mask = sampling_mask").body[0])
+    # Store mask
+    init.body.insert(0, ast.parse("self.mask = mask").body[0])
     init.body.insert(1, ast.parse("self.image = image").body[0])
     init.body.append(ast.parse("self.Cx = cx").body[0])
     init.body.append(ast.parse("self.Cy = cy").body[0])
@@ -176,7 +176,7 @@ def _(ast_module: ast.Module):
                     func=ast.Name(id="process_loaded_image_and_mask", ctx=ast.Load(), lineno=0, col_offset=0), 
                     args=[
                         ast.Attribute(value=ast.Name(id="self", ctx=ast.Load(), lineno=0, col_offset=0), attr="image", ctx=ast.Load(), lineno=0, col_offset=0),
-                        ast.Attribute(value=ast.Name(id="self", ctx=ast.Load(), lineno=0, col_offset=0), attr="sampling_mask", ctx=ast.Load(), lineno=0, col_offset=0),
+                        ast.Attribute(value=ast.Name(id="self", ctx=ast.Load(), lineno=0, col_offset=0), attr="mask", ctx=ast.Load(), lineno=0, col_offset=0),
                         node.args[1],
                         node.args[2],
                     ],
@@ -195,9 +195,9 @@ def _(ast_module: ast.Module):
     # Add typing import
     ast_module.body.insert(0, ast.ImportFrom(module="typing", names=[ast.alias(name="Optional", asname=None, lineno=0, col_offset=0)], level=0, lineno=0, col_offset=0))
 
-    # Add sampling_mask and cx, cy attributes to CameraInfo
+    # Add mask and cx, cy attributes to CameraInfo
     camera_info_ast.body.extend([
-        ast.AnnAssign(target=ast.Name(id="sampling_mask", ctx=ast.Store(), lineno=0, col_offset=0), 
+        ast.AnnAssign(target=ast.Name(id="mask", ctx=ast.Store(), lineno=0, col_offset=0), 
                       annotation=ast.parse("Optional[np.ndarray]").body[0].value,  # type: ignore
                       value=None, simple=1, lineno=0, col_offset=0),
         ast.AnnAssign(target=ast.Name(id="image", ctx=ast.Store(), lineno=0, col_offset=0), 
@@ -265,10 +265,10 @@ def _(ast_module: ast.Module):
     # Extract render_pkg = ... index
     render_pkg_idx = next(i for i, x in enumerate(train_step) if isinstance(x, ast.Assign) and getattr(x.targets[0], 'id', None) == "render_pkg")  # type: ignore
     train_step.insert(render_pkg_idx+1, ast.parse("""
-if viewpoint_cam.sampling_mask is not None:
-    sampling_mask = viewpoint_cam.sampling_mask.cuda()
+if viewpoint_cam.mask is not None:
+    mask = viewpoint_cam.mask.cuda()
     for k in ["render", "rend_normal", "surf_normal", "rend_dist"]:
-        render_pkg[k] = render_pkg[k] * sampling_mask + (1.0 - sampling_mask) * render_pkg[k].detach()
+        render_pkg[k] = render_pkg[k] * mask + (1.0 - mask) * render_pkg[k].detach()
 """).body[0])
 
     # Detect global names

@@ -85,7 +85,7 @@ fi
     },
     "metadata": {
         "name": "2D Gaussian Splatting",
-        "description": "2DGS adopts 2D oriented disks as surface elements and allows high-quality rendering with Gaussian Splatting. In NerfBaselines, we fixed bug with cx,cy, added appearance embedding optimization, and added support for sampling masks.",
+        "description": "2DGS adopts 2D oriented disks as surface elements and allows high-quality rendering with Gaussian Splatting. In NerfBaselines, we fixed bug with cx,cy, added appearance embedding optimization, and added support for masks.",
         "paper_title": "2D Gaussian Splatting for Geometrically Accurate Radiance Fields",
         "paper_authors": ["Binbin Huang", "Zehao Yu", "Anpei Chen", "Andreas Geiger", "Shenghua Gao"],
         "paper_link": "https://arxiv.org/pdf/2403.17888.pdf",

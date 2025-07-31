@@ -424,15 +424,15 @@ class InstantNGP(Method):
                     logging.debug(f"copied {impath_source} to {impath_target}")
                     copied += 1
                 progress.set_postfix(linked=linked, copied=copied)
-                if dataset["sampling_masks"] is not None:
-                    sampling_mask_paths = dataset.get("sampling_mask_paths", None)
-                    if sampling_mask_paths is None:
-                        dataset["sampling_mask_paths"] = sampling_mask_paths = [""] * len(dataset["image_paths"])
-                    mask = dataset["sampling_masks"][i]
+                if dataset["masks"] is not None:
+                    mask_paths = dataset.get("mask_paths", None)
+                    if mask_paths is None:
+                        dataset["mask_paths"] = mask_paths = [""] * len(dataset["image_paths"])
+                    mask = dataset["masks"][i]
                     mask = Image.fromarray(mask[:height, :width], mode="L")
                     mask = ImageOps.invert(mask)
                     maskname = impath_target.with_name(f"dynamic_mask_{impath_target.name}")
-                    sampling_mask_paths[i] = str(maskname)
+                    mask_paths[i] = str(maskname)
                     mask.save(str(maskname))
         dataset["image_paths_root"] = str(tmpdir)
 
@@ -594,9 +594,9 @@ class InstantNGP(Method):
                     points3D_rgb=None,
                     images_points3D_indices=None,
                     cameras=camera[None],
-                    sampling_mask_paths=None,
-                    sampling_mask_paths_root=None,
-                    sampling_masks=None,
+                    mask_paths=None,
+                    mask_paths_root=None,
+                    masks=None,
                     images=[np.zeros((h, w, 3), dtype=np.uint8)],
                     image_paths_root="eval",
                     image_paths=[f"eval/{0:06d}.png"],

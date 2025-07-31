@@ -265,7 +265,7 @@ class _CustomDataParser(DataParser):
                 cameras, # cameras
                 None,  # alpha_color
                 self.scene_box,  # scene_box
-                [],  # sampling masks
+                [],  # masks
                 metadata,
                 dataparser_transform=self.dataparser_transform[..., :3, :].contiguous(),
                 dataparser_scale=self.dataparser_scale,
@@ -332,7 +332,7 @@ class _CustomDataParser(DataParser):
             cameras,
             alpha_color,
             self.scene_box,
-            image_names if self.dataset["sampling_masks"] else None,
+            image_names if self.dataset["masks"] else None,
             metadata,
             dataparser_transform=transform_matrix[..., :3, :].contiguous(),  # pylint: disable=protected-access
             dataparser_scale=scale_factor,

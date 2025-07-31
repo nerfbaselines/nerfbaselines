@@ -93,7 +93,7 @@ fi
     },
     "metadata": {
         "name": "Scaffold-GS",
-        "description": """Scaffold-GS uses anchor points to distribute local 3D Gaussians, and predicts their attributes on-the-fly based on viewing direction and distance within the view frustum. In NerfBaselines, we fixed bug with cx,cy, added appearance embedding optimization, and added support for sampling masks. Note, that we also implement a demo for the method, but it does not evaluate the MLP and the Gaussians are "baked" for specific viewing direction and appearance embedding (if enabled).""",
+        "description": """Scaffold-GS uses anchor points to distribute local 3D Gaussians, and predicts their attributes on-the-fly based on viewing direction and distance within the view frustum. In NerfBaselines, we fixed bug with cx,cy, added appearance embedding optimization, and added support for masks. Note, that we also implement a demo for the method, but it does not evaluate the MLP and the Gaussians are "baked" for specific viewing direction and appearance embedding (if enabled).""",
         "paper_title": "Scaffold-GS: Structured 3D Gaussians for View-Adaptive Rendering",
         "paper_authors": ["Tao Lu", "Mulin Yu", "Linning Xu", "Yuanbo Xiangli", "Limin Wang" , "Dahua Lin" "Bo Dai"],
         "paper_link": "https://arxiv.org/pdf/2312.00109.pdf",

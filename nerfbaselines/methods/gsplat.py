@@ -244,9 +244,9 @@ class gs_Dataset:
         fx, fy, cx, cy = dataset["cameras"][idx].intrinsics
         K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
         camtoworlds = pad_poses(dataset["cameras"][idx].poses)
-        sampling_mask = None
-        if dataset.get("sampling_masks", None) is not None:
-            sampling_mask = dataset["sampling_masks"][idx]
+        mask = None
+        if dataset.get("masks", None) is not None:
+            mask = dataset["masks"][idx]
 
         if self.patch_size is not None:
             # Random crop.
@@ -254,8 +254,8 @@ class gs_Dataset:
             x = np.random.randint(0, max(w - self.patch_size, 1))
             y = np.random.randint(0, max(h - self.patch_size, 1))
             image = image[y : y + self.patch_size, x : x + self.patch_size]
-            if sampling_mask is not None:
-                sampling_mask = sampling_mask[y : y + self.patch_size, x : x + self.patch_size]
+            if mask is not None:
+                mask = mask[y : y + self.patch_size, x : x + self.patch_size]
             K[0, 2] -= x
             K[1, 2] -= y
 
@@ -265,8 +265,8 @@ class gs_Dataset:
             "image": torch.from_numpy(image).float(),
             "image_id": idx,  # the index of the image in the dataset
         }
-        if sampling_mask is not None:
-            data["sampling_mask"] = torch.from_numpy(convert_image_dtype(sampling_mask, 'float32'))
+        if mask is not None:
+            data["mask"] = torch.from_numpy(convert_image_dtype(mask, 'float32'))
 
         if self.load_depths:
             # projected points to image plane to get depths
@@ -363,12 +363,12 @@ schedulers=self.schedulers
     # Remove pbar.set_description
     iter_step_body.pop(next(i for i, step in enumerate(iter_step_body) if ast.unparse(step) == "pbar.set_description(desc)"))
 
-    # NOTE: extend gsplat to use sampling_masks
+    # NOTE: extend gsplat to use masks
     render_step_idx = next(i for i, step in enumerate(iter_step_body) if ast.unparse(step).startswith("(renders, alphas, info) = self.rasterize_splats"))
-    iter_step_body.insert(render_step_idx + 1, ast.parse("""if data.get("sampling_mask") is not None:
-    sampling_mask = data["sampling_mask"].to(self.device)
-    renders = renders * sampling_mask + renders.detach() * (1 - sampling_mask)
-    alphas = alphas * sampling_mask + alphas.detach() * (1 - sampling_mask)
+    iter_step_body.insert(render_step_idx + 1, ast.parse("""if data.get("mask") is not None:
+    mask = data["mask"].to(self.device)
+    renders = renders * mask + renders.detach() * (1 - mask)
+    alphas = alphas * mask + alphas.detach() * (1 - mask)
 """).body[0])
     
     bkgd_blend_step_idx = next(i for i, step in enumerate(iter_step_body) if ast.unparse(step).startswith("if cfg.random_bkgd:"))
@@ -636,11 +636,11 @@ class GSplat(Method):
         width, height = camera.image_sizes
         dataset = gs_Dataset.preprocess_images(dataset)
         pixels = torch.from_numpy(dataset["images"][0]).float().to(device).div(255.)
-        # Extend gsplat, handle sampling masks
-        sampling_masks = None
-        _dataset_sampling_masks = dataset.get("sampling_masks")
-        if _dataset_sampling_masks is not None:
-            sampling_masks = torch.from_numpy(convert_image_dtype(_dataset_sampling_masks[0], np.float32)).to(device)[None]
+        # Extend gsplat, handle masks
+        masks = None
+        _dataset_masks = dataset.get("masks")
+        if _dataset_masks is not None:
+            masks = torch.from_numpy(convert_image_dtype(_dataset_masks[0], np.float32)).to(device)[None]
 
         # Patch appearance
         if embedding is not None:
@@ -666,9 +666,9 @@ class GSplat(Method):
                 )  # [1, H, W, 3]
                 colors = self._add_background_color(colors, accumulation)
 
-                # Scale colors grad by sampling masks
-                if sampling_masks is not None:
-                    colors = colors * sampling_masks + colors.detach() * (1.0 - sampling_masks)
+                # Scale colors grad by masks
+                if masks is not None:
+                    colors = colors * masks + colors.detach() * (1.0 - masks)
 
                 l1loss = F.l1_loss(colors, pixels[None])
                 ssimloss = 1.0 - self.runner.ssim(

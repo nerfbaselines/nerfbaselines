@@ -6,7 +6,7 @@ from ._patching import Context
 import_context = Context()
 
 # This file includes several patches to 3DGS codebase
-# 1. Patch Gaussian Splatting Cameras to include sampling masks
+# 1. Patch Gaussian Splatting Cameras to include masks
 # 2. Patch 3DGS to handle cx, cy correctly
 # 3. Patch scene.Scene to take scene_info as input
 # 4. Extract train_iteration from train.py
@@ -39,7 +39,7 @@ train_step_disabled_names = [
 ]
 
 #
-# Patch Gaussian Splatting to include sampling masks
+# Patch Gaussian Splatting to include masks
 # Also, fix cx, cy (ignored in gaussian-splatting)
 #
 # <fix cameras>
@@ -67,17 +67,17 @@ def _(ast_module: ast.Module):
     assert isinstance(return_ast, ast.Return), "loadCam does not return camera"
     camera = return_ast.value
     assert isinstance(camera, ast.Call), "loadCam does not return camera"
-    camera.keywords.append(ast.keyword(arg="sampling_mask", value=ast.parse("PILtoTorch(cam_info.sampling_mask, (gt_image.size[1], gt_image.size[0])) if cam_info.sampling_mask is not None else None").body[0].value, lineno=0, col_offset=0))  # type: ignore
+    camera.keywords.append(ast.keyword(arg="mask", value=ast.parse("PILtoTorch(cam_info.mask, (gt_image.size[1], gt_image.size[0])) if cam_info.mask is not None else None").body[0].value, lineno=0, col_offset=0))  # type: ignore
     camera.keywords.append(ast.keyword(arg="cx", value=ast.parse("cam_info.cx").body[0].value, lineno=0, col_offset=0))  # type: ignore
     camera.keywords.append(ast.keyword(arg="cy", value=ast.parse("cam_info.cy").body[0].value, lineno=0, col_offset=0))  # type: ignore
 
 
-# Patch Cameras to include sampling masks and cx, cy
+# Patch Cameras to include masks and cx, cy
 @import_context.patch_ast_import("scene.cameras")
 def _(ast_module: ast.Module):
     camera_ast = next((x for x in ast_module.body if isinstance(x, ast.ClassDef) and x.name == "Camera"), None)
     assert camera_ast is not None, "Camera not found in cameras"
-    # Add sampling_mask and cx, cy to Camera.__init__
+    # Add mask and cx, cy to Camera.__init__
     init = next((x for x in camera_ast.body if isinstance(x, ast.FunctionDef) and x.name == "__init__"), None)
     assert init is not None, "Camera.__init__ not found"
 
@@ -96,12 +96,12 @@ def _(ast_module: ast.Module):
     ast_module.body.append(getProjectionMatrixFromOpenCV_ast)
 
     # Add missing arguments
-    init.args.args.insert(1, ast.arg(arg="sampling_mask", annotation=None, lineno=0, col_offset=0))
+    init.args.args.insert(1, ast.arg(arg="mask", annotation=None, lineno=0, col_offset=0))
     init.args.args.insert(2, ast.arg(arg="cx", annotation=None, lineno=0, col_offset=0))
     init.args.args.insert(3, ast.arg(arg="cy", annotation=None, lineno=0, col_offset=0))
 
-    # Store sampling mask
-    init.body.insert(0, ast.parse("self.sampling_mask = sampling_mask").body[0])
+    # Store mask
+    init.body.insert(0, ast.parse("self.mask = mask").body[0])
 
     # Finally, we fix the computed projection matrix
     projection_matrix_ast = next((x for x in init.body if isinstance(x, ast.Assign) and ast.unparse(x.targets[0]) == "self.projection_matrix"), None)
@@ -124,9 +124,9 @@ def _(ast_module: ast.Module):
     # Add typing import
     ast_module.body.insert(0, ast.ImportFrom(module="typing", names=[ast.alias(name="Optional", asname=None, lineno=0, col_offset=0)], level=0, lineno=0, col_offset=0))
 
-    # Add sampling_mask and cx, cy attributes to CameraInfo
+    # Add mask and cx, cy attributes to CameraInfo
     camera_info_ast.body.extend([
-        ast.AnnAssign(target=ast.Name(id="sampling_mask", ctx=ast.Store(), lineno=0, col_offset=0), 
+        ast.AnnAssign(target=ast.Name(id="mask", ctx=ast.Store(), lineno=0, col_offset=0), 
                       annotation=ast.parse("Optional[np.ndarray]").body[0].value,  # type: ignore
                       value=None, simple=1, lineno=0, col_offset=0),
         ast.AnnAssign(target=ast.Name(id="cx", ctx=ast.Store(), lineno=0, col_offset=0), 
@@ -232,10 +232,10 @@ def _(ast_module: ast.Module):
     # Extract render_pkg = ... index
     render_pkg_idx = next(i for i, x in enumerate(train_step) if isinstance(x, ast.Assign) and x.targets[0].id == "render_pkg")  # type: ignore
     train_step.insert(render_pkg_idx+1, ast.parse("""
-if viewpoint_cam.sampling_mask is not None:
-    sampling_mask = viewpoint_cam.sampling_mask.cuda()
+if viewpoint_cam.mask is not None:
+    mask = viewpoint_cam.mask.cuda()
     for k in ["render", "rend_normal", "surf_normal", "rend_dist"]:
-        render_pkg[k] = render_pkg[k] * sampling_mask + (1.0 - sampling_mask) * render_pkg[k].detach()
+        render_pkg[k] = render_pkg[k] * mask + (1.0 - mask) * render_pkg[k].detach()
 """).body[0])
 
     # Detect global names

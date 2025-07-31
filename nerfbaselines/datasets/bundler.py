@@ -188,7 +188,7 @@ def load_bundler_dataset(path: str,
                          attributes: Union[str, Tuple[str, ...]] = tuple("f,cx,cy".split(",")),
                          camera_model: Optional[str] = None,
                          coordinate_system: CoordinateSystem = "opengl",
-                         sampling_masks_path: Optional[str] = None):
+                         masks_path: Optional[str] = None):
     if isinstance(attributes, str):
         attributes = tuple(attributes.split(","))
     if features is None:
@@ -206,7 +206,7 @@ def load_bundler_dataset(path: str,
     images_root = os.path.join(path, "images") if images_path is None else os.path.join(path, images_path)
     images_root = os.path.realpath(images_root)
 
-    images_masks_root = os.path.join(path, "sampling_masks") if sampling_masks_path is None else os.path.join(path, sampling_masks_path)
+    images_masks_root = os.path.join(path, "masks") if masks_path is None else os.path.join(path, masks_path)
     images_masks_root = os.path.realpath(images_masks_root)
 
     all_cameras, (points3D_xyz, points3D_rgb), image_names = load_bundler_file(os.path.join(path, bundler_file), 
@@ -219,8 +219,8 @@ def load_bundler_dataset(path: str,
         cameras=all_cameras,
         image_paths=[os.path.join(images_root, x) for x in image_names],
         image_paths_root=images_root,
-        sampling_mask_paths=None if not os.path.exists(images_masks_root) else [os.path.join(images_masks_root, x) for x in image_names],
-        sampling_mask_paths_root=images_masks_root,
+        mask_paths=None if not os.path.exists(images_masks_root) else [os.path.join(images_masks_root, x) for x in image_names],
+        mask_paths_root=images_masks_root,
         points3D_xyz=points3D_xyz if load_points else None,
         points3D_rgb=points3D_rgb if load_points else None,
         metadata={

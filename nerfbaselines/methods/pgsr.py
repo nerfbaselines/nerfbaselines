@@ -35,19 +35,19 @@ _disabled_config_keys = (
 )
 
 
-def _compute_weighted_affine_mapping(image, gt_image, sampling_mask=None):
+def _compute_weighted_affine_mapping(image, gt_image, mask=None):
     # Normalize sampling weights
-    if sampling_mask is None:
-        sampling_mask = torch.ones_like(image)
-    sampling_mask = sampling_mask / torch.sum(sampling_mask)
+    if mask is None:
+        mask = torch.ones_like(image)
+    mask = mask / torch.sum(mask)
     
     # Compute weighted means
-    x_mean = torch.sum(sampling_mask * image)
-    y_mean = torch.sum(sampling_mask * gt_image)
+    x_mean = torch.sum(mask * image)
+    y_mean = torch.sum(mask * gt_image)
     
     # Compute weighted covariance and variance
-    cov_xy = torch.sum(sampling_mask * (image - x_mean) * (gt_image - y_mean))
-    var_x = torch.sum(sampling_mask * (image - x_mean) ** 2)
+    cov_xy = torch.sum(mask * (image - x_mean) * (gt_image - y_mean))
+    var_x = torch.sum(mask * (image - x_mean) ** 2)
     
     # Compute coefficients
     a = cov_xy / var_x
@@ -81,7 +81,7 @@ def _config_overrides_to_args_list(args_list, config_overrides):
 
 def get_scene_info(train_dataset, args):
     images_root = train_dataset["image_paths_root"]
-    sampling_masks = train_dataset.get("sampling_masks", None)
+    masks = train_dataset.get("masks", None)
     gargs = args
 
     def get_caminfo(i):
@@ -103,11 +103,11 @@ def get_scene_info(train_dataset, args):
                 alpha = alpha.astype(np.float32) / 255.0
                 image = image * alpha[..., None] + (1 - alpha[..., None])
                 image = (image.clip(0, 1) * 255).astype(np.uint8)
-        sampling_mask = None
+        mask = None
         if image.dtype != np.uint8:
             image = (image * 255).astype(np.uint8)
-        if sampling_masks is not None:
-            sampling_mask = sampling_masks[i]
+        if masks is not None:
+            mask = masks[i]
         return Namespace(
             global_id=i,
             uid=i,
@@ -119,7 +119,7 @@ def get_scene_info(train_dataset, args):
             image_name=image_name,
             image=image,
             image_path=image_name,
-            sampling_mask=sampling_mask,
+            mask=mask,
             id=i,
             args=args,
             FovX=focal2fov(camera.intrinsics[0], w),
@@ -311,16 +311,16 @@ class PGSR(Method):
             gt_color = gt_color[..., :3]
             if self._args.white_background:
                 gt_color = gt_color * alpha[..., None] + (1 - alpha[..., None])
-        # Load sampling_masks
-        sampling_masks = dataset.get("sampling_masks", None)
-        sampling_mask = None
-        if sampling_masks is not None:
-            sampling_mask = torch.from_numpy(sampling_masks[0])
-            if sampling_mask.dtype == torch.uint8:
-                sampling_mask = sampling_mask.float().div(255).to(device)
+        # Load masks
+        masks = dataset.get("masks", None)
+        mask = None
+        if masks is not None:
+            mask = torch.from_numpy(masks[0])
+            if mask.dtype == torch.uint8:
+                mask = mask.float().div(255).to(device)
         # Find optimal embedding
         assert color.shape == gt_color.shape, "Color and gt_color must have the same shape"
-        scale, offset = _compute_weighted_affine_mapping(color, gt_color, sampling_mask)
+        scale, offset = _compute_weighted_affine_mapping(color, gt_color, mask)
         return {
             "embedding": np.array([math.log(scale), offset], dtype=np.float32)
         }
