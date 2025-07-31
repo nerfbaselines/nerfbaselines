@@ -56,6 +56,7 @@ function test_method {
 }
 
 mipnerf360="mipnerf360/garden"
+mipnerf360_sparse="mipnerf360-sparse/garden-n12"
 blender="blender/lego"
 phototourism="phototourism/sacre-coeur"
 seathru_nerf="seathru-nerf/curasao"
@@ -102,6 +103,8 @@ test_method seathru-nerf $seathru_nerf
 
 test_method taming-3dgs $mipnerf360
 
+test_method 3dgs-mcmc $mipnerf360
+
 test_method tensorf $blender
 test_method tensorf $llff
 
@@ -112,6 +115,9 @@ test_method water-splatting $seathru_nerf
 
 test_method wild-gaussians $mipnerf360
 test_method wild-gaussians $phototourism
+
+test_method sparsegs $mipnerf360_sparse
+test_method dropgaussian $mipnerf360_sparse
 
 
 # Print results

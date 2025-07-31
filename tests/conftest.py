@@ -963,7 +963,7 @@ def torch_cpu():
                 args = ("cpu",) + args[1:]
             return oldto(self, *args, **kwargs)  # type: ignore
         patchtensor("to", to)
-        for name in ['zeros', 'ones', 'rand', 'tensor', 'zeros_like', 'ones_like', 'rand_like', 'eye']:
+        for name in ['zeros', 'ones', 'rand', 'tensor', 'zeros_like', 'ones_like', 'rand_like', 'eye', 'randint']:
             patch(name, patchdevice(getattr(torch, name)))
         yield None
     finally:

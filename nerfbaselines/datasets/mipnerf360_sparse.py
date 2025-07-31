@@ -58,8 +58,8 @@ def download_mipnerf360_sparse_dataset(path: str, output: Union[Path, str]):
 
     else:
         scenes = (
-            [(s, output/(f"{s}-n12")) for s in SCENES] + 
-            [(s, output/(f"{s}-n24")) for s in SCENES]
+            [(f"{s}-n12", output/(f"{s}-n12")) for s in SCENES] + 
+            [(f"{s}-n24", output/(f"{s}-n24")) for s in SCENES]
         )
     for scene, output in scenes:
         mipnerf360_scene = scene.split("-")[0]
@@ -78,6 +78,7 @@ def download_mipnerf360_sparse_dataset(path: str, output: Union[Path, str]):
             shutil.copy(os.path.join(source, "test_list.txt"), os.path.join(tmpoutput, "test_list.txt"))
             # Build train list
             train_images = [x.strip() for x in open(os.path.join(source, "train_list.txt"), "r", encoding="utf8")]
+            train_images.sort()  # Sort to ensure consistent order
             # Select subset of images
             indices = np.linspace(0, len(train_images) - 1, num_views, dtype=int)
             train_images = [train_images[i] for i in indices]
@@ -95,7 +96,11 @@ def download_mipnerf360_sparse_dataset(path: str, output: Union[Path, str]):
                     shutil.copy(src_image_path, os.path.join(tmpoutput, images_dir, img_name))
 
             # Write the nb-info.json
-            shutil.copy(os.path.join(source, "nb-info.json"), os.path.join(tmpoutput, "nb-info.json"))
+            with open(os.path.join(source, "nb-info.json"), "r", encoding="utf8") as fsource, open(os.path.join(tmpoutput, "nb-info.json"), "w", encoding="utf8") as fout:
+                nb_info = json.load(fsource)
+                nb_info["id"] = DATASET_NAME
+                nb_info["scene"] = scene
+                json.dump(nb_info, fout, indent=2, ensure_ascii=False)
 
             # Write the output
             if os.path.exists(output):

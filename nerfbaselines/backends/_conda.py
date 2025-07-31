@@ -164,7 +164,9 @@ class CondaBackend(RemoteProcessRPCBackend):
         os.makedirs(os.path.join(env_path, "nb-sources"), exist_ok=True)
         # Sanitize env path
         package_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        safe_package_path = re.sub("[^0-9a-zA-Z_]", "_", os.path.abspath(package_path))
+        # NOTE: There was path-too-long error
+        # safe_package_path = re.sub("[^0-9a-zA-Z_]", "_", os.path.abspath(package_path))
+        safe_package_path = hashlib.sha256(package_path.encode("utf8")).hexdigest()[:16]
         target = os.path.join(env_path, "nb-sources", safe_package_path, "nerfbaselines")
         os.makedirs(os.path.dirname(target), exist_ok=True)
         if not os.path.exists(target):
