@@ -244,8 +244,9 @@ def method_has_changes(method, backend=None, base_commit=None):
 def _cmd(*args: str) -> str:
     """Run a git command and return stripped stdout (empty on error)."""
     try:
-        return subprocess.check_output(args, stderr=subprocess.DEVNULL).decode().strip()
-    except subprocess.CalledProcessError:
+        return subprocess.check_output(args).decode().strip()
+    except subprocess.CalledProcessError as e:
+        print(e)
         return ""
 
 
@@ -298,15 +299,14 @@ def get_base_commit():
     default_branch = get_default_branch()
     branch = _current_branch()
 
-    # In CI the local ref for the default branch usually doesn't exist,
-    # so ensure we have the remote one:
-    subprocess.check_call(
-        ["git", "fetch", "--quiet", "origin", default_branch, "--depth", "1"]
-    )
-
     if branch == default_branch:
         base = _cmd("git", "rev-parse", "HEAD~1")
     else:
+        # In CI the local ref for the default branch usually doesn't exist,
+        # so ensure we have the remote one:
+        subprocess.check_call(
+            ["git", "fetch", "--quiet", "origin", default_branch, "--depth", "1"]
+        )
         base = _cmd("git", "merge-base", "HEAD", f"origin/{default_branch}")
 
     print(
