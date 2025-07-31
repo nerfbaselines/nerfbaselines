@@ -249,7 +249,7 @@ def _cmd(*args: str) -> str:
         return ""
 
 
-def get_default_branch() -> str:
+def get_default_branch():
     """
     Works without any local refs:
       1.  In Actions → use the event payload (always present and 100 % reliable);
@@ -274,7 +274,7 @@ def get_default_branch() -> str:
     raise RuntimeError("Cannot determine repository default branch")
 
 
-def _current_branch() -> str | None:
+def _current_branch():
     """
     Best-effort branch name for the *checked-out commit*.
 
@@ -289,7 +289,7 @@ def _current_branch() -> str | None:
         or _cmd("git", "symbolic-ref", "--short", "-q", "HEAD") or None
     )
 
-def get_base_commit() -> str:
+def get_base_commit():
     """
     • On the default branch → compare to the previous commit (HEAD~1)  
     • On any other ref      → compare to the merge-base with the default branch
