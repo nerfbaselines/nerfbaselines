@@ -1821,12 +1821,7 @@ class DatasetManager {
     // Load dataset train/test frustums
     let result;
     try {
-      const response = await fetch(url, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await fetch(url);
       if (!response.ok) {
         let error = `Failed to load dataset: ${response.statusText}`;
         try {
