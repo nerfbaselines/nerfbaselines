@@ -6,6 +6,8 @@ import argparse
 import os
 import pytest
 from PIL import Image
+# Ensure matplotlib is imported before mocking other modules
+import matplotlib.pyplot
 from nerfbaselines._registry import collect_register_calls
 
 METHOD_ID = "sparsegs"
