@@ -52,6 +52,10 @@ def method_module(method_source_code, mock_module):
     diff_gaussian_rasterization = mock_module("diff_gaussian_rasterization")
     def distCUDA2(x):
         return x.norm(dim=-1)
+    # Ensure matplotlib is imported before mocking other modules
+    import matplotlib.colors
+    del matplotlib
+
     mock_module("websockets")
     mock_module("fused_ssim").fused_ssim = lambda x, y: (x - y).sum()
     mock_module("simple_knn._C").distCUDA2 = distCUDA2
