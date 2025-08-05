@@ -1,3 +1,6 @@
+"""
+We patched 3DGRUT with support for OPENCV and OPENCV_FULL camera models.
+"""
 import shutil
 import ast
 import sys
@@ -18,9 +21,11 @@ import torch
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf, DictConfig
 
-from threedgrut.datasets import dataset_colmap  # type: ignore
-from threedgrut.utils.timer import CudaTimer  # type: ignore
-import threedgrut
+from .threedgrut_patch import import_context
+with import_context:
+    from threedgrut.datasets import dataset_colmap  # type: ignore
+    from threedgrut.utils.timer import CudaTimer  # type: ignore
+    import threedgrut
 
 
 OmegaConf.register_new_resolver("int_list", lambda l: [int(x) for x in l], replace=True)
@@ -172,7 +177,8 @@ class ThreeDGRUT(Method):
 
         self._loaded_step = None
 
-        from threedgrut.trainer import Trainer3DGRUT  # type: ignore
+        with import_context:
+            from threedgrut.trainer import Trainer3DGRUT  # type: ignore
         self.trainer = None
         self._train_iteration = _get_train_iteration(Trainer3DGRUT)
         self._train_iterator = None
@@ -231,7 +237,8 @@ class ThreeDGRUT(Method):
                     writer=None)
 
     def _load_model_without_dataset(self, checkpoint_path, conf):
-        from threedgrut.model.model import MixtureOfGaussians  # type: ignore
+        with import_context:
+            from threedgrut.model.model import MixtureOfGaussians  # type: ignore
         checkpoint = torch.load(checkpoint_path)
         global_step = checkpoint["global_step"]
         # overrides
@@ -250,7 +257,7 @@ class ThreeDGRUT(Method):
         return MethodInfo(
             method_id="",
             required_features=frozenset(("color", "points3D_xyz", "points3D_rgb")),
-            supported_camera_models=frozenset(("pinhole", "opencv_fisheye")),
+            supported_camera_models=frozenset(("pinhole", "opencv_fisheye", "opencv", "full_opencv")),
             supported_outputs=("color", "distance", "accumulation", "normal", "depth"),
             can_resume_training=True,
             viewer_default_resolution=768,
