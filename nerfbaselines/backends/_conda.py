@@ -185,7 +185,7 @@ class CondaBackend(RemoteProcessRPCBackend):
 
     def install(self):
         package_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        subprocess.check_call(["bash", "-l", "-c", conda_get_install_script(self._spec, package_path=package_path)])
+        subprocess.check_call(["bash", "-c", conda_get_install_script(self._spec, package_path=package_path)])
 
     def shell(self, args=None):
         environments_path = os.environ.get("NERFBASELINES_CONDA_ENVIRONMENTS", os.path.join(NB_PREFIX, "conda-envs"))

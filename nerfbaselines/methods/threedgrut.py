@@ -1,5 +1,7 @@
 """
 We patched 3DGRUT with support for OPENCV and OPENCV_FULL camera models.
+
+NOTE: Conda build requires GCC 11 or older.
 """
 import shutil
 import ast

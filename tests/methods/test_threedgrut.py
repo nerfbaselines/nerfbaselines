@@ -1,3 +1,4 @@
+from unittest.mock import patch
 import sys
 import importlib
 import numpy as np
@@ -80,7 +81,10 @@ def method_module(method_source_code, mock_module):
     torchmetrics = mock_module("torchmetrics")
     torchmetrics.image = mock_module("torchmetrics.image")
     torchmetrics.image.lpip = mock_module("torchmetrics.image.lpip")
-    yield importlib.import_module(f"nerfbaselines.methods.threedgrut")
+    import torch
+    torch_load = torch.load
+    with patch.object(torch, "load", lambda *args, weights_only=True, **kwargs: torch_load(*args, **kwargs, weights_only=False)):
+        yield importlib.import_module(f"nerfbaselines.methods.threedgrut")
     OmegaConf.clear_resolvers()
 
 

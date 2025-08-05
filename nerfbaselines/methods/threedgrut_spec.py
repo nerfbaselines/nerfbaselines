@@ -12,6 +12,18 @@ _conda_spec: CondaBackendSpec = CondaBackendSpec(
     environment_name=_name,
     python_version="3.11",
     install_script=rf"""
+# Make sure gcc is at most 11 for nvcc compatibility
+gcc_version=$(gcc -dumpversion)
+if [ "$gcc_version" -gt 11 ]; then
+    echo "Default gcc version $gcc_version is higher than 11. Please install GCC-11."
+    exit 1
+elif [ "$gcc_version" -lt 11 ]; then
+    echo "[WARNING] Default gcc version $gcc_version is lower than 11. Issues may be encountered. Please install GCC-11."
+else
+    echo "[INFO] Using default gcc version $gcc_version."
+fi
+
+echo "Cloning 3dgrut repository..."
 git clone {GIT_REPOSITORY} {_name}
 cd {_name}
 git checkout {GIT_REF}
@@ -20,13 +32,6 @@ git submodule update --init --recursive
 # Prepare GCC and ensure ffmpeg is installed
 command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
 export LIBRARY_PATH="$CONDA_PREFIX/lib/stubs"
-if [[ "$(gcc -v 2>&1)" != *"gcc version 11"* ]]; then
-  echo "GCC 11 was not found, installing GCC 11 and GXX 11..."
-  conda install -y gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
-  ln -s "$CC" "$CONDA_PREFIX/bin/gcc"
-  ln -s "$CXX" "$CONDA_PREFIX/bin/g++"
-  export CPATH="$CONDA_PREFIX/x86_64-conda-linux-gnu/sysroot/usr/include:$CPATH"
-fi
 
 CUDA_VERSION="11.8.0"
 export TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6;9.0";
@@ -36,7 +41,7 @@ conda env config vars set TORCH_CUDA_ARCH_LIST=$TORCH_CUDA_ARCH_LIST
 # CUDA 11.8 supports until compute capability 9.0
 echo "Installing CUDA 11.8.0 ..."
 conda install -y cuda-toolkit cmake ninja -c nvidia/label/cuda-11.8.0
-conda install -y pytorch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 pytorch-cuda=11.8 "numpy<2.0" -c pytorch -c nvidia/label/cuda-11.8.0
+pip install torch==2.1.2 torchvision==0.16.2 'numpy<2.0' --index-url https://download.pytorch.org/whl/cu118
 pip3 install --find-links https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.1.2_cu118.html kaolin==0.17.0
 
 # Install OpenGL headers for the playground
@@ -87,14 +92,6 @@ with hydra.initialize(version_base=None, config_path='configs'):
 import lib3dgut_cc as tdgut
 "
 echo "Setup completed successfully!"
-
-# Clear build dependencies
-if [ "$NERFBASELINES_DOCKER_BUILD" = "1" ]; then
-# Reduce size of the environment by removing unused files
-find "$CONDA_PREFIX" -name '*.a' -delete
-find "$CONDA_PREFIX" -type d -name 'nsight*' -exec rm -r {{}} +
-echo "Cleared build dependencies to reduce environment size."
-fi
 """
 )
 
