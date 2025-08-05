@@ -5,10 +5,40 @@ import logging
 from pathlib import Path
 from typing import Tuple, Optional, Dict, List, Union, FrozenSet
 import numpy as np
-from nerfbaselines import DatasetFeature, CameraModel, camera_model_to_int, new_cameras, DatasetNotFoundError, new_dataset
+from nerfbaselines import DatasetFeature, CameraModel, camera_model_to_int, new_cameras, DatasetNotFoundError, new_dataset, Cameras
 from ..utils import Indices
 from . import _colmap_utils as colmap_utils
 from ._common import padded_stack, dataset_index_select
+
+
+def camera_to_colmap_camera(camera: Cameras, id) -> colmap_utils.Camera:
+    camera = camera.item()
+
+    fx, fy, cx, cy = camera.intrinsics
+    width, height = camera.image_sizes
+    ds = camera.distortion_parameters
+    if camera.camera_models == camera_model_to_int("pinhole"):
+        return colmap_utils.Camera(
+            id=id, model="PINHOLE", width=width, height=height,
+            params=np.array([fx, fy, cx, cy], dtype=np.float64)
+        )
+    elif camera.camera_models == camera_model_to_int("opencv"):
+        return colmap_utils.Camera(
+            id=id, model="OPENCV", width=width, height=height,
+            params=np.array([fx, fy, cx, cy, ds[0], ds[1], ds[2], ds[3]], dtype=np.float64)
+        )
+    elif camera.camera_models == camera_model_to_int("opencv_fisheye"):
+        return colmap_utils.Camera(
+            id=id, model="OPENCV_FISHEYE", width=width, height=height,
+            params=np.array([fx, fy, cx, cy, ds[0], ds[1], ds[4], ds[5]], dtype=np.float64)
+        )
+    elif camera.camera_models == camera_model_to_int("full_opencv"):
+        return colmap_utils.Camera(
+            id=id, model="FULL_OPENCV", width=width, height=height,
+            params=np.array([fx, fy, cx, cy, ds[0], ds[1], ds[2], ds[3], ds[4], ds[5], ds[6], ds[7]], dtype=np.float64)
+        )
+    else:
+        raise NotImplementedError(f"Camera model {camera.camera_models} is not supported for COLMAP export!")
 
 
 def _parse_colmap_camera_params(camera: colmap_utils.Camera) -> Tuple[np.ndarray, int, np.ndarray, Tuple[int, int]]:

@@ -73,6 +73,25 @@ extras = [
     'wandb',
     'gdown',
 ]
+extras-tests = [
+    # 3DGRUT dependencies
+    'addict',
+    'hydra-core',
+    'omegaconf',
+    'einops',
+    'dataclasses_json',
+    'usd-core',
+    'scikit-learn',
+    'setuptools<70',
+    'slangtorch',
+    # Shared dependencies
+    'torch',
+    'torchvision',
+    'jax[cpu]',
+    'torchmetrics==1.4.1',
+    'dm_pix',
+    'gin',
+]
 
 [project.scripts]
 nerfbaselines = "nerfbaselines.__main__:main"

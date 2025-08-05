@@ -148,6 +148,11 @@ def _viewmatrix(lookdir, up, position):
     return m
 
 
+def _strip_prefix(path: str, prefix: str) -> str:
+    assert path.startswith(prefix), f"Path {path} does not start with prefix {prefix}"
+    return path[len(prefix):]
+
+
 def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np.ndarray, np.ndarray]:
     """
     Compute the default viewer transform and initial pose for a dataset.
@@ -243,14 +248,6 @@ def _dataset_undistort_unsupported(dataset: Dataset, supported_camera_models):
     for i, camera in tqdm(undistort_tasks, desc="undistorting images", dynamic_ncols=True):
         undistorted_camera = cameras.undistort_camera(camera)
         ow, oh = camera.image_sizes
-        if dataset["image_paths"] is not None:
-            dataset["image_paths"][i] = os.path.join(
-                "/undistorted", os.path.split(dataset["image_paths"][i])[-1]
-            )
-        if dataset["mask_paths"] is not None:
-            dataset["mask_paths"][i] = os.path.join(
-                "/undistorted-masks", os.path.split(dataset["mask_paths"][i])[-1]
-            )
         warped = cameras.warp_image_between_cameras(
             camera, undistorted_camera, new_images[i][:oh, :ow]
         )
@@ -260,6 +257,21 @@ def _dataset_undistort_unsupported(dataset: Dataset, supported_camera_models):
             new_masks[i] = warped
         # IMPORTANT: camera is modified in-place
         dataset["cameras"][i] = undistorted_camera
+
+    # Replace all image paths with the undistorted paths
+    for i, camera in enumerate(dataset["cameras"]):
+        if dataset["image_paths"] is not None:
+            root = dataset.get("mask_paths_root")
+            if root is None:
+                root = os.path.commonprefix(dataset["image_paths"])
+            relative_path = _strip_prefix(dataset["image_paths"][i], root)[1:]
+            dataset["image_paths"][i] = os.path.join("/undistorted", relative_path)
+        if dataset["mask_paths"] is not None:
+            root = dataset.get("mask_paths_root")
+            if root is None:
+                root = os.path.commonprefix(dataset["mask_paths"])
+            relative_mask_path = _strip_prefix(dataset["mask_paths"][i], root)[1:]
+            dataset["mask_paths"][i] = os.path.join("/undistorted-masks", relative_mask_path)
     if not was_list:
         dataset["images"] = padded_stack(new_images)
         dataset["masks"] = (
