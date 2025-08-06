@@ -15,10 +15,17 @@ _conda_spec: CondaBackendSpec = CondaBackendSpec(
 # Make sure gcc is at most 11 for nvcc compatibility
 gcc_version=$(gcc -dumpversion)
 if [ "$gcc_version" -gt 11 ]; then
-    echo "Default gcc version $gcc_version is higher than 11. Please install GCC-11."
-    exit 1
+    echo "[WARNING] Default gcc version $gcc_version is higher than 11. Installing GCC-11 to ensure compatibility with nvcc."
+    conda install -y gcc_linux-64=11 gxx_linux-64=11 make=4.3 cmake=3.28.3 -c conda-forge
+    _prefix="$CONDA_PREFIX";conda deactivate;conda activate "$_prefix"
+    echo "[INFO] Installed GCC-11."
+    gcc_version=$("$CC" -dumpversion)
+    if [[ "$gcc_version" != 11* ]]; then
+        echo "Failed to install GCC-11. Current version: $gcc_version"
+        exit 1
+    fi
 elif [ "$gcc_version" -lt 11 ]; then
-    echo "[WARNING] Default gcc version $gcc_version is lower than 11. Issues may be encountered. Please install GCC-11."
+    echo "[WARNING] Default GCC version $gcc_version is lower than 11. This may cause compatibility issues with nvcc."
 else
     echo "[INFO] Using default gcc version $gcc_version."
 fi
@@ -31,7 +38,7 @@ git submodule update --init --recursive
 
 # Prepare GCC and ensure ffmpeg is installed
 command -v ffmpeg >/dev/null || conda install -y 'ffmpeg<=7.1.0'
-export LIBRARY_PATH="$CONDA_PREFIX/lib/stubs"
+export LIBRARY_PATH="$CONDA_PREFIX/lib/stubs:$LIBRARY_PATH"
 
 CUDA_VERSION="11.8.0"
 export TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6;9.0";
@@ -90,8 +97,7 @@ with hydra.initialize(version_base=None, config_path='configs'):
     conf = hydra.compose(config_name='apps/colmap_3dgut.yaml', overrides=[])
     setup_3dgut(DictConfig(conf))
 import lib3dgut_cc as tdgut
-"
-echo "Setup completed successfully!"
+" || echo "Failed to build native code. Please check the error messages above."
 """
 )
 
