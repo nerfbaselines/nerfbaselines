@@ -101,7 +101,7 @@ try:
 except ImportError as e:
     # ImportError: libcuda.so.1: cannot open shared object file: No such file or directory
     if 'libcuda.so.1' in str(e):
-        print("NVIDIA driver not found. Skipping pre-building extension libraries.")
+        print('NVIDIA driver not found. Skipping pre-building extension libraries.')
     else: raise e
 "
 """
