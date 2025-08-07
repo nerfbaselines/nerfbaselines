@@ -90,14 +90,20 @@ from threedgrt_tracer.setup_3dgrt import setup_3dgrt
 from threedgut_tracer.setup_3dgut import setup_3dgut
 import threedgrut.utils.misc
 with hydra.initialize(version_base=None, config_path='configs'):
-    conf = hydra.compose(config_name='apps/colmap_3dgrt.yaml', overrides=[])
-    setup_3dgrt(DictConfig(conf))
-import lib3dgrt_cc as tdgrt
+    conf_3dgut = DictConfig(hydra.compose(config_name='apps/colmap_3dgut.yaml', overrides=[]))
 with hydra.initialize(version_base=None, config_path='configs'):
-    conf = hydra.compose(config_name='apps/colmap_3dgut.yaml', overrides=[])
-    setup_3dgut(DictConfig(conf))
-import lib3dgut_cc as tdgut
-" || echo "Failed to build native code. Please check the error messages above."
+    conf_3dgrt = DictConfig(hydra.compose(config_name='apps/colmap_3dgrt.yaml', overrides=[]))
+try:
+    setup_3dgut(conf_3dgut)
+    setup_3dgrt(conf_3dgrt)
+    import lib3dgut_cc as tdgut
+    import lib3dgrt_cc as tdgrt
+except ImportError as e:
+    # ImportError: libcuda.so.1: cannot open shared object file: No such file or directory
+    if 'libcuda.so.1' in str(e):
+        print("NVIDIA driver not found. Skipping pre-building extension libraries.")
+    else: raise e
+"
 """
 )
 
@@ -124,6 +130,14 @@ register({
     "implementation_status": {}
 })
 
+_long_description_3dgrt = """
+The official implementation implements pinhole cameras and opencv_fisheye camera models.
+In NerfBaselines, we extend the implementation to also support opencv and full_opencv camera models (all currently supported by NerfBaselines).
+Masks are also supported.
+
+NOTE: In our experiments, 3DGRT always render only black images and no Gaussians get splitted/cloned.
+"""
+
 register({
     "id": "3dgrt",
     "method_class": f".{_package_name}:ThreeDGRT",
@@ -131,6 +145,7 @@ register({
     "metadata": {
         "name": "3dgrt",
         "description": "The authors accelerate 3DGS rendering by replacing rasterization with a BVH-based GPU ray-tracing pipeline that wraps each particle in proxy meshes for fast ray–triangle tests, maintains raster-like speed while enabling ray-tracing effects and arbitrary cameras.",
+        "long_description": _long_description_3dgrt,
         "paper_title": "3D Gaussian Ray Tracing: Fast Tracing of Particle Scenes",
         "paper_authors": ["Nicolas Moenne-Loccoz", "Ashkan Mirzaei", "Or Perel", "Riccardo de Lutio", "Janick Martinez Esturo", "Gavriel State", "Sanja Fidler", "Nicholas Sharp", "Zan Gojcic"],
         "paper_link": "https://arxiv.org/pdf/2407.07090.pdf",

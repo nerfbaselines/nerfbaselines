@@ -223,6 +223,16 @@ def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np
         raise ValueError(f"Dataset type {dataset_type} is not supported")
 
 
+def get_relative_paths(paths: List[str], root: Optional[str] = None) -> List[str]:
+    if root is None:
+        root = os.path.commonprefix(paths)
+    return [os.path.relpath(x, root) for x in paths]
+
+
+def _get_root_path():
+    return os.path.splitdrive(os.getcwd())[0] + os.sep
+
+
 def _dataset_undistort_unsupported(dataset: Dataset, supported_camera_models):
     assert dataset["images"] is not None, "Images must be loaded"
     supported_models_int = set(camera_model_to_int(x) for x in supported_camera_models)
@@ -259,25 +269,26 @@ def _dataset_undistort_unsupported(dataset: Dataset, supported_camera_models):
         dataset["cameras"][i] = undistorted_camera
 
     # Replace all image paths with the undistorted paths
+    relative_image_paths = get_relative_paths(dataset["image_paths"], dataset.get("image_paths_root"))
+    dataset["image_paths_root"] = image_paths_root = _get_root_path() + "undistorted"
+    relative_mask_paths = None
+    mask_paths = dataset.get("mask_paths")
+    mask_paths_root = None
+    if mask_paths is not None:
+        relative_mask_paths = get_relative_paths(mask_paths, dataset.get("mask_paths_root"))
+        dataset["mask_paths_root"] = mask_paths_root = _get_root_path() + "undistorted-masks"
     for i, camera in enumerate(dataset["cameras"]):
         if dataset["image_paths"] is not None:
-            root = dataset.get("mask_paths_root")
-            if root is None:
-                root = os.path.commonprefix(dataset["image_paths"])
-            relative_path = _strip_prefix(dataset["image_paths"][i], root)[1:]
-            dataset["image_paths"][i] = os.path.join("/undistorted", relative_path)
-        if dataset["mask_paths"] is not None:
-            root = dataset.get("mask_paths_root")
-            if root is None:
-                root = os.path.commonprefix(dataset["mask_paths"])
-            relative_mask_path = _strip_prefix(dataset["mask_paths"][i], root)[1:]
-            dataset["mask_paths"][i] = os.path.join("/undistorted-masks", relative_mask_path)
+            dataset["image_paths"][i] = os.path.join(image_paths_root, relative_image_paths[i])
+        if mask_paths is not None:
+            assert relative_mask_paths is not None  # ...pyright
+            assert mask_paths_root is not None  # ...pyright
+            mask_paths[i] = os.path.join(mask_paths_root, relative_mask_paths[i])
     if not was_list:
         dataset["images"] = padded_stack(new_images)
         dataset["masks"] = (
             padded_stack(new_masks) if new_masks is not None else None
         )
-    dataset["image_paths_root"] = "/undistorted"
     return True
 
 

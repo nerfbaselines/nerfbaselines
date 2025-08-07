@@ -75,7 +75,10 @@ def method_module(method_source_code, mock_module):
         return x.norm(dim=-1)
     mock_module("diptest")
     mock_module("icecream")
-    mock_module("transformers")
+    try:
+        import transformers  # type: ignore
+    except ImportError:
+        mock_module("transformers")
     BoostingMonocularDepth = mock_module("BoostingMonocularDepth")
     BoostingMonocularDepth.prepare_depth = mock_module("BoostingMonocularDepth.prepare_depth")
     BoostingMonocularDepth.prepare_depth.prepare_gt_depth = prepare_gt_depth
