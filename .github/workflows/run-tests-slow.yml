@@ -96,10 +96,7 @@ jobs:
         id: dev-extras
         if: ${{ matrix.python == '3.11' }}
         run: |
-          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-          pip install 'jax[cpu]'
-          pip install -e ".[extras,dev]"
-          pip install torchmetrics==1.4.1 dm_pix
+          pip install -e ".[extras,dev,extras-tests]"
       - name: Run dev-extras tests
         run: |
           pyright
@@ -122,9 +119,7 @@ jobs:
       - name: Install nerfbaselines
         run: |
           pip install --upgrade pip
-          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-          pip install torchmetrics==1.4.1 dm_pix 'jax[cpu]'
-          pip install -e ".[dev,extras]"
+          pip install -e ".[extras,dev,extras-tests]"
       - name: Run pyright, pytests
         run: |
           pyright
@@ -146,8 +141,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-          pip install torchmetrics==1.4.1 dm_pix 'jax[cpu]'
-          pip install -e ".[dev,extras]"
+          pip install -e ".[extras,dev,extras-tests]"
       - name: Run pyright, pytests
         run: |
           pyright

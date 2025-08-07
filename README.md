@@ -158,7 +158,9 @@ Detailed results are available on the project page: [https://nerfbaselines.githu
 | Method                     | Blender   | Hierarchical 3DGS | LLFF      | Mip-NeRF 360 | Mip-NeRF 360 Sparse | Nerfstudio | Photo Tourism | SeaThru-NeRF | Tanks and Temples | Zip-NeRF  |
 |:-------------------------- |:--------- |:----------------- |:--------- |:------------ |:------------------- |:---------- |:------------- |:------------ |:----------------- |:--------- |
 | 2D Gaussian Splatting      | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔                  | ❔         | ❔            | 🥇 gold      | 🥈 silver         | ❔        |
+| 3dgrt                      | ❔        | ❔                | ❔        | ❔           | ❔                  | ❔         | ❔            | ❔           | ❔                | ❔        |
 | 3DGS-MCMC                  | 🥈 silver | ❔                | ❔        | 🥇 gold      | ❔                  | ❔         | ❔            | 🥇 gold      | 🥇 gold           | ❔        |
+| 3dgut                      | ❔        | ❔                | ❔        | ❔           | ❔                  | ❔         | ❔            | ❔           | ❔                | ❔        |
 | CamP                       | ❔        | ❔                | ❔        | ❔           | ❔                  | ❔         | ❔            | ❔           | ❔                | ❔        |
 | COLMAP                     | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔                  | 🥇 gold    | ❔            | ❔           | 🥇 gold           | ❔        |
 | DropGaussian               | ❔        | ❔                | ❔        | ❔           | ❔                  | ❔         | ❔            | ❔           | ❔                | ❔        |
@@ -208,7 +210,9 @@ This project is licensed under the [MIT license](https://raw.githubusercontent.c
 Each implemented method is licensed under the license provided by the authors of the method.
 For the currently implemented methods, the following licenses apply:
 - 2D Gaussian Splatting: [custom, research only](https://raw.githubusercontent.com/hbb1/2d-gaussian-splatting/main/LICENSE.md)
+- 3dgrt: [Apache 2.0](https://raw.githubusercontent.com/nv-tlabs/3dgrut/refs/heads/main/LICENSE)
 - 3DGS-MCMC: [custom, research only](https://raw.githubusercontent.com/ubc-vision/3dgs-mcmc/refs/heads/main/LICENSE.md)
+- 3dgut: [Apache 2.0](https://raw.githubusercontent.com/nv-tlabs/3dgrut/refs/heads/main/LICENSE)
 - CamP: [Apache 2.0](https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE)
 - COLMAP: [BSD](https://colmap.github.io/license.html)
 - DropGaussian: [custom, research only](https://raw.githubusercontent.com/DCVL-3D/DropGaussian_release/refs/heads/main/LICENSE_GAUSSIAN_SPLATTING.md), [Apache 2.0](https://raw.githubusercontent.com/DCVL-3D/DropGaussian_release/refs/heads/main/LICENSE)

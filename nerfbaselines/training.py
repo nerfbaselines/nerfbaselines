@@ -1,4 +1,5 @@
 import importlib
+import contextlib
 import subprocess
 import shutil
 import struct
@@ -11,7 +12,7 @@ import math
 import logging
 from pathlib import Path
 from typing import Optional, Union, List, Any, Dict, Tuple, cast, FrozenSet, Callable, Sequence, Set
-from tqdm import tqdm
+import tqdm.contrib.logging
 import numpy as np
 from PIL import Image
 import nerfbaselines
@@ -758,7 +759,7 @@ class Trainer:
 
         update_frequency = 100
         final_metrics = None
-        with tqdm(total=self.num_iterations, initial=self.step, desc="training") as pbar:
+        with tqdm.contrib.logging.tqdm_logging_redirect(total=self.num_iterations, initial=self.step, desc="training") as pbar:
             for i in range(self.step, self.num_iterations):
                 final_metrics = None
                 self.step = i
