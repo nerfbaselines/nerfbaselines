@@ -51,7 +51,9 @@ pip install plyfile==0.8.1 \
         pytest==8.3.4 \
         icecream==2.1.5 \
         diptest==0.10.0 \
-        transformers==4.54.1 \
+        safetensors==0.4.1 \
+        accelerate==0.26.0 \
+        transformers==4.47.1 \
         diffusers==0.34.0 \
         torchmetrics==1.8.0 \
         submodules/diff-gaussian-rasterization-softmax \
