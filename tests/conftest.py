@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 import shutil
 import subprocess
 import importlib
@@ -399,6 +400,9 @@ class Tensor(np.ndarray):
         if isinstance(other, Tensor):
             other = np.ndarray.view(other, np.ndarray)
         return Tensor(self != other)
+
+    def is_floating_point(self):
+        return self.dtype in [np.float32, np.float64, np.float16]
 
     def float(self):
         return self.astype(np.float32)
@@ -906,12 +910,24 @@ def mock_torch(patch_modules):
 
     torch.utils.data.Dataset = Dataset
     torch.utils.data.DataLoader = DataLoader
+
+    cuda = torch.cuda
+    cuda.is_current_stream_capturing = lambda: False
+    class nvtx_range(nullcontext):
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+        def __call__(self, x): return x
+    cuda.nvtx.range = nvtx_range
+
     with patch_modules({
         "torch": torch, 
         "torch._C": torch._C,
         "torch.autograd": torch.autograd,
         "torch.utils": torch.utils,
         "torch.utils.data": torch.utils.data,
+        "torch.utils.tensorboard": torch.utils.tensorboard,
+        "torch.utils.tensorboard.writer": torch.utils.tensorboard.writer,
+        "torch.utils.cpp_extension": torch.utils.cpp_extension,
         "torch.cuda": torch.cuda,
         "torch.nn": torch.nn,
         "torch.optim": torch.optim,
@@ -954,6 +970,11 @@ def torch_cpu():
         patch("Tensor", copy.copy(torch.Tensor))
         cuda = mock.MagicMock()
         cuda.is_current_stream_capturing = lambda: False
+        class nvtx_range(nullcontext):
+            def __init__(self, *args, **kwargs):
+                super().__init__()
+            def __call__(self, x): return x
+        cuda.nvtx.range = nvtx_range
         patch("cuda", cuda)
         def _cuda(self, device=None): return self
         patchtensor("cuda", _cuda)
@@ -961,9 +982,12 @@ def torch_cpu():
         def to(self, *args, **kwargs):
             if args and (args[0] == "cuda" or isinstance(args[0], torch.device)):
                 args = ("cpu",) + args[1:]
+            if kwargs.get("device", None) in ["cuda", "mps"]:
+                kwargs["device"] = "cpu"
             return oldto(self, *args, **kwargs)  # type: ignore
         patchtensor("to", to)
-        for name in ['zeros', 'ones', 'rand', 'tensor', 'zeros_like', 'ones_like', 'rand_like', 'eye', 'randint']:
+        patchtensor("pin_memory", lambda self, *args, **kwargs: self)
+        for name in ['zeros', 'ones', 'full', 'rand', 'tensor', 'zeros_like', 'ones_like', 'rand_like', 'eye', 'randint']:
             patch(name, patchdevice(getattr(torch, name)))
         yield None
     finally:

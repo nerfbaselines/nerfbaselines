@@ -27,16 +27,23 @@ def _parse_patch(patch):
     i = 0
     fullpatch = {}
     while i < len(pl):
-        if not pl[i]:
+        while i < len(pl) and not pl[i].startswith("--- "):
             i += 1
-            continue
-        while not pl[i].startswith("--- "):
-            i += 1
-        assert pl[i].startswith("--- a/")
+        if i >= len(pl):
+            break
+
+        old_hdr = pl[i][4:].strip()
         i += 1
-        assert pl[i].startswith("+++ b/")
-        file = pl[i][6:].strip()
+        if i >= len(pl) or not pl[i].startswith("+++ "):
+            raise ValueError('Malformed patch: missing "+++" line')
+        new_hdr = pl[i][4:].strip()
         i += 1
+
+         # choose the filename that exists after applying the patch
+        if new_hdr != "/dev/null":
+            file = new_hdr[2:] if new_hdr.startswith("b/") else new_hdr
+        else:
+            file = old_hdr[2:] if old_hdr.startswith("a/") else old_hdr
 
         updates_mod = 0
         while i < len(pl) and pl[i].startswith("@@ "):
@@ -65,6 +72,8 @@ def _parse_patch(patch):
                     newlines.append("")
                 elif pl[i].startswith("\\"):
                     pass
+                else:
+                    break
                 i += 1
                 if i >= len(pl) or (pl[i] and pl[i][0] not in (" ", "-", "+", "\\")):
                     break
@@ -77,13 +86,21 @@ def _parse_patch(patch):
 
 
 def _apply_patch(content, updates):
-    lines = content.splitlines() + ([""] if content.endswith("\n") else [])
+    has_trailing_nl = content.endswith("\n")
+    lines = content.splitlines()
+    if has_trailing_nl:
+        lines.append("")
+
     for lineno, oldlines, newlines in updates:
         actuallines = lines[lineno - 1:lineno + len(oldlines) - 1]
         assert "\n".join(actuallines) == "\n".join(oldlines), \
             f"Expected {oldlines} at line {lineno}, got {actuallines}"
         lines = lines[:lineno - 1] + newlines + lines[lineno + len(oldlines) - 1:]
-    return "\n".join(lines)
+
+    out = "\n".join(lines)
+    if has_trailing_nl and not out.endswith("\n"):
+        out += "\n"
+    return out
 
 
 class _MetaFinder(importlib.abc.MetaPathFinder):

@@ -148,6 +148,11 @@ def _viewmatrix(lookdir, up, position):
     return m
 
 
+def _strip_prefix(path: str, prefix: str) -> str:
+    assert path.startswith(prefix), f"Path {path} does not start with prefix {prefix}"
+    return path[len(prefix):]
+
+
 def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np.ndarray, np.ndarray]:
     """
     Compute the default viewer transform and initial pose for a dataset.
@@ -218,6 +223,16 @@ def get_default_viewer_transform(poses, dataset_type: Optional[str]) -> Tuple[np
         raise ValueError(f"Dataset type {dataset_type} is not supported")
 
 
+def get_relative_paths(paths: List[str], root: Optional[str] = None) -> List[str]:
+    if root is None:
+        root = os.path.commonprefix(paths)
+    return [os.path.relpath(x, root) for x in paths]
+
+
+def _get_root_path():
+    return os.path.splitdrive(os.getcwd())[0] + os.sep
+
+
 def _dataset_undistort_unsupported(dataset: Dataset, supported_camera_models):
     assert dataset["images"] is not None, "Images must be loaded"
     supported_models_int = set(camera_model_to_int(x) for x in supported_camera_models)
@@ -243,14 +258,6 @@ def _dataset_undistort_unsupported(dataset: Dataset, supported_camera_models):
     for i, camera in tqdm(undistort_tasks, desc="undistorting images", dynamic_ncols=True):
         undistorted_camera = cameras.undistort_camera(camera)
         ow, oh = camera.image_sizes
-        if dataset["image_paths"] is not None:
-            dataset["image_paths"][i] = os.path.join(
-                "/undistorted", os.path.split(dataset["image_paths"][i])[-1]
-            )
-        if dataset["mask_paths"] is not None:
-            dataset["mask_paths"][i] = os.path.join(
-                "/undistorted-masks", os.path.split(dataset["mask_paths"][i])[-1]
-            )
         warped = cameras.warp_image_between_cameras(
             camera, undistorted_camera, new_images[i][:oh, :ow]
         )
@@ -260,12 +267,28 @@ def _dataset_undistort_unsupported(dataset: Dataset, supported_camera_models):
             new_masks[i] = warped
         # IMPORTANT: camera is modified in-place
         dataset["cameras"][i] = undistorted_camera
+
+    # Replace all image paths with the undistorted paths
+    relative_image_paths = get_relative_paths(dataset["image_paths"], dataset.get("image_paths_root"))
+    dataset["image_paths_root"] = image_paths_root = _get_root_path() + "undistorted"
+    relative_mask_paths = None
+    mask_paths = dataset.get("mask_paths")
+    mask_paths_root = None
+    if mask_paths is not None:
+        relative_mask_paths = get_relative_paths(mask_paths, dataset.get("mask_paths_root"))
+        dataset["mask_paths_root"] = mask_paths_root = _get_root_path() + "undistorted-masks"
+    for i, camera in enumerate(dataset["cameras"]):
+        if dataset["image_paths"] is not None:
+            dataset["image_paths"][i] = os.path.join(image_paths_root, relative_image_paths[i])
+        if mask_paths is not None:
+            assert relative_mask_paths is not None  # ...pyright
+            assert mask_paths_root is not None  # ...pyright
+            mask_paths[i] = os.path.join(mask_paths_root, relative_mask_paths[i])
     if not was_list:
         dataset["images"] = padded_stack(new_images)
         dataset["masks"] = (
             padded_stack(new_masks) if new_masks is not None else None
         )
-    dataset["image_paths_root"] = "/undistorted"
     return True
 
 
