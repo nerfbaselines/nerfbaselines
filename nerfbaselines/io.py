@@ -487,7 +487,6 @@ def get_checkpoint_sha(path: str) -> str:
     files = list(f for f in Path(path).glob("**/*") if f.is_file())
     files.sort()
     sha = hashlib.sha256()
-    print([x.relative_to(path) for x in files])
     for f in files:
         if f.name == "nb-info.json":
             continue
@@ -499,8 +498,6 @@ def get_checkpoint_sha(path: str) -> str:
         if os.path.exists(str(f) + ".sha256"):
             with open(str(f) + ".sha256", "rb") as fio:
                 sha.update(fio.read().strip())
-            with open(str(f) + ".sha256", "rb") as fio:
-                print(str(rf), "sha256", fio.read().strip())
         elif os.path.exists(str(f) + ".sha"):
             with open(str(f) + ".sha", "rb") as fio:
                 sha.update(fio.read().strip())
@@ -512,7 +509,6 @@ def get_checkpoint_sha(path: str) -> str:
             with open(f, "rb", buffering=0) as fio:
                 for n in iter(lambda: fio.readinto(mv), 0):
                     sha_.update(mv[:n])
-            print(str(rf), "comp", sha_.hexdigest())
     return sha.hexdigest()
 
 

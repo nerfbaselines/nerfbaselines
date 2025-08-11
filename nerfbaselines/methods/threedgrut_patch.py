@@ -83,4 +83,22 @@ index 89b2a45..3244c39 100644
 -                    focal_length_x, focal_length_y, width, height
 +                    focal_length_x, focal_length_y, cx, cy, width, height, d
                  )
-""".strip())
+diff --git a/threedgrut/model/background.py b/threedgrut/model/background.py
+index 9dec3b4..5d6c671 100644
+--- a/threedgrut/model/background.py
++++ b/threedgrut/model/background.py
+@@ -65,8 +65,2 @@ class BackgroundColor(BaseBackground):
+ 
+-        assert self.background_color_type in [
+-            "white",
+-            "black",
+-            "random",
+-        ], "Background color must be one of 'white', 'black', 'random'"
+-
+         if self.background_color_type == "white":
+@@ -78,2 +72,4 @@ class BackgroundColor(BaseBackground):
+             self.color = torch.zeros((3,), dtype=torch.float32, device=self.device)
++        else:
++            self.color = torch.tensor(self.background_color_type, dtype=torch.float32, device=self.device)
+ 
+"""[1:-1])

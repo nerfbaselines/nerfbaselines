@@ -20,7 +20,10 @@ class SplatRaster:
         self.conf = conf
 
     def trace(self, frame_id, n_active_features, particle_density, particle_radiance, ray_ori, ray_dir, *args, **kwargs):
-        ray_radiance_density = ray_dir[0, ..., :]
+        import torch
+        ray_radiance_density = torch.ones((*ray_dir.shape[1:-1], 4), dtype=ray_dir.dtype, device=ray_dir.device) * 0.1
+        ray_radiance_density[..., 3] = 0.5
+        ray_radiance_density = ray_radiance_density + 0 * ray_dir[0, ..., :1]  # Enable grad
         ray_hit_distance = ray_dir[0, ..., :]
         ray_hit_count = ray_dir[..., 0].long()
         mog_visibility = None

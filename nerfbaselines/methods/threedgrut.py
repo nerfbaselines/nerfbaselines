@@ -241,8 +241,12 @@ class ThreeDGRUT(Method):
                 configs_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(threedgrut.__file__))), "configs")
                 with initialize_config_dir(version_base=None, config_dir=configs_path):
                     config_name = config_overrides.pop("config", self._default_config)
-                    self.config = compose(config_name=config_name, overrides=(
-                        ["path=", "enable_writer=false"] + [f"{k}={v}" for k, v in (config_overrides or {}).items()]))
+                    cfg_overrides = ["path=", "enable_writer=false"] + [f"{k}={v}" for k, v in (config_overrides or {}).items()]
+                    if bg_color is not None:
+                        cfg_overrides.append("model.background.name=background-color")
+                        cfg_overrides.append("model.background.color=" + str(bg_color.tolist()))
+                        logging.info(f"Using background color: {bg_color}")
+                    self.config = compose(config_name=config_name, overrides=cfg_overrides)
                 self.trainer = Trainer3DGRUT(self.config)
                 self.model = self.trainer.model
             else:
@@ -266,17 +270,6 @@ class ThreeDGRUT(Method):
                     run_name="experiment",
                     object_name="experiment",
                     writer=None)
-
-            # Fix background color
-            if bg_color is not None:
-                old_background = getattr(self.model.background, "color")
-                logging.info(f"Overriding background color with {bg_color} (was {old_background})")
-                background = threedgrut.model.background.make("background-color", DictConfig({
-                    "color": "white",  # Must be set to white!
-                    "name": "background-color",
-                }))
-                background.color = torch.tensor(bg_color, dtype=background.color.dtype, device=background.color.device)
-                self.model.background = background
 
     def _load_model_without_dataset(self, checkpoint_path, conf):
         with import_context:
