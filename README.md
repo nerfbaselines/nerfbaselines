@@ -18,6 +18,7 @@ Please visit the <a href="https://nerfbaselines.github.io/">project page to see 
 </h3>
 
 ## News
+*[11/08/2025]* Added 3DGUT and 3DGRT methods.</br>
 *[30/07/2025]* Added Sparse-GS, DropGaussian methods and Mip-NeRF 360-sparse dataset.</br>
 *[19/05/2025]* Added Hierarchical-3DGS dataset and method, and Octree-GS method.</br>
 *[18/05/2025]* Added Taming-3DGS, 3DGS-MCMC, Student-Splatting-Scooping method.</br>
@@ -106,6 +107,7 @@ Detailed results are available on the project page: [https://nerfbaselines.githu
 | [Octree-GS](https://nerfbaselines.github.io/m-octree-gs)                             |     27.397 |     0.811 |       0.264 |      28m 3s |   8.5 GB |
 | [Taming 3DGS](https://nerfbaselines.github.io/m-taming-3dgs)                         |     27.217 |     0.793 |       0.305 |    *5m 59s* |   8.7 GB |
 | [PGSR](https://nerfbaselines.github.io/m-pgsr)                                       |     27.199 |     0.819 |       0.233 |     39m 58s |  14.3 GB |
+| [3DGUT](https://nerfbaselines.github.io/m-3dgut)                                     |     27.041 |     0.812 |       0.252 |     34m 34s |  14.9 GB |
 | [H3DGS](https://nerfbaselines.github.io/m-hierarchical-3dgs)                         |     26.927 |     0.790 |       0.269 |     55m 29s |   9.1 GB |
 | [2D Gaussian Splatting](https://nerfbaselines.github.io/m-2d-gaussian-splatting)     |     26.815 |     0.796 |       0.297 |     31m 10s |  13.2 GB |
 | [NerfStudio](https://nerfbaselines.github.io/m-nerfacto)                             |     26.388 |     0.731 |       0.343 |     19m 30s | *5.9 GB* |
@@ -121,6 +123,7 @@ Detailed results are available on the project page: [https://nerfbaselines.githu
 |:-------------------------------------------------------------------------------------|-----------:|----------:|------------:|------------:|---------:|
 | [Zip-NeRF](https://nerfbaselines.github.io/m-zipnerf)                                | **33.670** | **0.973** |   **0.036** |  5h 21m 57s |  26.2 GB |
 | [3DGS-MCMC](https://nerfbaselines.github.io/m-3dgs-mcmc)                             |   *33.637* |   *0.971* |   **0.036** |       9m 8s |   4.5 GB |
+| [3DGUT](https://nerfbaselines.github.io/m-3dgut)                                     |     33.476 |     0.969 |   **0.036** |      7m 16s |   4.7 GB |
 | [Gaussian Opacity Fields](https://nerfbaselines.github.io/m-gaussian-opacity-fields) |     33.451 |     0.969 |       0.038 |     18m 26s |   3.1 GB |
 | [Mip-Splatting](https://nerfbaselines.github.io/m-mip-splatting)                     |     33.330 |     0.969 |       0.039 |      6m 49s |   2.7 GB |
 | [Gaussian Splatting](https://nerfbaselines.github.io/m-gaussian-splatting)           |     33.308 |     0.969 |       0.037 |     *6m 6s* |   3.1 GB |
@@ -158,9 +161,9 @@ Detailed results are available on the project page: [https://nerfbaselines.githu
 | Method                     | Blender   | Hierarchical 3DGS | LLFF      | Mip-NeRF 360 | Mip-NeRF 360 Sparse | Nerfstudio | Photo Tourism | SeaThru-NeRF | Tanks and Temples | Zip-NeRF  |
 |:-------------------------- |:--------- |:----------------- |:--------- |:------------ |:------------------- |:---------- |:------------- |:------------ |:----------------- |:--------- |
 | 2D Gaussian Splatting      | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔                  | ❔         | ❔            | 🥇 gold      | 🥈 silver         | ❔        |
-| 3dgrt                      | ❔        | ❔                | ❔        | ❔           | ❔                  | ❔         | ❔            | ❔           | ❔                | ❔        |
+| 3DGRT                      | ❔        | ❔                | ❔        | ❔           | ❔                  | ❔         | ❔            | ❔           | ❔                | ❔        |
 | 3DGS-MCMC                  | 🥈 silver | ❔                | ❔        | 🥇 gold      | ❔                  | ❔         | ❔            | 🥇 gold      | 🥇 gold           | ❔        |
-| 3dgut                      | ❔        | ❔                | ❔        | ❔           | ❔                  | ❔         | ❔            | ❔           | ❔                | ❔        |
+| 3DGUT                      | ❔        | ❔                | ❔        | ❔           | ❔                  | ❔         | ❔            | ❔           | ❔                | ❔        |
 | CamP                       | ❔        | ❔                | ❔        | ❔           | ❔                  | ❔         | ❔            | ❔           | ❔                | ❔        |
 | COLMAP                     | 🥇 gold   | ❔                | ❔        | 🥇 gold      | ❔                  | 🥇 gold    | ❔            | ❔           | 🥇 gold           | ❔        |
 | DropGaussian               | ❔        | ❔                | ❔        | ❔           | ❔                  | ❔         | ❔            | ❔           | ❔                | ❔        |
@@ -210,9 +213,9 @@ This project is licensed under the [MIT license](https://raw.githubusercontent.c
 Each implemented method is licensed under the license provided by the authors of the method.
 For the currently implemented methods, the following licenses apply:
 - 2D Gaussian Splatting: [custom, research only](https://raw.githubusercontent.com/hbb1/2d-gaussian-splatting/main/LICENSE.md)
-- 3dgrt: [Apache 2.0](https://raw.githubusercontent.com/nv-tlabs/3dgrut/refs/heads/main/LICENSE)
+- 3DGRT: [Apache 2.0](https://raw.githubusercontent.com/nv-tlabs/3dgrut/refs/heads/main/LICENSE)
 - 3DGS-MCMC: [custom, research only](https://raw.githubusercontent.com/ubc-vision/3dgs-mcmc/refs/heads/main/LICENSE.md)
-- 3dgut: [Apache 2.0](https://raw.githubusercontent.com/nv-tlabs/3dgrut/refs/heads/main/LICENSE)
+- 3DGUT: [Apache 2.0](https://raw.githubusercontent.com/nv-tlabs/3dgrut/refs/heads/main/LICENSE)
 - CamP: [Apache 2.0](https://raw.githubusercontent.com/jonbarron/camp_zipnerf/main/LICENSE)
 - COLMAP: [BSD](https://colmap.github.io/license.html)
 - DropGaussian: [custom, research only](https://raw.githubusercontent.com/DCVL-3D/DropGaussian_release/refs/heads/main/LICENSE_GAUSSIAN_SPLATTING.md), [Apache 2.0](https://raw.githubusercontent.com/DCVL-3D/DropGaussian_release/refs/heads/main/LICENSE)

@@ -168,7 +168,7 @@ register({
     "method_class": f".{_package_name}:ThreeDGUT",
     "conda": _conda_spec,
     "metadata": {
-        "name": "3dgut",
+        "name": "3DGUT",
         "description": "3DGUT replaces traditional EWA splatting with an Unscented Transform to support nonlinear camera models and secondary effects like reflections, enabling flexible, distortion-aware rendering while retaining the speed of rasterization.",
         "long_description": _long_description_3dgut,
         "paper_title": "3DGUT: Enabling Distorted Cameras and Secondary Rays in Gaussian Splatting",
@@ -208,7 +208,7 @@ register({
     "method_class": f".{_package_name}:ThreeDGRT",
     "conda": _conda_spec,
     "metadata": {
-        "name": "3dgrt",
+        "name": "3DGRT",
         "description": "The authors accelerate 3DGS rendering by replacing rasterization with a BVH-based GPU ray-tracing pipeline that wraps each particle in proxy meshes for fast ray–triangle tests, maintains raster-like speed while enabling ray-tracing effects and arbitrary cameras.",
         "long_description": _long_description_3dgrt,
         "paper_title": "3D Gaussian Ray Tracing: Fast Tracing of Particle Scenes",
