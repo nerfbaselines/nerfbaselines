@@ -3,11 +3,13 @@ We patched 3DGRUT with support for OPENCV and OPENCV_FULL camera models.
 
 NOTE: Conda build requires GCC 11 or older.
 """
+import logging
 import shutil
 import ast
 import sys
 import os
 import contextlib
+import json
 from typing import Optional, Dict
 from nerfbaselines import Method, Dataset, MethodInfo, ModelInfo, RenderOutput, Cameras
 from nerfbaselines.datasets import _colmap_utils as colmap_utils
@@ -27,10 +29,39 @@ from .threedgrut_patch import import_context
 with import_context:
     from threedgrut.datasets import dataset_colmap  # type: ignore
     from threedgrut.utils.timer import CudaTimer  # type: ignore
-    import threedgrut
+    import threedgrut  # type: ignore
 
 
 OmegaConf.register_new_resolver("int_list", lambda l: [int(x) for x in l], replace=True)
+
+
+def _patch_rich_for_tqdm():
+    class _TqdmCompatibleIO:
+        def write(self, data):
+            # Avoid blank writes that can cause extra lines
+            import tqdm
+            if data and not data.isspace():
+                tqdm.tqdm.write(data, end="")  # print above the current bar
+        def flush(self): pass
+        def isatty(self): return True     # keep Rich ANSI styling on
+
+    def wrap(fn):
+        def _fn(*args, **kwargs):
+            """Patch rich.Console to avoid tqdm progress bar breaking in trainer."""
+            from threedgrut.utils import logger as tdlogger  # type: ignore
+            old_file = tdlogger.logger.console._file
+            old_force_terminal = tdlogger.logger.console._force_terminal
+            try:
+                if "tqdm" in sys.modules:
+                    # tqdm is not loaded, there is no need to patch
+                    tdlogger.logger.console._file = _TqdmCompatibleIO()
+                tdlogger.logger.console._force_terminal = True  # Force terminal output
+                return fn(*args, **kwargs)
+            finally:
+                tdlogger.logger.console._file = old_file
+                tdlogger.logger.console._force_terminal = old_force_terminal
+        return _fn
+    return wrap
 
 
 def _get_train_iteration(Trainer):
@@ -72,14 +103,14 @@ def _get_train_iteration(Trainer):
     return _globals["train_iteration"]
 
 
-def _get_gpu_batch(camera, device):
+def _get_gpu_batch(camera, background_color, device):
     with patch.object(dataset_colmap.logger, "track", lambda x, *args, **kwargs: x):
         dataset = _Dataset({
             "cameras": camera.item()[None],
             "image_paths": ["/dummy/0.png"],
             "image_paths_root": "/dummy",
             "images": [np.zeros((1, 1, 3), dtype=np.uint8)],
-        }, device=device)
+        }, background_color, device=device)
         batch = dataset[0]
         batch["data"] = batch["data"].unsqueeze(0)
         batch["pose"] = batch["pose"].unsqueeze(0)
@@ -89,17 +120,17 @@ def _get_gpu_batch(camera, device):
 
 
 class _Dataset(dataset_colmap.ColmapDataset):
-    def __init__(self, dataset, bg_color=None, **kwargs):
+    def __init__(self, dataset, background_color, **kwargs):
         self._dataset = dataset
         self._inverse_map = {self._dataset["image_paths"][i]: i for i in range(len(self._dataset["image_paths"]))}
         self._inverse_masks_map = {}
+        self._background_color = background_color
         if dataset.get("masks"):
             self._inverse_masks_map = {
                 "/masks/" + self._dataset["image_paths"][i]: i
                 for i in range(len(self._dataset["image_paths"]))
             }
         path = dataset["image_paths_root"]
-        self.bg_color = bg_color
         super().__init__(path, split="train", downsample_factor=1, test_split_interval=1, **kwargs)
 
     def _to_colmap_intrinsics(self, i):
@@ -138,23 +169,12 @@ class _Dataset(dataset_colmap.ColmapDataset):
             self.center, self.length_scale, self.scene_bbox = self.compute_spatial_extents()
             self._worker_gpu_cache.clear()
 
-    def _get_bg_color(self):
-        if self.bg_color is None:
-            return None
-        elif self.bg_color == "black":
-            return np.zeros((3,), dtype=np.float32)
-        elif self.bg_color == "white":
-            return np.ones((3,), dtype=np.float32)
-        else:
-            raise ValueError(f"Unknown background color: {self.bg_color}")
-
-
     def __getitem__(self, idx):
         def _open_image(path):
             i = self._inverse_map.get(path)
             if i is not None:
                 image = self._dataset["images"][i]
-                image = image_to_srgb(image, dtype=np.uint8, allow_alpha=False, background_color=self._get_bg_color())
+                image = image_to_srgb(image, dtype=np.uint8, allow_alpha=False, background_color=self._background_color)
                 return Image.fromarray(image)
             i = self._inverse_masks_map.get(path)
             if i is not None:
@@ -180,12 +200,21 @@ class ThreeDGRUT(Method):
         self._loaded_step = None
 
         with import_context:
+            import threedgrut.model.background  # type: ignore
             from threedgrut.trainer import Trainer3DGRUT  # type: ignore
         self.trainer = None
         self._train_iteration = _get_train_iteration(Trainer3DGRUT)
         self._train_iterator = None
         self._metrics = None
         self._profilers = None
+
+        # Override background color
+        bg_color = None
+        if train_dataset is not None:
+            meta = train_dataset.get("metadata") or {}
+            bg_color = meta.get("background_color", None)
+            if bg_color is not None:
+                bg_color = convert_image_dtype(bg_color, dtype=np.float32)
 
         def _init_from_colmap(model, _, observer_pts):
             assert train_dataset is not None, "train_dataset must be provided"
@@ -204,8 +233,8 @@ class ThreeDGRUT(Method):
 
         with patch("threedgrut.datasets.make", 
                lambda name, config, ray_jitter: (
-                   _Dataset(train_dataset, ray_jitter=ray_jitter, bg_color=config.model.background.color),
-                   _Dataset(train_dataset, ray_jitter=ray_jitter, bg_color=config.model.background.color))), \
+                   _Dataset(train_dataset, bg_color, ray_jitter=ray_jitter),
+                   _Dataset(train_dataset, bg_color, ray_jitter=ray_jitter))), \
                patch("threedgrut.model.model.MixtureOfGaussians.init_from_colmap", _init_from_colmap), \
                patch.object(Trainer3DGRUT, "init_experiments_tracking", lambda *args, **kwargs: None):
             if self.checkpoint is None:
@@ -238,6 +267,17 @@ class ThreeDGRUT(Method):
                     object_name="experiment",
                     writer=None)
 
+            # Fix background color
+            if bg_color is not None:
+                old_background = getattr(self.model.background, "color")
+                logging.info(f"Overriding background color with {bg_color} (was {old_background})")
+                background = threedgrut.model.background.make("background-color", DictConfig({
+                    "color": "white",  # Must be set to white!
+                    "name": "background-color",
+                }))
+                background.color = torch.tensor(bg_color, dtype=background.color.dtype, device=background.color.device)
+                self.model.background = background
+
     def _load_model_without_dataset(self, checkpoint_path, conf):
         with import_context:
             from threedgrut.model.model import MixtureOfGaussians  # type: ignore
@@ -266,11 +306,28 @@ class ThreeDGRUT(Method):
         )
 
     def get_info(self) -> ModelInfo:
+        # Convert the config to a flat dictionary
+        hparams = {}
+        def walk(node, path):
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    walk(v, path + [str(k)])
+            else:
+                hparams[".".join(path)] = node
+        walk(OmegaConf.to_container(self.config, resolve=True), [])
+        # Drop keys that are not needed in the model info
+        for k in ("path", "experiment_name", "resume",
+                  "out_dir", "with_gui", "use_wandb",
+                  "wandb_project", "test_last", "gui_update_from_device",
+                  "val_frequency", "compute_extra_metrics", "enable_writer",
+                  "enable_frame_timings"): 
+            hparams.pop(k, None)
+
         return ModelInfo(
             num_iterations=self.config.n_iterations,
-            loaded_step=self._loaded_step,  # TODO:
+            loaded_step=self._loaded_step,
             loaded_checkpoint=self.checkpoint,
-            hparams={},  # TODO
+            hparams=hparams,
             **self.get_method_info(),
         )
 
@@ -280,12 +337,19 @@ class ThreeDGRUT(Method):
             k: v.cpu().numpy() for k, v in output.items()
         }
 
+    def _get_background_color(self):
+        color = getattr(self.model.background, "color", None)
+        if color is not None:
+            color = color.detach().cpu().numpy()
+        return color
+
+    @_patch_rich_for_tqdm()
     @torch.no_grad()
     def render(self, camera: Cameras, *, options=None) -> RenderOutput:
         camera = camera.item()
         model = self.model
         # Get the GPU-cached batch
-        gpu_batch = _get_gpu_batch(camera, model.device)
+        gpu_batch = _get_gpu_batch(camera, self._get_background_color(), model.device)
         # Compute the outputs of a single batch
         outputs = model(gpu_batch)
         out = {
@@ -326,6 +390,7 @@ class ThreeDGRUT(Method):
             _reset()
             return next(self._train_iterator)
 
+    @_patch_rich_for_tqdm()
     def train_iteration(self, step: int) -> Dict[str, float]:
         assert self.trainer is not None, "Method is not initialized for training"
         self.trainer.global_step = step
@@ -344,6 +409,7 @@ class ThreeDGRUT(Method):
         out["loss"] = out.get("total_loss", 0.0)
         return out
 
+    @_patch_rich_for_tqdm()
     def save(self, path: str) -> None:
         os.makedirs(path, exist_ok=True)
         if self.trainer is not None:
@@ -364,9 +430,9 @@ class ThreeDGRUT(Method):
 
 
 class ThreeDGUT(ThreeDGRUT):
-    _default_config = "apps/colmap_3dgut.yaml"
+    _default_config = "paper/3dgut/sorted_colmap.yaml"
 
 
 class ThreeDGRT(ThreeDGRUT):
-    _default_config = "apps/colmap_3dgrt.yaml"
+    _default_config = "paper/3dgrt/colmap_ours.yaml"
 

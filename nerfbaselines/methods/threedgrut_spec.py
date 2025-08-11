@@ -8,6 +8,54 @@ _name = "3dgrut"
 GIT_REPOSITORY = 'https://github.com/nv-tlabs/3dgrut.git'
 GIT_REF = 'f41bc22936e2a8afee553b4c478c1c3a3fb9169e'
 
+_scannetpp_3dgut_note = (
+    "The results are not part of the paper (only results for `Ours (sorted)` are reported), but are provided in the GitHub repository."
+)
+_scannetpp_3dgut_fps_note = f"{_scannetpp_3dgut_note} FPS was computed on a single NVIDIA RTX 5090 GPU"
+_blender_3dgut_note = (
+    "The method was trained and evaluated on black background instead of white, which is the default in NerfBaselines."
+    " The results are not part of the paper (only results for `Ours (sorted)` are reported), but are provided in the GitHub repository."
+)
+_blender_3dgut_fps_note = f"{_blender_3dgut_note} FPS was computed on a single NVIDIA RTX 5090 GPU"
+_3dgut_paper_results = {
+    "blender/chair": {"psnr": 35.61, "ssim": 0.988, "fps": 599, "note": _blender_3dgut_note, "note_fps": _blender_3dgut_fps_note},
+    "blender/drums": {"psnr": 25.99, "ssim": 0.953, "fps": 694, "note": _blender_3dgut_note, "note_fps": _blender_3dgut_fps_note},
+    "blender/ficus": {"psnr": 36.43, "ssim": 0.988, "fps": 1053, "note": _blender_3dgut_note, "note_fps": _blender_3dgut_fps_note},
+    "blender/hotdog": {"psnr": 38.11, "ssim": 0.986, "fps": 952, "note": _blender_3dgut_note, "note_fps": _blender_3dgut_fps_note},
+    "blender/lego": {"psnr": 36.47, "ssim": 0.984, "fps": 826, "note": _blender_3dgut_note, "note_fps": _blender_3dgut_fps_note},
+    "blender/materials": {"psnr": 30.39, "ssim": 0.960, "fps": 1000, "note": _blender_3dgut_note, "note_fps": _blender_3dgut_fps_note},
+    "blender/mic": {"psnr": 36.32, "ssim": 0.992, "fps": 775, "note": _blender_3dgut_note, "note_fps": _blender_3dgut_fps_note},
+    "blender/ship": {"psnr": 31.72, "ssim": 0.908, "fps": 870, "note": _blender_3dgut_note, "note_fps": _blender_3dgut_fps_note},
+    "scannetpp/0a5c013435": {"psnr": 29.67, "ssim": 0.930, "fps": 389, "note": _scannetpp_3dgut_note, "note_fps": _scannetpp_3dgut_fps_note},
+    "scannetpp/8d563fc2cc": {"psnr": 26.88, "ssim": 0.912, "fps": 439, "note": _scannetpp_3dgut_note, "note_fps": _scannetpp_3dgut_fps_note},
+    "scannetpp/bb87c292ad": {"psnr": 31.58, "ssim": 0.941, "fps": 448, "note": _scannetpp_3dgut_note, "note_fps": _scannetpp_3dgut_fps_note},
+    "scannetpp/d415cc449b": {"psnr": 28.12, "ssim": 0.871, "fps": 483, "note": _scannetpp_3dgut_note, "note_fps": _scannetpp_3dgut_fps_note},
+    "scannetpp/e8ea9b4da8": {"psnr": 33.47, "ssim": 0.954, "fps": 394, "note": _scannetpp_3dgut_note, "note_fps": _scannetpp_3dgut_fps_note},
+    "scannetpp/fe1733741f": {"psnr": 25.60, "ssim": 0.858, "fps": 450, "note": _scannetpp_3dgut_note, "note_fps": _scannetpp_3dgut_fps_note},
+    "mipnerf360/bicycle": {"psnr": 24.21, "ssim": 0.741, "lpips": 0.202},
+    "mipnerf360/bonsai": {"psnr": 32.17, "ssim": 0.941, "lpips": 0.226},
+    "mipnerf360/counter": {"psnr": 29.03, "ssim": 0.908, "lpips": 0.197},
+    "mipnerf360/garden": {"psnr": 26.90, "ssim": 0.851, "lpips": 0.121},
+    "mipnerf360/kitchen": {"psnr": 31.23, "ssim": 0.926, "lpips": 0.126},
+    "mipnerf360/stump": {"psnr": 26.51, "ssim": 0.768, "lpips": 0.222},
+    "mipnerf360/flowers": {"psnr": 21.48, "ssim": 0.612, "lpips": 0.316},
+    "mipnerf360/room": {"psnr": 31.64, "ssim": 0.919, "lpips": 0.218},
+    "mipnerf360/treehill": {"psnr": 22.15, "ssim": 0.623, "lpips": 0.332},
+}
+
+
+_3dgrt_blender_note = "The method was trained and evaluated on black background instead of white, which is the default in NerfBaselines."
+_3dgrt_paper_results = {
+    "blender/chair": {"psnr": 36.02, "note": _3dgrt_blender_note},
+    "blender/drums": {"psnr": 25.89, "note": _3dgrt_blender_note},
+    "blender/ficus": {"psnr": 36.08, "note": _3dgrt_blender_note},
+    "blender/hotdog": {"psnr": 37.63, "note": _3dgrt_blender_note},
+    "blender/lego": {"psnr": 36.20, "note": _3dgrt_blender_note},
+    "blender/materials": {"psnr": 30.17, "note": _3dgrt_blender_note},
+    "blender/mic": {"psnr": 34.27, "note": _3dgrt_blender_note},
+    "blender/ship": {"psnr": 30.77, "note": _3dgrt_blender_note},
+}
+
 _conda_spec: CondaBackendSpec = CondaBackendSpec(
     environment_name=_name,
     python_version="3.11",
@@ -107,6 +155,14 @@ except ImportError as e:
 """
 )
 
+_long_description_3dgut = """
+The official implementation implements pinhole cameras and opencv_fisheye camera models.
+In NerfBaselines, we extend the implementation to also support opencv and full_opencv camera models (all currently supported by NerfBaselines).
+Masks are also supported and we further extend the implementation to support arbitrary background colors.
+
+The default configuration is `unsorted` (corresponds to `Ours` in the 3DGUT paper). There is also `sorted` preset which can be enabled by adding `--preset sorted` to the command line. The sorted preset corresponds to the `Ours (sorted)` results in the paper.
+"""
+
 register({
     "id": "3dgut",
     "method_class": f".{_package_name}:ThreeDGUT",
@@ -114,8 +170,10 @@ register({
     "metadata": {
         "name": "3dgut",
         "description": "3DGUT replaces traditional EWA splatting with an Unscented Transform to support nonlinear camera models and secondary effects like reflections, enabling flexible, distortion-aware rendering while retaining the speed of rasterization.",
+        "long_description": _long_description_3dgut,
         "paper_title": "3DGUT: Enabling Distorted Cameras and Secondary Rays in Gaussian Splatting",
         "paper_authors": ["Qi Wu", "Janick Martinez Esturo", "Ashkan Mirzaei", "Nicolas Moenne-Loccoz", "Zan Gojcic"],
+        "paper_results": _3dgut_paper_results,
         "paper_link": "https://arxiv.org/pdf/2412.12507.pdf",
         "paper_venue": "CVPR 2025",
         "link": "https://research.nvidia.com/labs/toronto-ai/3DGUT/",
@@ -124,7 +182,14 @@ register({
     "presets": {
         "blender": {
             "@apply": [{"dataset": "blender"}],
-            "config": "apps/nerf_synthetic_3dgut.yaml",
+            "config": "paper/3dgut/unsorted_nerf_synthetic.yaml",
+        },
+        "scannetpp": {
+            "@apply": [{"dataset": "scannetpp"}],
+            "config": "paper/3dgut/unsorted_scannetpp.yaml",
+        },
+        "sorted": {
+            "render.splat.k_buffer_size": 16
         },
     },
     "implementation_status": {}
@@ -149,6 +214,7 @@ register({
         "paper_title": "3D Gaussian Ray Tracing: Fast Tracing of Particle Scenes",
         "paper_authors": ["Nicolas Moenne-Loccoz", "Ashkan Mirzaei", "Or Perel", "Riccardo de Lutio", "Janick Martinez Esturo", "Gavriel State", "Sanja Fidler", "Nicholas Sharp", "Zan Gojcic"],
         "paper_link": "https://arxiv.org/pdf/2407.07090.pdf",
+        "paper_results": _3dgrt_paper_results,
         "paper_venue": "SIGGRAPH Asia 2024",
         "link": "https://gaussiantracer.github.io/",
         "licenses": [{"name": "Apache 2.0", "url": "https://raw.githubusercontent.com/nv-tlabs/3dgrut/refs/heads/main/LICENSE"}],
@@ -156,7 +222,7 @@ register({
     "presets": {
         "blender": {
             "@apply": [{"dataset": "blender"}],
-            "config": "apps/nerf_synthetic_3dgrt.yaml",
+            "config": "paper/3dgrt/nerf_synthetic_ours.yaml",
         },
     },
     "implementation_status": {}
