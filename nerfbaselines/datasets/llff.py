@@ -11,12 +11,14 @@ SCENES = "fern flower fortress horns leaves orchids room trex".split()
 DATASET_NAME = "llff"
 
 
-def load_llff_dataset(path: Union[Path, str], split: str, *, downscale_factor: int = 4, **_):
+def load_llff_dataset(path: Union[Path, str], split: str, features):
+    del features
     assert isinstance(path, (Path, str)), "path must be a pathlib.Path or str"
+    downscale_factor = 4
     path = Path(path)
 
     hold_every: int = 8
-    for file in ("poses_bounds.npy", "sparse", "database.db", "images", "images_4", "images_8"):
+    for file in ("poses_bounds.npy", "sparse", f"images_{downscale_factor}"):
         if not (path / file).exists():
             raise DatasetNotFoundError(f"Path {path} does not contain a LLFF dataset. Missing file: {path / file}")
     assert split in ["train", "test"], "split must be one of 'train', 'test'"
@@ -86,12 +88,17 @@ def download_llff_dataset(path: str, output: str) -> None:
         "id": dataset_name,
         "scene": scene,
         "loader": load_llff_dataset.__module__ + ":" + load_llff_dataset.__name__,
+        "downscale_factor": 4,
         "evaluation_protocol": "nerf",
         "type": "forward-facing",
     }
-    download_archive_dataset(url, output, 
+    def filter(path):
+        return path.startswith("images_4/") or path == "poses_bounds.npy" or path.startswith("sparse/")
+
+    download_archive_dataset(url, str(output), 
                              archive_prefix=extract_prefix, 
                              nb_info=nb_info,
+                             filter=filter,
                              file_type="zip")
     logging.info(f"Downloaded {path} to {output}")
 

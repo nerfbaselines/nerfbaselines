@@ -1,41 +1,15 @@
 import json
 import os
-from typing import List, Tuple, Union
-import logging
-from itertools import groupby
+from typing import Union
 import shutil
 from pathlib import Path
 import numpy as np
-import zipfile
-import tempfile
 from nerfbaselines import DatasetNotFoundError
-from nerfbaselines.io import wget
 from nerfbaselines import NB_PREFIX
-import tempfile
-from ._common import dataset_index_select
-from .colmap import load_colmap_dataset
+from .mipnerf360 import download_mipnerf360_dataset, SCENES, VERSION, atomic_output
 
 
 DATASET_NAME = "mipnerf360-sparse"
-
-
-def _save_colmap_splits(output):
-    with open(os.path.join(output, "nb-info.json"), "r", encoding="utf8") as f:
-        dataset_info = json.load(f)
-
-    dataset = load_colmap_dataset(output, **dataset_info["loader_kwargs"])
-    image_names = dataset["image_paths"]
-    inds = np.argsort(image_names)
-
-    all_indices = np.arange(len(dataset["image_paths"]))
-    llffhold = 8
-    indices = {}
-    indices["train"] = inds[all_indices % llffhold != 0]
-    indices["test"] = inds[all_indices % llffhold == 0]
-    for split in indices:
-        with open(os.path.join(output, f"{split}_list.txt"), "w", encoding="utf8") as f:
-            for img_name in dataset_index_select(dataset, indices[split])["image_paths"]:
-                f.write(os.path.relpath(img_name, dataset["image_paths_root"]) + "\n")
 
 
 def download_mipnerf360_sparse_dataset(path: str, output: Union[Path, str]):
@@ -44,7 +18,6 @@ def download_mipnerf360_sparse_dataset(path: str, output: Union[Path, str]):
     output = Path(output)
 
     # First we download mipnerf360 dataset
-    from .mipnerf360 import download_mipnerf360_dataset, SCENES
     mipnerf360_path = str(Path(NB_PREFIX) / "datasets" / "mipnerf360")
 
     if path == DATASET_NAME:
@@ -69,12 +42,13 @@ def download_mipnerf360_sparse_dataset(path: str, output: Union[Path, str]):
 
         # We have mipnerf360 dataset ready, now we simply copy the relevant part
         os.makedirs(output, exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=os.path.dirname(output)) as tmpdir:
-            tmpoutput = os.path.join(tmpdir, "output")
+        with atomic_output(output) as tmpoutput:
             source = os.path.join(mipnerf360_path, mipnerf360_scene)
 
             # Now we copy sparse directory
-            shutil.copytree(os.path.join(source, "sparse"), os.path.join(tmpoutput, "sparse"), dirs_exist_ok=True)
+            for x in os.listdir(source):
+                if x.startswith("sparse"):
+                    shutil.copytree(os.path.join(source, x), os.path.join(tmpoutput, x), dirs_exist_ok=True)
             shutil.copy(os.path.join(source, "test_list.txt"), os.path.join(tmpoutput, "test_list.txt"))
             # Build train list
             train_images = [x.strip() for x in open(os.path.join(source, "train_list.txt"), "r", encoding="utf8")]
@@ -102,10 +76,6 @@ def download_mipnerf360_sparse_dataset(path: str, output: Union[Path, str]):
                 nb_info["scene"] = scene
                 json.dump(nb_info, fout, indent=2, ensure_ascii=False)
 
-            # Write the output
-            if os.path.exists(output):
-                shutil.rmtree(output)
-            shutil.move(tmpoutput, output)
 
-
+download_mipnerf360_sparse_dataset.version = VERSION  # type: ignore
 __all__ = ["download_mipnerf360_sparse_dataset"]

@@ -73,6 +73,10 @@ def test_blender_dataset(tmp_path):
     test_images = [os.path.relpath(x, test_dataset["image_paths_root"]) for x in test_dataset["image_paths"][:5]]
     assert test_images == ['test/r_0.png', 'test/r_1.png', 'test/r_2.png', 'test/r_3.png', 'test/r_4.png']
     assert test_dataset["images"][0].shape == (800, 800, 4)
+    np.testing.assert_allclose(
+        test_dataset["cameras"][0].intrinsics,
+        np.array([1111.1111, 1111.1111,  400.    ,  400.    ], dtype=np.float32)
+    )
 
 
 @pytest.mark.dataset("mipnerf360")
@@ -101,6 +105,10 @@ def test_mipnerf360_dataset(tmp_path):
     test_images = [os.path.relpath(x, test_dataset["image_paths_root"]) for x in test_dataset["image_paths"][:5]]
     assert test_images == ['_DSC9040.JPG', '_DSC9048.JPG', '_DSC9056.JPG', '_DSC9064.JPG', '_DSC9072.JPG']
     assert test_dataset["images"][0].shape == (828, 1256, 3)
+    np.testing.assert_allclose(
+        test_dataset["cameras"][0].intrinsics,
+        np.array([1081.9324, 1071.3643,  628.    ,  414.    ], dtype=np.float32)
+    )
 
 
 @pytest.mark.dataset("zipnerf")
@@ -112,6 +120,10 @@ def test_zipnerf_dataset(tmp_path):
     test_images = [os.path.relpath(x, test_dataset["image_paths_root"]) for x in test_dataset["image_paths"][:5]]
     assert test_images == ['indoor_DSC06836.JPG', 'indoor_DSC07249.JPG', 'indoor_DSC08034.JPG', 'indoor_DSC08058.JPG', 'indoor_DSC06500.JPG']
     assert test_dataset["images"][0].shape == (793, 1394, 3)
+    np.testing.assert_allclose(
+        test_dataset["cameras"][0].intrinsics,
+        np.array([603.87744, 604.83496, 697.     , 396.5    ], dtype=np.float32)
+    )
 
 
 @pytest.mark.dataset("hierarchical-3dgs")
@@ -123,6 +135,10 @@ def test_hierarchical_3dgs_dataset(tmp_path):
     test_images = [os.path.relpath(x, test_dataset["image_paths_root"]) for x in test_dataset["image_paths"][:5]]
     assert test_images == ['pass2_0424.png', 'pass1_0213.png', 'pass2_1480.png', 'pass3_0036.png', 'pass1_0743.png']
     assert test_dataset["images"][0].shape == (690, 1024, 3)
+    np.testing.assert_allclose(
+        test_dataset["cameras"][0].intrinsics,
+        np.array([486.9701 , 487.09015, 512.     , 345.     ], dtype=np.float32)
+    )
 
 
 @pytest.mark.dataset("llff")
@@ -136,6 +152,10 @@ def test_llff_dataset(tmp_path):
     test_images = [os.path.relpath(x, test_dataset["image_paths_root"]) for x in test_dataset["image_paths"][:5]]
     assert test_images == ['images_4/image000.png', 'images_4/image008.png', 'images_4/image016.png']
     assert test_dataset["images"][0].shape == (756, 1008, 3)
+    np.testing.assert_allclose(
+        test_dataset["cameras"][0].intrinsics,
+        np.array([815.131583, 815.131583, 504.      , 378.      ], dtype=np.float32)
+    )
 
 
 @pytest.mark.dataset("phototourism")
@@ -149,6 +169,10 @@ def test_phototourism_dataset(tmp_path):
                            '24887636_5651358818.jpg', '24540065_12909555815.jpg', 
                            '24454809_14006921991.jpg']
     assert test_dataset["images"][0].shape == (1020, 680, 3)
+    np.testing.assert_allclose(
+        test_dataset["cameras"][0].intrinsics,
+        np.array([1335.584, 1335.584,  340.   ,  510.   ], dtype=np.float32)
+    )
 
 
 @pytest.mark.dataset("tanksandtemples")
@@ -161,6 +185,10 @@ def test_tanksandtemples_dataset(tmp_path):
     assert test_images == ['000001.jpg', '000009.jpg',
                            '000017.jpg', '000025.jpg', '000033.jpg']
     assert test_dataset["images"][0].shape == (543, 979, 3)
+    np.testing.assert_allclose(
+        test_dataset["cameras"][0].intrinsics,
+        np.array([579.3541, 579.8881, 489.5   , 271.5   ], dtype=np.float32)
+    )
 
 
 @pytest.mark.dataset("seathru-nerf")
@@ -174,6 +202,10 @@ def test_seathru_nerf_dataset(tmp_path):
     test_images = [os.path.relpath(x, test_dataset["image_paths_root"]) for x in test_dataset["image_paths"][:5]]
     assert test_images == ['MTN_1288.png', 'MTN_1296.png', 'MTN_1304.png']
     assert test_dataset["images"][0].shape == (1182, 1776, 3)
+    np.testing.assert_allclose(
+        test_dataset["cameras"][0].intrinsics,
+        np.array([1960.0787 , 1961.7875 ,  894.37976,  580.6337 ], dtype=np.float32)
+    )
 
 
 @pytest.mark.dataset("nerfstudio")
@@ -185,6 +217,10 @@ def test_nerfstudio_dataset(tmp_path):
     test_images = [os.path.relpath(x, test_dataset["image_paths_root"]) for x in test_dataset["image_paths"][:5]]
     assert test_images == ["frame_00011.png", "frame_00021.png", "frame_00031.png", "frame_00041.png", "frame_00051.png"]
     assert test_dataset["images"][0].shape == (540, 960, 3)
+    np.testing.assert_allclose(
+        test_dataset["cameras"][0].intrinsics,
+        np.array([838.04047, 838.1078 , 480.7128 , 265.42245], dtype=np.float32)
+    )
 
 
 def test_phototourism_evaluation_protocol(tmp_path):

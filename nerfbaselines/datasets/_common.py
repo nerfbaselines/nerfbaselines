@@ -19,8 +19,8 @@ import PIL.ExifTags
 from tqdm import tqdm
 from typing import (
     Optional, TypeVar, Tuple, Union, List, Dict, Any, 
-    FrozenSet, Iterable,
-    overload, cast,
+    FrozenSet, Iterable, Callable,
+    overload, cast, Generic
 )
 from nerfbaselines.io import wget
 from nerfbaselines import (
@@ -42,6 +42,7 @@ except ImportError:
 
 
 TDataset = TypeVar("TDataset", bound=Union[Dataset, UnloadedDataset])
+TPath = TypeVar("TPath", bound=Union[str, Path])
 logger = logging.getLogger("nerfbaselines.datasets")
 
 
@@ -330,35 +331,50 @@ def get_image_metadata(image: PIL.Image.Image):
 
 def _dataset_rescale_intrinsics(dataset: Dataset, image_sizes: np.ndarray):
     cameras = dataset["cameras"]
-    if np.any(cameras.image_sizes != image_sizes):
-        logger.info("Image sizes do not match camera sizes. Resizing cameras to match image sizes.")
+    if not np.any(cameras.image_sizes != image_sizes):
+        return
 
-        if np.any(cameras.image_sizes % image_sizes != 0):
-            warnings.warn("Downscaled image sizes are not a multiple of camera sizes.")
+    if np.any(cameras.image_sizes % image_sizes != 0):
+        wrong_index = np.where(
+            np.any(cameras.image_sizes % image_sizes != 0, axis=-1)
+        )[0][0]
+        warnings.warn(
+            "Downscaled image sizes are not a multiple of camera sizes. "
+            f"E.g., image {wrong_index} has size {image_sizes[wrong_index]}, "
+            f"but the camera has size {cameras.image_sizes[wrong_index]}. "
+        )
 
-        multx, multy = np.moveaxis(
-            image_sizes.astype(np.float64) / cameras.image_sizes.astype(np.float64), -1, 0)
+    ws, hs = np.moveaxis(image_sizes, -1, 0).astype(np.float64)
+    ws_old, hs_old = np.moveaxis(cameras.image_sizes, -1, 0).astype(np.float64)
+    if "downscale_factor" in dataset["metadata"]:
+        # Downscale factor is passed, we will use it
+        downscale_factor = dataset["metadata"]["downscale_factor"]
+        image_sizes_new = cameras.image_sizes.astype(np.float64) / downscale_factor
+        low = np.floor(image_sizes_new)
+        high = np.ceil(image_sizes_new)
+        if np.any(image_sizes < low) or np.any(image_sizes > high):
+            raise RuntimeError(f"Downscaled image sizes do not match the downscale_factor of {downscale_factor}.")
+        logger.info(f"Using downscale factor {downscale_factor} for camera intrinsics.")
+    else:
+        # Estimate downscale factor as the ratio with less absolute error
+        downscale_factor_w = ws_old / ws
+        error_w = np.abs(ws * (hs_old / downscale_factor_w - hs))
+        downscale_factor_h = hs_old / hs
+        error_h = np.abs(hs * (ws_old / downscale_factor_h - ws))
+        downscale_factor = np.where(error_w < error_h,
+                                    downscale_factor_w,
+                                    downscale_factor_h)
+        logger.info(f"Estimated downscale factor for camera intrinsics (median {np.median(downscale_factor)}).")
 
-        if "downscale_factor" in dataset["metadata"]:
-            # Downscale factor is passed, we will use it for focal lengths
-            # Not for the center of the image, because there could have been rounding
-            # which would move the center from the center of the image
-            downscale_factor = dataset["metadata"]["downscale_factor"]
-            low = np.floor(cameras.image_sizes * np.stack([multx, multy], -1))
-            high = np.ceil(cameras.image_sizes * np.stack([multx, multy], -1))
-            if np.any(image_sizes < low) or np.any(image_sizes > high):
-                raise RuntimeError(f"Downscaled image sizes do not match the downscale_factor of {downscale_factor}.")
-
-        # NOTE: In previous versions of NerfBaselines, we scaled the parameters differently
-        # We used:
-        #   cx <- cx * multx,  cy <- cy * multy
-        #   fx <- fx * multx,  fy <- fy * multx
-        # This renders changes slightly the results on the MipNeRF 360 dataset
-
-        multipliers = np.stack([multx, multy, multx, multy], -1)
-        dataset["cameras"] = cameras.replace(
-            image_sizes=image_sizes, 
-            intrinsics=(cameras.intrinsics * multipliers).astype(cameras.intrinsics.dtype))
+    fx, fy, cx, cy = np.moveaxis(cameras.intrinsics, -1, 0).astype(np.float64)
+    fx = fx / downscale_factor
+    fy = fy / downscale_factor
+    cx = (cx - ws_old / 2) / downscale_factor + ws / 2
+    cy = (cy - hs_old / 2) / downscale_factor + hs / 2
+    intrinsics = np.stack([fx, fy, cx, cy], -1).astype(cameras.intrinsics.dtype)
+    dataset["cameras"] = cameras.replace(
+        image_sizes=image_sizes, 
+        intrinsics=intrinsics)
 
 
 def dataset_load_features(
@@ -456,9 +472,30 @@ def dataset_load_features(
 
     dataset["images"] = images
 
-    # Replace image sizes and metadata
+    # We only allow rescaling for user-provided datasets
+    # All internal datasets should have the correct image sizes
     image_sizes_array = np.array(image_sizes, dtype=np.int32)
-    _dataset_rescale_intrinsics(cast(Dataset, dataset), image_sizes_array)
+    if np.any(dataset["cameras"].image_sizes != image_sizes_array):
+        wrong_index = np.where(
+            np.any(dataset["cameras"].image_sizes != image_sizes_array, axis=-1)
+        )[0][0]
+        dataset_id = (dataset.get("metadata") or {}).get("id")
+        if _dataset_is_internal(dataset):
+            raise RuntimeError(
+                "Image sizes do not match camera sizes. "
+                f"E.g., image {wrong_index} has size {image_sizes_array[wrong_index]}, "
+                f"but the camera has size {dataset['cameras'].image_sizes[wrong_index]}. "
+                f"Internal dataset {dataset_id} should have correct image sizes."
+            )
+
+        # Replace image sizes and metadata
+        logger.warning(
+            "Image sizes do not match camera sizes. "
+            f"E.g., image {wrong_index} has size {image_sizes_array[wrong_index]}, "
+            f"but the camera has size {dataset['cameras'].image_sizes[wrong_index]}. "
+            f"Camera sizes will be rescaled to match image sizes."
+        )
+        _dataset_rescale_intrinsics(cast(Dataset, dataset), image_sizes_array)
 
     if supported_camera_models is not None:
         if _dataset_undistort_unsupported(cast(Dataset, dataset), supported_camera_models):
@@ -466,6 +503,13 @@ def dataset_load_features(
                 "Some cameras models are not supported by the method. Images have been undistorted. Make sure to use the undistorted images for training."
             )
     return cast(Dataset, dataset)
+
+
+def _dataset_is_internal(dataset) -> bool:
+    if dataset.get("metadata") is None or "id" not in dataset["metadata"]:
+        return False
+    dataset_id = dataset["metadata"]["id"]
+    return dataset_id in get_supported_datasets()
 
 
 class MultiDatasetError(DatasetNotFoundError):
@@ -528,24 +572,28 @@ def dataset_index_select(dataset: TDataset, i: Union[slice, list, np.ndarray]) -
     return cast(TDataset, _dataset)
 
 
-def download_dataset(path: str, output: Union[str, Path]):
+def _resolve_download_fn(path: str):
     if not path.startswith("external://"):
         raise ValueError("Only external datasets can be downloaded (path must start with 'external://')")
     path = path[len("external://") :]
-    output = Path(output)
-    errors = {}
-    for name in get_supported_datasets():
-        dataset_spec = get_dataset_spec(name)
-        download_fn = _import_type(dataset_spec["download_dataset_function"])
-        try:
-            download_fn(path, str(output))
-            logger.info(f"Downloaded {name} dataset with path {path}")
-            return
-        except DatasetNotFoundError as e:
-            logger.debug(e)
-            logger.debug(f"Path {path} is not supported by {name} dataset")
-            errors[name] = str(e)
-    raise MultiDatasetError(errors, f"No supported dataset found for path {path}")
+    dataset_name = path.split("/")[0]
+    if dataset_name not in get_supported_datasets():
+        raise DatasetNotFoundError(f"Dataset {dataset_name} is not supported. "
+                                   f"Supported datasets: {get_supported_datasets()}")
+    dataset_spec = get_dataset_spec(dataset_name)
+    download_fn = _import_type(dataset_spec["download_dataset_function"])
+    if not callable(download_fn):
+        raise ValueError(f"Download function {dataset_spec['download_dataset_function']} is not callable")
+    version = getattr(download_fn, "version", None)
+    return download_fn, dataset_name, version
+
+
+def download_dataset(path: str, output: Union[str, Path]):
+    download_fn, name, _ = _resolve_download_fn(path)
+    path = path[len("external://") :]
+    download_fn(path, str(output))
+    logger.info(f"Downloaded {name} dataset with path {path}")
+    return
 
 
 @overload
@@ -680,6 +728,7 @@ def download_archive_dataset(url: str,
                              *,
                              archive_prefix: Optional[str],
                              nb_info: Dict[str, Any],
+                             filter=None,
                              callback=None,
                              file_type = None):
 
@@ -695,61 +744,62 @@ def download_archive_dataset(url: str,
                 file_type = "zip"
             else:
                 raise RuntimeError(f"Unknown file type for {url}")
-        output_tmp = output + ".tmp"
-        os.makedirs(output_tmp, exist_ok=True)
-        if file_type == "tar.gz":
-            import tarfile
-            with tarfile.open(fileobj=file, mode="r:gz") as z:
-                def members(tf):
-                    nonlocal has_any
-                    nonlocal archive_prefix
+        with atomic_output(output) as output_tmp:
+            os.makedirs(output_tmp, exist_ok=True)
+            if file_type == "tar.gz":
+                import tarfile
+                with tarfile.open(fileobj=file, mode="r:gz") as z:
+                    def members(tf):
+                        nonlocal has_any
+                        nonlocal archive_prefix
+                        if archive_prefix is None:
+                            # We estimate archive prefix as the common prefix of all files
+                            archive_prefix = os.path.commonprefix([member.path for member in tf.getmembers() if not member.isdir()])
+                        for member in tf.getmembers():
+                            if not member.path.startswith(archive_prefix):
+                                continue
+                            has_any = True
+                            member.path = member.path[len(archive_prefix):]
+                            if filter is not None and not filter(member.path):
+                                continue
+                            yield member
+
+                    z.extractall(output_tmp, members=members(z))
+            elif file_type == "zip":
+                import zipfile
+                with zipfile.ZipFile(file, "r") as z:
                     if archive_prefix is None:
                         # We estimate archive prefix as the common prefix of all files
-                        archive_prefix = os.path.commonprefix([member.path for member in tf.getmembers() if not member.isdir()])
-                    for member in tf.getmembers():
-                        if not member.path.startswith(archive_prefix):
+                        archive_prefix = os.path.commonprefix([member.filename for member in z.infolist() if not member.is_dir()])
+                    for member in z.infolist():
+                        if not member.filename.startswith(archive_prefix):
                             continue
-                        has_any = True
-                        member.path = member.path[len(archive_prefix):]
-                        yield member
+                        relname = member.filename[len(archive_prefix):]
+                        if filter is not None and not filter(relname):
+                            continue
+                        target = os.path.join(output_tmp, relname)
+                        if member.is_dir():
+                            os.makedirs(target, exist_ok=True)
+                        else:
+                            os.makedirs(os.path.dirname(target), exist_ok=True)
+                            member.filename = relname
+                            z.extract(member, output_tmp)
+                            has_any = True
 
-                z.extractall(output_tmp, members=members(z))
-        elif file_type == "zip":
-            import zipfile
-            with zipfile.ZipFile(file, "r") as z:
-                if archive_prefix is None:
-                    # We estimate archive prefix as the common prefix of all files
-                    archive_prefix = os.path.commonprefix([member.filename for member in z.infolist() if not member.is_dir()])
-                for member in z.infolist():
-                    if not member.filename.startswith(archive_prefix):
-                        continue
-                    relname = member.filename[len(archive_prefix):]
-                    target = os.path.join(output_tmp, relname)
-                    if member.is_dir():
-                        os.makedirs(target, exist_ok=True)
-                    else:
-                        os.makedirs(os.path.dirname(target), exist_ok=True)
-                        member.filename = relname
-                        z.extract(member, output_tmp)
-                        has_any = True
+                            # Fix mtime
+                            date_time = datetime(*member.date_time)
+                            mtime = time.mktime(date_time.timetuple())
+                            os.utime(target, (mtime, mtime))
+            else:
+                raise RuntimeError(f"Unknown file type {file_type}")
+            if not has_any:
+                raise RuntimeError(f"Prefix '{archive_prefix}' not found in {url}.")
 
-                        # Fix mtime
-                        date_time = datetime(*member.date_time)
-                        mtime = time.mktime(date_time.timetuple())
-                        os.utime(target, (mtime, mtime))
-        else:
-            raise RuntimeError(f"Unknown file type {file_type}")
-        if not has_any:
-            raise RuntimeError(f"Prefix '{archive_prefix}' not found in {url}.")
+            with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f2:
+                json.dump(nb_info, f2)
 
-        with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f2:
-            json.dump(nb_info, f2)
-
-        if callback is not None:
-            callback(output_tmp)
-
-        shutil.rmtree(output, ignore_errors=True)
-        shutil.move(str(output_tmp), str(output))
+            if callback is not None:
+                callback(output_tmp)
 
 
 def _parse_metadata(meta):
@@ -777,11 +827,31 @@ def load_dataset(
     del features
 
     # If path is and external path, we download the dataset first
+    current_version = None
     if path.startswith("external://"):
+        download_fn, _, current_version = _resolve_download_fn(path)
         dataset = path.split("://", 1)[1]
         path = Path(NB_PREFIX) / "datasets" / dataset
         if not path.exists():
-            download_dataset("external://"+dataset, path)
+            download_fn(dataset, str(path))
+        elif current_version is not None:
+            # Handle older version of a dataset
+            # Try read version from metadata
+            local_version = None
+            try:
+                with open(os.path.join(path, "nb-info.json"), "r") as f:
+                    local_version = json.load(f).get("version")
+            except FileNotFoundError:
+                pass
+            if local_version != current_version:
+                local_version_str = local_version if local_version is not None else "unknown"
+                current_version_str = current_version if current_version is not None else "unknown"
+                logger.warning(f"Dataset {dataset} version mismatch: "
+                               f"expected {current_version_str}, found {local_version_str}. "
+                               "Downloading dataset from scratch.")
+                shutil.rmtree(path, ignore_errors=True)
+                download_fn(dataset, path)
+
         path = str(path)
 
     # Try loading info if exists
@@ -853,3 +923,47 @@ def load_dataset(
     if load_features:
         return dataset_load_features(dataset_instance, features=kwargs["features"], supported_camera_models=supported_camera_models)
     return dataset_instance
+
+
+class atomic_output(Generic[TPath]):
+    def __init__(self, output: TPath):
+        self._output_type = type(output)
+        self.output = str(output)
+        self.tmp_dir = None
+
+    def __call__(self, fn, *args, **kwargs):
+        with self as _self:
+            return fn(_self, *args, **kwargs)
+
+    @property
+    def _tmp_output_path(self):
+        assert self.tmp_dir is not None, "Temporary directory is not initialized. Use 'with' statement to create it."
+        _, name = os.path.split(self.output)
+        return os.path.join(self.tmp_dir.name, name)
+
+    def __enter__(self) -> TPath:
+        parent = os.path.dirname(self.output)
+        os.makedirs(parent, exist_ok=True)
+        self.tmp_dir = tempfile.TemporaryDirectory(dir=parent)
+        return self._output_type(self._tmp_output_path)
+
+    def commit(self):
+        # TODO: This is not atomic, but it is better than nothing.
+        assert self.tmp_dir is not None, "Temporary directory is not initialized. Use 'with' statement to create it."
+        if os.path.exists(self.output):
+            logger.warning(f"File {self.output} already exists and will be overwritten.")
+            # These needs to be as atomic as possible to avoid data loss
+            shutil.move(self.output, os.path.join(self.tmp_dir.name, ".backup"))
+        shutil.move(self._tmp_output_path, self.output)
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        del exc_value, traceback
+        if exc_type is None:
+            # No exception, we can commit the changes
+            self.commit()
+            return
+
+        if self.tmp_dir is not None:
+            self.tmp_dir.cleanup()
+            self.tmp_dir = None
+

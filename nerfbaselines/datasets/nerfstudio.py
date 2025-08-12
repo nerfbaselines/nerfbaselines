@@ -8,6 +8,7 @@ from typing import Optional, List, Tuple, Dict, Union, FrozenSet
 import numpy as np
 from PIL import Image
 
+from nerfbaselines import Cameras
 from nerfbaselines import DatasetNotFoundError, new_dataset, CameraModel, camera_model_to_int, DatasetFeature, new_cameras
 from ._colmap_utils import read_points3D_binary, read_points3D_text, read_images_binary, read_images_text
 from ._common import dataset_index_select, download_dataset_wrapper, download_archive_dataset
@@ -123,6 +124,27 @@ def get_train_eval_split_all(image_filenames: List) -> Tuple[np.ndarray, np.ndar
     i_train = i_all
     i_eval = i_all
     return i_train, i_eval
+
+
+def _div_round_half_up(x, a):
+    q, r = np.divmod(x, a)
+    return np.where(2 * r >= a, q+1, q)
+
+
+def _downscale_cameras(cameras: Cameras, downscale_factor) -> Cameras:
+    w, h = old_w, old_h = np.moveaxis(cameras.image_sizes, -1, 0)
+    w = _div_round_half_up(w, downscale_factor)
+    h = _div_round_half_up(h, downscale_factor)
+    fx, fy, cx, cy = np.moveaxis(cameras.intrinsics.astype(np.float64), -1, 0)
+    fx = fx / downscale_factor
+    fy = fy / downscale_factor
+    cx = (cx - old_w/2) / downscale_factor + w/2
+    cy = (cy - old_h/2) / downscale_factor + h/2
+    intrinsics = np.stack([fx, fy, cx, cy], -1).astype(cameras.intrinsics.dtype)
+    return cameras.replace(
+        intrinsics=intrinsics,
+        image_sizes=np.stack([w, h], -1).astype(np.int32),
+    )
 
 
 def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor: Optional[int] = None, features: Optional[FrozenSet[DatasetFeature]] = None, **kwargs):
@@ -422,6 +444,7 @@ def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor
     if downscale_factor > 1:
         images_root = data_dir / f"images_{downscale_factor}"
         masks_root = data_dir / f"masks_{downscale_factor}"
+        all_cameras = _downscale_cameras(all_cameras, downscale_factor)
     else:
         images_root = data_dir
         masks_root = data_dir

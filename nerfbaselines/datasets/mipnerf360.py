@@ -10,10 +10,12 @@ import zipfile
 import tempfile
 from nerfbaselines import DatasetNotFoundError
 from nerfbaselines.io import wget
-from ._common import dataset_index_select
+from ._common import dataset_index_select, atomic_output
 from .colmap import load_colmap_dataset
+from . import _colmap_utils as colmap_utils
 
 
+VERSION = "1"
 DATASET_NAME = "mipnerf360"
 _scenes360_res = {
     "bicycle": 4,
@@ -53,6 +55,68 @@ def _save_colmap_splits(output):
                 f.write(os.path.relpath(img_name, dataset["image_paths_root"]) + "\n")
 
 
+def _div_round_half_up(x, a):
+    q, r = divmod(x, a)
+    if 2 * r >= a:
+        q += 1
+    return q
+
+
+def _downscale_cameras_v1(cameras_path, output_cameras_path, downscale_factor: int):
+    cameras = colmap_utils.read_cameras_binary(cameras_path)
+    new_cameras = {}
+    for k, v in cameras.items():
+        assert v.model == "PINHOLE", f"Expected PINHOLE camera model, got {v.model}."
+        params = v.params
+        oldw, oldh = v.width, v.height
+        w = _div_round_half_up(v.width, downscale_factor)
+        h = _div_round_half_up(v.height, downscale_factor)
+        multx, multy = np.array([w, h], dtype=np.float64) / np.array([oldw, oldh], dtype=np.float64)
+        multipliers = np.stack([multx, multy, multx, multy], -1)
+        params = params * multipliers
+        new_camera = colmap_utils.Camera(
+            id=v.id,
+            model=v.model,
+            width=w,
+            height=h,
+            params=params,
+        )
+        new_cameras[k] = new_camera
+
+    # Write output
+    os.makedirs(os.path.dirname(output_cameras_path), exist_ok=True)
+    colmap_utils.write_cameras_binary(new_cameras, output_cameras_path)
+
+
+def _downscale_cameras_v2(cameras_path, output_cameras_path, downscale_factor: int):
+    cameras = colmap_utils.read_cameras_binary(cameras_path)
+    new_cameras = {}
+    for k, v in cameras.items():
+        assert v.model == "PINHOLE", f"Expected PINHOLE camera model, got {v.model}."
+        params = v.params
+        oldw, oldh = v.width, v.height
+        fx, fy, cx, cy = params.tolist()
+        fx = fx / downscale_factor
+        fy = fy / downscale_factor
+        w = _div_round_half_up(v.width, downscale_factor)
+        h = _div_round_half_up(v.height, downscale_factor)
+        cx = (cx - oldw/2) / downscale_factor + w/2
+        cy = (cy - oldh/2) / downscale_factor + h/2
+        new_camera = colmap_utils.Camera(
+            id=v.id,
+            model=v.model,
+            width=w,
+            height=h,
+            params=np.array([fx, fy, cx, cy], dtype=np.float64),
+        )
+        new_cameras[k] = new_camera
+
+    # Write output
+    os.makedirs(os.path.dirname(output_cameras_path), exist_ok=True)
+    colmap_utils.write_cameras_binary(new_cameras, output_cameras_path)
+
+
+
 def download_mipnerf360_dataset(path: str, output: Union[Path, str]):
     url_extra = "https://storage.googleapis.com/gresearch/refraw360/360_extra_scenes.zip"
     url_base = "http://storage.googleapis.com/gresearch/refraw360/360_v2.zip"
@@ -81,46 +145,60 @@ def download_mipnerf360_dataset(path: str, output: Union[Path, str]):
             has_any = False
             with zipfile.ZipFile(file) as z:
                 for _, scene, output in _captures:
-                    output_tmp = output.with_suffix(".tmp")
-                    output_tmp.mkdir(exist_ok=True, parents=True)
-                    for info in z.infolist():
-                        if not info.filename.startswith(scene + "/"):
-                            continue
-                        # z.extract(name, output_tmp)
-                        has_any = True
-                        relname = info.filename[len(scene) + 1 :]
-                        target = output_tmp / relname
-                        target.parent.mkdir(exist_ok=True, parents=True)
-                        if info.is_dir():
-                            target.mkdir(exist_ok=True, parents=True)
-                        else:
-                            with z.open(info) as source, open(target, "wb") as target:
-                                shutil.copyfileobj(source, target)
-                    if not has_any:
-                        raise RuntimeError(f"Capture '{scene}' not found in {url}.")
+                    with atomic_output(output) as output_tmp:
+                        output_tmp = Path(output_tmp)
+                        res = _scenes360_res[scene]
+                        images_path = "images" if res == 1 else f"images_{res}"
+                        for info in z.infolist():
+                            if not info.filename.startswith(scene + "/"):
+                                continue
+                            if (not info.filename.startswith(scene + "/sparse") and
+                                not info.filename.startswith(scene + f"/{images_path}")):
+                                continue
+                            # z.extract(name, output_tmp)
+                            has_any = True
+                            relname = info.filename[len(scene) + 1 :]
+                            target = output_tmp / relname
+                            target.parent.mkdir(exist_ok=True, parents=True)
+                            if info.is_dir():
+                                target.mkdir(exist_ok=True, parents=True)
+                            else:
+                                with z.open(info) as source, open(target, "wb") as target:
+                                    shutil.copyfileobj(source, target)
+                        if not has_any:
+                            raise RuntimeError(f"Capture '{scene}' not found in {url}.")
 
-                    res = _scenes360_res[scene]
-                    images_path = "images" if res == 1 else f"images_{res}"
+                        if res != 1:
+                            shutil.move(
+                                os.path.join(str(output_tmp), "sparse"),
+                                os.path.join(str(output_tmp), f"sparse_{res}"))
+                            # Downscale cameras
+                            # NOTE: Switching to v2 version is a breaking change
+                            _downscale_cameras_v1(
+                                os.path.join(str(output_tmp), f"sparse_{res}", "0", "cameras.bin"),
+                                os.path.join(str(output_tmp), f"sparse_{res}", "0", "cameras.bin"),
+                                res
+                            )
 
-                    with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f:
-                        json.dump({
-                            "loader": "colmap",
-                            "loader_kwargs": {
-                                "images_path": images_path,
-                            },
-                            "id": DATASET_NAME,
-                            "scene": scene,
-                            "downscale_factor": res,
-                            "evaluation_protocol": "nerf",
-                            "type": "object-centric",
-                        }, f)
+                        with open(os.path.join(str(output_tmp), "nb-info.json"), "w", encoding="utf8") as f:
+                            json.dump({
+                                "loader": "colmap",
+                                "loader_kwargs": {
+                                    "images_path": images_path,
+                                    "colmap_path": f"sparse_{res}/0" if res != 1 else "sparse/0",
+                                },
+                                "id": DATASET_NAME,
+                                "scene": scene,
+                                "downscale_factor": res,
+                                "evaluation_protocol": "nerf",
+                                "type": "object-centric",
+                                "version": VERSION,
+                            }, f)
 
-                    # Generate split files
-                    _save_colmap_splits(output_tmp)
-
-                    shutil.rmtree(output, ignore_errors=True)
-                    shutil.move(str(output_tmp), str(output))
+                        # Generate split files
+                        _save_colmap_splits(output_tmp)
                     logging.info(f"Downloaded {DATASET_NAME}/{scene} to {output}")
 
 
+download_mipnerf360_dataset.version = VERSION  # type: ignore
 __all__ = ["download_mipnerf360_dataset"]

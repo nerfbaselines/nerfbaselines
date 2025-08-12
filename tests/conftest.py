@@ -133,6 +133,8 @@ def make_blender_dataset(path: Path, num_images=10):
         for i in range(num_images):
             Image.fromarray((np.random.rand(1, 1, 4) * 255 + np.random.rand(h, w, 4) * 15).astype(np.uint8)).convert("RGBA").save(path / split / (str(i)+".png"))
         meta = {
+            "w": w,
+            "h": h,
             "camera_angle_x": 0.5,
             "frames": [{"file_path": split+"/"+str(i), "transform_matrix": np.random.rand(4, 4).tolist()} for i in range(num_images)],
         }

@@ -39,7 +39,8 @@ def load_blender_dataset(path: str, split: str, **kwargs):
         image_paths.append(str(fprefix) + ".png")
         cams.append(np.array(frame["transform_matrix"], dtype=np.float32))
 
-    w = h = 800
+    w = meta.get("w", 800)
+    h = meta.get("h", 800)
     image_sizes = np.array([w, h], dtype=np.int32)[None].repeat(len(cams), axis=0)
     nears_fars = np.array([2, 6], dtype=np.float32)[None].repeat(len(cams), axis=0)
     fx = fy = 0.5 * w / np.tan(0.5 * float(meta["camera_angle_x"]))
