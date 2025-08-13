@@ -19,7 +19,7 @@ import PIL.ExifTags
 from tqdm import tqdm
 from typing import (
     Optional, TypeVar, Tuple, Union, List, Dict, Any, 
-    FrozenSet, Iterable, Callable,
+    FrozenSet, Iterable,
     overload, cast, Generic
 )
 from nerfbaselines.io import wget
@@ -356,14 +356,10 @@ def _dataset_rescale_intrinsics(dataset: Dataset, image_sizes: np.ndarray):
             raise RuntimeError(f"Downscaled image sizes do not match the downscale_factor of {downscale_factor}.")
         logger.info(f"Using downscale factor {downscale_factor} for camera intrinsics.")
     else:
-        # Estimate downscale factor as the ratio with less absolute error
-        downscale_factor_w = ws_old / ws
-        error_w = np.abs(ws * (hs_old / downscale_factor_w - hs))
-        downscale_factor_h = hs_old / hs
-        error_h = np.abs(hs * (ws_old / downscale_factor_h - ws))
-        downscale_factor = np.where(error_w < error_h,
-                                    downscale_factor_w,
-                                    downscale_factor_h)
+        # Estimate downscale factor to minimize pixel-area error
+        # This is the solution to the equation argmin |w-w'/d| + |h-h'/d|
+        # A solution is 1/2 * (w'/w + h'/h) 
+        downscale_factor = 0.5 * (ws_old / ws + hs_old / hs)
         logger.info(f"Estimated downscale factor for camera intrinsics (median {np.median(downscale_factor)}).")
 
     fx, fy, cx, cy = np.moveaxis(cameras.intrinsics, -1, 0).astype(np.float64)
