@@ -38,9 +38,7 @@ TetraNeRFSpec: MethodSpec = {
         "image": "kulhanek/tetra-nerf:latest",
         "python_path": "python3",
         "home_path": "/home/user",
-        "build_script": """# Add nerfbaselines script to the image
-echo -e '#!/usr/bin/env python3\\nfrom nerfbaselines.__main__ import main;main()' > /home/user/.local/bin/nerfbaselines
-chmod +x /home/user/.local/bin/nerfbaselines
+        "build_script": """echo -e '#!/usr/bin/env python3\\nfrom nerfbaselines.__main__ import main;main()' > /home/user/.local/bin/nerfbaselines && chmod +x /home/user/.local/bin/nerfbaselines
 """,
     },
     "metadata": {

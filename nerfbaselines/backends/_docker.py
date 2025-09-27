@@ -78,6 +78,21 @@ def get_docker_spec(spec: 'MethodSpec') -> Optional[DockerBackendSpec]:
     return None
 
 
+def _bash_encode(script: str):
+    script = script.rstrip()
+    script = shlex.quote(script)
+    out = ""
+    end = ""
+    for line in script.splitlines():
+        out += end + line
+        if line.endswith("\\"):
+            end = "\\\\n\\\n"
+        else:
+            end = "\\n\\\n"
+    script = out
+    return f'/bin/bash -c "$(echo {script})"'
+
+
 def docker_get_dockerfile(spec: DockerBackendSpec):
     image = spec.get("image")
     if image is None:
@@ -97,19 +112,9 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
     default_cuda_archs = spec.get("default_cuda_archs") or DEFAULT_CUDA_ARCHS
     tcnn_cuda_archs = default_cuda_archs.replace(".", "").replace("+PTX", "").replace(" ", ";")
     if build_script:
-        run_command = f'set -e;export TORCH_CUDA_ARCH_LIST="{default_cuda_archs}";export TCNN_CUDA_ARCHITECTURES="{tcnn_cuda_archs}";export NB_DOCKER_BUILD=1;{build_script.strip()}'
-        run_command = shlex.quote(run_command)
-        out = ""
-        end = ""
-        for line in run_command.splitlines():
-            out += end + line
-            if line.endswith("\\"):
-                end = "\\\\n\\\n"
-            else:
-                end = "\\n\\\n"
-        run_command = out
-        script += f'RUN /bin/bash -c "$(echo {run_command})" && \\\n'
-        script += "bash -c 'rm -Rf /root/.cache/pip'\n"
+        run_command = f'set -e;export TORCH_CUDA_ARCH_LIST="{default_cuda_archs}";export TCNN_CUDA_ARCHITECTURES="{tcnn_cuda_archs}";export NB_DOCKER_BUILD=1;{build_script}'
+        script += f"RUN {_bash_encode(run_command)} && \\\n"
+        script += "rm -Rf /root/.cache/pip || echo 'No cache was removed'\n"
 
     if conda_spec is not None:
         environment_name = conda_spec.get("environment_name")
@@ -122,19 +127,8 @@ def docker_get_dockerfile(spec: DockerBackendSpec):
 
         # Add install conda script
         install_conda = conda_get_install_script(conda_spec, package_path="/var/nb-package/nerfbaselines", environment_path=environment_path)
-        run_command = f'export TORCH_CUDA_ARCH_LIST="{default_cuda_archs}" && export TCNN_CUDA_ARCHITECTURES="{tcnn_cuda_archs}" && export NB_DOCKER_BUILD=1 && {install_conda.rstrip()}'
-        run_command = shlex.quote(run_command)
-        out = ""
-        end = ""
-        for line in run_command.splitlines():
-            out += end + line
-            if line.endswith("\\"):
-                end = "\\\\n\\\n"
-            else:
-                end = "\\n\\\n"
-        run_command = out
-
-        script += f'RUN /bin/bash -c "$(echo {run_command})" && \\\n'
+        run_command = f'export TORCH_CUDA_ARCH_LIST="{default_cuda_archs}" && export TCNN_CUDA_ARCHITECTURES="{tcnn_cuda_archs}" && export NB_DOCKER_BUILD=1 && {install_conda}'
+        script += f"RUN {_bash_encode(run_command)} && \\\n"
         script += shlex_join(shell_args) + " bash -c 'conda clean -afy && rm -Rf /root/.cache/pip'\n"
         # Fix permissions when changing the user inside the container
         script += "RUN chmod -R og=u /var/conda-envs\n"
