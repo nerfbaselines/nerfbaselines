@@ -16,7 +16,7 @@ from ._common import download_dataset_wrapper, download_archive_dataset
 T = TypeVar("T")
 DATASET_NAME = "tanksandtemples"
 BASE_URL = f"https://{DATASETS_REPOSITORY}/resolve/main/tanksandtemples"
-VERSION = "1"
+VERSION = "2"
 _URL = f"{BASE_URL}/{{scene}}.tar.gz"
 del _URL
 _URL2DOWN = f"{BASE_URL}/{{scene}}_2down.tar.gz"
@@ -123,14 +123,15 @@ def _downscale_cameras_v2(cameras_path, output_cameras_path, downscale_factor: i
     colmap_utils.write_cameras_binary(new_cameras, output_cameras_path)
 
 
-def _finish_dataset(downscale_factor, output):
+def _finish_dataset(downscale_factor, version, output):
     # Write sparse_downscale info
     shutil.copytree(
         os.path.join(output, "sparse"),
         os.path.join(output, f"sparse_{downscale_factor}/0"),
         dirs_exist_ok=True,
     )
-    _downscale_cameras_v1(
+    downscale_fn = _downscale_cameras_v1 if version == "1" else _downscale_cameras_v2
+    downscale_fn(
         os.path.join(output, f"sparse_{downscale_factor}/0/cameras.bin"),
         os.path.join(output, f"sparse_{downscale_factor}/0/cameras.bin"),
         downscale_factor,
@@ -153,7 +154,7 @@ def _finish_dataset(downscale_factor, output):
 
 
 @download_dataset_wrapper(SCENES, DATASET_NAME)
-def download_tanksandtemples_dataset(path: str, output: str) -> None:
+def download_tanksandtemples_dataset(path: str, output: str, version=VERSION) -> None:
     dataset_name, scene = path.split("/", 1)
     if SCENES.get(scene) is None:
         raise RuntimeError(f"Unknown scene {scene}")
@@ -171,14 +172,14 @@ def download_tanksandtemples_dataset(path: str, output: str) -> None:
             "images_path": f"images_{downscale_factor}",
             "colmap_path": f"sparse_{downscale_factor}/0",
         },
-        "version": VERSION,
+        "version": version,
     }
     download_archive_dataset(url, output, 
                              archive_prefix=prefix, 
                              nb_info=nb_info,
-                             callback=partial(_finish_dataset, downscale_factor),
+                             callback=partial(_finish_dataset, downscale_factor, version),
                              file_type="tar.gz")
-    logging.info(f"Downloaded {DATASET_NAME}/{scene} to {output}")
+    logging.info(f"Downloaded {DATASET_NAME}/{scene} (version {version}) to {output}")
 
 
 def load_tanksandtemples_dataset(path, *args, **kwargs):

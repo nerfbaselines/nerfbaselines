@@ -6,10 +6,11 @@ from pathlib import Path
 import numpy as np
 from nerfbaselines import DatasetNotFoundError
 from nerfbaselines import NB_PREFIX
-from .mipnerf360 import download_mipnerf360_dataset, SCENES, VERSION, atomic_output
+from .mipnerf360 import download_mipnerf360_dataset, SCENES, atomic_output
 
 
 DATASET_NAME = "mipnerf360-sparse"
+VERSION = "2"
 
 
 def download_mipnerf360_sparse_dataset(path: str, output: Union[Path, str]):
@@ -38,7 +39,7 @@ def download_mipnerf360_sparse_dataset(path: str, output: Union[Path, str]):
         mipnerf360_scene = scene.split("-")[0]
         num_views = int(scene.split("-")[1][1:])
         if not os.path.exists(os.path.join(mipnerf360_path, mipnerf360_scene)):
-            download_mipnerf360_dataset(f"mipnerf360/{mipnerf360_scene}", os.path.join(mipnerf360_path, mipnerf360_scene))
+            download_mipnerf360_dataset(f"mipnerf360/{mipnerf360_scene}", os.path.join(mipnerf360_path, mipnerf360_scene), version=VERSION)
 
         # We have mipnerf360 dataset ready, now we simply copy the relevant part
         os.makedirs(output, exist_ok=True)

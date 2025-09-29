@@ -15,7 +15,7 @@ from .colmap import load_colmap_dataset
 from . import _colmap_utils as colmap_utils
 
 
-VERSION = "1"
+VERSION = "2"
 DATASET_NAME = "mipnerf360"
 _scenes360_res = {
     "bicycle": 4,
@@ -117,7 +117,8 @@ def _downscale_cameras_v2(cameras_path, output_cameras_path, downscale_factor: i
 
 
 
-def download_mipnerf360_dataset(path: str, output: Union[Path, str]):
+def download_mipnerf360_dataset(path: str, output: Union[Path, str], version=VERSION):
+    assert version in ["1", "2"], f"Unsupported version {version} for {DATASET_NAME} dataset. Supported versions: 1, 2."
     url_extra = "https://storage.googleapis.com/gresearch/refraw360/360_extra_scenes.zip"
     url_base = "http://storage.googleapis.com/gresearch/refraw360/360_v2.zip"
     output = Path(output)
@@ -174,7 +175,8 @@ def download_mipnerf360_dataset(path: str, output: Union[Path, str]):
                                 os.path.join(str(output_tmp), f"sparse_{res}"))
                             # Downscale cameras
                             # NOTE: Switching to v2 version is a breaking change
-                            _downscale_cameras_v1(
+                            downscale_fn = _downscale_cameras_v1 if version == "1" else _downscale_cameras_v2
+                            downscale_fn(
                                 os.path.join(str(output_tmp), f"sparse_{res}", "0", "cameras.bin"),
                                 os.path.join(str(output_tmp), f"sparse_{res}", "0", "cameras.bin"),
                                 res
@@ -192,7 +194,7 @@ def download_mipnerf360_dataset(path: str, output: Union[Path, str]):
                                 "downscale_factor": res,
                                 "evaluation_protocol": "nerf",
                                 "type": "object-centric",
-                                "version": VERSION,
+                                "version": version,
                             }, f)
 
                         # Generate split files

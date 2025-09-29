@@ -22,7 +22,7 @@ _scenes_links = {
     "nyc": "https://storage.googleapis.com/gresearch/refraw360/zipnerf-undistorted/nyc.zip",
 }
 SCENES = set(_scenes_links.keys())
-VERSION = "1"
+VERSION = "2"
 
 
 def _save_colmap_splits(output):
@@ -98,7 +98,7 @@ def _downscale_cameras_v2(cameras_path, output_cameras_path, downscale_factor: i
     colmap_utils.write_cameras_binary(new_cameras, output_cameras_path)
 
 
-def download_zipnerf_dataset(path: str, output: Union[Path, str]):
+def download_zipnerf_dataset(path: str, output: Union[Path, str], version=VERSION):
     output = Path(output)
     if not path.startswith(f"{DATASET_NAME}/") and path != DATASET_NAME:
         raise DatasetNotFoundError(f"Dataset path must be equal to '{DATASET_NAME}' or must start with '{DATASET_NAME}/'.")
@@ -150,7 +150,7 @@ def download_zipnerf_dataset(path: str, output: Union[Path, str]):
                         "scene": scene_name,
                         "downscale_factor": 2,
                         "evaluation_protocol": "nerf",
-                        "version": VERSION,
+                        "version": version,
                     }, f)
 
                 # Generate downscaled COLMAP model
@@ -158,7 +158,8 @@ def download_zipnerf_dataset(path: str, output: Union[Path, str]):
                     os.path.join(str(output_tmp), "sparse"),
                     os.path.join(str(output_tmp), "sparse_2")
                 )
-                _downscale_cameras_v1(
+                downscale_fn = _downscale_cameras_v1 if version == "1" else _downscale_cameras_v2
+                downscale_fn(
                     os.path.join(str(output_tmp), "sparse_2", "0", "cameras.bin"),
                     os.path.join(str(output_tmp), "sparse_2", "0", "cameras.bin"),
                     2
