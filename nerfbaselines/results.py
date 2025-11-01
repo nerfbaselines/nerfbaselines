@@ -77,7 +77,7 @@ def get_dataset_info(dataset: str) -> DatasetInfo:
         if "could not find dataset" in str(e).lower():
             warnings.warn(f"Cound not find dataset {dataset}")
             dataset_info = {
-                "metrics": ["psnr", "ssim", "lpips"],
+                "metrics": ["psnr", "ssim", "lpips_vgg"],
                 "default_metric": "psnr",
             }
         else:

@@ -94,7 +94,7 @@ def test_method_conda(blender_dataset_path, method_name, is_gpu_error):
 
                 # Test metrics computation inside the container
                 from nerfbaselines.evaluation import compute_metrics
-                _ = compute_metrics(*np.random.rand(2, 1, 50, 50, 3), run_lpips_vgg=True)
+                _ = compute_metrics(*np.random.rand(2, 1, 50, 50, 3))
     except Exception as e:
         if is_gpu_error(e):
             pytest.skip("No GPU available")
@@ -109,7 +109,7 @@ def test_metrics_conda(method_name):
     with build_method_class(spec, backend="conda"):
         # Test metrics computation inside the container
         from nerfbaselines.evaluation import compute_metrics
-        _ = compute_metrics(*np.random.rand(2, 1, 50, 50, 3), run_lpips_vgg=True)
+        _ = compute_metrics(*np.random.rand(2, 1, 50, 50, 3))
 
 
 @pytest.mark.conda
@@ -146,7 +146,7 @@ def test_method_docker(blender_dataset_path, method_name, is_gpu_error):
 
                 # Test metrics computation inside the container
                 from nerfbaselines.evaluation import compute_metrics
-                _ = compute_metrics(*np.random.rand(2, 1, 50, 50, 3), run_lpips_vgg=True)
+                _ = compute_metrics(*np.random.rand(2, 1, 50, 50, 3))
     except Exception as e:
         if is_gpu_error(e):
             pytest.skip("No GPU available")
@@ -161,7 +161,7 @@ def test_metrics_docker(method_name):
     with build_method_class(spec, backend="docker"):
         # Test metrics computation inside the container
         from nerfbaselines.evaluation import compute_metrics
-        _ = compute_metrics(*np.random.rand(2, 1, 50, 50, 3), run_lpips_vgg=True)
+        _ = compute_metrics(*np.random.rand(2, 1, 50, 50, 3))
 
 
 @contextlib.contextmanager
@@ -213,7 +213,7 @@ def test_method_apptainer(blender_dataset_path, method_name, is_gpu_error):
 
                 # Test metrics computation inside the container
                 from nerfbaselines.evaluation import compute_metrics
-                _ = compute_metrics(*np.random.rand(2, 1, 50, 50, 3), run_lpips_vgg=True)
+                _ = compute_metrics(*np.random.rand(2, 1, 50, 50, 3))
     except Exception as e:
         if is_gpu_error(e):
             pytest.skip("No GPU available")
@@ -227,7 +227,7 @@ def test_metrics_apptainer(method_name):
     with build_method_class(spec, backend="apptainer"):
         # Test metrics computation inside the container
         from nerfbaselines.evaluation import compute_metrics
-        _ = compute_metrics(*np.random.rand(2, 1, 50, 50, 3), run_lpips_vgg=True)
+        _ = compute_metrics(*np.random.rand(2, 1, 50, 50, 3))
 
 
 @pytest.mark.apptainer

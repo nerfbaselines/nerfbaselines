@@ -19,7 +19,7 @@ register({
         "paper_authors": ["Matthew Tancik", "Ethan Weber", "Evonne Ng", "Ruilong Li", "Brent Yi", "Justin Kerr", "Terrance Wang", "Alexander Kristoffersen", "Jake Austin", "Kamyar Salahi", "Abhik Ahuja", "David McAllister", "Angjoo Kanazawa"],
         "paper_link": "https://arxiv.org/pdf/2302.04264.pdf",
         "link": "https://nerf.studio",
-        "metrics": ["psnr", "ssim", "lpips"],
+        "metrics": ["psnr", "ssim", "lpips_alex"],
         "default_metric": "psnr",
         "scenes": [
             {

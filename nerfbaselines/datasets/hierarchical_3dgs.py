@@ -9,7 +9,6 @@ import zipfile
 import tempfile
 from nerfbaselines import DatasetNotFoundError
 from nerfbaselines.io import wget
-from nerfbaselines.evaluation import NerfEvaluationProtocol
 from PIL import Image
 
 
@@ -99,7 +98,7 @@ def download_hierarchical_3dgs_dataset(path: str, output: Union[Path, str]):
                     },
                     "id": DATASET_NAME,
                     "scene": scene_name,
-                    "evaluation_protocol": "nerf",
+                    "evaluation_protocol": "default",
                 }, f)
 
             # Generate split files

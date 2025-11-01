@@ -45,7 +45,7 @@ def _format_cell(value, id):
         if abs(value) == float("inf"):
             return "-"
         return f"{value:.2f}"
-    elif id in {"ssim", "lpips", "lpips_vgg"}:
+    elif id in {"ssim", "lpips", "lpips_vgg", "lpips_alex"}:
         if abs(value) == float("inf"):
             return "-"
         return f"{value:.3f}"

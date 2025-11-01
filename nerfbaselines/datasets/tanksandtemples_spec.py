@@ -12,7 +12,7 @@ register({
         "paper_authors": ["Arno Knapitsch", "Jaesik Park", "Qian-Yi Zhou", "Vladlen Koltun"],
         "paper_link": "https://storage.googleapis.com/t2-downloads/paper/tanks-and-temples.pdf",
         "link": "https://www.tanksandtemples.org/",
-        "metrics": ["psnr", "ssim", "lpips"],
+        "metrics": ["psnr", "ssim", "lpips_alex"],
         "default_metric": "psnr",
         "scenes": [
             {"id": "auditorium", "name": "auditorium"},

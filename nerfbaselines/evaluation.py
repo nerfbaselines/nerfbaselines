@@ -87,17 +87,17 @@ def build_evaluation_protocol(id: str) -> 'EvaluationProtocol':
 
 
 @typing.overload
-def compute_metrics(pred: np.ndarray, gt: np.ndarray, *, mask=None, reduce: Literal[True] = True, run_lpips_vgg: bool = ...) -> Dict[str, float]:
+def compute_metrics(pred: np.ndarray, gt: np.ndarray, *, mask=None, reduce: Literal[True] = True) -> Dict[str, float]:
     ...
 
 
 @typing.overload
-def compute_metrics(pred: np.ndarray, gt: np.ndarray, *, mask=None, reduce: Literal[False], run_lpips_vgg: bool = ...) -> Dict[str, np.ndarray]:
+def compute_metrics(pred: np.ndarray, gt: np.ndarray, *, mask=None, reduce: Literal[False]) -> Dict[str, np.ndarray]:
     ...
 
 
 @run_on_host()
-def compute_metrics(pred, gt, *, mask=None, reduce: bool = True, run_lpips_vgg: bool = False):
+def compute_metrics(pred, gt, *, mask=None, reduce: bool = True):
     def reduction(x):
         if reduce:
             return x.mean().item()
@@ -117,10 +117,9 @@ def compute_metrics(pred, gt, *, mask=None, reduce: bool = True, run_lpips_vgg: 
         "ssim": reduction(metrics.ssim(gt, pred)),
         "mae": reduction(metrics.mae(gt, pred)),
         "mse": reduction(mse),
-        "lpips": reduction(metrics.lpips(gt, pred)),
+        "lpips_vgg": reduction(metrics.lpips_vgg(gt, pred)),
+        "lpips_alex": reduction(metrics.lpips_alex(gt, pred))
     }
-    if run_lpips_vgg:
-        out["lpips_vgg"] = reduction(metrics.lpips_vgg(gt, pred))
     return out
 
 
@@ -236,7 +235,7 @@ def evaluate(predictions: str,
 
 class DefaultEvaluationProtocol(EvaluationProtocol):
     _name = "default"
-    _lpips_vgg = False
+    _lpips_alex = True
 
     def __init__(self):
         pass
@@ -265,8 +264,7 @@ class DefaultEvaluationProtocol(EvaluationProtocol):
         if dataset.get("masks") is not None:
             assert dataset["masks"] is not None  # pyright issues
             mask = convert_image_dtype(dataset["masks"][0], np.float32)
-        return compute_metrics(pred_f[None], gt_f[None], run_lpips_vgg=self._lpips_vgg, mask=mask, 
-                               reduce=True)
+        return compute_metrics(pred_f[None], gt_f[None], mask=mask, reduce=True)
 
     def accumulate_metrics(self, metrics: Iterable[Dict[str, Union[float, int]]]) -> Dict[str, Union[float, int]]:
         acc = {}
@@ -275,11 +273,6 @@ class DefaultEvaluationProtocol(EvaluationProtocol):
                 # acc[k] = (acc.get(k, 0) * i + v) / (i + 1)
                 acc[k] = acc.get(k, 0) * (i / (i + 1)) + v / (i + 1)
         return acc
-
-
-class NerfEvaluationProtocol(DefaultEvaluationProtocol):
-    _name = "nerf"
-    _lpips_vgg = True
 
 
 TRender = TypeVar("TRender", bound=typing.Callable[..., RenderOutput])

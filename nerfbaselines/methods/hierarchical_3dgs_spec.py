@@ -7,8 +7,8 @@ where tau=0 is the slowest, but highest quality.
 We choose tau=6 - consistent with most experiments in the paper,
 providing a good trade-off between quality and speed.""".replace("\n", " ")
 paper_results = {
-    "hierarchical-3dgs/smallcity": { "psnr": 26.29, "ssim": 0.810, "lpips": 0.275, "note": _note },
-    "hierarchical-3dgs/campus": { "psnr": 24.50, "ssim": 0.801, "lpips": 0.340, "note": _note },
+    "hierarchical-3dgs/smallcity": { "psnr": 26.29, "ssim": 0.810, "lpips_vgg": 0.275, "note": _note },
+    "hierarchical-3dgs/campus": { "psnr": 24.50, "ssim": 0.801, "lpips_vgg": 0.340, "note": _note },
 }
 
 

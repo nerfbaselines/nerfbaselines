@@ -14,8 +14,8 @@
         "link": "https://en.wikipedia.org/wiki/Structural_similarity"
     },
     {
-        "id": "lpips",
-        "name": "LPIPS",
+        "id": "lpips_alex",
+        "name": "LPIPS (AlexNet)",
         "description": "Learned Perceptual Image Patch Similarity. The lower the better. The implementation uses AlexNet backbone and matches lpips pip package with checkpoint version 0.1",
         "ascending": false,
         "link": "https://richzhang.github.io/PerceptualSimilarity/"

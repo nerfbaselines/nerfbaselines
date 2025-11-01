@@ -40,9 +40,8 @@ loggers_registry["tensorboard"] = {
 evaluation_protocols_registry["default"] = {
     "id": "default", 
     "evaluation_protocol_class": "nerfbaselines.evaluation:DefaultEvaluationProtocol"}
-evaluation_protocols_registry["nerf"] = {
-    "id": "nerf", 
-    "evaluation_protocol_class": "nerfbaselines.evaluation:NerfEvaluationProtocol"}
+evaluation_protocols_registry["nerf"] = evaluation_protocols_registry["default"]
+
 _collected_register_calls = None
 
 
