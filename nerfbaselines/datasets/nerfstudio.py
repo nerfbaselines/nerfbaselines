@@ -477,7 +477,6 @@ def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor
             points3D_xyz[..., 2] *= -1
 
             if "images_points3D_indices" in (features or {}):
-                # TODO: Verify this feature is working well
                 points3D_map = {k: i for i, k in enumerate(points3D.keys())}
                 if (colmap_path / "points3D.bin").exists():
                     images_colmap = read_images_binary(str(colmap_path / "images.bin"))
@@ -487,7 +486,8 @@ def load_nerfstudio_dataset(path: Union[Path, str], split: str, downscale_factor
                     raise RuntimeError(f"3D points are requested but images.{{bin|txt}} not present in dataset {data_dir}")
                 images_colmap_map = {}
                 for image in images_colmap.values():
-                    images_colmap_map[image.name] = np.ndarray([points3D_map[x] for x in image.points3D_ids], dtype=np.int32)
+                    # Point3D ID is -1 for keypoints without corresponding 3D points
+                    images_colmap_map[image.name] = np.array([points3D_map[x] for x in image.point3D_ids if x != -1], dtype=np.int32)
                 images_points3D_indices = []
                 for impath in image_filenames:
                     impath = os.path.relpath(impath, str(images_root))
